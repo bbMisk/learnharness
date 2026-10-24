@@ -226,7 +226,11 @@ export async function chatGPTAction(action: string, accountId?: string) {
 /** Credential-changing routes are loopback-only and require a same-origin POST. */
 export function checkChatGPTRequest(request: Request) {
 	const url = new URL(request.url);
-	if (!["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) || request.headers.get("origin") !== url.origin) throw new ChatGPTError("ChatGPT connections can only be managed from this local app.", 403);
+	// Next's standalone Request URL is canonicalized to localhost even when
+	// the browser uses 127.0.0.1. Host carries the actual requested authority.
+	const authority = new URL(`${url.protocol}//${request.headers.get("host") ?? url.host}`);
+	const loopback = new Set(["127.0.0.1", "localhost", "[::1]"]);
+	if (!loopback.has(url.hostname) || !loopback.has(authority.hostname) || authority.username || authority.password || authority.pathname !== "/" || request.headers.get("origin") !== authority.origin) throw new ChatGPTError("ChatGPT connections can only be managed from this local app.", 403);
 }
 export function chatGPTErrorResponse(error: unknown) {
 	return Response.json({ error: error instanceof ChatGPTError ? error.message : "ChatGPT connection failed. Please try again.", ...(error instanceof ChatGPTError ? { code: error.code, requestId: error.requestId } : {}) }, { status: error instanceof ChatGPTError && error.status >= 400 && error.status <= 599 ? error.status : 500, headers: jsonHeaders });

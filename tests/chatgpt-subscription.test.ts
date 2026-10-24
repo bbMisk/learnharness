@@ -69,6 +69,9 @@ describe("ChatGPT subscription authorization", { concurrency: false }, () => {
 		assert.throws(() => service.checkChatGPTRequest(new Request("http://127.0.0.1:3000/api/chatgpt", { headers: { origin: "https://example.test" } })), /local app/);
 		assert.throws(() => service.checkChatGPTRequest(new Request("https://example.test/api/chatgpt", { headers: { origin: "https://example.test" } })), /local app/);
 		service.checkChatGPTRequest(new Request("http://127.0.0.1:3000/api/chatgpt", { headers: { origin: "http://127.0.0.1:3000" } }));
+		service.checkChatGPTRequest(new Request("http://localhost:3000/api/chatgpt", { headers: { host: "127.0.0.1:3000", origin: "http://127.0.0.1:3000" } }));
+		assert.throws(() => service.checkChatGPTRequest(new Request("http://localhost:3000/api/chatgpt", { headers: { host: "127.0.0.1:3000", origin: "http://localhost:3000" } })), /local app/);
+		assert.throws(() => service.checkChatGPTRequest(new Request("http://localhost:3000/api/chatgpt", { headers: { host: "example.test", origin: "http://example.test" } })), /local app/);
 	});
 	it("uses PKCE, verifies signed identity, preserves host and registration, and exposes no tokens", async () => {
 		const { url, response } = await authorize();
