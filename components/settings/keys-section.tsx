@@ -1,4 +1,5 @@
 "use client";
+import { ChatGPTConnection } from "../chatgpt-connection";
 /**
  * The Keys section (wave-5 polish, 2026-09-21 — owner design): a MINIMAL
  * key-value table. Provider left, masked key right, no description hints
@@ -412,6 +413,7 @@ export function KeysSection({
 
 	return (
 		<>
+			<div className="px-6 pt-5"><ChatGPTConnection /></div>
 			<SettingsGroup label="Model providers" testid="group-provider-keys">
 				{providerRows.map((status) => (
 					<KeyTableRow

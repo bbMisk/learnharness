@@ -1,4 +1,4 @@
-import { modelCatalog } from "@/src/server";
+import { modelCatalog, refreshChatGPTModels, chatGPTErrorResponse } from "@/src/server";
 
 /**
  * The model picker's data (model-control wave): pi-ai's configured-provider
@@ -7,5 +7,6 @@ import { modelCatalog } from "@/src/server";
  * catalog: no network, stable within a pi-ai version.
  */
 export async function GET() {
-	return Response.json(modelCatalog());
+	try { await refreshChatGPTModels(); return Response.json(modelCatalog(), { headers: { "Cache-Control": "no-store" } }); }
+	catch (error) { return chatGPTErrorResponse(error); }
 }

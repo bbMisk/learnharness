@@ -1,4 +1,5 @@
 "use client";
+import { ChatGPTConnection } from "./chatgpt-connection";
 /**
  * The first-run setup flow (model-slots wave, 2026-09-20, owner design
  * "A — composer CTA + send interception"): chats cannot start until the
@@ -423,6 +424,8 @@ export function SetupDialog({
 
 				{stage === "keys" ? (
 					<div className="flex flex-col px-6 py-5">
+						<ChatGPTConnection />
+						<p className="my-3 text-xs text-muted-foreground">Or use a provider API key:</p>
 						{failed ? (
 							<p className="text-sm text-foreground">
 								Model catalog could not be loaded. Check the connection and retry.

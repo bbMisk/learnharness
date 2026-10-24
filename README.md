@@ -61,6 +61,8 @@ All three platforms support in-app updates.
 
 ## Development and support
 
+**Hanson fork:** this branch adds ChatGPT subscription sign-in for local use. See [ChatGPT plan setup](docs/chatgpt-plan.md) for the launcher, credential handling, usage limits, and validation boundaries.
+
 ```bash
 npm install
 npm run dev        # http://localhost:3000
