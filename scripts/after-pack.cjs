@@ -16,6 +16,7 @@
 // build/icon.ico / build/icon.png).
 const fs = require("node:fs");
 const path = require("node:path");
+const { spawnSync } = require("node:child_process");
 
 module.exports = async function afterPack(context) {
 	if (context.electronPlatformName !== "darwin") return;
@@ -23,5 +24,13 @@ module.exports = async function afterPack(context) {
 	const target = path.join(appBundle, "Contents", "Resources", "icon.icns");
 	const source = path.join(context.packager.info.projectDir, "build", "icon.icns");
 	fs.copyFileSync(source, target);
+	if (context.packager.config.mac?.identity === "-") {
+		// Finder metadata is not code and makes strict signing verification fail.
+		// Remove only those two attributes; preserve quarantine/security metadata.
+		for (const attribute of ["com.apple.FinderInfo", "com.apple.ResourceFork"]) {
+			const result = spawnSync("/usr/bin/xattr", ["-r", "-d", attribute, appBundle], { encoding: "utf8" });
+			if (result.error) throw result.error;
+		}
+	}
 	console.log(`[after-pack] pre-Tahoe fallback icns (full-res) → ${target}`);
 };

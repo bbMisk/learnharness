@@ -4,6 +4,16 @@ This fork adds **Continue with ChatGPT** to first-run setup and Settings → Key
 
 ## Run locally
 
+### Native macOS app
+
+`npm run desktop:local` produces `LearnHarness.app` with an ad-hoc local signature. The verified bundle is built in the system temporary directory; `dist/local-build.json` records its path. This avoids file-provider Finder metadata being added to signed app bundles under Documents. Install the result in Applications and keep signed bundles outside Documents. The build does not use the upstream developer's signing identity or notarization. This fork is identified as `0.3.4-hanson.1`, keeps the existing LearnHarness application identity and data directory, and disables upstream automatic updates so they cannot overwrite the fork. The app menu's update action explains how to update from this fork.
+
+The local build retains hardened runtime and adds `disable-library-validation` for this app and its helpers: ad-hoc signatures have no shared Team ID for loading Electron frameworks and native modules. This is a local-build entitlement, separate from the upstream Developer ID entitlement file.
+
+Install the completed app in Applications after quitting the previous copy and keeping a rollback copy. Existing desktop learning data and provider keys remain in `~/Library/Application Support/LearnHarness/`. The separate browser launcher below still uses `LearnHarness-Hanson`.
+
+### Browser launcher
+
 Use a supported Node.js release (Node 24 was used for validation):
 
 ```sh

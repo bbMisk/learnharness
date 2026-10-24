@@ -30,6 +30,7 @@ const fs = require("node:fs");
 const http = require("node:http");
 const net = require("node:net");
 const path = require("node:path");
+const LOCAL_FORK = require("../package.json").hansonFork === true;
 
 // Mirrors SIDEBAR_AUTOCLOSE in components/sidebar.tsx — keep in sync (the
 // renderer owns the number; this is the IPC widen target).
@@ -417,6 +418,10 @@ function broadcastUpdateStatus(status) {
 }
 
 function checkForUpdates({ manual = false } = {}) {
+	if (LOCAL_FORK) {
+		if (manual) dialog.showMessageBox({ type: "info", message: "Local fork build", detail: `LearnHarness ${app.getVersion()} includes ChatGPT plan support. Update from your bbMisk/learnharness fork; upstream automatic updates are disabled for this build.` });
+		return;
+	}
 	if (!autoUpdater) return;
 	autoUpdater
 		.checkForUpdates()
@@ -444,6 +449,10 @@ function installUpdateNow() {
 }
 
 function setupAutoUpdater() {
+	if (LOCAL_FORK) {
+		log("auto-update: local Hanson fork — upstream updater disabled");
+		return;
+	}
 	if (!app.isPackaged) {
 		log("auto-update: dev build — updater disabled");
 		return;
