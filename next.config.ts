@@ -39,6 +39,7 @@ const nextConfig: NextConfig = {
 		"*": [
 			"data/**/*",
 			"auth.json",
+			"chatgpt/**/*",
 			".env*",
 		],
 	},

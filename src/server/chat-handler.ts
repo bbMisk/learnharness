@@ -6,7 +6,8 @@ import {
 	type AgentBuildOptions,
 	type TeachingAgent,
 } from "../agent/teacher-agent.ts";
-import { piEngineForSpec, type PiEngine } from "../agent/models.ts";
+import type { PiEngine } from "../agent/models.ts";
+import { piEngineForSpec } from "./runtime-models.ts";
 import { createJobRunner } from "../agent/subagents/runner.ts";
 import { createExtractionPipeline } from "../agent/subagents/extraction.ts";
 import type { ModelRole } from "../../config.ts";

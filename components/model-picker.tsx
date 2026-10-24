@@ -62,6 +62,7 @@ export function useModelCatalog(): { catalog: ModelCatalogResponse | undefined; 
 				/* refresh is best-effort: the cached list stays on failure */
 			});
 	}, []);
+	useSettingsSaved((section) => { if (section === "keys") refresh(); });
 	return { catalog, refresh };
 }
 
@@ -322,6 +323,7 @@ export function ModelControl({ chatId }: { chatId?: string }) {
 
 	return (
 		<div ref={containerRef} className="relative flex items-center gap-1.5" data-testid="model-control">
+			{override?.model?.provider === "chatgpt" && <span className="text-xs" data-testid="chatgpt-plan-indicator">Using ChatGPT plan · <a className="underline" href="https://chatgpt.com/settings/usage" target="_blank" rel="noreferrer">Manage usage</a></span>}
 			<Hint
 				// Trimmed (owner, subtlety round 2026-09-25): "Model selector"
 				// — the long sentence was way too much. ⌘K opens this same

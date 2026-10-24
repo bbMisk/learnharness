@@ -44,8 +44,8 @@ export function useZeroKeys(): boolean {
 	const read = useCallback(() => {
 		fetch("/api/keys")
 			.then((r) => r.json())
-			.then((body: { keys?: AuthKeyStatus[]; providers?: ProviderKeyInfo[] }) => {
-				setZeroKeys(!hasProviderKey(body.keys ?? [], body.providers));
+			.then((body: { keys?: AuthKeyStatus[]; providers?: ProviderKeyInfo[]; chatGPTConnected?: boolean }) => {
+				setZeroKeys(!body.chatGPTConnected && !hasProviderKey(body.keys ?? [], body.providers));
 			})
 			.catch(() => {});
 	}, []);
