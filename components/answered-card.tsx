@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { ConfidenceRail } from "@/components/confidence-rail";
 import { GlyphMark } from "@/components/ui/glyph-mark";
 import { ThinkingBlock } from "@/components/thinking-block";
@@ -13,8 +12,9 @@ import { answerForPresentation, parseAskInput, parseQuizInput } from "@/src/core
 /**
  * Static rendering of an answered question (tool part in `output-available`).
  *
- * Quiz answers are GRADED: ✓/✗ marks, the correct answers, and the
- * explanation. Ask answers are NOT graded — a plain record of what was said.
+ * Quiz answers are GRADED: ✓/✗ marks and the correct answers. The teacher
+ * explains in the lesson; the stored explanation remains in the record.
+ * Ask answers are NOT graded — a plain record of what was said.
  * (The v1 bug this pins: ask answers must never get quiz grading UI.)
  * Explain answers are graded by the MODEL in its next reply, not by the
  * client — the card reveals his answer, the committed correct answer, and
@@ -22,7 +22,6 @@ import { answerForPresentation, parseAskInput, parseQuizInput } from "@/src/core
  */
 export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionAnswerData; input?: unknown }) {
 	const answer = answerForPresentation(savedAnswer, input);
-	const [whyOpen, setWhyOpen] = useState(false); // the tucked explanation (predictions, owner 2026-10-03)
 	if (answer.dismissed) {
 		return (
 			<div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
@@ -192,33 +191,6 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 					text={answer.thinking ?? answer.note ?? ""}
 					inCard
 				/>
-			)}
-
-			{/* px-3→removed: card p-4 + box px-3 double-inset sat the "Why" label deeper
-			    than the option box edges (owner, round 3). Sides flush with everything
-			    else; py-2 stays for vertical air. */}
-			{isQuiz && answer.explanation && (
-				/* The TUCKED explanation — ALL questions (owner, 2026-10-07): the
-				   verdict shows, the explanation sits collapsed behind the Why
-				   toggle — viewable, never center stage. Identical to the
-				   prediction pattern it generalizes (owner, 2026-10-03). */
-				<div className="mt-2" data-testid="tucked-explanation">
-					<button
-						type="button"
-						onClick={() => setWhyOpen((v) => !v)}
-						className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-					>
-						{whyOpen ? "Hide why" : "Why"}
-					</button>
-					{whyOpen && (
-						<div className="mt-1.5 rounded-lg bg-muted py-2 text-sm text-foreground/50">
-							<span className="font-medium text-muted-foreground">Why: </span>
-							{/* Keep the first paragraph beside the label, not every paragraph:
-							   later paragraphs must retain their recovered document structure. */}
-							<ToolContentResponse className="inline [&>p:first-child]:inline [&>p:first-child]:m-0">{answer.explanation}</ToolContentResponse>
-						</div>
-					)}
-				</div>
 			)}
 
 			{/* The explain reveal (owner ruling 2026-09-27): the committed answer

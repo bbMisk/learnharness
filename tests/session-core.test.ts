@@ -307,6 +307,33 @@ describe("send (one input event, verbatim consumption)", () => {
 		assert.equal((final[0] as { id?: string }).id, idMid, "same slot through message_end");
 	});
 
+	for (const failure of ["http", "network", "reattach"] as const) {
+		it(`accepts a new explicit send after a ${failure} failure without reload`, async () => {
+			const posts: string[] = [];
+			let fail = true;
+			globalThis.fetch = dietFetch({
+				userText: "recovered",
+				onPost: (body) => posts.push(body),
+				post: () => {
+					if (fail && failure === "http") return new Response("Host unavailable", { status: 503 });
+					if (fail && failure === "network") throw new TypeError("Load failed");
+					return Response.json({ ok: true });
+				},
+				stream: () => fail ? new Response("Stream unavailable", { status: 502 }) : sseResponse("[DONE]"),
+			});
+			const m = model();
+			await m.send({ type: "text", text: "first attempt" });
+			assert.equal(m.status, "error");
+			assert.ok(m.getState().error, "failure remains visible until the next action");
+			fail = false;
+			await m.send({ type: "text", text: "recovered" });
+			assert.equal(posts.length, 2, "the second send must reach the host");
+			assert.deepEqual(JSON.parse(posts[1]!).input, { type: "text", text: "recovered" });
+			assert.equal(m.status, "ready");
+			assert.equal(m.getState().error, null);
+		});
+	}
+
 	it("a 503 refusal surfaces the RAW body text (parseModelsRefusal's contract)", async () => {
 		globalThis.fetch = (async () =>
 			new Response(JSON.stringify({ code: "models_not_configured", missing: ["strong"] }), {

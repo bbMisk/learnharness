@@ -6,6 +6,7 @@
  * master. Pure types + protocol docs + tiny pure helpers. See docs/vision.md.
  */
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { LearningEvent } from "../learning-history.ts";
 import type { LhMessage } from "../native-messages.ts";
 import type { Phase3 } from "../phases.ts";
 import type { PlanNodeStatus, PlanTree } from "./plan.ts";
@@ -28,11 +29,15 @@ import type { EmissionStats } from "./graph.ts";
 export type ChatKind = "teach" | "practice";
 
 export interface ChatRecord {
+	pinned?: boolean;
+	projectId?: string;
 	id: string;
 	title: string;
 	createdAt: string;
 	updatedAt: string;
 	messages: LhMessage[];
+	/** Raw learning facts retained independently of transcript compaction. */
+	learningEvents?: LearningEvent[];
 	/** The session's kind — absent = teach (pre-practice records). */
 	kind?: ChatKind;
 	/** The session's plan tree (vision §2) — written by plan tools via saveTree. */
@@ -257,6 +262,8 @@ export interface PlanBlockData {
  *  plan_init; derived from the transcript (core/phases.ts phaseAt3).
  */
 export interface ChatSummary {
+	pinned?: boolean;
+	projectId?: string;
 	id: string;
 	title: string;
 	createdAt: string;

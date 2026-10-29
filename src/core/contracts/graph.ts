@@ -93,6 +93,8 @@ export interface ProvenancePoint {
 export interface NotesSource {
 	id: string;
 	filePath: string;
+	/** Optional human label; the file path remains the provenance anchor. */
+	displayName?: string;
 	/** ISO — when this file was imported (the checkpoint's foldedAt). */
 	importedAt: string;
 	/** Legacy content fingerprint. Accepted when reading old records, but

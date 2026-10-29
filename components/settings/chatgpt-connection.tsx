@@ -36,6 +36,7 @@ const Context = createContext({
 	warning: null as string | null,
 	connect: () => {},
 	manage: (_id: string) => {},
+ fast: (_enabled: boolean) => {},
 	select: (_id: string) => {},
 	dismissWarning: () => {},
 });
@@ -244,6 +245,7 @@ export function ChatGPTUIProvider({ children }: { children: React.ReactNode }) {
 		// completion, failure, or explicit cancellation releases the attempt.
 	}
 	const context = {
+		fast: (enabled: boolean) => { if (bridge?.fast) void control("change", () => bridge.fast!(enabled)); },
 		status, busy, error: warning ? null : visibleError, inlineError: dialog || warning ? null : visibleError, warning: dialog?.kind === "warning" ? null : warning,
 		connect: openConnect,
 		manage: (id: string) => {
@@ -349,4 +351,13 @@ export function ChatGPTBackgroundAccess({ provider }: { provider: string | undef
 	const account: Account | undefined = ui.status.accounts.find((a) => a.id === ui.status.activeId && a.connected);
 	if (provider !== "chatgpt" || !account || ui.status.allowBackgroundUse) return null;
 	return <Button type="button" size="xs" variant="ghost" className="cursor-pointer" disabled={ui.busy} onClick={() => ui.manage(account.id)}>Enable background use</Button>;
+}
+
+/** Account-owned Fast preference; the service can still deliver Standard. */
+export function ChatGPTSpeedIndicator({ modelId }: { modelId?: string }) {
+ const ui = useContext(Context);
+ if (!ui.status.activeId) return null;
+ const last = ui.status.lastServiceTier;
+ const served = last?.modelId === modelId ? last?.served : undefined;
+ return <span className="whitespace-nowrap text-xs" data-testid="chatgpt-speed-indicator"><button type="button" className="underline underline-offset-2 disabled:opacity-50" disabled={ui.busy || (!ui.status.fastMode && !ui.status.fastModels?.includes(modelId ?? ""))} onClick={() => ui.fast(!ui.status.fastMode)} title="Fast uses more plan allowance; actual delivery may be Standard.">{ui.status.fastMode ? "Fast on" : "Fast off"}</button>{served !== undefined && ` · last: ${served === "priority" || served === "fast" ? "Fast" : served === "default" ? "Standard" : served ?? "Unknown"}${last?.requested ? " (Fast requested)" : ""}`}</span>;
 }

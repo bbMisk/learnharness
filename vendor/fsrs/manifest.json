@@ -1,0 +1,10 @@
+{
+  "ankiVersion": "26.09.3",
+  "ankiCommit": "29bb700b951e3f0c0cb69b77c0180fc1fe33e6ba",
+  "fsrsVersion": "6.6.2",
+  "fsrsCrateChecksum": "89836c0a26b347b585b23824034600b69bfc7f0b0112d0cd656791799eb3a717",
+  "policyVersion": 1,
+  "sha256": "adf3d554b2f591613a9dda13b8c3612b2176b40e23c521e993173497f24faa9f",
+  "wasmFile": "fsrs-6.6.2.adf3d554b2f59161.wasm",
+  "engineId": "anki-26.09.3-fsrs-6.6.2-policy1-adf3d554b2f59161"
+}

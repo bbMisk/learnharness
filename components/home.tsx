@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CornerDownLeftIcon, DumbbellIcon } from "lucide-react";
+import { CornerDownLeftIcon, PaperclipIcon, DumbbellIcon } from "lucide-react";
 import { GraphView } from "@/components/graph-view";
 import { MinimalHome } from "@/components/minimal-home";
 import { SetupDialog } from "@/components/setup-dialog";
@@ -12,6 +12,8 @@ import { DictationBar, joinDictation, useDictation } from "@/components/dictatio
 import { useFieldCycle } from "@/components/field-cycle";
 import { SidebarToggle } from "@/components/sidebar";
 import { StatsBar } from "@/components/stats-bar";
+import { FileDropFeedback } from "@/components/file-drop-feedback";
+import { useFileDrop } from "@/components/file-drop";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { PathInput } from "@/components/path-input";
 import { SessionStarter } from "@/components/start-session";
@@ -40,6 +42,10 @@ export function Home({
 	 * dictation flush lands via setState, invisible to a closure that
 	 * waited through `await finish()`. Kept current at every write. */
 	const topicRef = useRef("");
+	const fileDrop = useFileDrop(topic, (next) => {
+		topicRef.current = next;
+		setTopic(next);
+	}, {hideImagePaths:true,priority:10,label:"the new chat"});
 	// First-run gate (model-slots wave, owner 2026-09-20): chats cannot
 	// start until the user has picked all three slots — no defaults for
 	// 33 providers. The dock shows the CTA while unconfigured; submitting
@@ -243,18 +249,22 @@ export function Home({
 					/>
 					{startError && <p role="alert" className="mb-2 text-sm text-destructive">{OPENING_PROMPT_FAILURE}</p>}
 					<form
-						className="flex items-end gap-1.5 rounded-2xl border bg-card p-1.5 shadow-lg"
+						{...fileDrop.handlers}
+					className="rounded-2xl border bg-card p-1.5 shadow-lg"
 					onSubmit={(e) => {
 						e.preventDefault();
-						void start();
+						if (!fileDrop.isUploading()) void start();
 					}}
 				>
-					<PathInput
+						<FileDropFeedback files={fileDrop} />
+						<div className="flex items-end gap-1.5">
+						<input ref={fileDrop.inputRef} type="file" multiple className="hidden" aria-label="Choose files" onChange={(event) => { const files = Array.from(event.target.files || []); event.target.value = ""; void fileDrop.addFiles(files); }} />
+						<button type="button" aria-label="Add files" title={fileDrop.uploading ? "Uploading…" : "Add files"} disabled={fileDrop.uploading} onClick={() => fileDrop.inputRef.current?.click()} className="flex size-10 shrink-0 items-center justify-center rounded-[10px] text-muted-foreground hover:bg-accent disabled:opacity-40"><PaperclipIcon className="size-4" /></button>
+						<PathInput
 						ref={topicInputRef}
-						value={topic}
+						value={fileDrop.text}
 						onValueChange={(value) => {
-							topicRef.current = value;
-							setTopic(value);
+							fileDrop.changeText(value);
 						}}
 						defaultDropTarget
 						onKeyDown={(e) => {
@@ -269,7 +279,7 @@ export function Home({
 							}
 							if (e.key === "Enter" && !e.shiftKey) {
 								e.preventDefault();
-								void start();
+								if (!fileDrop.isUploading()) void start();
 							}
 						}}
 						placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
@@ -281,11 +291,12 @@ export function Home({
 					<button
 						type="submit"
 						aria-label="Start session"
-						disabled={(!topic.trim() && !dictation.active) || busy}
+						disabled={(!topic.trim() && !dictation.active) || busy || fileDrop.uploading}
 						className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-40"
 					>
 						<CornerDownLeftIcon className="size-5" />
 					</button>
+						</div>
 					</form>
 					{/* Same as the chat view's under-composer stats bar (owner) — no
 					    session yet, so the LEFT side renders nothing (wave 7 sweep)

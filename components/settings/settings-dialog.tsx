@@ -34,6 +34,7 @@ import { useBackdropDismiss } from "@/components/backdrop-dismiss";
 import {
 	CURRENT_SETTINGS_VERSION,
 	type AgentSettings,
+	type GeneralSettings,
 	type AppearanceSettings,
 	type CompactionSettings,
 	type GraphSettings,
@@ -49,6 +50,8 @@ import { notifySettingsSaved } from "@/components/settings-signal";
 import { KeysSection } from "./keys-section.tsx";
 import { Hint } from "@/components/ui/hint";
 import { AppearanceSection, GraphSection } from "./appearance-section.tsx";
+import { SettingsRow, Toggle } from "./controls";
+import { ConnectionSettings } from "./connection-settings";
 import { KeyboardSection } from "./keyboard-section.tsx";
 import { ChatGPTUIProvider } from "./chatgpt-connection.tsx";
 import { NativeSubscriptionUIProvider } from "./subscription-connections.tsx";
@@ -180,6 +183,7 @@ export function SettingsDialogBody({
 		};
 	}, []);
 	const [active, setActive] = useState<SectionId>(initialSection);
+	const [savingGeneral, setSavingGeneral] = useState(false);
 	// A deep-link fired while the dialog is ALREADY open (first exercised by
 	// the wave-6 embedding picker's "Add a provider key first…" link — the
 	// picker itself died with wave 7, the mechanism is general) changes
@@ -260,6 +264,19 @@ export function SettingsDialogBody({
 		},
 		[onAppearanceChange],
 	);
+
+	// General PUTs replace the section: retain sibling choices and serialize saves.
+	const writeGeneral = async (next: GeneralSettings) => {
+		if (savingGeneral) return;
+		setSavingGeneral(true);
+		try {
+			await write("general", { ...record?.general, ...next });
+		} catch {
+			setError("General settings could not be saved. Try again.");
+		} finally {
+			setSavingGeneral(false);
+		}
+	};
 
 	return (
 		<div
@@ -360,12 +377,28 @@ export function SettingsDialogBody({
 									title="General"
 									testid="section-general"
 								>
+									<ConnectionSettings />
 									<UpdateSettings
 										autoUpdate={record.general?.autoUpdate ?? true}
 										onAutoUpdateChange={(on) =>
 											void write("general", { ...record.general, autoUpdate: on })
 										}
 									/>
+									<SettingsRow
+										label="Thinking while reading"
+										hint="Show a notes field while reading a lesson."
+										testid="row-reading-thinking"
+									>
+										<Toggle
+											checked={record.general?.showReadingThinking ?? false}
+											label="thinking while reading"
+											disabled={savingGeneral}
+											onChange={(on) => void writeGeneral({ showReadingThinking: on })}
+										/>
+									</SettingsRow>
+									<SettingsRow label="Learning history" hint="Export questions, responses and timestamps for future review." testid="row-learning-history">
+										<a href="/api/learning-history?download=1" download className="text-xs text-foreground underline underline-offset-4">Export JSON</a>
+									</SettingsRow>
 								</SettingsSection>
 							)}
 							{active === "keys" && (

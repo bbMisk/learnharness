@@ -51,6 +51,7 @@ export function createWebChatGPTBridge(hub: Hub): ChatGPTControlBridge {
 		cancel: () => call("cancel"), select: (id) => call("select", { id }),
 		disconnect: (id) => call("disconnect", { id }), logout: (id) => call("logout", { id }),
 		consent: (enabled) => call("consent", { enabled }),
+		fast: (enabled) => call("fast", { enabled }),
 		onChange: (listener) => onChange(hub, listener),
 	};
 }

@@ -346,6 +346,12 @@ export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 // `code` override intercepts mermaid fences and renders via
 // components/mermaid-render.ts — streamdown's internal mermaid machinery
 // (the plugin entry + the `mermaid` prop) is retired with it.
+// Remend 1.3 treats the <R in a probability expression as an unfinished
+// HTML tag and removes the rest of the message, even inside fenced math.
+// Let the Markdown/math parser handle angle brackets; Streamdown's normal
+// HTML sanitization remains enabled. Other streaming repairs stay active.
+export const streamdownRemend = { htmlTags: false };
+
 export const streamdownPlugins = {
   cjk: {
     ...cjk,
@@ -354,12 +360,6 @@ export const streamdownPlugins = {
   code,
   math: createMathPlugin({ singleDollarTextMath: true }),
 } as unknown as PluginConfig;
-
-// Remend's incomplete-HTML heuristic mistakes `<b` in `$a<b$` for a
-// partial tag and deletes the remaining source before math can tokenize.
-// Preserve that text (unfinished prose HTML may show literally); Streamdown's
-// separate sanitization/hardening and all other Markdown repairs stay enabled.
-export const streamdownRemend = { htmlTags: false };
 
 export const MessageResponse = memo(
   ({ className, children, ...props }: MessageResponseProps) => {

@@ -50,3 +50,15 @@ test("account/full and catalog authority changes reject outstanding old leases w
  ipc({ channel: "lh:chatgpt", kind: "state", stamp: { epoch: 2, authorityRevision: 3, revision: 8 }, status: status("B"), invalidate: "none" });
  assert.equal(chatGPTModels().length, 0); await assert.rejects(chatGPTLease(newScope, false));
 });
+
+test("new complete account models reach the bridge without an installed Pi allowlist entry", async () => {
+ const refresh = refreshChatGPTModels([model as never]);
+ const next = {...value("new catalog", 9, "B", 2), authorityRevision: 4, models:[
+  {id:"future-complete",name:"Future",context_window:500000,input_modalities:["text","image"],supported_reasoning_levels:[{effort:"high"}]},
+  {id:"future-incomplete",name:"Missing capability metadata"},
+ ]};
+ reply(pending.at(-1),next); await refresh;
+ assert.deepEqual(chatGPTModels().map(m=>m.id),["future-complete"]);
+ assert.equal(chatGPTModels()[0]!.contextWindow,500000);
+ assert.equal(chatGPTModels()[0]!.maxTokens,0,"unknown output limits remain unknown");
+});

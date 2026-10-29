@@ -83,7 +83,10 @@ import {
 	questionNeedsReveal,
 } from "@/src/core";
 import { ReadingThinkingField } from "@/components/reading-thinking";
+import { SideTutor } from "@/components/side-tutor";
 import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/thinking-block";
+import { FACTORY_SETTINGS, slotsConfigured, type UserSettings } from "@/src/core";
+import { useSettingsSaved } from "@/components/settings-signal";
 
 /** One width for everything: transcript, cards, and the bottom blob share this column. */
 /**
@@ -219,6 +222,7 @@ export function Chat({
 	initiallyInFlight,
 	initiallyCompacting = false,
 	initialConfigured = false,
+	initialShowReadingThinking = FACTORY_SETTINGS.general.showReadingThinking,
 	kind = "teach",
 }: {
 	chatId: string;
@@ -243,6 +247,7 @@ export function Chat({
 	 *  it (BYOK, owner 2026-09-22). The server gate stays the truth; this
 	 *  only decides whether the pill rides the composer. */
 	initialConfigured?: boolean;
+	initialShowReadingThinking?: boolean;
 }) {
 	// Reattach plumbing (background-turn runner wave): the hook holds the
 	// settled terminal's callback — a stable ref assigned below, once
@@ -518,8 +523,35 @@ export function Chat({
 	 * thinking while reading the teaching prose, mounted while a check waits
 	 * behind its reveal, riding the check answer (or its dismissal) as the
 	 * separate `readingThinking` field. Reset per pending question. */
+	const [showReadingThinking, setShowReadingThinking] = useState(initialShowReadingThinking);
 	const [readingThinking, setReadingThinking] = useState("");
 	const readingThinkingRef = useRef("");
+	const [sideTutor, setSideTutor] = useState<{ selectedText: string } | null>(null);
+	const sideReturnFocus = useRef<HTMLElement | null>(null);
+	const closeSideTutor = useCallback(() => {
+		setSideTutor(null);
+		requestAnimationFrame(() => sideReturnFocus.current?.focus({ preventScroll: true }));
+	}, []);
+	const toggleSideTutor = useCallback(() => {
+		if (sideTutor) { closeSideTutor(); return; }
+		sideReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+		setSideTutor({ selectedText: window.getSelection()?.toString().slice(0, 8000) ?? "" });
+	}, [sideTutor, closeSideTutor]);
+	useEffect(() => {
+		const event = kbdEventForChat("toggle-side-tutor");
+		const focusOrOpen = () => {
+			if (sideTutor) {
+				const tutor = document.querySelector<HTMLElement>('[data-testid="side-tutor"]');
+				(tutor?.querySelector<HTMLTextAreaElement>('textarea:not(:disabled)') ?? tutor)?.focus();
+			} else toggleSideTutor();
+		};
+		window.addEventListener(event, focusOrOpen);
+		return () => window.removeEventListener(event, focusOrOpen);
+	}, [toggleSideTutor, sideTutor]);
+	useEffect(() => {
+		window.addEventListener("lh:close-side-tutor", closeSideTutor);
+		return () => window.removeEventListener("lh:close-side-tutor", closeSideTutor);
+	}, [closeSideTutor]);
 
 	// ⌘T (toggle-user-thinking, owner round 2026-10-07): set EVERY user
 	// thinking row to one state — transcript rows default open, so the
@@ -567,6 +599,15 @@ export function Chat({
 	const catalogRef = useRef(catalog);
 	catalogRef.current = catalog;
 	const [selectedModel, setSelectedModel] = useState<string | undefined>();
+	useSettingsSaved((section) => {
+		if (section !== "models" && section !== "general") return;
+		fetch("/api/settings")
+			.then((r) => r.ok ? r.json() as Promise<{ settings?: UserSettings | null }> : Promise.reject())
+			.then((body) => {
+				setShowReadingThinking(body.settings?.general?.showReadingThinking ?? FACTORY_SETTINGS.general.showReadingThinking);
+			})
+			.catch(() => {});
+	});
 	const [setupOpen, setSetupOpen] = useState(false);
 	/** The last explicitly-sent draft (composer send): the
 	 *  refusal flow restores it into the composer, where it waits for the
@@ -1270,7 +1311,7 @@ export function Chat({
 		    chip) spans from the left sidebar's edge to the panel's edge. The
 		    dock overlays the column bottom (outside the scroller); a spacer in
 		    the transcript reserves its height. */}
-		<div className="flex h-dvh">
+		<div className="relative flex h-dvh">
 			<div className="flex min-w-0 flex-1 flex-col">
 				{/* The top bar is its own block (owner, top-fade round 4): in flow
 				    above the scroller on the plain page background — no gradient. Its
@@ -1346,6 +1387,9 @@ export function Chat({
 							<div className="min-w-4 flex-1" aria-hidden="true" />
 					</>
 					)}
+					<Hint label="Temporary side tutor" action="toggle-side-tutor" side="bottom">
+						<button type="button" aria-label="Open side tutor" aria-expanded={sideTutor !== null} onClick={toggleSideTutor} className="lh-no-drag shrink-0 rounded-full border border-border/80 px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground">Side tutor</button>
+					</Hint>
 					{/* The plan chip (owner, plan-placement round): session-level
 					    structure beside the phase chip — access to the full-DAG popup
 					    at every width; the marginalia is the wide-screen glance view. */}
@@ -1689,6 +1733,7 @@ export function Chat({
 					plan={hasPlan ? <PlanMarginalia messages={messages} /> : undefined}
 					onOpenPlan={() => setPlanOpen(true)}
 					requiresReveal={requiresReveal}
+					showReadingThinking={showReadingThinking}
 					readingThinking={readingThinking}
 					onReadingThinking={applyReadingThinking}
 					phase={phases.at(-1) ?? "probe"}
@@ -1777,6 +1822,7 @@ export function Chat({
 				<AbortTurnDialog mode={abortAsk} onClose={() => setAbortAsk(null)} onConfirm={confirmAbort} busy={busy} />
 				</div>
 			</div>
+			{sideTutor && <SideTutor chatId={chatId} selectedText={sideTutor.selectedText} onClose={closeSideTutor} />}
 		</div>
 		</JobsContext.Provider>
 		</SessionMermaidContext.Provider>
@@ -1916,6 +1962,7 @@ function DockOverlay({
 	compactionRunning,
 	onSubmitThinking,
 	requiresReveal,
+	showReadingThinking,
 	readingThinking,
 	onReadingThinking,
 	phase,
@@ -1949,6 +1996,7 @@ function DockOverlay({
 	onSubmitThinking: (text: string) => void;
 	/** Teach-phase pending question: arrives collapsed behind the reveal button (W5). */
 	requiresReveal: boolean;
+	showReadingThinking: boolean;
 	/** The reading-thinking draft (owner 2026-10-03) — owned by ChatView so
 	 *  the submit + dismissal seams (outside this overlay) can merge it. */
 	readingThinking: string;
@@ -1995,6 +2043,7 @@ function DockOverlay({
 	// Teach-phase mount (session reload with a pending check): the dock starts
 	// as the collapsed invitation too — the check must not pop open on reload.
 	const [expanded, setExpanded] = useState(!requiresReveal);
+	const [readingUploading, setReadingUploading] = useState(false);
 	// Reveal state (W5): false until the learner clicks the invitation. While
 	// false, the scroll machine must NOT auto-expand at the bottom — the
 	// learner reads the teaching first and opens the check when ready. Once
@@ -2347,8 +2396,10 @@ function DockOverlay({
 					    teach-phase check waits — the same cue that collapses it. It
 					    claims dictated speech until the learner reveals the check
 					    (the dock reclaims then). Rides the check answer on submit. */}
-					{pending && requiresReveal && (
+					{pending && requiresReveal && showReadingThinking && (
 						<ReadingThinkingField
+							key={pending.toolCallId}
+							onUploadingChange={setReadingUploading}
 							value={readingThinking}
 							onChange={onReadingThinking}
 							onEscape={dictationCancel}
@@ -2385,11 +2436,13 @@ function DockOverlay({
 									initialDraft={initialQuestionDraft}
 									onSaveDraft={onSaveQuestionDraft}
 									onEscape={dictationCancel}
-									dictationClaim={!revealPending}
+									dictationClaim={!revealPending || !showReadingThinking}
+									attachmentsUploading={readingUploading}
 									compactionRunning={compactionRunning}
 								/>
 							) : practice ? (
 								<PracticeDock
+									key={practice.toolCallId}
 									problemCallId={practice.toolCallId}
 									input={practice.input as { statement: string }}
 									expanded={expanded}

@@ -79,7 +79,7 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 		whenReady: async () => {},
 	});
 	const electron = {
-		app, BrowserWindow: FakeWindow,
+		app, BrowserWindow: FakeWindow, dialog: { showMessageBox() {} },
 		Menu: { buildFromTemplate: (value: typeof menu) => value, setApplicationMenu: (value: typeof menu) => { menu = value; } },
 		ipcMain: { on() {}, handle: (channel: string, fn: (event: unknown) => unknown) => handles.set(channel, fn) },
 		session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} } },
@@ -96,11 +96,11 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 					settingsReads.push(file);
 					if (settings instanceof Error) throw settings;
 					return settings;
-				}, mkdirSync() {}, appendFileSync() {},
+				}, mkdirSync() {}, appendFileSync() {}, existsSync: () => true,
 			};
 			return mainRequire(id);
 		},
-		process: { argv: [], env: { LH_DEV_URL: "http://127.0.0.1:9000" }, platform: "darwin", on() {} },
+		process: { argv: [], env: { LH_DEV_URL: "http://127.0.0.1:9000" }, platform: "darwin", resourcesPath: "/fixture/Resources", on() {} },
 		__dirname: path.dirname(mainFile), URL,
 		setInterval: (callback: () => void, delay: number) => intervals.push({ callback, delay }),
 		setTimeout() {},

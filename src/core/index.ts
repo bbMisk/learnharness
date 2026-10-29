@@ -48,6 +48,7 @@ export type { FilePathPart } from "./file-paths.ts";
 // canon (one continuous assistant document, step separators) ported from
 // the deleted server projection to the client side. Pure, browser-safe.
 export * from "./view.ts";
+export * from "./side-chat.ts";
 export * from "./tool-parts.ts";
 export * from "./answer-presentation.ts";
 export * from "./prices.ts";
@@ -79,8 +80,15 @@ export * from "./session-navigation.ts";
 export * from "./auth-keys.ts";
 // keyboard.ts: the shortcut registry + binding normalization (pure, browser-safe).
 export * from "./keyboard.ts";
+export * from "./job-visibility.ts";
 export * from "./coverage.ts";
 // session-markdown.ts (2026-09-27 engine; first consumer 2026-10-06): the
 // ONE session→markdown formatter — the extractor's view and the user-facing
 // export share it. Pure, browser-safe.
 export * from "./session-markdown.ts";
+
+export * from "./demo-document.ts";
+
+export * from "./review.ts";
+export { uploadedImageReferences, withoutUploadedImagePaths } from "./upload-images.ts";
+export type { ProjectRecord, ProjectView, ProjectFile, ProjectSummary } from './projects.ts';

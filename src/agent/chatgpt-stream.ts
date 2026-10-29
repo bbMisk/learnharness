@@ -2,7 +2,7 @@ import type { Api, AssistantMessage, Model, SimpleStreamOptions, StreamFunction,
 import { streamSimple } from "@earendil-works/pi-ai/api/openai-responses";
 import { AssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
 import { transformMessages } from "@earendil-works/pi-ai/api/transform-messages";
-import { chatGPTAbortController, chatGPTScope, chatGPTScopeCurrent, chatGPTLease, chatGPTDenial } from "./chatgpt-bridge.ts";
+import { chatGPTAbortController, chatGPTScope, chatGPTScopeCurrent, chatGPTLease, chatGPTDenial, chatGPTRequest } from "./chatgpt-bridge.ts";
 import type { AdmissionScope, ChatGPTDispatchLifecycle } from "./chatgpt-request-cycle.ts";
 
 const USAGE = "https://chatgpt.com/settings/usage";
@@ -38,7 +38,7 @@ export function chatGPTPayload(raw: unknown, selectedModelId: string): Record<st
 export function chatGPTHistory(context: TranscriptContext, logicalModel: Model<Api>): TranscriptContext {
 	// Apply Pi's normal foreign-model signature treatment BEFORE the alias
 	// becomes openai, or real API-key turns could look like subscription turns.
-	const messages = transformMessages(context.messages, logicalModel);
+	const messages = transformMessages(context.messages.filter(m => m.role !== "assistant" || m.provider !== "chatgpt" || m.stopReason !== "stop" || m.content.some(block => block.type === "toolCall" || (block.type === "text" && block.text.trim().length > 0))), logicalModel);
 	return { ...context, messages: messages.map((m) => m.role === "assistant" && m.provider === "chatgpt" ? { ...m, provider: "openai" } : m) };
 }
 function empty(model: Model<Api>): AssistantMessage {
@@ -53,6 +53,7 @@ export function chatGPTStream(background: () => boolean, lifecycle?: ChatGPTDisp
 		void (async () => {
 			let partial = empty(logicalModel);
 			let completed = false;
+			const startedAt = Date.now();
 			let failure = "";
 			let scope: AdmissionScope | undefined;
 			let committed = false;
@@ -84,12 +85,15 @@ export function chatGPTStream(background: () => boolean, lifecycle?: ChatGPTDisp
 					onPayload: async (raw, model) => {
 						const replacement = await options?.onPayload?.(raw, model);
 						const payload = chatGPTPayload(replacement === undefined ? raw : replacement, logicalModel.id);
+						if (credentials.requestedTier) payload.service_tier = credentials.requestedTier;
 						check();
 						return payload;
 					},
 					onProviderStreamEvent: async (raw, model) => {
-						const event = raw as { type?: string; code?: string; error?: { code?: string }; response?: { error?: { code?: string }; status?: string } };
-						if (event.type === "response.completed" && event.response?.status === "completed" && !event.response?.error) completed = true;
+						const event = raw as { type?: string; code?: string; error?: { code?: string }; response?: { error?: { code?: string }; status?: string; service_tier?: string } };
+						if (event.type === "response.completed" && event.response?.status === "completed" && !event.response?.error) { completed = true;
+							void chatGPTRequest("reportTier", { value: { accountId: scope!.accountId, epoch: scope!.epoch, authorityRevision: scope!.authorityRevision, modelId: logicalModel.id, startedAt, requested: credentials.requestedTier ?? null, served: event.response.service_tier ?? null } }).catch(() => {});
+						}
 						if (["response.incomplete", "response.failed", "error"].includes(event.type ?? "") || event.response?.error) failure = event.code || event.error?.code || event.response?.error?.code || "incomplete terminal response";
 						await options?.onProviderStreamEvent?.(raw, model);
 					},
@@ -100,6 +104,7 @@ export function chatGPTStream(background: () => boolean, lifecycle?: ChatGPTDisp
 					partial = { ...message, provider: "chatgpt" };
 					if (event.type === "done") {
 						if (!completed || failure) throw new Error(failure || "missing terminal response.completed");
+						if (!partial.content.some(block => block.type === "toolCall" || (block.type === "text" && block.text.trim().length > 0))) throw new Error("incomplete empty reply");
 						terminal = true;
 						output.push({ ...event, message: partial });
 					} else if (event.type === "error") {

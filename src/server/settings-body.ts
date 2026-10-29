@@ -78,7 +78,7 @@ function asRecord(body: unknown): Record<string, unknown> | null {
 	return body as Record<string, unknown>;
 }
 
-/** general: { autoUpdate?: boolean } */
+/** General preferences: absent fields resolve to factory defaults. */
 export function parseGeneralSettingsBody(body: unknown): SettingsBodyResult<GeneralSettings> {
 	const raw = asRecord(body);
 	if (!raw) return { ok: false, error: "Invalid JSON body" };
@@ -88,6 +88,12 @@ export function parseGeneralSettingsBody(body: unknown): SettingsBodyResult<Gene
 			return { ok: false, error: "autoUpdate must be a boolean" };
 		}
 		settings.autoUpdate = raw.autoUpdate;
+	}
+	if (raw.showReadingThinking !== undefined) {
+		if (typeof raw.showReadingThinking !== "boolean") {
+			return { ok: false, error: "showReadingThinking must be a boolean" };
+		}
+		settings.showReadingThinking = raw.showReadingThinking;
 	}
 	return { ok: true, settings };
 }

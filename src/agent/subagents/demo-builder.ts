@@ -1,3 +1,5 @@
+import { buildDemoDocument } from "../../core/demo-document.ts";
+import { DEMO_VISUAL_STYLE } from "./visual-style.ts";
 import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { Usage } from "@earendil-works/pi-ai";
@@ -51,8 +53,9 @@ receive a brief for ONE interactive teaching instrument and deliver a single sel
 that runs it. You never see the lesson; the brief is everything you know.
 
 Runtime contract (the document runs in a sandboxed iframe, sandbox="allow-scripts", opaque origin):
-- Single file. Vanilla JS + Canvas 2D or SVG. CDN imports (e.g. a plotting or math library) are allowed
-  when they genuinely help — but prefer dependency-free; you own the failure if a CDN import fails.
+- Write an HTML fragment with inline JavaScript (a full HTML document is also accepted).
+  The application supplies shared visualization CSS, native controls, tooltips, tabs, and global d3.
+  No library imports are needed; the same wrapper runs during verification and display.
 - NO localStorage, sessionStorage, or document.cookie — the sandbox makes them throw.
 - The parent sizes the iframe to the document height automatically; just build normal flowing layout.
   Make the demo fill the width and size its own height sensibly.
@@ -61,7 +64,7 @@ Build quality:
 - The demo must directly serve the brief: every control named in the brief must exist and do the thing.
 - Controls need labels; sliders/inputs need current-value readouts. A learner should operate it unguided.
 - Smooth enough interaction; requestAnimationFrame for animation, not setInterval when it matters.
-- Dark-mode neutral: pick a clean light background for the demo area so it reads on any card.
+- Use the shared visualization design system described below. It supplies native dark styling.
 
 THE HOUSE RULE — never deliver untested:
 1. Call write_demo with the complete HTML document.
@@ -83,10 +86,11 @@ interface BuilderState {
 }
 
 const writeDemoInput = Type.Object({
-	html: Type.String({ description: "The complete HTML document: <!doctype html>…</html>, all JS inline." }),
+	html: Type.String({ description: "HTML content for the demo, with all custom JavaScript inline. The shared visualization kit is supplied." }),
 });
 
 const runDemoInput = Type.Object({
+	viewportWidth: Type.Optional(Type.Integer({ minimum: 320, maximum: 1920, description: "CSS viewport width for responsive layout verification (e.g. 360 and 900). Reports horizontal overflow." })),
 	probe: Type.Optional(
 		Type.String({
 			description:
@@ -123,13 +127,13 @@ export function createDemoBuilderTools(
 				"Headlessly execute the current demo in a browser and report console errors, uncaught errors, and failed requests. " +
 				"Optionally pass a probe expression to assert on page state.",
 			parameters: runDemoInput,
-			execute: serverExecute("run_demo", runDemoInput, async ({ probe }) => {
+			execute: serverExecute("run_demo", runDemoInput, async ({ probe, viewportWidth }) => {
 				if (!state.html) return "ERROR: nothing to run — call write_demo first.";
 				const reason = headless.unavailableReason();
 				if (reason) return `HEADLESS UNAVAILABLE: ${reason}`;
 				let result: DemoRunResult;
 				try {
-					result = await headless.runDemo(state.html, probe ? { probe } : undefined);
+					result = await headless.runDemo(buildDemoDocument(state.html, "learnharness-v1"), probe || viewportWidth ? { ...(probe ? { probe } : {}), ...(viewportWidth ? { viewportWidth } : {}) } : undefined);
 				} catch (err) {
 					const msg = err instanceof Error ? err.message : String(err);
 					onActivity?.("run_demo: browser error");
@@ -207,7 +211,7 @@ export async function runDemoBuilder(input: DemoBuilderInput, opts: DemoBuilderO
 		const result = await runSubagent(Object.values(createDemoBuilderTools(state, headless, opts.onActivity)), {
 			role: "demoBuilder",
 			engine: opts.engine,
-			systemPrompt: INSTRUCTIONS,
+			systemPrompt: INSTRUCTIONS + "\n\n" + DEMO_VISUAL_STYLE,
 			prompt,
 			maxTurns: opts.maxSteps ?? 24,
 			abortSignal: opts.abortSignal,
@@ -237,7 +241,7 @@ export async function runDemoBuilder(input: DemoBuilderInput, opts: DemoBuilderO
 		opts.onActivity?.("final verification");
 		let verify: DemoRunResult;
 		try {
-			verify = await headless.runDemo(state.html);
+			verify = await headless.runDemo(buildDemoDocument(state.html, "learnharness-v1"));
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
 			return { title, html: "", tested: true, notes: `FAILED: final verification crashed — ${msg}` };
@@ -253,5 +257,5 @@ export async function runDemoBuilder(input: DemoBuilderInput, opts: DemoBuilderO
 		}
 	}
 
-	return { title, html: state.html, tested: true, notes: notes(finalText) };
+	return { title, html: state.html, renderer: "learnharness-v1", tested: true, notes: notes(finalText) };
 }

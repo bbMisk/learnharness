@@ -275,6 +275,34 @@ after(() => {
 });
 
 describe("teacher chat flow (scripted model)", () => {
+	it("resumes a failed response after a saved tool result without repeating tools or losing the first recovered message", async () => {
+		for (const stopReason of ["error", "aborted"] as const) {
+			const chat = createConfiguredChat(`Test: resume ${stopReason}`);
+			createdChats.push(chat.id);
+			const user = { id: "user_before_failure", role: "user", content: [{ type: "text", text: "Continue my lesson" }], timestamp: 1 };
+			const call = { ...fauxAssistantMessage([fauxToolCall("read", { path: "/fixture.md" }, { id: "saved_read" })], { stopReason: "toolUse" }), id: "call_before_failure" };
+			const tool = { id: "result_before_failure", role: "toolResult", toolCallId: "saved_read", toolName: "read", content: [{ type: "text", text: "Saved file contents" }], isError: false, timestamp: 2 };
+			const failed = { ...fauxAssistantMessage([fauxText("Partial failed output")], { stopReason }), id: "failed_response", errorMessage: "503 unavailable" };
+			const prefix = [user, call, tool, failed] as LhMessage[];
+			chatStore.saveMessages(chat.id, prefix);
+			let requests = 0;
+			const { engine } = scriptedTeacher(() => [(context) => {
+				requests++;
+				assert.equal(context.messages.at(-1)?.role, "toolResult");
+				assert.ok(JSON.stringify(context).includes("Saved file contents"));
+				assert.ok(!JSON.stringify(context).includes("Partial failed output"));
+				return fauxAssistantMessage([fauxText("Recovered lesson")]);
+			}]);
+			await drainTurn(post(chat.id, { type: "continue" }), (opts) =>
+				createTeacherAgent(undefined, { engine, messages: opts.messages, onUsage: opts.onUsage }));
+			const saved = chatStore.getChat(chat.id)!;
+			assert.deepEqual(saved.messages.slice(0, 4), prefix, "original history including the error is unchanged");
+			assert.equal(saved.messages.length, 5);
+			assert.match(JSON.stringify(saved.messages[4]!.content), /Recovered lesson/);
+			assert.equal(requests, 1, "saved read and user answer were not replayed as actions");
+			assert.equal(saved.turns?.length, 1, "recovered response retains usage provenance");
+		}
+	});
 	it("quiz tool call persists as a pending part; the answer continues the lesson", async () => {
 		const { engine, calls } = scriptedTeacher(defaultLesson);
 		const chat = createConfiguredChat("Test: solar system");

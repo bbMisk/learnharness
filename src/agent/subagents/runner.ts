@@ -19,6 +19,7 @@ import {
 	type VisualResult,
 	type VisualToolInput,
 } from "../../core/contracts.ts";
+import { jobTaskFromInput } from "../../core/job-visibility.ts";
 import { registerJobAbort, unregisterJobAbort } from "./aborts.ts";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -195,6 +196,8 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 			return;
 		}
 		if (job.status !== "running") return; // already finished / re-run after crash recovery
+		const task = jobTaskFromInput(input ?? resolveInput(job, input));
+		if (task) jobStore.updateJob(jobId, { task });
 		const run = KIND_RUNNERS[job.kind];
 		if (!run) {
 			console.error(`[job ${jobId}] unknown kind: ${job.kind}`);

@@ -4,8 +4,12 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { ActivityIcon, BotIcon, FileTextIcon, PenToolIcon, PlayIcon, SearchIcon, SquareIcon, WaypointsIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CallUsage, JobKind, JobRecord } from "@/src/core";
-import { isModelsRefusal, isProviderKeyRefusal, subscriptionLabel, subscriptionLabels } from "@/src/core";
-import { formatTokens, planCostLabel } from "@/components/usage-format";
+import { isModelsRefusal, isProviderKeyRefusal, jobCost } from "@/src/core";
+import { formatTokens, formatUsd } from "@/components/usage-format";
+import { JobDetails } from "@/components/job-details";
+import { jobDisplay, jobElapsedMs } from "@/src/core";
+import { subscriptionLabel, subscriptionLabels } from "@/src/core";
+import { planCostLabel } from "@/components/usage-format";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 
 /**
@@ -188,6 +192,7 @@ export interface ActivityBlob {
 	model?: string;
 	/** Model calls made so far, when usage is reported. */
 	steps?: number;
+	job?: JobRecord;
 }
 
 /** Merge the feed into one oldest-first blob list (the stable blob order). */
@@ -217,6 +222,7 @@ export function toBlobs(feed: ActivityFeed): ActivityBlob[] {
 		}
 		return {
 			id: job.id,
+			job,
 			process: "job",
 			jobKind: job.kind,
 			title: job.title,
@@ -234,7 +240,7 @@ export function toBlobs(feed: ActivityFeed): ActivityBlob[] {
 				? "needs model setup"
 				: isProviderKeyRefusal(job.error)
 					? "needs a provider key"
-					: (job.activity ?? ""),
+					: (job.status === "error" || jobDisplay(job).working ? job.activity ?? "" : jobDisplay(job).label),
 			model: usage?.model,
 			steps: usage?.steps,
 		};
@@ -426,7 +432,7 @@ function ActivityBlobRow({
 				</span>
 				<span className="flex shrink-0 items-center gap-2 tabular-nums text-muted-foreground">
 					<span data-testid="activity-blob-cost">{planCostLabel(blob.cost, subscriptionLabel(blob.model))}</span>
-					<span data-testid="activity-blob-elapsed">{formatElapsed(now - blob.startedAt)}</span>
+					<span data-testid="activity-blob-elapsed">{blob.job ? (jobElapsedMs(blob.job, now) === null ? "Ready" : formatElapsed(jobElapsedMs(blob.job, now)!)) : formatElapsed(now - blob.startedAt)}</span>
 				</span>
 			</button>
 			{/* The explicit END always on the blob's face (SCOPE) — the popover
@@ -439,7 +445,7 @@ function ActivityBlobRow({
 				disabled={abortState !== undefined}
 				title={abortState === "failed" ? "Abort failed — try again" : "End this background process"}
 				aria-label={`End ${label} in ${blob.title}`}
-				className="absolute right-1 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground/70 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+				className="absolute right-1 top-2 rounded-md p-1 text-muted-foreground/70 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
 			>
 				<SquareIcon className="size-3" />
 			</button>
@@ -453,7 +459,7 @@ function ActivityBlobRow({
 						<Icon className="size-3.5 text-muted-foreground" />
 						<span className="font-medium">{label}</span>
 						<span className="ml-auto tabular-nums text-muted-foreground">
-							{formatElapsed(now - blob.startedAt)}
+							{blob.job ? (jobElapsedMs(blob.job, now) === null ? "Ready" : formatElapsed(jobElapsedMs(blob.job, now)!)) : formatElapsed(now - blob.startedAt)}
 						</span>
 					</div>
 					<div className="flex flex-col gap-1 text-muted-foreground">
@@ -487,6 +493,7 @@ function ActivityBlobRow({
 								<span className="tabular-nums text-card-foreground">{blob.steps}</span>
 							</div>
 						)}
+						{blob.job && <JobDetails job={blob.job} compact />}
 						<a href={`/chat/${blob.chatId}`} className="text-primary hover:underline">
 							Open session →
 						</a>

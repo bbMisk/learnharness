@@ -43,6 +43,17 @@ export * from "./compaction.ts";
 export { runPiTurn, piTurnResponse, type PiTurnHandle, type PiTurnSpec } from "./pi/ui-stream.ts";
 export * from "./observability.ts";
 export * from "./model-catalog.ts";
+export { sideChatSnapshot, sideChatResponse } from "./side-chat.ts";
+export * from "./typewhisper.ts";
+
+// Browser uploads feed the existing learner-file tools.
+export { uploadStore, UploadError } from "../store/uploads.ts";
+
+export { learningHistory, captureLearningHistory } from "./learning-history.ts";
+
+export { reviewSnapshot, ReviewError } from "./review.ts";
+export { projectStore, projectView, projectInstructions } from './projects.ts';
+export { setChatOrganization } from '../store/chats.ts';
 export { subscriptionControlsResponse, subscriptionBrowserResponse } from "./web-subscription-http.ts";
 export { sessionCost } from "./pricing.ts";
 export { claudeCodeInstallationResponse } from "./claude-code.ts";

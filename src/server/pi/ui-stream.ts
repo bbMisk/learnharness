@@ -124,6 +124,18 @@ export function runPiTurn(spec: PiTurnSpec): PiTurnHandle {
 	const { agent, onError, onFinish, onSettleError, onSettleFailure, usedToolCallIds, updateFlushMs = 100, requestCycle } = spec;
 	const uniquifier = usedToolCallIds ? new ToolCallIdUniquifier(usedToolCallIds) : undefined;
 
+	// pi refuses continue() on an assistant tail, even a failed response.
+	// Replay from the last successful step, but retain the original prefix
+	// for settlement: persistTurn slices by its original record length.
+	const original = [...agent.state.messages];
+	let replayCount = original.length;
+	while (replayCount > 0) {
+		const tail = original[replayCount - 1]!;
+		if (tail.role !== "assistant" || (tail.stopReason !== "error" && tail.stopReason !== "aborted")) break;
+		replayCount--;
+	}
+	if (replayCount !== original.length) agent.state.messages = original.slice(0, replayCount);
+
 	let settled = false;
 	let sawAbort = false;
 	let reportedErrorText: string | undefined;
@@ -225,7 +237,8 @@ export function runPiTurn(spec: PiTurnSpec): PiTurnHandle {
 	// the role wholesale is exact; revisit if prompt-updates ever land.
 	const settleWith = () => {
 		try {
-			const settled_ = [...agent.state.messages].filter((m) => (m as { role?: string }).role !== "system");
+			const restored = replayCount === original.length ? [...agent.state.messages] : [...original, ...agent.state.messages.slice(replayCount)];
+			const settled_ = restored.filter((m) => (m as { role?: string }).role !== "system");
 			onFinish((uniquifier?.remapSettled(settled_) as AgentMessage[]) ?? settled_, sawAbort);
 		} catch (err) {
 			console.error("[turn] settlement failed:", err);

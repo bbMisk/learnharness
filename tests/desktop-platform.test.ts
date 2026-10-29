@@ -28,6 +28,7 @@ function windowOptions(platform: string, env: Record<string, string> = {}) {
 		session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} } },
 	};
 	const context = {
+		URL,
 		require: (id: string) => id === "electron" ? electron : mainRequire(id),
 		process: { platform, argv: [], env, on() {} },
 		__dirname: dirname(mainFile),
@@ -62,7 +63,7 @@ describe("desktop window chrome", () => {
 	}
 
 	it("only the external dev shell receives the web subscription transport marker", () => {
-		assert.equal(windowOptions("darwin").webPreferences.additionalArguments, undefined);
+		assert.deepEqual(windowOptions("darwin").webPreferences.additionalArguments, []);
 		assert.deepEqual(windowOptions("darwin", { LH_DEV_URL: "http://localhost:3000" }).webPreferences.additionalArguments, ["--lh-web-subscriptions"]);
 	});
 
@@ -96,7 +97,7 @@ describe("desktop window chrome", () => {
 		runInNewContext(readFileSync(new URL("../electron/preload.cjs", import.meta.url), "utf8"), context);
 		assert.equal(bridge.platform, "win32");
 		assert.deepEqual(Object.keys(bridge).sort(), [
-			"chatgpt", "checkForUpdates", "expandWindow", "getPathForFile", "getUpdateState", "getZoom", "installUpdate", "onOpenSettings", "onUpdateStatus", "onZoom", "platform", "subscriptions",
+			"chatgpt", "checkForUpdates", "expandWindow", "getConnection", "getPathForFile", "getUpdateState", "getZoom", "installUpdate", "onCloseRequest", "onOpenSettings", "onUpdateStatus", "onZoom", "openConnection", "platform", "quitFromHome", "remoteServer", "setConnection", "subscriptions",
 		]);
 		assert.deepEqual(Object.keys(bridge.subscriptions as object).sort(), ["cancel", "consent", "disconnect", "login", "onChange", "open", "respond", "retry", "status"]);
 	});
@@ -163,7 +164,7 @@ describe("desktop packaging policy", () => {
 		const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 		assert.equal(pkg.author.name, "Amos Blomqvist");
 		assert.equal(pkg.author.email, "255718537+amosblomqvist@users.noreply.github.com");
-		assert.equal(pkg.homepage, "https://github.com/amosblomqvist/learnharness");
+		assert.equal(pkg.homepage, "https://github.com/bbMisk/learnharness");
 		assert.equal(pkg.desktopName, "learnharness.desktop");
 	});
 });

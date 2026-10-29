@@ -1756,6 +1756,28 @@ describe("stale-job recovery sweep (liveness-gated)", () => {
 		jobStore.updateJob(jobId, { status: "done", activity: "settled (test)" });
 	});
 
+	it("does not queue the same recovered result repeatedly while a question is pending", () => {
+		const { chatId } = orphanJob({ brief: "One completed figure", sources: [] });
+		const question = nativeToolMessages("Explain", "quiz", "pending-quiz", { question: "Where do the rays meet?" });
+		chatStore.saveMessages(chatId, question.slice(0, -1));
+		for (let i = 0; i < 6; i++) {
+			resetSweepThrottle();
+			recoverStaleJobs();
+		}
+		const handed: SteerMessage[] = [];
+		try {
+			assert.ok(beginTurn(chatId));
+			registerLiveAgent(chatId, { steer: (m: SteerMessage) => handed.push(m) } as never);
+			assert.equal(handed.length, 1, "the answer run must receive the completed artifact only once");
+		} finally {
+			const persisted = [...question, ...handed];
+			chatStore.saveMessages(chatId, persisted);
+			unregisterLiveAgent(chatId);
+			endTurn(chatId);
+			settleSteers(chatId, persisted);
+		}
+	});
+
 	it("an orphan WITH a stored result is re-delivered: the wake fires and the job flips done", async () => {
 		const { jobId } = orphanJob({ brief: "Done: it works.", sources: [] });
 		let fired = 0;

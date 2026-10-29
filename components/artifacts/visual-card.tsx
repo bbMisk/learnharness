@@ -24,11 +24,12 @@ import type { ArtifactPartProps, VisualResult } from "@/src/core";
 /** The svg root's DECLARED width in px, when there is one — the natural
  *  size the card displays at instead of stretching to full width (owner,
  *  2026-10-07). %, em, "auto", or a missing attribute → null (the caller
- *  falls back to full-width). Pure. */
+ *  uses the SVG image’s intrinsic size). Pure. */
 export function svgNaturalWidth(svg: string): number | null {
-	const m = /<svg\b[^>]*?\bwidth\s*=\s*["']([^"']+)["'][^>]*>/i.exec(svg);
-	if (!m) return null;
-	const value = m[1]!.trim();
+	const root = svg.match(/<!--[\s\S]*?-->|<svg\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi)?.find(tag => /^<svg\b/i.test(tag));
+	const width = root && [...root.matchAll(/\s([^\s=/>]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)].find(attr => attr[1] === "width");
+	if (!width) return null;
+	const value = (width[2] ?? width[3] ?? "").trim();
 	const px = /^(\d+(?:\.\d+)?)(?:px)?$/i.exec(value);
 	if (!px) return null;
 	const n = Number.parseFloat(px[1]!);
@@ -95,32 +96,24 @@ export function VisualOutputCard({
 		   the IMAGE's own width (the wrapper carries the natural-sizing law,
 		   so the row hugs a centered narrow figure, not the column). */
 		<div
-			className={
-				natural !== null
-					? "my-4 mx-auto w-fit max-w-full"
-					: "my-4 w-full"
-			}
+			className="my-4 mx-auto w-fit max-w-full"
 			data-testid="visual-card"
 		>
 			{/* Natural sizing (owner, 2026-10-07): a declared-width svg sits at
-			   ITS size; max-w-full still shrinks oversized ones to fit. No
-			   declared size (viewBox-only, %-width) keeps the full-width law.
+			   ITS size; max-w-full still shrinks oversized ones to fit. The viewport-height cap keeps tall figures inside the reading area,
+			   while auto dimensions preserve the SVG aspect ratio.
 			   The invert filter rides the bg-white holder, so the backing flips
 			   white→black together with the strokes; transparent areas ARE the
 			   backing. */}
 			<div
-				className={
-					natural !== null
-						? "w-fit max-w-full overflow-hidden rounded-lg bg-white"
-						: "w-full overflow-hidden rounded-lg bg-white"
-				}
-				style={{ filter: inverted ? "invert(1) hue-rotate(180deg)" : undefined }}
+				className="w-fit max-w-full overflow-hidden rounded-lg bg-white"
+				style={{ width: natural === null ? 640 : undefined, filter: inverted ? "invert(1) hue-rotate(180deg)" : undefined }}
 				data-testid="visual-svg"
 			>
 				<SvgImage
 					svg={result.svg}
 					width={natural ?? undefined}
-					className={natural !== null ? "block h-auto max-w-full" : "block h-auto w-full"}
+					className="block h-auto w-auto max-w-full max-h-[min(55vh,32rem)]"
 				/>
 			</div>
 			<div className="mt-2 flex items-center justify-between gap-2">

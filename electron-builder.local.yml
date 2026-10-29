@@ -1,0 +1,11 @@
+# Local macOS fork build. No Developer ID or Apple notary credentials needed.
+extends: ./electron-builder.yml
+directories:
+  output: dist/local
+mac:
+  icon: build/icon.icns
+  identity: "-"
+  notarize: false
+  entitlements: build/entitlements.local.mac.plist
+  entitlementsInherit: build/entitlements.local.mac.plist
+publish: null

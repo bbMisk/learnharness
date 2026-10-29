@@ -65,6 +65,7 @@ import {
 	type JobRecord,
 	type SteerMessage,
 } from "../core/contracts.ts";
+import { jobTaskFromInput } from "../core/job-visibility.ts";
 import type { TurnInput } from "../core/input-events.ts";
 import { danglingQuestionOf, endsInDismissal, type LhMessage } from "../core/native-messages.ts";
 import { fireJobAbort, isJobLive } from "../agent/subagents/aborts.ts";
@@ -762,5 +763,20 @@ export function recoverStaleJobs(): void {
 /** The /api/jobs entry: job list for the client poll (+ lazy recovery). */
 export function listJobs(chatId: string): JobRecord[] {
 	if (process.env.NODE_ENV !== "test") recoverStaleJobs();
-	return stores.jobStore.listJobs(chatId);
+	const chat = stores.chatStore.getChat(chatId);
+	const pendingAnswer = chat ? danglingQuestionOf(chat.messages) !== null : false;
+	return stores.jobStore.listJobs(chatId).map((job) => {
+		let task = job.task;
+		if (!task && chat) {
+			for (const message of chat.messages) {
+				if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+				for (const block of message.content) {
+					if (block.type === "toolCall" && block.id === job.toolCallId) task = jobTaskFromInput(block.arguments);
+				}
+			}
+		}
+		return { ...job, task, deliveryState: (job.status === "running" || job.delivery?.status === "pending") && job.result !== undefined
+			? pendingAnswer ? "waiting-answer" : isTurnRunning(chatId) ? "waiting-lesson" : "delivering"
+			: undefined };
+	});
 }

@@ -43,10 +43,12 @@ import { SidebarToggle } from "@/components/sidebar";
 
 export function TopBar({
 	drag = true,
+	showSidebarToggle = true,
 	onMouseDown,
 	children,
 }: {
 	drag?: boolean;
+	showSidebarToggle?: boolean;
 	onMouseDown?: React.MouseEventHandler<HTMLElement>;
 	children?: ReactNode;
 }) {
@@ -55,7 +57,7 @@ export function TopBar({
 			onMouseDown={onMouseDown}
 			className={`${drag ? "lh-drag " : ""}lh-wco-gutter flex h-15 select-none items-center gap-3 border-b border-border px-3`}
 		>
-			<SidebarToggle />
+			{showSidebarToggle && <SidebarToggle />}
 			{children}
 		</header>
 	);

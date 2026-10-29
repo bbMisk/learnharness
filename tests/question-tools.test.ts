@@ -444,7 +444,7 @@ describe("tool descriptions carry mechanics only, no question-craft", () => {
 			for (const banned of ["asymmetry", "distractor", "believable", "misconception"]) {
 				assert.ok(!d.toLowerCase().includes(banned), `${name} description leaks craft: "${banned}"`);
 			}
-			for (const mechanical of ["GRADED", "ONE question per turn", "ask_user_question"]) {
+			for (const mechanical of ["GRADED", "yield while it is unanswered", "receiving that result begins your next teaching turn", "ask_user_question"]) {
 				assert.ok(d.includes(mechanical), `${name} description lost mechanics: "${mechanical}"`);
 			}
 		});

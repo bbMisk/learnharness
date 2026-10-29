@@ -214,7 +214,6 @@ export function projectView(messages: readonly LhMessage[], live?: LiveTurnState
 			const rest: LhViewPart[] = [];
 			const reasoning: LhViewPart[] = [];
 			let textN = 0;
-			let reasoningN = 0;
 			// LIVE IS POSITIVE EVIDENCE (owner, 2026-10-05): a call renders
 			// live ONLY when its own message is streaming THIS turn — session
 			// busyness alone can never resurrect a settled call (the practice
@@ -226,7 +225,12 @@ export function projectView(messages: readonly LhMessage[], live?: LiveTurnState
 				if (block.type === "text") {
 					rest.push({ type: "text", id: `${m.id}-t${textN++}`, text: block.text, state: "done" });
 				} else if (block.type === "thinking") {
-					reasoning.push({ type: "reasoning", id: `${m.id}-r${reasoningN++}`, text: block.thinking, state: "done" });
+					// A provider can split one response into many reasoning items,
+					// including encrypted items with no display text. They are one
+					// thinking phase, not separate model requests. Native history
+					// (and its signatures) remains untouched by this projection.
+					if (!reasoning.length) reasoning.push({ type: "reasoning", id: `${m.id}-r0`, text: "", state: "done" });
+					if (block.thinking) reasoning[0]!.text = [reasoning[0]!.text, block.thinking].filter(Boolean).join("\n\n");
 				} else if (block.type === "toolCall") {
 					const part = toolPartOf(block, live, streamingMessage);
 					if ((QUESTION_TOOLS as readonly string[]).includes(block.name)) {

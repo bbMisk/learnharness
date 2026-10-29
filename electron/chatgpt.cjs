@@ -40,6 +40,7 @@ function validateState(state) {
 	const ids = new Set(); const clients = new Set();
 	for (const r of state.registrations) {
 		if (!r || !nonempty(r.id) || ids.has(r.id) || !nonempty(r.clientId) || r.clientId === "dynamic_agent_client" || clients.has(r.clientId) || r.issuer !== ISSUER || !nonempty(r.subject) || (Object.hasOwn(r, "background") && typeof r.background !== "boolean") || (r.email !== undefined && typeof r.email !== "string") || (Object.hasOwn(r, "reconnectRequired") && r.reconnectRequired !== true)) throw fail("storage");
+		if (Object.hasOwn(r, "fastMode") && typeof r.fastMode !== "boolean") throw fail("storage");
 		ids.add(r.id); clients.add(r.clientId);
 		if (r.tokens !== undefined) {
 			const t = r.tokens;
@@ -109,6 +110,7 @@ function createChatGPT({ store, openExternal, fetch: request = globalThis.fetch,
 	let pending;
 	let catalog = [];
 	let catalogError = null;
+	let lastServiceTier;
 	let lastError = null;
 	let closed = false;
 	let paused = false;
@@ -201,6 +203,9 @@ function createChatGPT({ store, openExternal, fetch: request = globalThis.fetch,
 			}),
 			error: lastError,
 			catalogError,
+			fastMode: active()?.fastMode === true,
+			fastModels: catalog.filter(m => m.service_tiers?.some(t => t.id === "priority" || t.id === "fast")).map(m => m.id),
+			lastServiceTier: lastServiceTier?.accountId === active()?.id ? lastServiceTier : undefined,
 		};
 	}
 	async function status() {
@@ -313,7 +318,7 @@ function createChatGPT({ store, openExternal, fetch: request = globalThis.fetch,
 						if (closed || abort.signal.aborted || epoch !== attemptEpoch) throw fail("cancelled");
 						const existing = state.registrations.find((r) => r.clientId === clientId);
 						if (existing && existing.subject !== verified.subject) throw fail("identity");
-						const record = { id: existing?.id ?? crypto.randomUUID(), clientId, issuer: ISSUER, ...verified, tokens };
+						const record = { id: existing?.id ?? crypto.randomUUID(), clientId, issuer: ISSUER, ...verified, tokens, ...(existing?.fastMode !== undefined ? { fastMode: existing.fastMode } : {}) };
 						const next = structuredClone(state);
 						next.registrations = next.registrations.filter((r) => r.id !== record.id).concat(record);
 						next.activeId = record.id;
@@ -410,7 +415,10 @@ function createChatGPT({ store, openExternal, fetch: request = globalThis.fetch,
 	}
 	async function lease(background, expected) {
 		if (typeof background !== "boolean" || !expected || !nonempty(expected.expectedAccountId) || !Number.isSafeInteger(expected.expectedAuthorityRevision) || !nonempty(expected.selectedModelId)) throw fail("catalog");
-		return credential(background, expected);
+		const value = await credential(background, expected);
+		const model = catalog.find(m => m.id === expected.selectedModelId);
+		const tier = model?.service_tiers?.find(t => t.id === "priority") ?? model?.service_tiers?.find(t => t.id === "fast");
+		return { ...value, ...(active()?.fastMode === true && tier ? { requestedTier: tier.id } : {}) };
 	}
 	const modelValue = () => ({ ...stamp(), status: snapshot(), accountId: active()?.id ?? null, models: catalog });
 	async function models() {
@@ -423,7 +431,14 @@ function createChatGPT({ store, openExternal, fetch: request = globalThis.fetch,
 			const body = await json(`${RESOURCE}/models`, { headers: { Authorization: `Bearer ${token.accessToken}` }, signal: AbortSignal.any([transportAbort.signal, AbortSignal.timeout(15000)]) });
 			authorized(false, undefined, token.epoch);
 			if (sequence !== catalogSequence || active()?.id !== token.accountId || !Array.isArray(body.models)) throw fail("catalog");
-			const visible = body.models.filter((m) => m && m.visibility === "list" && nonempty(m.slug) && typeof m.display_name === "string").map((m) => ({ id: m.slug, name: m.display_name }));
+			const visible = body.models.filter(m => m && m.visibility === "list" && m.supported_in_api !== false && nonempty(m.slug) && typeof m.display_name === "string").filter((m, i, all) => all.findIndex(x => x.slug === m.slug) === i).map((m) => ({
+				id: m.slug, name: m.display_name,
+				...(Number.isSafeInteger(m.context_window) && m.context_window > 0 ? { context_window: m.context_window } : {}),
+				...(Number.isSafeInteger(m.max_output_tokens) && m.max_output_tokens > 0 ? { max_output_tokens: m.max_output_tokens } : {}),
+				...(Array.isArray(m.input_modalities) ? { input_modalities: m.input_modalities.filter(x => x === "text" || x === "image") } : {}),
+				...(Array.isArray(m.supported_reasoning_levels) && m.supported_reasoning_levels.every(x => x && typeof x.effort === "string") ? { supported_reasoning_levels: m.supported_reasoning_levels.filter(x => x && typeof x.effort === "string").map(x => ({ effort: x.effort })) } : {}),
+				...(Array.isArray(m.service_tiers) ? { service_tiers: m.service_tiers.filter(x => x && (x.id === "priority" || x.id === "fast")).map(x => ({ id: x.id })) } : {}),
+			}));
 			const changed = JSON.stringify(visible) !== JSON.stringify(catalog);
 			catalog = visible;
 			if (changed) authorityRevision++;
@@ -437,6 +452,21 @@ function createChatGPT({ store, openExternal, fetch: request = globalThis.fetch,
 			}
 			return modelValue();
 		}
+	}
+	async function fast(enabled) {
+		if (typeof enabled !== "boolean") throw fail("identity");
+		const accountId = active()?.id, capturedEpoch = epoch;
+		await ready();
+		return serial(async () => {
+			if (!accountId || active()?.id !== accountId || capturedEpoch !== epoch) throw fail("disconnected");
+			const next = structuredClone(state); next.registrations.find(r => r.id === accountId).fastMode = enabled;
+			await save(next); authorityRevision++; notify(); return snapshot();
+		});
+	}
+	function reportTier(value) {
+		if (!value || value.accountId !== active()?.id || value.epoch !== epoch || value.authorityRevision !== authorityRevision || !catalog.some(m => m.id === value.modelId) || !Number.isSafeInteger(value.startedAt) || (value.requested !== null && value.requested !== "priority" && value.requested !== "fast")) return;
+		if (lastServiceTier?.startedAt > value.startedAt) return;
+		lastServiceTier = { accountId: value.accountId, modelId: value.modelId, requested: value.requested, served: ["default", "priority", "fast", "auto", "flex"].includes(value.served) ? value.served : null, startedAt: value.startedAt }; notify();
 	}
 	async function select(id) {
 		pending?.cancel();
@@ -536,7 +566,7 @@ function createChatGPT({ store, openExternal, fetch: request = globalThis.fetch,
 	function close() { closed = true; pending?.cancel(); stop(); }
 	function pause() { paused = true; pending?.cancel(); stop(); notify(); }
 	function resume() { paused = false; if (!storageDenied) suspended = false; notify(); }
-	return { status, login, cancelLogin, lease, models, select, consent, disconnect, logout, close, pause, resume, stamp };
+	return { status, login, cancelLogin, lease, models, select, consent, fast, reportTier, disconnect, logout, close, pause, resume, stamp };
 }
 
 module.exports = { createChatGPT, fileStore, publicError, allowedAuthEndpoint, SCOPES, validateState };

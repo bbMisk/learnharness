@@ -2522,3 +2522,25 @@ describe("notes import completion and retry reliability", () => {
 		assert.equal(ledgers.readNodes().length, 2);
 	});
 });
+
+describe("new flashcard math at the extraction boundary", () => {
+ const goodStatement = String.raw`The objective $J(w)=\frac{\lVert Xw-y\rVert^2}{2N}$ updates $w_j$.`;
+ const findings = (statement: string) => ({propositions:[{id:'p1',name:'Squared-error objective',statement,aliases:[],messageId:'a1'}],chains:[]});
+ const step = (statement: string): FauxResponseStep => () => fauxAssistantMessage([fauxToolCall('submit_findings',findings(statement) as ToolCall['arguments'])],{stopReason:'toolUse'});
+ for (const door of ['session','notes'] as const) {
+  it(`${door}: plain equations are corrected through the existing retry before a card source is saved`, async () => {
+   const ledgers=memoryLedgers();
+   const pipeline=createExtractionPipeline({chatStore,graphStore:ledgers,extractor:fauxEngine([step('The objective J(w)=||Xw−y||²/(2N) updates w_j.'),step(goodStatement)]),auditor:submitModel('submit_review',{links:[]})});
+   const result=door==='session' ? await pipeline.runExtraction(fixtureChat().chatId) : await pipeline.importNotes({filePath:'/vault/new-math-card.md',text:NOTES_TEXT});
+   assert.deepEqual(result,{nodes:1,chains:0});
+   assert.equal(ledgers.readNodes()[0]!.statement,goodStatement,'only the corrected, renderable statement reaches the graph');
+  });
+ }
+ it('an extractor that never fixes invalid LaTeX creates no card source and marks no passage as covered',async()=>{
+  const {chatId}=fixtureChat();const ledgers=memoryLedgers();
+  const pipeline=createExtractionPipeline({chatStore,graphStore:ledgers,extractor:submitModel('submit_findings',findings(String.raw`Recall $\frac{1}{$.`)),auditor:submitModel('submit_review',{links:[]})});
+  assert.deepEqual(await pipeline.runExtraction(chatId),{nodes:0,chains:0});
+  assert.equal(ledgers.readNodes().length,0);
+  assert.equal(ledgers.readCoverage().length,0,'the source stays eligible for a later extraction');
+ });
+});

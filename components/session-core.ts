@@ -325,7 +325,9 @@ export class SessionModel {
 	private setStatus(status: SessionStatus): void {
 		if (status === "submitted") this.liveFailureId = null;
 		this.statusValue = status;
-		this.readyRef = status === "ready";
+		// An error is idle too: the next explicit send/retry may recover.
+		// Keep the error visible until that action starts a new request.
+		this.readyRef = status === "ready" || status === "error";
 		this.onChange?.();
 	}
 

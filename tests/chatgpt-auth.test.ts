@@ -682,3 +682,51 @@ test("private leases bind active account, authority revision and raw visible mod
 		assert.equal((await f.rawLease(false, expected)).accountId, catalog.accountId);
 	} finally { f.service.close(); }
 });
+
+test("account catalog retains new-model capabilities, dedupes only eligible rows and revisions capability changes", async () => {
+ let context = 500000;
+ const f = await loggedIn({ provider: async target => target.endsWith("/models") ? Response.json({ models: [
+  { slug: "future-model", display_name: "Hidden", visibility: "hide" },
+  { slug: "future-model", display_name: "Future", visibility: "list", context_window: context, input_modalities: ["text", "image"], supported_reasoning_levels: [{effort:"high"}], service_tiers: [{id:"priority"}], access_token: "must-not-leave-owner" },
+  { slug: "malformed", display_name: "Incomplete", visibility: "list", context_window: context, input_modalities:["text"], supported_reasoning_levels: [{bad:"value"}] },
+ ] }) : undefined });
+ try {
+  const first = await f.service.models();
+  assert.equal(first.models[0].id,"future-model");
+  assert.equal(first.models[0].context_window, context);
+  assert.equal(first.models[0].access_token, undefined);
+  assert.equal(first.models[1].supported_reasoning_levels, undefined, "malformed capabilities never become a fabricated non-reasoning model");
+  context++;
+  const next = await f.service.models();
+  assert(next.authorityRevision > first.authorityRevision, "same model ID with changed capabilities invalidates old leases");
+ } finally { f.service.close(); }
+});
+
+test("Fast is account-specific, lease-approved, and actual delivery ignores stale reports", async () => {
+ const seed = await loggedIn();
+ const state = structuredClone(seed.saved); seed.service.close();
+ const firstId = state.activeId;
+ state.registrations.push({...structuredClone(state.registrations[0]),id:"second-account",clientId:"oaiapp_second",subject:"second-user",fastMode:false});
+ const f = fixture({state,provider:async target=>target.endsWith("/models")?Response.json({models:[{slug:"gpt-5",display_name:"Fixture",visibility:"list",service_tiers:[{id:"priority"}]}]}):undefined});
+ try {
+  await f.service.status();
+  let catalog = await f.service.models();
+  const scope = () => ({expectedAccountId:catalog.accountId,expectedAuthorityRevision:catalog.authorityRevision,selectedModelId:"gpt-5"});
+  assert.equal((await f.rawLease(false,scope())).requestedTier,undefined);
+  await f.service.fast(true); catalog = await f.service.models();
+  const lease = await f.rawLease(false,scope()); assert.equal(lease.requestedTier,"priority");
+  f.service.reportTier({...lease,modelId:"gpt-5",startedAt:20,requested:"priority",served:"default"});
+  assert.equal((await f.service.status()).lastServiceTier.served,"default");
+  f.service.reportTier({...lease,modelId:"gpt-5",startedAt:10,requested:"priority",served:"priority"});
+  assert.equal((await f.service.status()).lastServiceTier.served,"default","older request cannot replace latest delivery");
+  await f.service.select("second-account"); catalog = await f.service.models();
+  assert.equal((await f.service.status()).fastMode,false);
+  assert.equal((await f.rawLease(false,scope())).requestedTier,undefined,"other account did not opt in");
+  f.service.reportTier({...lease,modelId:"gpt-5",startedAt:30,requested:"priority",served:"priority"});
+  assert.equal((await f.service.status()).lastServiceTier,undefined,"old account report is discarded");
+  await f.service.select(firstId); await f.service.models();
+  assert.equal((await f.service.status()).fastMode,true,"account preference survives switching");
+  await f.service.fast(false);catalog=await f.service.models();
+  assert.equal((await f.rawLease(false,scope())).requestedTier,undefined);
+ } finally { f.service.close(); }
+});

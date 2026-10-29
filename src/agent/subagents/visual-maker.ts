@@ -1,3 +1,4 @@
+import { SVG_VISUAL_STYLE } from "./visual-style.ts";
 import { randomUUID } from "node:crypto";
 import type { AssistantMessage, Message, Tool, ToolResultMessage, Usage } from "@earendil-works/pi-ai";
 import { normalizeContext } from "@earendil-works/pi-ai";
@@ -85,10 +86,11 @@ until correct and clean. Never finish without having looked at a render of your 
 
 SVG requirements:
 - A complete <svg> with explicit width/height AND a matching viewBox.
-- White background (<rect> or style), dark strokes, sans-serif labels at generous sizes.
+- Native dark-mode styling by default: an explicit full-canvas background rect (#141414), light labels and strokes (#ffffff), and at most one readable accent (e.g. #83c3ff). Avoid white panels and dark-on-dark details. Use sans-serif labels at generous sizes.
+- Author the dark colors in the SVG itself; do not rely on an inversion filter. Unless the learner explicitly requested a light or print version, use this dark palette even if a generic or older brief assumes a white background. Check contrast in the final rendered PNG.
 - One idea, fewest elements — sparse and large beats busy and tiny.
 - Draw only what the brief specifies; never invent data, values, or shapes to fill space.
-- Plain, clean styling: at most one accent color. An explanatory diagram, not art.
+- Plain, clean styling: use the shared palette below, with color reserved for meaningful visual roles.
 
 Your FINAL message: 1-2 sentences of notes for the teacher (what the figure shows, any caveats) —
 NEVER the SVG source itself. If you genuinely cannot make a correct picture of the brief, say exactly
@@ -164,7 +166,7 @@ export async function runVisualMaker(input: VisualMakerInput, opts: VisualMakerO
 			// loop owns tool execution and the image-in-the-loop injection).
 			const result = await streamOnce(
 				engine,
-				INSTRUCTIONS,
+				INSTRUCTIONS + "\n\n" + SVG_VISUAL_STYLE,
 				messages,
 				toolDeclarations,
 				sessionId,

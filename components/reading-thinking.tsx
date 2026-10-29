@@ -2,6 +2,9 @@
 
 import { useCallback } from "react";
 import { joinDictation, useDictationTarget } from "@/components/dictation";
+import { useFileDrop } from "@/components/file-drop";
+import { FileDropFeedback } from "@/components/file-drop-feedback";
+import { verbatimInputProps } from "@/components/verbatim-input";
 import { PathInput } from "@/components/path-input";
 
 /**
@@ -25,6 +28,7 @@ export function ReadingThinkingField({
 	onEscape,
 	onOpen,
 	claim,
+	onUploadingChange,
 }: {
 	value: string;
 	onChange: (v: string) => void;
@@ -37,27 +41,32 @@ export function ReadingThinkingField({
 	onOpen?: () => void;
 	/** Primary dictation claim — true while the check is behind its reveal. */
 	claim: boolean;
+	onUploadingChange?: (busy: boolean) => void;
 }) {
+	const files = useFileDrop(value, onChange, {onUploadingChange,hideImagePaths:true,priority:30,label:"Thinking while reading"});
 	useDictationTarget(
 		useCallback(
 			(t: string) => {
-				onChange(joinDictation(value, t));
+				files.changeText(joinDictation(files.currentText(), t));
 			},
-			[value, onChange],
+			[files],
 		),
 		claim,
 	);
 	return (
 		<div
 			data-testid="reading-thinking-field"
+			{...files.handlers}
 			className="pointer-events-auto mb-2 rounded-2xl border bg-card/60 px-3 py-2 transition-colors focus-within:border-primary/50"
 		>
 			<div className="pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 				Thinking while reading
 			</div>
+			<FileDropFeedback files={files} />
 			<PathInput
-				value={value}
-				onValueChange={onChange}
+				{...verbatimInputProps}
+				value={files.text}
+				onValueChange={(value) => files.changeText(value)}
 				/* py-0.5 (owner round, 2026-10-07): the scrollbar fix. Source
 				   Sans 3's font box is 22px at 16px; lh-input's 1.25 leading
 				   gives a 20px line box — the content area sticks 1px below the
@@ -84,7 +93,7 @@ export function ReadingThinkingField({
 					if (e.key === "Enter" && onOpen !== undefined && (!e.shiftKey || e.metaKey || e.ctrlKey)) {
 						e.preventDefault();
 						e.stopPropagation();
-						onOpen();
+						if (!files.isUploading()) onOpen();
 						return;
 					}
 					// The dock's dumping convention: plain Enter is a newline.

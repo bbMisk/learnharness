@@ -36,7 +36,8 @@ export type KeyAction =
 	| "question-pick-row"
 	| "question-submit"
 	| "open-settings"
-	| "toggle-user-thinking";
+	| "toggle-user-thinking"
+	| "toggle-side-tutor";
 
 /** Where the cheat sheet groups an action (display only — dispatch is
  *  global; a seam that isn't mounted simply no-ops). */
@@ -55,7 +56,7 @@ export interface KeyActionDef {
 }
 
 export const KEYBOARD_ACTIONS: readonly KeyActionDef[] = [
-	{ id: "toggle-dictation", label: "Toggle dictation", scope: "global", binding: "mod+d" },
+	{ id: "toggle-dictation", label: "Toggle dictation", scope: "global", binding: "" },
 	{ id: "open-settings", label: "Open settings", scope: "global", binding: "mod+," },
 	{ id: "open-model-picker", label: "Model selector", scope: "global", binding: "mod+k" },
 	{ id: "cycle-thinking", label: "Cycle thinking level", scope: "global", binding: "shift+tab" },
@@ -69,6 +70,7 @@ export const KEYBOARD_ACTIONS: readonly KeyActionDef[] = [
 	{ id: "new-session", label: "New session", scope: "global", binding: "mod+n" },
 	{ id: "rename-session", label: "Rename session", scope: "chat", binding: "f2" },
 	{ id: "toggle-user-thinking", label: "Toggle all your thinking", scope: "chat", binding: "mod+t" },
+	{ id: "toggle-side-tutor", label: "Temporary side tutor", scope: "chat", binding: "mod+shift+s" },
 	// Mod+F is surface-scoped: graph node search and session text Find share
 	// one action/binding. Only the currently mounted surface listens.
 	{ id: "find", label: "Find", scope: "global", binding: "mod+f" },
@@ -132,7 +134,9 @@ export function effectiveKeymap(): Map<string, KeyAction> {
 
 /** Which action a normalized binding fires, if any (override-aware). */
 export function actionForBinding(binding: string): KeyAction | undefined {
-	return effectiveKeymap().get(binding);
+	const action = effectiveKeymap().get(binding);
+	// Keep the previous shortcut working until the learner rebinds the action.
+	return action ?? (binding === "mod+alt+s" && bindingForAction("toggle-side-tutor") === "mod+shift+s" ? "toggle-side-tutor" : undefined);
 }
 
 /** The effective (override-aware) binding for one action — display use. */
@@ -159,7 +163,10 @@ export function eventBinding(e: KeyboardEvent): string {
 	if (mod) mods.push("mod");
 	if (e.altKey) mods.push("alt");
 	if (e.shiftKey) mods.push("shift");
-	return [...mods, e.key.toLowerCase()].join("+");
+	// macOS Option changes event.key (⌘⌥S can report "ß"). Modified
+	// letter shortcuts use the physical letter code so the chord survives.
+	const key = mod && e.altKey && /^Key[A-Z]$/.test(e.code) ? e.code.slice(3).toLowerCase() : e.key.toLowerCase();
+	return [...mods, key].join("+");
 }
 
 /** The window event name a registry action dispatches/answers on —

@@ -2,7 +2,7 @@ name: Desktop release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*", "!v*-preview.*"]
   # Manual runs are artifact-only, unsigned, and NEVER create a release.
   # Use this for the first Windows/Linux dress rehearsal without secrets.
   workflow_dispatch:

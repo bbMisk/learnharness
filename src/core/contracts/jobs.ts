@@ -30,6 +30,14 @@ export interface JobRecord {
 	status: JobStatus;
 	/** Latest human-readable activity line, e.g. `web_search: "sigma.js v3"`. */
 	activity: string;
+	/** Bounded progress history, retained on the existing job record. */
+	activityHistory?: { at: string; text: string }[];
+	/** The assigned task, captured at dispatch or recovered from the transcript. */
+	task?: string;
+	/** Generation finished, independently of delivery into the lesson. */
+	generatedAt?: string;
+	/** Read-time projection; never controls the delivery protocol. */
+	deliveryState?: "waiting-answer" | "waiting-lesson" | "delivering";
 	createdAt: string;
 	updatedAt: string;
 	/** The sub-agent's result (steer-artifact payload). */
@@ -206,6 +214,8 @@ export interface DemoToolInput {
 
 export interface DemoResult {
 	title: string;
+	/** Absent on legacy demos; versioned shared styling/runtime for new demos. */
+	renderer?: "learnharness-v1" | "visualize-v1";
 	/** Self-contained single-file HTML/JS document (sandboxed-iframe ready). */
 	html: string;
 	/** The builder sub-agent headlessly executed the demo before delivery. */

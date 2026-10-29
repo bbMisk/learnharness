@@ -6,15 +6,26 @@
   </picture>
 </p>
 
-<p align="center"><strong>An agent harness for learning.</strong></p>
+<p align="center"><strong>LearnHarness — Hanson’s fork</strong><br>Adaptive lessons, practice, and a persistent knowledge graph.</p>
 
 <p align="center">
-  <a href="https://learnharness.ai">Download</a> ·
+  <a href="https://github.com/bbMisk/learnharness/releases/download/v0.4.0-preview.2/LearnHarness-0.4.0-preview.2-arm64.dmg">Download for Mac</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="docs/development.md">Documentation</a> ·
-  <a href="https://github.com/amosblomqvist/learnharness/issues">Issues</a> ·
+  <a href="https://github.com/bbMisk/learnharness/issues">Issues</a> ·
   <a href="https://discord.gg/5tCHHQEB2e">Discord</a>
 </p>
+
+Maintained by [Hanson Sun](https://github.com/bbMisk), based on [Amos Blomqvist’s LearnHarness](https://github.com/amosblomqvist/learnharness). This fork retains the upstream learning system and adds:
+
+- **Continue across Macs:** optional shared-host connection in the Electron app’s settings.
+- **Temporary side tutor:** clarify a concept without advancing the main lesson; resizable panes and keyboard controls.
+- **Projects and pinned chats:** shared files and custom project instructions.
+- **Easier attachments:** paste screenshots or drop files anywhere, with removable previews above the input.
+- **Learning review:** exportable learning history and offline flashcards from the knowledge graph.
+- **Presentation and reliability:** dark figures/demos, bounded SVG sizing, inspectable background jobs, and send/recovery fixes.
+
+Current upstream ChatGPT sign-in is reused, with account-advertised discovery of new compatible models and an optional Fast preference that distinguishes requested from actual delivery.
 
 LearnHarness uses AI agents to plan and teach lessons from your current understanding to your goal. It builds a detailed picture of what you understand and how you reason. That picture is updated as you learn.
 
@@ -43,17 +54,15 @@ Future teaching sessions can read the graph instead of starting from scratch. Pr
 
 ## Download and get started
 
-**[Download from learnharness.ai](https://learnharness.ai)** · [GitHub Releases](https://github.com/amosblomqvist/learnharness/releases)
+**[Download for Apple Silicon Mac](https://github.com/bbMisk/learnharness/releases/download/v0.4.0-preview.2/LearnHarness-0.4.0-preview.2-arm64.dmg)** · [Release notes and source](https://github.com/bbMisk/learnharness/releases/tag/v0.4.0-preview.2)
 
-- **macOS (Apple Silicon):** signed and notarized DMG. Drag the app to Applications.
-- **Windows (x64):** run the installer. It is currently unsigned; Windows may show an “unknown publisher” or SmartScreen warning.
-- **Linux (x64):** make the AppImage executable and open it, or install the Debian/Ubuntu `.deb`.
+1. Open the DMG and drag **LearnHarness** to **Applications**. Requires macOS 13+ and an M-series Mac.
+2. Open the app, choose **Connect your AI account**, and use your own ChatGPT account or provider API key.
+3. Choose the lesson models and start learning. No terminal, Node installation, or shared host is needed.
 
-Add your provider API key and choose your models, then start a session with what you want to understand. LearnHarness supports 30+ provider options, including OpenAI, Anthropic, Google, DeepSeek, and OpenRouter. Optional dictation and web search use separate service keys.
+This is a **preview**, ad-hoc signed and not Apple notarized. If macOS blocks it, use **System Settings → Privacy & Security → Open Anyway** after verifying the download source. Automatic app updates are not active in this preview; install newer releases from this repository. Your learning data remains in the app’s local data folder. Other platforms are not packaged by this fork yet.
 
-All three platforms support in-app updates.
-
-**Dictation:** Create a [Deepgram API key](https://console.deepgram.com/) with the **Member role or higher** ([required for token minting](https://developers.deepgram.com/reference/auth/tokens/grant)) and add it under **Settings → Providers → Dictation**. Choose the language below the key; **Multilingual** supports automatic recognition and mixed-language speech. A `403 Insufficient permissions` error during token minting can indicate an insufficient key role.
+Optional shared-host mode connects your own Macs to one running LearnHarness host; otherwise every installation uses its own local chats, graph, files and account. It does not include access to Hanson’s host or accounts.
 
 ## Your keys, your data
 
@@ -64,6 +73,8 @@ All three platforms support in-app updates.
 
 ## Development and support
 
+See [ChatGPT account setup](docs/chatgpt-plan.md) for account handling and limits, and [offline flashcards](docs/offline-flashcards.md) for review setup.
+
 ```bash
 npm install
 npm run dev        # http://localhost:3000
@@ -72,10 +83,10 @@ npm test           # deterministic, no LLM, no network
 
 See the [development guide](docs/development.md), [architecture](docs/architecture.md), and [desktop release guide](docs/desktop-release.md).
 
-Questions, bug reports, and feature requests: [GitHub Issues](https://github.com/amosblomqvist/learnharness/issues).
+Questions, bug reports, and feature requests: [GitHub Issues](https://github.com/bbMisk/learnharness/issues).
 
 ## License
 
 [AGPL-3.0](LICENSE)
 
-The app is free and open forever. If we ever charge for anything, it will be for convenience — managed keys, hosting — never for features you can run locally.
+Original LearnHarness by Amos Blomqvist and contributors; fork additions by Hanson Sun. Upstream attribution and third-party notices are retained.

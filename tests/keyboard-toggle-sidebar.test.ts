@@ -32,6 +32,11 @@ describe("kbdEventForAction — the one spelling for action events", () => {
 });
 
 describe("the ⌘B chain — keypress → binding → action → event", () => {
+	it("dictation leaves Cmd+D free and F3 to the global TypeWhisper shortcut", () => {
+		assert.equal(bindingForAction("toggle-dictation"), "");
+		assert.equal(actionForBinding("mod+d"), undefined);
+		assert.equal(actionForBinding("f3"), undefined);
+	});
 	it("mod+t is the toggle-user-thinking action (owner round, 2026-10-07)", () => {
 		assert.equal(actionForBinding("mod+t"), "toggle-user-thinking");
 		assert.equal(bindingForAction("toggle-user-thinking"), "mod+t");

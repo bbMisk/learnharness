@@ -286,7 +286,7 @@ describe("dispatch card rendering (the tool-call ack box)", () => {
 			</JobsContext.Provider>,
 		);
 		assert.match(html, /Research agent/);
-		assert.match(html, /finished/);
+		assert.match(html, /delivered/i);
 		assert.ok(!html.includes("web_search"), "no stale activity line once settled");
 	});
 
@@ -296,7 +296,7 @@ describe("dispatch card rendering (the tool-call ack box)", () => {
 				<JobCard part={ackPart as never} />
 			</JobsContext.Provider>,
 		);
-		assert.match(html, /failed/);
+		assert.match(html, /failed/i);
 	});
 
 	it("renders nothing for a still-streaming tool input", () => {
@@ -347,7 +347,7 @@ describe("dispatch card rendering (the tool-call ack box)", () => {
 			</JobsContext.Provider>,
 		);
 		assert.match(html, /PDF reader/);
-		assert.match(html, /finished/);
+		assert.match(html, /delivered/i);
 	});
 });
 
@@ -390,7 +390,7 @@ describe("steer card rendering (the delivered artifact)", () => {
 		// Natural sizing (owner, 2026-10-07): a DECLARED width (200) means the
 		// holder hugs + centers rather than stretching full-width.
 		assert.match(html, /w-fit/, "holder hugs the declared size");
-		assert.match(html, /class="block h-auto max-w-full"/, "image shrinks to fit only when oversized");
+		assert.match(html, /class="block h-auto w-auto max-w-full max-h-\[min\(55vh,32rem\)\]"/, "image shrinks to fit only when oversized");
 		assert.ok(!html.includes("Looking at the render"), "model-facing notes never render");
 	});
 
@@ -467,7 +467,7 @@ describe("steer card rendering (the delivered artifact)", () => {
 		);
 		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
 		assert.match(html, /pdf-brief-card/);
-		assert.match(html, /failed/);
+		assert.match(html, /failed/i);
 		assert.match(html, /could not be opened/);
 		assert.ok(!html.includes("pdf-complete-badge"), "no complete badge for a failure");
 	});
@@ -541,6 +541,9 @@ describe("artifact chrome — scrollbar, invert toggles, downloads (release poli
 		assert.equal(svgNaturalWidth('<svg width="auto"></svg>'), null);
 		assert.equal(svgNaturalWidth('<svg viewBox="0 0 10 10"></svg>'), null, "viewBox-only → full-width law");
 		assert.equal(svgNaturalWidth('<svg width="0"></svg>'), null, "degenerate zero is no size");
+		assert.equal(svgNaturalWidth('<svg viewBox="0 0 600 400" stroke-width="2">'), null);
+		assert.equal(svgNaturalWidth('<svg viewBox="0 0 600 400" data-width="4">'), null);
+		assert.equal(svgNaturalWidth(`<svg aria-label='a width="2" note' width="320">`), 320);
 	});
 
 	it("slugFilename: titles slug to filename stems; symbol-only falls back", () => {

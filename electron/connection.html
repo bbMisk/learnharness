@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'">
+<title>LearnHarness Connection</title>
+<style>
+:root { color-scheme: dark; font: 14px -apple-system, BlinkMacSystemFont, sans-serif; background: #181818; color: #e5e5e5; }
+body { margin: 0 auto; max-width: 480px; padding: 32px; }
+h1 { font-size: 22px; margin: 0 0 12px; } p { color: #999; line-height: 1.5; }
+label { display: block; margin: 20px 0 8px; } input[type=url] { box-sizing: border-box; width: 100%; margin: 8px 0 0; padding: 12px; background: #242424; color: inherit; border: 1px solid #444; border-radius: 8px; font: inherit; }
+button { margin-top: 20px; padding: 10px 16px; border: 0; border-radius: 8px; background: #eee; color: #181818; font: inherit; cursor: pointer; } button:disabled { opacity: .5; cursor: wait; }
+#error { color: #ff7777; min-height: 1.5em; } input[type=radio] { accent-color: #ddd; }
+</style>
+</head>
+<body>
+<h1>Connection</h1>
+<p>Choose where LearnHarness runs. Connecting to a host uses its chats, files, skills, models, and learning progress. Your local data stays on this Mac.</p>
+<form id="connection-form">
+<label><input type="radio" name="mode" value="host" checked> Connect to a host</label>
+<input id="host" type="url" aria-label="Host URL" placeholder="https://your-mac.your-tailnet.ts.net" autocomplete="url" spellcheck="false">
+<label><input type="radio" name="mode" value="local"> Use this Mac</label>
+<p id="error" role="alert"></p>
+<button id="connect" type="submit">Connect and reopen</button>
+<p>Use your private host URL with Tailscale connected. You can change this any time from Settings or the LearnHarness menu.</p>
+</form>
+<script src="connection.js"></script>
+</body>
+</html>

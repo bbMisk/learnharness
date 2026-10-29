@@ -110,6 +110,7 @@ export async function webSubscriptionRequest<T>(channel: Channel, op: string, fi
 		if (op === "status") value = { status: await owner.chatgpt.status(), ...owner.chatgpt.stamp() };
 		else if (op === "models") value = await owner.chatgpt.models();
 		else if (op === "lease" && typeof fields.background === "boolean") value = await owner.chatgpt.lease(fields.background, fields);
+		else if (op === "reportTier") value = owner.chatgpt.reportTier(fields.value);
 		else throw new Error("Invalid private operation.");
 	} else {
 		if (op === "snapshot") value = await owner.native.snapshot();

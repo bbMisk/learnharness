@@ -106,11 +106,11 @@ const DEMO_DESCRIPTION =
 	"demo (parameter sweep, simulation, animation, sampling) rendered live in the lesson. Use it when the concept is DYNAMIC: " +
 	"something to sweep, animate, or sample is better experienced than described. " +
 	"The call is ASYNC and fire-and-forget — it resolves immediately and your turn continues; the tested demo arrives later " +
-	"as a new message. Write a precise brief: concept, controls, interactions, style.";
+	"as a new message. Write a precise brief: concept, controls, interactions, style. Use native dark-mode styling by default.";
 const VISUAL_DESCRIPTION =
 	"Dispatch a background sub-agent that hand-authors ONE precise SVG figure, renders it, LOOKS at the render, and iterates " +
 	"until correct. Use it for exact spatial pictures auto-layout diagrams can't do: coordinate geometry, number lines, vectors, " +
-	"function plots, physical layouts. For flows/relations/taxonomies write mermaid inline instead. " +
+	"function plots, physical layouts. Use native dark-mode styling by default. For flows/relations/taxonomies write mermaid inline instead. " +
 	"The call is ASYNC and fire-and-forget — it resolves immediately and your turn continues; the verified figure arrives later " +
 	"as a new message.";
 const PDF_DESCRIPTION =

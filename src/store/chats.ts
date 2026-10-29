@@ -10,6 +10,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { PATHS } from "../../config.ts";
+import { mergeLearningEvents } from "../core/learning-history.ts";
 import { emit } from "../core/events.ts";
 import type { ChatStore } from "../core/ports.ts";
 import type { ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, PlanTree, TurnUsage } from "../core/contracts.ts";
@@ -55,7 +56,14 @@ function createChat(title: string, kind?: "practice"): ChatRecord {
  *  lazy migration means existing files only get stamped on their next write.
  *  A future-version guard lives on the read side (getChat). */
 function writeChat(record: ChatRecord): void {
-	fs.writeFileSync(chatFile(record.id), JSON.stringify({ ...record, version: CURRENT_CHAT_VERSION }, null, "\t"), "utf-8");
+	const file = chatFile(record.id);
+	const temp = `${file}.${crypto.randomUUID()}.tmp`;
+	try {
+		fs.writeFileSync(temp, JSON.stringify({ ...record, version: CURRENT_CHAT_VERSION }, null, "\t"), "utf-8");
+		fs.renameSync(temp, file);
+	} finally {
+		fs.rmSync(temp, { force: true });
+	}
 }
 
 function getChat(id: string): ChatRecord | null {
@@ -84,7 +92,7 @@ function listChats(): ChatSummary[] {
 			.filter((f) => f.endsWith(".json"))
 			.map((f) => getChat(f.slice(0, -5)))
 			.filter((r): r is ChatRecord => r !== null)
-			.map(({ messages, tree, turns, extractions, ...summary }) => {
+			.map(({ messages, tree, turns, extractions, learningEvents, ...summary }) => {
 				// Per-record isolation (Wave B): a record whose messages fail the
 				// projection (e.g. pre-Wave-B UIMessage-format scratch — the
 				// zero-back-compat wipe makes these "corrupt") must not blank the
@@ -114,7 +122,7 @@ function listChats(): ChatSummary[] {
 				}
 			})
 			.filter((s): s is ChatSummary => s !== null)
-			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+			.sort((a, b) => Number(!!b.pinned)-Number(!!a.pinned) || b.updatedAt.localeCompare(a.updatedAt));
 	} catch {
 		return [];
 	}
@@ -126,9 +134,24 @@ function listChats(): ChatSummary[] {
 function saveMessages(id: string, messages: LhMessage[]): void {
 	const record = getChat(id);
 	if (!record) throw new Error(`Chat not found: ${id}`);
+	const previous = mergeLearningEvents(record.learningEvents, record.messages);
+	record.learningEvents = mergeLearningEvents(previous, messages);
 	record.messages = messages;
 	record.updatedAt = new Date().toISOString();
 	writeChat(record);
+}
+
+/** Backfill existing timestamped facts without changing lesson activity dates. */
+export function captureChatLearningHistory(id: string): number {
+	const record = getChat(id);
+	if (!record) throw new Error(`Chat not found: ${id}`);
+	const events = mergeLearningEvents(record.learningEvents, record.messages);
+	const added = events.length - (record.learningEvents?.length ?? 0);
+	if (added > 0) {
+		record.learningEvents = events;
+		writeChat(record);
+	}
+	return added;
 }
 
 /** Append one usage entry to the record's turn log — idempotent per
@@ -217,3 +240,11 @@ export const chatStore: ChatStore = {
 	appendTurnUsage,
 	appendExtractionUsage,
 };
+
+/** Organization does not count as lesson activity or rewrite conversation history. */
+export function setChatOrganization(id: string, updates: { pinned?: boolean; projectId?: string | null }): ChatRecord {
+ const record=getChat(id);if(!record) throw new Error('Chat not found.');
+ if(updates.pinned!==undefined) record.pinned=updates.pinned;
+ if(updates.projectId!==undefined) { if(updates.projectId===null) delete record.projectId;else record.projectId=updates.projectId; }
+ writeChat(record);emit('chats-changed',{});return record;
+}

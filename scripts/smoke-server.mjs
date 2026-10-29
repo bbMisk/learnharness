@@ -169,6 +169,11 @@ async function main() {
 			if (status !== 200) throw new Error(`GET ${route} → ${status} (expected 200)`);
 			console.log(`[smoke-server] GET ${route} → 200`);
 		}
+		// Exercise an error from the singleton created by another route bundle.
+		// No TypeWhisper server/credentials are touched for an unowned session.
+		const dictationStatus = await get(`${url}/api/stt/typewhisper?id=00000000-0000-4000-8000-000000000001`);
+		if (dictationStatus !== 404) throw new Error(`TypeWhisper unknown session → ${dictationStatus} (expected 404)`);
+		console.log("[smoke-server] TypeWhisper unknown session → 404");
 	} catch (err) {
 		failed = err;
 	} finally {

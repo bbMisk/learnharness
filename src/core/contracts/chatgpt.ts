@@ -13,6 +13,9 @@ export interface ChatGPTStatus {
 	}[];
 	error: string | null;
 	catalogError?: string | null;
+ fastMode?: boolean;
+ fastModels?: string[];
+ lastServiceTier?: { modelId: string; requested: string | null; served: string | null };
 }
 export interface ChatGPTControlBridge {
 	status(): Promise<ChatGPTStatus>;
@@ -22,6 +25,7 @@ export interface ChatGPTControlBridge {
 	/** Explicitly forget every local registration/credential for this verified identity. */
 	disconnect(id: string): Promise<ChatGPTStatus>;
 	logout(id: string): Promise<ChatGPTStatus>;
+	fast?(enabled: boolean): Promise<ChatGPTStatus>;
 	consent(enabled: boolean): Promise<ChatGPTStatus>;
 	onChange(callback: () => void): () => void;
 }

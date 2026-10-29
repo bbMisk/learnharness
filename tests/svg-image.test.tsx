@@ -104,18 +104,18 @@ describe("generated SVG image boundary", () => {
 		const { document } = parseHTML(renderToStaticMarkup(<VisualOutputCard output={{ svg: FIGURE }} />));
 		const image = assertImageBoundary(document.querySelector('[data-testid="visual-svg"]')!, FIGURE);
 		assert.equal(image.getAttribute("width"), "320");
-		assert.equal(image.className, "block h-auto max-w-full");
+		assert.equal(image.className, "block h-auto w-auto max-w-full max-h-[min(55vh,32rem)]");
 		assert.ok(document.querySelector('[data-testid="visual-card"]')!.classList.contains("w-fit"));
 	});
 
-	for (const width of ["", ' width="100%"']) {
-		it(`inline: keeps the full-width fallback for ${width || "viewBox-only"} SVG`, () => {
+	for (const width of ["", ' width="100%"', ' stroke-width="2"', ' data-width="4"']) {
+		it(`inline: uses a bounded nonzero fallback for ${width || "viewBox-only"} SVG`, () => {
 			const source = `<svg xmlns="http://www.w3.org/2000/svg"${width} viewBox="0 0 320 160"><text>Example</text></svg>`;
 			const { document } = parseHTML(renderToStaticMarkup(<VisualOutputCard output={{ svg: source }} />));
 			const image = assertImageBoundary(document.querySelector('[data-testid="visual-svg"]')!, source);
 			assert.equal(image.getAttribute("width"), null);
-			assert.equal(image.className, "block h-auto w-full");
-			assert.ok(document.querySelector('[data-testid="visual-card"]')!.classList.contains("w-full"));
+			assert.equal(image.className, "block h-auto w-auto max-w-full max-h-[min(55vh,32rem)]");
+			assert.ok(document.querySelector('[data-testid="visual-card"]')!.classList.contains("w-fit"));
 		});
 	}
 

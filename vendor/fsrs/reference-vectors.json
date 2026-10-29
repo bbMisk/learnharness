@@ -1,0 +1,199 @@
+[
+  {
+    "expected": {
+      "again": {
+        "interval": 0.21199999749660492,
+        "memory": {
+          "difficulty": 6.413300037384033,
+          "stability": 0.21199999749660492
+        }
+      },
+      "easy": {
+        "interval": 8.295599937438965,
+        "memory": {
+          "difficulty": 1.0,
+          "stability": 8.295599937438965
+        }
+      },
+      "good": {
+        "interval": 2.30649995803833,
+        "memory": {
+          "difficulty": 2.1181039810180664,
+          "stability": 2.30649995803833
+        }
+      },
+      "hard": {
+        "interval": 1.2930999994277954,
+        "memory": {
+          "difficulty": 5.112170696258545,
+          "stability": 1.2930999994277954
+        }
+      }
+    },
+    "input": {
+      "days": 0,
+      "memory": null,
+      "retention": 0.8999999761581421
+    }
+  },
+  {
+    "expected": {
+      "again": {
+        "interval": 0.7750838994979858,
+        "memory": {
+          "difficulty": 7.39450216293335,
+          "stability": 0.7750838994979858
+        }
+      },
+      "easy": {
+        "interval": 3.946054458618164,
+        "memory": {
+          "difficulty": 1.0,
+          "stability": 3.946054220199585
+        }
+      },
+      "good": {
+        "interval": 2.30649995803833,
+        "memory": {
+          "difficulty": 2.111213207244873,
+          "stability": 2.30649995803833
+        }
+      },
+      "hard": {
+        "interval": 2.30649995803833,
+        "memory": {
+          "difficulty": 4.7528581619262695,
+          "stability": 2.30649995803833
+        }
+      }
+    },
+    "input": {
+      "days": 0,
+      "memory": {
+        "difficulty": 2.11810302734375,
+        "stability": 2.30649995803833
+      },
+      "retention": 0.8999999761581421
+    }
+  },
+  {
+    "expected": {
+      "again": {
+        "interval": 1.3919869661331177,
+        "memory": {
+          "difficulty": 8.34176254272461,
+          "stability": 1.3919869661331177
+        }
+      },
+      "easy": {
+        "interval": 51.2538948059082,
+        "memory": {
+          "difficulty": 3.3144614696502686,
+          "stability": 51.2538948059082
+        }
+      },
+      "good": {
+        "interval": 32.02674865722656,
+        "memory": {
+          "difficulty": 4.990228176116943,
+          "stability": 32.02674865722656
+        }
+      },
+      "hard": {
+        "interval": 23.24688720703125,
+        "memory": {
+          "difficulty": 6.6659955978393555,
+          "stability": 23.24688720703125
+        }
+      }
+    },
+    "input": {
+      "days": 10,
+      "memory": {
+        "difficulty": 5.0,
+        "stability": 10.0
+      },
+      "retention": 0.8999999761581421
+    }
+  },
+  {
+    "expected": {
+      "again": {
+        "interval": 2.9807088375091553,
+        "memory": {
+          "difficulty": 8.999149322509766,
+          "stability": 2.9807088375091553
+        }
+      },
+      "easy": {
+        "interval": 194.42941284179688,
+        "memory": {
+          "difficulty": 5.9827680587768555,
+          "stability": 194.42941284179688
+        }
+      },
+      "good": {
+        "interval": 127.11538696289062,
+        "memory": {
+          "difficulty": 6.9882283210754395,
+          "stability": 127.11539459228516
+        }
+      },
+      "hard": {
+        "interval": 96.377197265625,
+        "memory": {
+          "difficulty": 7.993688583374023,
+          "stability": 96.377197265625
+        }
+      }
+    },
+    "input": {
+      "days": 80,
+      "memory": {
+        "difficulty": 7.0,
+        "stability": 50.0
+      },
+      "retention": 0.8999999761581421
+    }
+  },
+  {
+    "expected": {
+      "again": {
+        "interval": 0.7911581993103027,
+        "memory": {
+          "difficulty": 7.684375762939453,
+          "stability": 1.9653239250183105
+        }
+      },
+      "easy": {
+        "interval": 22.63141632080078,
+        "memory": {
+          "difficulty": 1.0,
+          "stability": 56.21892166137695
+        }
+      },
+      "good": {
+        "interval": 16.77412223815918,
+        "memory": {
+          "difficulty": 2.9922282695770264,
+          "stability": 41.66876220703125
+        }
+      },
+      "hard": {
+        "interval": 14.099453926086426,
+        "memory": {
+          "difficulty": 5.338302135467529,
+          "stability": 35.024593353271484
+        }
+      }
+    },
+    "input": {
+      "days": 5,
+      "memory": {
+        "difficulty": 3.0,
+        "stability": 25.0
+      },
+      "retention": 0.949999988079071
+    }
+  }
+]

@@ -186,7 +186,7 @@ export function toModelDto(model: Model<Api>): ModelDto {
 			cacheWrite: model.cost.cacheWrite,
 		},
 		contextWindow: model.provider === CLAUDE_CODE_PROVIDER ? null : model.contextWindow,
-		maxTokens: model.provider === CLAUDE_CODE_PROVIDER ? null : model.maxTokens,
+		maxTokens: model.provider === CLAUDE_CODE_PROVIDER || model.maxTokens <= 0 ? null : model.maxTokens,
 	};
 }
 

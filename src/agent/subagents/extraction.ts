@@ -1,3 +1,4 @@
+import { findingsMathIssue } from "./extraction-math.ts";
 import * as crypto from "node:crypto";
 import type { Usage } from "@earendil-works/pi-ai";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
@@ -156,7 +157,9 @@ const propositionProps = {
 		description:
 			"One true, self-contained, world-facing core idea at full precision. Never about the " +
 			'learner, the teacher, or the reading: not "the learner understands X" but "X". A misconception ' +
-			"enters as its TRUE correction.",
+			"enters as its TRUE correction. Math in statements is displayed in flashcard solutions: " +
+			"use $...$ for every mathematical variable/expression and $$ on separate lines for display math; " +
+			"use proper LaTeX subscripts, fractions and commands, with JSON-escaped backslashes.",
 	}),
 	aliases: Type.Optional(
 		Type.Array(Type.String(), {
@@ -412,6 +415,10 @@ The graph holds TRUE ideas about the world, nothing else — never anything abou
 teacher, or this reading: not "the learner understands X" but X. A misconception enters as its TRUE
 correction. Each statement is one self-contained idea at full precision.
 
+Statements also become flashcard answers. Write mathematical variables and expressions in $...$
+inline or $$ on separate lines for display, using valid LaTeX subscripts, fractions and symbols.
+Keep literal program code in backticks. Format notation without changing the claim.
+
 Extract the load-bearing ideas of the subject — what a reference on it would teach — not the full run
 of the discourse. An idea earns its place only when the source's arguments run through it — examples,
 notation glosses, and restatements that no argument needs are not core ideas. Every idea must stand
@@ -489,7 +496,7 @@ function runExtractor(
 		toolDescription: "Submit the session findings.",
 		parameters: sessionFindingsSchema,
 		fill: fillFindings,
-		validate: (value) => validateSessionAnchors(value, batchIds) ?? validateFindingsChains(value, existingIds),
+		validate: (value) => validateSessionAnchors(value, batchIds) ?? validateFindingsChains(value, existingIds) ?? findingsMathIssue(value),
 		systemPrompt: EXTRACTOR_INSTRUCTIONS,
 		prompt,
 		engine,
@@ -520,7 +527,7 @@ function runNotesExtractor(
 		toolDescription: "Submit the notes findings.",
 		parameters: findingsSchema,
 		fill: fillNotesFindings,
-		validate: (value) => validateFindingsChains(value, existingIds),
+		validate: (value) => validateFindingsChains(value, existingIds) ?? findingsMathIssue(value),
 		systemPrompt: NOTES_EXTRACTOR_INSTRUCTIONS,
 		prompt,
 		engine,

@@ -1,12 +1,14 @@
 "use client";
 
+import { ProjectSidebar } from "@/components/project-sidebar";
+import { GlobalFileDrop } from "@/components/global-file-drop";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode } from "@/src/core";
-import { DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { DumbbellIcon, LayersIcon, PinIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
@@ -19,7 +21,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { fuzzyScore } from "@/src/core";
 import { useServerEvent, useServerResync } from "@/components/server-events";
-import type { ChatListItem } from "@/src/core";
+import type { ChatListItem, ProjectSummary } from "@/src/core";
 import { kbdEventForAction } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
 
@@ -50,7 +52,7 @@ const STORAGE_KEY = "lh:sidebar-open";
  */
 import type { ChatGPTControlBridge, NativeSubscriptionControlBridge } from "@/src/core";
 import type { UpdateState } from "@/components/settings/update-settings.tsx";
-import { FilePathDropZone } from "@/components/file-path-drop-zone";
+
 const SIDEBAR_AUTOCLOSE = 928;
 
 // Module scope, guarded for SSR (the server has no navigator).
@@ -62,6 +64,12 @@ declare global {
 		lh?: {
 			/** Read-only host OS; determines the native-control gutter. */
 			platform?: string;
+			remoteServer?: boolean;
+			onCloseRequest?: (cb: () => void) => () => void;
+			quitFromHome?: () => Promise<void>;
+			getConnection?: () => Promise<{mode: string; url: string}>;
+			setConnection?: (url: string | null) => Promise<{ok: boolean; error?: string}>;
+			openConnection?: () => Promise<void>;
 			/** Resolve an OS-backed File without copying/uploading its contents. */
 			getPathForFile?: (file: File) => string;
 			/** External Next desktop-dev uses the server's web connections. */
@@ -313,6 +321,7 @@ export function SessionRow({
 				kbdSelected && !active && "bg-accent/60 ring-1 ring-border",
 			)}
 		>
+			{chat.pinned && <PinIcon className="size-3 shrink-0 text-muted-foreground" aria-label="Pinned chat" />}
 			<SessionStatus busy={chat.busy || chat.compacting} />
 			<span className="min-w-0 flex-1">
 				{/* Titles are the learner's/teacher's WORDS — Source Sans 3, the
@@ -393,6 +402,7 @@ function SessionsSidebar() {
 	const { open, toggle } = useSidebar();
 	const [chats, setChats] = useState<ChatListItem[] | null>(null);
 	const [query, setQuery] = useState("");
+	const [projects,setProjects]=useState<ProjectSummary[]>([]);
 	const [kindFilter, setKindFilter] = useState<SessionKindFilter>("all");
 	useEffect(() => {
 		const stored = window.localStorage.getItem(KIND_FILTER_KEY);
@@ -433,21 +443,24 @@ function SessionsSidebar() {
 	}, [chats, query, kindFilter]);
 
 	const refreshInFlightRef = useRef(false);
-	const refresh = useCallback(async () => {
+	const refreshAgainRef = useRef(false);
+	const refresh = useCallback(async (): Promise<void> => {
 		// In-flight coalesce (S6): event bursts may land several refresh
 		// calls at once — one fetch serves them all; anything newer arrives
 		// with the next event's fetch.
-		if (refreshInFlightRef.current) return;
+		if (refreshInFlightRef.current) { refreshAgainRef.current = true; return; }
 		refreshInFlightRef.current = true;
 		try {
 			const res = await fetch("/api/chats", { cache: "no-store" });
 			const d = (await res.json()) as { chats: ChatListItem[] };
 			setChats(d.chats);
+			const projectsResponse=await fetch("/api/projects");if(projectsResponse.ok)setProjects((await projectsResponse.json()).projects);
 		} catch {
 			// a transient failure keeps the last snapshot
 			setChats((prev) => prev ?? []);
 		} finally {
 			refreshInFlightRef.current = false;
+			if (refreshAgainRef.current) { refreshAgainRef.current = false; void refresh(); }
 		}
 	}, []);
 
@@ -717,8 +730,13 @@ function SessionsSidebar() {
 						Practice
 						<span className="sr-only">create a new practice session</span>
 					</button>
+					<a href="/review/index.html" data-testid="flashcards-link" className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+						<LayersIcon className="size-3" />
+						Flashcards
+					</a>
 				</div>
 
+				<ProjectSidebar projects={projects} refresh={refresh} />
 				<div className="mx-3 mb-2 flex items-center gap-2">
 					<span className="text-xs uppercase tracking-widest text-muted-foreground/70">Sessions</span>
 					<Hint label="Search sessions" action="sessions-search" side="bottom">
@@ -927,6 +945,10 @@ function SessionsSidebar() {
 							Delete…
 						</button>
 						<div className="my-0.5 border-t border-border/60" aria-hidden="true" />
+
+                        <button className="rounded-lg px-2.5 py-1.5 text-left hover:bg-accent" onClick={()=>{const chat=chats?.find(c=>c.id===ctxChatId);if(chat)void fetch('/api/chats/'+chat.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({pinned:!chat.pinned})}).then(refresh);setCtxChatId(null);}}>{chats?.find(c=>c.id===ctxChatId)?.pinned?'Unpin chat':'Pin chat'}</button>
+                        <div className="my-1 border-t border-border/60"/><span className="px-2.5 pt-1 text-[11px] text-muted-foreground">Move to project</span>
+                        {[{id:'',name:'No project'},...projects].map(project=><button key={project.id} className="truncate rounded-lg px-2.5 py-1.5 text-left hover:bg-accent" onClick={()=>{void fetch('/api/chats/'+ctxChatId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectId:project.id||null})}).then(refresh);setCtxChatId(null);}}>{project.name}</button>)}
 						<CoverageMenuBlock chatId={ctxChatId} />
 					</MenuShell>
 				)}
@@ -946,8 +968,9 @@ function SessionsSidebar() {
 export function AppShell({ children }: { children: React.ReactNode }) {
 	return (
 		<SettingsDialogProvider>
+			<GlobalFileDrop />
 			<SessionsSidebar />
-			<FilePathDropZone className="relative min-w-0 flex-1">{children}</FilePathDropZone>
+			<main className="relative min-w-0 flex-1">{children}</main>
 			{/* The single document-level keydown listener (keyboard wave A) —
 			    after the content in the tree, but it's window-level so order only
 			    matters for the events it dispatches, never for DOM priority. */}

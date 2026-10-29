@@ -25,4 +25,4 @@ Asks a single question and waits. He can always pick "Other" and type. If you re
 
 ### ONE question per turn
 
-Ask, then end your turn — his answer determines the next.
+Ask one question, then yield while it is unanswered. The question tool result contains the learner answer; receiving that result begins your next teaching turn. Respond to the answer and continue the lesson.

@@ -38,6 +38,9 @@ import {
 	type Phase3,
 } from "@/src/core";
 import { CONFIDENCE_COLORS, confidenceRailStyle } from "@/components/confidence-rail";
+import { useFileDrop } from "@/components/file-drop";
+import { FileDropFeedback } from "@/components/file-drop-feedback";
+import { verbatimInputProps } from "@/components/verbatim-input";
 
 /**
  * The question dock — a pending quiz/ask REPLACES the chat composer: the
@@ -96,6 +99,7 @@ export interface QuestionDockProps {
 	 *  and say so in the hint row. The server registry is the real gate;
 	 *  this is the affordance. */
 	compactionRunning?: boolean;
+	attachmentsUploading?: boolean;
 }
 
 export function QuestionDock({
@@ -112,6 +116,7 @@ export function QuestionDock({
 	phase = "probe",
 	dictationClaim = true,
 	compactionRunning = false,
+	attachmentsUploading = false,
 }: QuestionDockProps) {
 	// The probe-phase names (owner, 2026-10-09) canonicalize onto their
 	// teach twins for every dock concern — parse dispatch, labels, kinds:
@@ -157,6 +162,8 @@ export function QuestionDock({
 			)}
 			<div className={expanded ? "dock-variant" : "invisible h-0 overflow-hidden"}>
 				<QuestionDockForm
+					onReveal={onExpand}
+					key={toolCallId}
 					toolName={toolName}
 					toolCallId={toolCallId}
 					input={parsed}
@@ -168,6 +175,7 @@ export function QuestionDock({
 					onEscape={onEscape}
 					dictationClaim={dictationClaim}
 					compactionRunning={compactionRunning}
+					attachmentsUploading={attachmentsUploading}
 				/>
 			</div>
 		</>
@@ -260,12 +268,14 @@ function QuestionDockForm({
 	phase = "probe",
 	active,
 	onSubmit,
+	onReveal,
 	initialDraft,
 	onSaveDraft,
 	onEscape,
 	dictationClaim = true,
 	compactionRunning = false,
-}: Omit<QuestionDockProps, "expanded" | "onExpand" | "reveal">) {
+	attachmentsUploading = false,
+}: Omit<QuestionDockProps, "expanded" | "onExpand" | "reveal"> & {onReveal?: () => void}) {
 	const kind = toolQuestionKind(toolName);
 
 	// Canonical QuestionData, built once per question. Quiz options are
@@ -334,12 +344,20 @@ function QuestionDockForm({
 	 * in time — submit reads these, kept current at every write site. */
 	const thinkingTextRef = useRef(initialDraft?.thinking ?? "");
 	const answerTextRef = useRef(initialDraft?.text ?? "");
+	const files = useFileDrop(qd.mode === "text" ? text : thinking, (value) => {
+		if (qd.mode === "text") { answerTextRef.current = value; setText(value); }
+		else { thinkingTextRef.current = value; setThinking(value); }
+	}, {hideImagePaths:true,priority:20,label:"your answer",activate:onReveal});
 	// Confidence (owner, 2026-10-01): an index into CONFIDENCE_STOPS,
 	// resting at 50 — a real coin flip by definition, untouched or
 	// deliberate (the same number, the same meaning). The dock unmounts
 	// between questions, so each question starts fresh at 50.
 	const [confIdx, setConfIdx] = useState<number>(initialDraft?.confidenceIndex ?? DEFAULT_CONFIDENCE_INDEX);
 	const selectMode: SelectMode = qd.mode === "multi-select" ? "multi-select" : "single-select";
+	const otherFiles = useFileDrop(other, (value) => {
+		setOther(value);
+		if (value.trim()) setSel((prev) => prev.otherSelected ? prev : toggleOther(selectMode, prev));
+	}, {hideImagePaths:true,priority:15,label:"your custom answer",activate:onReveal});
 
 	// The PRIMARY dictation input (owner, STT round 1): while a question
 	// waits, dictated finals land HERE, never in the hidden composer — text
@@ -352,17 +370,9 @@ function QuestionDockForm({
 				// Ref-first (see the refs block above): the join is computed from
 				// the mirror, then both mirrors agree with state — a submit
 				// resuming post-finish reads the tail, never a stale closure.
-				if (qd.mode === "text") {
-					const v = joinDictation(answerTextRef.current, t);
-					answerTextRef.current = v;
-					setText(v);
-				} else {
-					const v = joinDictation(thinkingTextRef.current, t);
-					thinkingTextRef.current = v;
-					setThinking(v);
-				}
+				files.changeText(joinDictation(files.currentText(), t));
 			},
-			[qd.mode],
+			[files],
 		),
 		// Released while a teach check sits unrevealed (owner 2026-10-03):
 		// the reading-thinking field owns dictated speech during the reading.
@@ -377,7 +387,7 @@ function QuestionDockForm({
 			: sel.dontKnow || (sel.otherSelected && other.trim().length > 0) || sel.selected.size > 0;
 
 	const submit = () => {
-		if (!canSubmit || compactionRunning) return;
+		if (!canSubmit || compactionRunning || attachmentsUploading || files.isUploading() || otherFiles.isUploading()) return;
 		/* FINISH DICTATION FIRST (owner, 2026-10-01): Enter may arrive while
 		 * a run is live with reasoning still in Deepgram's hands. Stop the
 		 * run, let the last finals land in the target field, and only then
@@ -391,7 +401,7 @@ function QuestionDockForm({
 		void finishDictation().then(doSubmit);
 	};
 	const doSubmit = () => {
-		if (!canSubmit) return;
+		if (!canSubmit || attachmentsUploading || files.isUploading() || otherFiles.isUploading()) return;
 		const req: AnswerRequest = {
 			dontKnow: sel.dontKnow,
 			values: [...sel.selected].map((i) => qd.options[i]!.value),
@@ -700,9 +710,10 @@ function QuestionDockForm({
 								<PathInput
 									ref={otherInputRef}
 									singleLine
-									value={other}
+									value={otherFiles.text}
+									{...otherFiles.handlers}
 									onValueChange={(value) => {
-										setOther(value);
+										otherFiles.changeText(value);
 										// Typing selects the row — displacing in
 										// single-select, alongside the siblings in multi.
 										setSel((prev) => (prev.otherSelected ? prev : toggleOther(selectMode, prev)));
@@ -847,17 +858,20 @@ function QuestionDockForm({
 			>
 				<div
 					data-testid={qd.mode === "text" ? "answer-field" : "thinking-field"}
+					{...files.handlers}
 					className="rounded-[10px] border border-border/70 bg-background/60 transition-colors focus-within:border-primary/50"
 				>
 					<div className="px-2.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 						{qd.mode === "text" ? "Your answer" : "YOUR THINKING"}
 					</div>
+					<FileDropFeedback files={otherFiles} />
+					<FileDropFeedback files={files} />
 					{qd.mode === "text" ? (
 						<PathInput
-							value={text}
+							{...verbatimInputProps}
+							value={files.text}
 							onValueChange={(value) => {
-								answerTextRef.current = value;
-								setText(value);
+								files.changeText(value);
 							}}
 							onKeyDown={(e) => {
 								// Esc ends dictation (the dictate decisions: click-again
@@ -881,11 +895,11 @@ function QuestionDockForm({
 						/>
 					) : (
 						<PathInput
+							{...verbatimInputProps}
 							ref={thinkingRef}
-							value={thinking}
+							value={files.text}
 							onValueChange={(value) => {
-								thinkingTextRef.current = value;
-								setThinking(value);
+								files.changeText(value);
 							}}
 							onKeyDown={(e) => {
 								// Esc ends dictation (the dictate decisions: click-again
@@ -920,7 +934,7 @@ function QuestionDockForm({
 						</span>
 						<Button
 							type="submit"
-							disabled={!canSubmit || compactionRunning}
+							disabled={!canSubmit || compactionRunning || attachmentsUploading || files.uploading || otherFiles.uploading}
 							className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium"
 						>
 							Submit answer

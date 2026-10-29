@@ -90,7 +90,7 @@ test("alias resolves only OAuth; native Responses body is stateless/namespaced, 
 
 test("mixed history never blanket-relabels API providers or reuses foreign reasoning signatures", () => {
 	const native: AssistantMessage = { role: "assistant", provider: "openai", api: "openai-responses", model: model.id, content: [{ type: "thinking", thinking: "", thinkingSignature: '{"encrypted_content":"API-only"}', redacted: true }], stopReason: "stop", usage: { input: 1, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 1, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, timestamp: 1 };
-	const own = { ...native, provider: "chatgpt", content: [{ type: "thinking" as const, thinking: "", thinkingSignature: '{"encrypted_content":"ChatGPT-only"}', redacted: true }] };
+	const own = { ...native, provider: "chatgpt", content: [{ type: "thinking" as const, thinking: "", thinkingSignature: '{"encrypted_content":"ChatGPT-only"}', redacted: true }, { type: "text" as const, text: "Visible reply" }] };
 	const transformed = chatGPTHistory(normalizeContext({ messages: [native, own] }), { ...model, provider: "chatgpt" });
 	assert.equal((transformed.messages[0] as AssistantMessage).provider, "openai");
 	assert.deepEqual((transformed.messages[0] as AssistantMessage).content, []);
@@ -168,6 +168,16 @@ test("case-insensitive Authorization overrides including null are refused before
 		assert.equal((await engine.streamFn(engine.model, context(), { headers }).result()).stopReason, "error");
 	}
 	assert.equal(requests.length, before);
+});
+
+test("empty and reasoning-only completed responses are errors; history replay excludes their obsolete blank turns", async () => {
+ for (const output of [[],[{type:"reasoning",id:"rs_blank",summary:[],encrypted_content:"scratch-reasoning"}]]) {
+  responseEvents=[...output.flatMap(item=>[{type:"response.output_item.added",output_index:0,item},{type:"response.output_item.done",output_index:0,item}]),complete(output)];
+  const engine=piEngineForSpec({provider:"chatgpt",id:model.id},false);
+  const stream=engine.streamFn(engine.model,context(),{});
+  for await (const _event of stream) { /* drain */ }
+  assert.equal((await stream.result()).stopReason,"error");
+ }
 });
 
 test("full credential-storage invalidation aborts foreground and background controllers and clears capabilities", () => {

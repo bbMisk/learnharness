@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2Icon, MicIcon } from "lucide-react";
 import { useSettingsDialog } from "@/components/settings/settings-dialog";
 import { Hint } from "@/components/ui/hint";
+import { useTypeWhisperDictation } from "./typewhisper-dictation";
 import { deepgramListenUrl, type DictationLanguage } from "@/src/core";
 import { useDictationLanguage } from "@/components/dictation-preference";
 import { setDictationActive } from "@/components/dictation-state";
@@ -245,6 +246,7 @@ export function useDictationTarget(append: (text: string) => void, claimed: bool
 export type DictationPhase = "idle" | "connecting" | "recording" | "stopping";
 
 export type Dictation = {
+	backend?: "typewhisper";
 	phase: DictationPhase;
 	/** Terminal-state explanation, shown inside the wide button (cleared on the next start). */
 	error: string | null;
@@ -266,7 +268,9 @@ export type Dictation = {
 	 *  resolves the waiters — cancel (Esc) resolves them too, by its
 	 *  discard semantics. */
 	finish: () => Promise<void>;
-	/** End + DISCARD the transcript: no flush, immediate teardown. The Esc
+	/** Browser: end + DISCARD the transcript. TypeWhisper: stop + KEEP,
+	 *  using its supported start/stop controls (Hanson's approved Esc policy).
+	 *  The browser Esc
 	 *  semantics (owner, 2026-09-17 round 3): Esc is a cancel, not a stop —
 	 *  before, it flushed exactly like the toggle did. */
 	cancel: () => void;
@@ -282,6 +286,29 @@ export type Dictation = {
  * question waits.
  */
 export function useDictation({ append }: { append: (text: string) => void }): Dictation {
+	const [backend, setBackend] = useState<"loading" | "typewhisper" | "deepgram">("loading");
+	useEffect(() => { setBackend(window.lh?.platform === "darwin" ? "typewhisper" : "deepgram"); }, []);
+	const native = backend === "typewhisper";
+	const cloud = useDeepgramDictation({ append, enabled: backend === "deepgram" });
+	const local = useTypeWhisperDictation(native);
+	const dictation = native ? local : cloud;
+	useEffect(() => {
+		setDictationActive(dictation.active);
+		dictationFinisher = dictation.finish;
+		return () => { if (dictationFinisher === dictation.finish) { dictationFinisher = null; setDictationActive(false); } };
+	}, [dictation.active, dictation.finish]);
+	useEffect(() => {
+		window.addEventListener("lh:kbd-toggle-dictation", dictation.toggle);
+		window.addEventListener("lh:kbd-cancel-dictation", dictation.cancel);
+		return () => {
+			window.removeEventListener("lh:kbd-toggle-dictation", dictation.toggle);
+			window.removeEventListener("lh:kbd-cancel-dictation", dictation.cancel);
+		};
+	}, [dictation.toggle, dictation.cancel]);
+	return dictation;
+}
+
+function useDeepgramDictation({ append, enabled }: { append: (text: string) => void; enabled: boolean }): Dictation {
 	const { getLanguage } = useDictationLanguage();
 	const [phase, setPhase] = useState<DictationPhase>("idle");
 	const [error, setError] = useState<string | null>(null);
@@ -580,42 +607,21 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		});
 	}, [phase, stop]);
 
-	// Publish finish() for the sibling subtrees (the pending question's
-	// dock) — registered for as long as this page owns the hook.
-	useEffect(() => {
-		dictationFinisher = finish;
-		return () => {
-			if (dictationFinisher === finish) dictationFinisher = null;
-		};
-	}, [finish]);
-
 	const toggle = useCallback(() => {
+		if (!enabled) return;
 		if (phase === "idle") void start();
 		else if (phase === "recording" || phase === "connecting") stop();
 		// "stopping" presses are ignored — the flush is in flight.
-	}, [phase, start, stop]);
+	}, [phase, start, stop, enabled]);
 
 	// Shortcut seams (keyboard wave A): ⌘D toggles from anywhere on the
 	// page; the Esc chain lands here as a CANCEL (owner, round 3). Each
 	// page owns ONE hook instance, and only the mounted page's listener is
 	// attached.
 	useEffect(() => {
-		warmTokens.refresh(); // pre-mint at mount (mitigation D) — silent if keyless
-		return () => {
-			// Navigation cancels capture: invalidate every pending await before
-			// releasing resources, and never append into a different page's input.
-			bufferRef.current = [];
-			cleanup(false);
-		};
-	}, [cleanup]);
-	useEffect(() => {
-		window.addEventListener("lh:kbd-toggle-dictation", toggle);
-		return () => window.removeEventListener("lh:kbd-toggle-dictation", toggle);
-	}, [toggle]);
-	useEffect(() => {
-		window.addEventListener("lh:kbd-cancel-dictation", cancel);
-		return () => window.removeEventListener("lh:kbd-cancel-dictation", cancel);
-	}, [cancel]);
+		if (enabled) warmTokens.refresh();
+		return () => { bufferRef.current = []; cleanup(false); };
+	}, [enabled, cleanup]);
 
 	return {
 		phase,
@@ -644,6 +650,7 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
  */
 export function DictationBar({ dictation }: { dictation: Dictation }) {
 	const { phase, error, levelRef, toggle, active, clearError } = dictation;
+	const typeWhisper = dictation.backend === "typewhisper";
 	const { open: openSettings } = useSettingsDialog();
 	/** The keyless click (zero-keys wave, owner dictation trio): the errored
 	 *  idle button deep-links Settings → Keys → the Deepgram row and clears
@@ -660,7 +667,7 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 	// The meter's own heartbeat — 60ms samples of the level ref into a
 	// rolling ring. Only THIS strip re-renders; the page never does.
 	useEffect(() => {
-		if (!active) return;
+		if (!active || typeWhisper) return;
 		setLevels(new Array(METER_CELLS).fill(0));
 		const id = setInterval(() => {
 			setLevels((ring) => {
@@ -670,7 +677,7 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 			});
 		}, METER_TICK_MS);
 		return () => clearInterval(id);
-	}, [active, levelRef]);
+	}, [active, levelRef, typeWhisper]);
 
 	// Fit the cell count to the available width (4px pitch per cell:
 	// 2px bar + 2px gap, clamped 8..48). The meter div's width is set by
@@ -678,7 +685,7 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 	// it once per activation + on resize keeps the strip honest in the
 	// draft/home rows where the slider leaves little middle.
 	useEffect(() => {
-		if (!active) return;
+		if (!active || typeWhisper) return;
 		const el = meterRef.current;
 		if (!el) return;
 		const fit = () => {
@@ -689,18 +696,22 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 		const ro = new ResizeObserver(fit);
 		ro.observe(el);
 		return () => ro.disconnect();
-	}, [active]);
+	}, [active, typeWhisper]);
 
 	if (!active) {
 		return (
 			<Hint
-				// The error line truncates in the button; its tooltip reveals it.
-				label={error ?? "Dictate"}
+				// Errored: the button span truncates the line — the tooltip is its
+				// full reveal (the keyless line KEEPS "Deepgram" — owner overrule:
+				// it's the Keys row label, the truth the user needs). Otherwise the
+				// quiet label + the live ⌘D binding.
+				label={error ?? (typeWhisper ? "Dictate with TypeWhisper" : "Dictate")}
 				action={error ? undefined : "toggle-dictation"}
 				side="top"
 			>
 				<button
 					type="button"
+					onMouseDown={(e) => { if (typeWhisper) e.preventDefault(); }}
 					onClick={() => {
 						if (keyless) {
 							clearError();
@@ -714,7 +725,7 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 					className="flex h-7 w-full items-center justify-center gap-1.5 rounded-md border border-border/50 bg-card/50 text-xs text-muted-foreground/70 shadow-lg backdrop-blur transition-colors hover:border-border hover:text-muted-foreground"
 				>
 					<MicIcon className="size-3.5" />
-					<span className="max-w-full truncate">{error ?? "Dictate"}</span>
+					<span className="max-w-full truncate">{error ?? (typeWhisper ? "TypeWhisper" : "Dictate")}</span>
 				</button>
 			</Hint>
 		);
@@ -725,6 +736,7 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 			<Hint label="Stop dictation (Esc)" side="top">
 				<button
 					type="button"
+					onMouseDown={(e) => { if (typeWhisper) e.preventDefault(); }}
 					onClick={toggle}
 					disabled={phase === "stopping"}
 					aria-label="Stop dictation"
@@ -736,7 +748,10 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 				</button>
 			</Hint>
 			<span className="size-1.5 shrink-0 animate-pulse rounded-full bg-destructive" aria-hidden />
-			<div ref={meterRef} className="flex h-4 min-w-0 flex-1 items-center gap-[2px]" data-testid="dictation-meter">
+			{/* Fixed width while recording — nothing ever appends text beside it
+			    (no interims, owner round 1). Cells carry no minimum width; the
+			    COUNT adapts to the measured row space (owner round 2). */}
+			{typeWhisper ? <span className="truncate text-xs text-muted-foreground">{phase === "stopping" ? "TypeWhisper processing…" : phase === "connecting" ? "Starting TypeWhisper…" : "TypeWhisper recording"}</span> : <div ref={meterRef} className="flex h-4 min-w-0 flex-1 items-center gap-[2px]" data-testid="dictation-meter">
 				{levels.slice(-cellCount).map((v, i) => (
 					<span
 						key={i}
@@ -744,7 +759,7 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 						style={{ height: `${2 + Math.round(v * 14)}px` }}
 					/>
 				))}
-			</div>
+			</div>}
 		</div>
 	);
 }

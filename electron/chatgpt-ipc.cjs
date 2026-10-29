@@ -13,6 +13,7 @@ function attachChatGPTChild(child, connection) {
 			if (message.op === "status") value = { status: await connection.status(), ...connection.stamp() };
 			else if (message.op === "models") value = await connection.models();
 			else if (message.op === "lease" && typeof message.background === "boolean") value = await connection.lease(message.background, message);
+			else if (message.op === "reportTier") value = connection.reportTier(message.value);
 			else throw new Error("Invalid private operation");
 			send({ id: message.id, op: message.op, ok: true, value });
 		} catch (err) { send({ id: message.id, op: message.op, ok: false, stamp: connection.stamp(), error: publicError(err) }); }
@@ -36,6 +37,7 @@ async function chatGPTControl(command, connection) {
 		if (command?.op === "select" && typeof command.id === "string") return await connection.select(command.id);
 		if (command?.op === "disconnect" && typeof command.id === "string") return await connection.disconnect(command.id);
 		if (command?.op === "logout" && typeof command.id === "string") return await connection.logout(command.id);
+		if (command?.op === "fast" && typeof command.enabled === "boolean") return await connection.fast(command.enabled);
 		if (command?.op === "consent" && typeof command.enabled === "boolean") return await connection.consent(command.enabled);
 		return { error: "Unsupported ChatGPT control." };
 	} catch (err) { return { error: publicError(err) }; }

@@ -210,7 +210,7 @@ export function StatsBar({
 			    meter expand into the row's free width; justify-center keeps the
 			    lone idle mic button visually centered. */}
 			{dictationSlot && (
-				<div className="flex min-w-0 flex-1 items-center justify-center">{dictationSlot}</div>
+				<div className="flex min-w-28 flex-1 items-center justify-center">{dictationSlot}</div>
 			)}
 			{/* The model + thinking control — one controller for the conversation
 			    agents (prober/teacher); the record's `turns` above still folds

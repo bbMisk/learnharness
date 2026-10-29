@@ -1,5 +1,9 @@
 "use client";
 
+import { useFileDrop } from "@/components/file-drop";
+import { FileDropFeedback } from "@/components/file-drop-feedback";
+import { verbatimInputProps } from "@/components/verbatim-input";
+
 import { useCallback, useRef, useState } from "react";
 import { ChevronRightIcon } from "lucide-react";
 import { ToolContentResponse } from "@/components/ai-elements/message";
@@ -55,21 +59,20 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 	// discipline): a submit resuming after `await finishDictation()` reads
 	// the tail, never a stale closure.
 	const thinkingRef = useRef("");
+	const files = useFileDrop(thinking, (value) => { thinkingRef.current = value; setThinking(value); }, {hideImagePaths:true,priority:20,label:"Your thinking"});
 
 	useDictationTarget(
 		useCallback(
 			(t: string) => {
-				const v = joinDictation(thinkingRef.current, t);
-				thinkingRef.current = v;
-				setThinking(v);
+				files.changeText(joinDictation(files.currentText(), t));
 			},
-			[],
+			[files],
 		),
 		true,
 	);
 
 	const submit = () => {
-		if (compactionRunning) return;
+		if (compactionRunning || files.isUploading()) return;
 		const text = thinkingRef.current.trim();
 		if (text.length === 0) return;
 		thinkingRef.current = "";
@@ -117,16 +120,18 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 			    Shift+Enter makes a newline — less to decide about. */}
 			<div
 				data-testid="practice-thinking-field"
+				{...files.handlers}
 				className="m-1.5 rounded-[10px] border border-border/70 bg-background/60 transition-colors focus-within:border-primary/50"
 			>
 				<div className="px-2.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 					YOUR THINKING
 				</div>
+				<FileDropFeedback files={files} />
 				<PathInput
-					value={thinking}
+					{...verbatimInputProps}
+					value={files.text}
 					onValueChange={(value) => {
-						thinkingRef.current = value;
-						setThinking(value);
+						files.changeText(value);
 					}}
 					onKeyDown={(e) => {
 						// Esc ends dictation — stopPropagation claims it (the
@@ -160,7 +165,7 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 					<Button
 						type="button"
 						data-testid="practice-send"
-						disabled={thinking.trim().length === 0 || compactionRunning}
+						disabled={thinking.trim().length === 0 || compactionRunning || files.uploading}
 						onClick={() => submit()}
 						className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium"
 					>

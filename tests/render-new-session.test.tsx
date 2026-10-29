@@ -95,6 +95,19 @@ describe("startDraftSession — the create-on-send contract", () => {
 	});
 });
 
+it("carries the project on the single create request for teaching and practice", async () => {
+ for (const mode of [undefined, "practice"] as const) {
+  const { f, calls } = fakeFetch("c_project");
+  await startDraftSession("Use our shared notes", f, mode, undefined, undefined, undefined, "project_course");
+  assert.equal((calls[0]!.body as { projectId: string }).projectId, "project_course");
+  assert.equal(calls.length, 1);
+ }
+});
+it("keeps a failed project create from navigating to an undefined chat", async () => {
+ const fail = (async () => Response.json({error:"Project not found."},{status:400})) as typeof fetch;
+ await assert.rejects(startDraftSession("hello", fail, undefined, undefined, undefined, undefined, "project_missing"), /Your message is still here/);
+});
+
 describe("DraftShell — the sessionless surface", () => {
 	it("storage failure leaves the full draft editable beside the approved error", () => {
 		const html = renderToStaticMarkup(<DraftShell busy={false} text="keep all my text" onChange={() => {}} onSend={() => {}} startError />);

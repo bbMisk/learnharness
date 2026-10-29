@@ -40,6 +40,17 @@ ipcRenderer.on("lh:open-settings", (_event, section) => {
 
 contextBridge.exposeInMainWorld("lh", {
 	platform: process.platform,
+	remoteServer: process.argv?.includes("--lh-server-client") ?? false,
+	onCloseRequest: (cb) => {
+		const listener = () => cb();
+		ipcRenderer.on("lh:close-context", listener);
+		return () => ipcRenderer.removeListener("lh:close-context", listener);
+	},
+	quitFromHome: () => ipcRenderer.invoke("lh:quit-from-home"),
+	getConnection: () => ipcRenderer.invoke("lh:connection:get"),
+	setConnection: (url) => ipcRenderer.invoke("lh:connection:set", url),
+	openConnection: () => ipcRenderer.invoke("lh:connection:open"),
+
 	// Resolve only a renderer-supplied, OS-backed File. No filesystem API,
 	// uploads, copies, or DOM File IPC to main; sandbox/isolation stay on.
 	getPathForFile: (file) => webUtils.getPathForFile(file),
@@ -55,6 +66,7 @@ contextBridge.exposeInMainWorld("lh", {
 		disconnect: (id) => ipcRenderer.invoke("lh:chatgpt:control", { op: "disconnect", id }),
 		logout: (id) => ipcRenderer.invoke("lh:chatgpt:control", { op: "logout", id }),
 		consent: (enabled) => ipcRenderer.invoke("lh:chatgpt:control", { op: "consent", enabled }),
+		fast: (enabled) => ipcRenderer.invoke("lh:chatgpt:control", { op: "fast", enabled }),
 		onChange: (cb) => {
 			const listener = () => cb();
 			ipcRenderer.on("lh:chatgpt:changed", listener);

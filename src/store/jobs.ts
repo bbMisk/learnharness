@@ -38,6 +38,7 @@ function createJob(init: CreateJobInit): JobRecord {
 		...(init.input !== undefined ? { input: init.input } : {}),
 		status: "running",
 		activity: init.activity ?? "starting",
+		activityHistory: [{ at: now, text: init.activity ?? "starting" }],
 		createdAt: now,
 		updatedAt: now,
 	};
@@ -62,6 +63,11 @@ function updateJob(id: string, patch: JobPatch): JobRecord | null {
 	const record = getJob(id);
 	if (!record) return null;
 	const next: JobRecord = { ...record, ...patch, updatedAt: patch.updatedAt ?? new Date().toISOString() };
+	if (patch.result !== undefined && !record.generatedAt) next.generatedAt = patch.generatedAt ?? next.updatedAt;
+	if (patch.activity && patch.activity !== record.activity) {
+		const history = record.activityHistory ?? [{ at: record.updatedAt, text: record.activity }];
+		next.activityHistory = [...history, { at: next.updatedAt, text: patch.activity.slice(0, 2000) }].slice(-200);
+	}
 	fs.writeFileSync(jobFile(id), JSON.stringify(next, null, "\t"), "utf-8");
 	// EVERY write, not just status flips: progress-line updates must reach
 	// the dispatch cards (the view debounces the fetch bursts). A missing id

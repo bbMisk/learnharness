@@ -1,11 +1,13 @@
 "use client";
 
-import { useContext } from "react";
-import { CheckIcon, SettingsIcon, XIcon } from "lucide-react";
+import { useContext, useEffect, useState } from "react";
+import { CheckIcon, ChevronDownIcon, SettingsIcon, XIcon } from "lucide-react";
 import { JobsContext } from "@/components/jobs-context";
 import { ChatActionsContext } from "@/components/chat";
 import { isModelsRefusal, isProviderKeyRefusal, type JobKind, type JobRecord } from "@/src/core";
 import { BrailleSpinner } from "@/components/braille-spinner";
+import { JobDetails } from "@/components/job-details";
+import { jobDisplay, jobElapsedMs } from "@/src/core";
 
 /**
  * The dispatch card (contracts.ts "THE ASYNC PROTOCOL" §4): the tool-call
@@ -15,9 +17,9 @@ import { BrailleSpinner } from "@/components/braille-spinner";
  *
  *   job unknown → "dispatched" pulse (the jobs feed hasn't seen it yet)
  *   running     → live activity card (activity line + elapsed)
- *   done/error  → quiet one-liner ("finished" / "failed") — the artifact
+ *   done/error  → expandable delivered / failed summary — the artifact
  *                 itself arrives in the steer message right below, so the
- *                 box must not duplicate it.
+ *                 preview stays collapsed until explicitly opened.
  */
 const KIND_LABEL: Record<JobKind, string> = {
 	research: "Research agent",
@@ -30,8 +32,16 @@ export function DispatchCard({ toolCallId, kind }: { toolCallId: string; kind: J
 	const jobs = useContext(JobsContext);
 	const job = jobs.find((j) => j.toolCallId === toolCallId) ?? null;
 	const label = KIND_LABEL[kind];
+	const [open, setOpen] = useState(false);
+	const [now, setNow] = useState(() => Date.now());
+	const working = job ? jobDisplay(job).working : false;
+	useEffect(() => {
+		if (!working) return;
+		const timer = setInterval(() => setNow(Date.now()), 1000);
+		return () => clearInterval(timer);
+	}, [working]);
 
-	if (!job || job.status === "running") {
+	if (!job) {
 		return <DispatchActivityCard job={job} label={label} />;
 	}
 	// BYOK (owner, 2026-09-22): a job refused for missing models is INFO,
@@ -46,17 +56,19 @@ export function DispatchCard({ toolCallId, kind }: { toolCallId: string; kind: J
 	if (isProviderKeyRefusal(job.error)) {
 		return <DispatchRefusedCard label={label} line="needs a provider key" button="Add a key" />;
 	}
-	const failed = job.status === "error";
-	return (
-		<div
-			className="flex items-center gap-2 text-xs text-muted-foreground"
-			data-testid="dispatch-settled"
-		>
-			{failed ? <XIcon className="size-3.5 text-red-500" /> : <CheckIcon className="size-3.5" />}
-			<span className="font-medium uppercase tracking-wide">{label}</span>
-			<span>{failed ? "failed" : "finished"}</span>
-		</div>
-	);
+	const display = jobDisplay(job);
+	const elapsed = jobElapsedMs(job, now);
+	return <details id={`agent-${job.id}`} onToggle={(event) => setOpen(event.currentTarget.open)} className="group rounded-xl border bg-card text-card-foreground" data-testid={job.status === "running" ? "dispatch-card" : "dispatch-settled"}>
+		<summary className="cursor-pointer list-none p-4 [&::-webkit-details-marker]:hidden" aria-label={`Inspect ${label}`}>
+			<div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+				{display.working ? <BrailleSpinner label={`${label} running`} /> : job.status === "error" ? <XIcon className="size-3.5 text-red-500" /> : <CheckIcon className="size-3.5" />}
+				{label}{elapsed !== null && <span className="font-normal">· {Math.round(elapsed / 1000)}s</span>}
+				<ChevronDownIcon className="ml-auto size-3.5 transition-transform group-open:rotate-180" />
+			</div>
+			<div className="mt-1 text-sm text-muted-foreground" data-testid="dispatch-activity-line">{display.working ? job.activity : display.label}</div>
+		</summary>
+		{open && <div className="border-t p-4"><JobDetails job={job} /></div>}
+	</details>;
 }
 
 /** The refused card: quiet info tone — nothing red, nothing "failed". */

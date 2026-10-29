@@ -1,8 +1,10 @@
 "use client";
 
-import { ArrowRightIcon, CornerDownLeftIcon, SquareIcon } from "lucide-react";
+import { ArrowRightIcon, CornerDownLeftIcon, PaperclipIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Hint } from "@/components/ui/hint";
+import { useFileDrop } from "@/components/file-drop";
+import { FileDropFeedback } from "@/components/file-drop-feedback";
 import { PathInput } from "@/components/path-input";
 
 /**
@@ -76,26 +78,32 @@ export function Composer({
 	 *  empty-Enter share it. */
 	onNext?: () => void;
 }) {
+	const fileDrop = useFileDrop(value, onChange, {hideImagePaths:true,priority:10,label:"the message"});
 	const act = () => {
+		if (fileDrop.isUploading()) return;
 		const action = enterAction({ busy, canSend, nextProblem });
 		if (action === "stop") onStop();
 		else if (action === "send") onSend();
 		else if (action === "next") onNext?.();
 	};
 	return (
+		<>
+		<FileDropFeedback files={fileDrop} />
 		<form
 			data-testid="composer"
+			{...fileDrop.handlers}
 			className="flex items-end gap-1.5 p-1.5"
 			onSubmit={(e) => {
 				e.preventDefault();
 				act();
 			}}
 		>
+			<input ref={fileDrop.inputRef} type="file" multiple className="hidden" aria-label="Choose files" onChange={(event) => { const files = Array.from(event.target.files || []); event.target.value = ""; void fileDrop.addFiles(files); }} />
+			<button type="button" aria-label="Add files" title={fileDrop.uploading ? "Uploading…" : "Add files"} disabled={fileDrop.uploading} onClick={() => fileDrop.inputRef.current?.click()} className="flex size-10 shrink-0 items-center justify-center rounded-[10px] text-muted-foreground hover:bg-accent disabled:opacity-40"><PaperclipIcon className="size-4" /></button>
 			<PathInput
 				ref={inputRef}
-				value={value}
-				onValueChange={onChange}
-				defaultDropTarget
+				value={fileDrop.text}
+				onValueChange={(value) => fileDrop.changeText(value)}
 				onKeyDown={(e) => {
 					// Esc ends dictation before anything else Esc might someday mean
 					// here (the dictate decisions: click-again or Esc to stop).
@@ -159,5 +167,6 @@ export function Composer({
 					</button>
 				)}
 		</form>
+		</>
 	);
 }

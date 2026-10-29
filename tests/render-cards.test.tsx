@@ -151,14 +151,14 @@ describe("DispatchCard — the BYOK refusal tone (owner, 2026-09-22)", () => {
 	it("a real failure keeps the honest red failure", () => {
 		const html = renderToStaticMarkup(inJobs([job({ error: "FAILED: headless crashed" })]));
 		assert.ok(html.includes('data-testid="dispatch-settled"'));
-		assert.ok(html.includes("failed"));
+		assert.match(html, /failed/i);
 		assert.ok(html.includes("text-red-500"));
 		assert.ok(!html.includes("dispatch-refused"));
 	});
 
 	it("a finished worker reads finished, independently of delivery", () => {
 		const html = renderToStaticMarkup(inJobs([job({ status: "done", error: undefined })]));
-		assert.ok(html.includes("finished"));
+		assert.match(html, /delivered/i);
 	});
 });
 
@@ -266,14 +266,12 @@ describe("render smoke tests", () => {
 		assert.ok(!html.includes("⌘/Ctrl"), "no dump shortcut hint — Enter already submits");
 	});
 
-	it("AnsweredCard grades quiz answers (✓/✗ + explanation)", () => {
+	it("AnsweredCard grades quiz answers without an extra Why toggle", () => {
 		const answer = buildAnswer(quizQD(), { values: ["Venus"] });
 		const html = renderToStaticMarkup(<AnsweredCard answer={answer} />);
 		assert.match(html, /incorrect/);
-		// Tucked for ALL questions (owner, 2026-10-07): the explanation sits
-		// behind the Why toggle — never center stage.
-		assert.ok(html.includes("tucked-explanation"), "the Why toggle mounts");
-		assert.ok(!html.includes("innermost"), "explanation hidden until opened");
+		assert.ok(!html.includes("tucked-explanation"), "no extra Why toggle");
+		assert.ok(!html.includes("innermost"), "explanation is handled in the lesson");
 		// Glyph-shaped SVG marks (owner preference) — pinned via data-mark.
 		assert.ok(html.includes('data-mark="check"') && html.includes('data-mark="x"'));
 	});
@@ -335,12 +333,7 @@ describe("render smoke tests", () => {
 		assert.ok(railAt !== -1 && railAt < trigAt, "the rail opens before the label (same quote)");
 		assert.ok(!html.includes("brightness isn&#x27;t distance"), "the text is hidden until expanded");
 		assert.ok(!html.includes("Note:"), "no longer a muted 'Note:' footnote");
-		// The thinking sits ABOVE the verdict's explanation — the dialogue of
-		// thinking, not an afterthought.
-		assert.ok(
-			html.indexOf("your-thinking") < html.indexOf("tucked-explanation"),
-			"thinking before the explanation toggle",
-		);
+		assert.ok(!html.includes("tucked-explanation"), "thinking remains without a separate Why control");
 	});
 
 	it("AnsweredCard does NOT grade ask answers", () => {
@@ -669,21 +662,21 @@ describe("predict vs check rendering", () => {
 		assert.ok(!html.includes(">Quiz<"), "the generic label is retired");
 	});
 
-	it("a prediction answer SHOWS the verdict but TUCKS the explanation behind a toggle", () => {
+	it("a prediction answer shows the verdict without a Why toggle", () => {
 		const qd: QuestionData = { ...quizQD(), questionType: "predict" };
 		const answer = buildAnswer(qd, { values: ["Venus"] }); // wrong on purpose
 		const html = renderToStaticMarkup(<AnsweredCard answer={answer} />);
 		assert.ok(html.includes("Prediction"), "the eyebrow distinguishes the card");
 		assert.ok(/incorrect|wrong|&times;|✗/i.test(html), "the verdict still shows (owner: predictions are graded)");
 		assert.ok(!html.includes("Why:"), "the explanation is not center stage");
-		assert.ok(html.includes("tucked-explanation"), "it sits behind the toggle");
+		assert.ok(!html.includes("tucked-explanation"), "no separate Why toggle");
 	});
 
-	it("a check answer tucks the explanation like every question (owner, 2026-10-07)", () => {
+	it("a check answer keeps grading without a Why toggle", () => {
 		const answer = buildAnswer(quizQD(), { values: ["Venus"] });
 		const html = renderToStaticMarkup(<AnsweredCard answer={answer} />);
-		assert.ok(html.includes("tucked-explanation"), "the prediction tuck is now universal");
-		assert.ok(!html.includes("Why:"), "no inline explanation — behind the toggle");
+		assert.ok(!html.includes("tucked-explanation"), "no separate Why toggle");
+		assert.ok(!html.includes("Why:"), "the teacher explains in the lesson");
 	});
 
 	it("the reading-thinking channel is LIFTED above the card as its own user-side block", () => {

@@ -1,4 +1,4 @@
-import { compactionInFlight, deleteChatSession, getChat, isTurnRunning, sessionCoverage, sessionCost, stores, turnFailure, type ChatDeleteMode } from "@/src/server";
+import { projectStore, setChatOrganization, compactionInFlight, deleteChatSession, getChat, isTurnRunning, sessionCoverage, sessionCost, stores, turnFailure, type ChatDeleteMode } from "@/src/server";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
 	const { id } = await params;
@@ -14,8 +14,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 	// agent history, served VERBATIM — the client derives its view
 	// (core/view.ts projectView). turnInFlight lets a returning client
 	// re-attach to a running turn; coverage is the chat view's ring meter.
+	const { learningEvents: _learningEvents, ...view } = chat;
 	return Response.json({
-		...chat,
+		...view,
 		messages: chat.messages,
 		pricing: sessionCost(chat),
 		turnInFlight: isTurnRunning(id),
@@ -36,13 +37,14 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
 	const { id } = await params;
 	if (!getChat(id)) return Response.json({ error: "Not found" }, { status: 404 });
-	const body = (await req.json().catch(() => null)) as { title?: unknown } | null;
-	if (typeof body?.title !== "string" || body.title.trim() === "") {
-		return Response.json({ error: "title must be a non-empty string" }, { status: 400 });
-	}
-	const title = body.title.trim();
-	const record = stores.chatStore.renameChat(id, title);
-	return Response.json({ title: record.title });
+	const body = await req.json().catch(() => null);
+ if(!body||typeof body!=='object') return Response.json({error:'Invalid chat settings.'},{status:400});
+ if(body.title!==undefined&&(typeof body.title!=='string'||!body.title.trim())) return Response.json({error:'Enter a title.'},{status:400});
+ if(body.pinned!==undefined&&typeof body.pinned!=='boolean') return Response.json({error:'Invalid pin state.'},{status:400});
+ if(body.projectId!==undefined&&body.projectId!==null&&(typeof body.projectId!=='string'||!projectStore.get(body.projectId))) return Response.json({error:'Project not found.'},{status:400});
+ if(body.title!==undefined) stores.chatStore.renameChat(id,body.title.trim());
+ if(body.pinned!==undefined||body.projectId!==undefined) setChatOrganization(id,{pinned:body.pinned,projectId:body.projectId});
+ return Response.json({ ok: true });
 }
 
 /**

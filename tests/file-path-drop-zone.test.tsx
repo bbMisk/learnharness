@@ -225,9 +225,9 @@ test("nested enter/leave depth keeps the drop overlay until the zone is left; no
 	f.assertPathOnly();
 });
 
-test("production AppShell places the sidebar outside its content-only drop zone", () => {
-	const source = readFileSync(new URL("../components/sidebar.tsx", import.meta.url), "utf8");
-	const shell = source.slice(source.indexOf("export function AppShell("));
-	assert.match(shell, /<SessionsSidebar\s*\/>\s*<FilePathDropZone\b[^>]*>\{children\}<\/FilePathDropZone>/);
-	assert.doesNotMatch(shell, /<FilePathDropZone\b[^>]*>[\s\S]*<SessionsSidebar/);
+test("production AppShell uses the global upload owner across the sidebar and lesson", () => {
+ const source = readFileSync(new URL("../components/sidebar.tsx", import.meta.url), "utf8");
+ const shell = source.slice(source.indexOf("export function AppShell("));
+ assert.match(shell, /<GlobalFileDrop\s*\/>/);
+ assert.doesNotMatch(shell, /<FilePathDropZone/);
 });

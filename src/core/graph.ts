@@ -536,6 +536,7 @@ export function graphSnapshot(deps: GraphDeps): GraphSnapshot {
 	}
 	const sessions: Record<string, string> = {};
 	const fileSources: Record<string, string> = {};
+	const sourceLabels = new Map(deps.graphStore.readSources().map(source => [source.id, typeof source.displayName === "string" ? source.displayName : undefined]));
 	for (const id of sourceIds) {
 		const chat = deps.chatStore.getChat(id);
 		if (chat) {
@@ -567,7 +568,7 @@ export function graphSnapshot(deps: GraphDeps): GraphSnapshot {
 		.filter((community) => community.members.length >= MIN_CLUSTER_SIZE)
 		.map((community) => ({
 			id: community.id,
-			label: sessions[community.id] ?? fileSources[community.id] ?? null,
+			label: sessions[community.id] ?? (sourceLabels.get(community.id)?.trim() || fileSources[community.id]) ?? null,
 			members: community.members,
 		}));
 	// IMP-NODE CLUSTER ASSIGNMENT (owner, 2026-09-30): majority among the

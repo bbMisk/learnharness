@@ -33,6 +33,8 @@ export interface DemoRunResult {
 }
 
 export interface RunDemoOptions {
+	/** Exercise responsive layout at a specific CSS width. */
+	viewportWidth?: number;
 	/** How long to let the page settle (animations, async CDN loads) — default 2s. */
 	settleMs?: number;
 	/** Optional JS expression evaluated in the page after settling; its value
@@ -294,6 +296,7 @@ async function runDemo(html: string, opts: RunDemoOptions = {}): Promise<DemoRun
 
 	try {
 		await withBrowserPage(async (page) => {
+		await page.setViewport({ width: opts.viewportWidth ?? 900, height: 900 });
 		page.on("console", (msg) => {
 			if (msg.type() === "error") consoleErrors.push(msg.text());
 		});
@@ -303,6 +306,10 @@ async function runDemo(html: string, opts: RunDemoOptions = {}): Promise<DemoRun
 		try {
 			await page.goto(pathToFileURL(file).href, { waitUntil: "load", timeout: 30_000 });
 			await new Promise((resolve) => setTimeout(resolve, settleMs));
+			if (opts.viewportWidth !== undefined) {
+				const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1);
+				if (overflow) pageErrors.push("Layout overflows the viewport at " + opts.viewportWidth + "px");
+			}
 			if (opts.probe) {
 				try {
 					probeResult = await page.evaluate(opts.probe);

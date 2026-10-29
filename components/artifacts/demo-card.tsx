@@ -7,7 +7,8 @@ import { InvertDiscIcon } from "@/components/artifacts/invert-disc";
 import { ChatActionsContext } from "@/components/chat";
 import { downloadFile, slugFilename } from "@/components/artifacts/download";
 import { DispatchCard } from "@/components/artifacts/dispatch-card";
-import type { ArtifactPartProps, DemoResult } from "@/src/core";
+import { buildDemoDocument, type ArtifactPartProps, type DemoResult, type DemoRenderer } from "@/src/core";
+export { DEMO_BRIDGE_SCRIPT } from "@/src/core";
 
 /**
  * Demo artifact card (W6): while the part is input-available, a job activity
@@ -28,28 +29,9 @@ import type { ArtifactPartProps, DemoResult } from "@/src/core";
 
 // ─── bridge injection + message handling (pure, testable) ───────────────────
 
-export const DEMO_BRIDGE_SCRIPT = `<script>(function(){
-var send=function(m){try{parent.postMessage(m,"*")}catch(e){}};
-var post=function(){
-var b=document.body;
-if(!b){send({type:"demo-resize",height:document.documentElement.scrollHeight});return}
-var h=Math.max(b.scrollHeight,b.getBoundingClientRect().height);
-var cs=getComputedStyle(b);
-h+=(parseFloat(cs.marginTop)||0)+(parseFloat(cs.marginBottom)||0);
-send({type:"demo-resize",height:Math.ceil(h)})
-};
-if(typeof ResizeObserver!=="undefined"){new ResizeObserver(post).observe(document.documentElement)}
-window.addEventListener("resize",post);
-window.addEventListener("load",post);
-window.addEventListener("error",function(e){send({type:"demo-error",message:e.message||String(e)})});
-setTimeout(post,50);
-setTimeout(post,400);
-})();</script>`;
-
-/** Inject the bridge before </body> (or at the end of a body-less document). */
-export function buildDemoSrcDoc(html: string): string {
-	if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `${DEMO_BRIDGE_SCRIPT}</body>`);
-	return `${html}${DEMO_BRIDGE_SCRIPT}`;
+/** Legacy demos keep their original renderer; new demos opt into the shared kit. */
+export function buildDemoSrcDoc(html: string, renderer?: DemoRenderer): string {
+	return buildDemoDocument(html, renderer);
 }
 
 export interface DemoBridgeState {
@@ -121,18 +103,20 @@ export function DemoOutputCard({
 		);
 	}
 	return (
-		<DemoFrame title={result.title} html={result.html} messageId={messageId} initialInverted={initialInverted} />
+		<DemoFrame title={result.title} html={result.html} renderer={result.renderer} messageId={messageId} initialInverted={initialInverted} />
 	);
 }
 
 function DemoFrame({
 	title,
 	html,
+	renderer,
 	messageId,
 	initialInverted = false,
 }: {
 	title: string;
 	html: string;
+	renderer?: DemoRenderer;
 	messageId?: string;
 	initialInverted?: boolean;
 }) {
@@ -156,7 +140,7 @@ function DemoFrame({
 			body: JSON.stringify({ input: { messageId, inverted: next } }),
 		}).catch(() => {});
 	};
-	const srcDoc = useMemo(() => buildDemoSrcDoc(html), [html]);
+	const srcDoc = useMemo(() => buildDemoSrcDoc(html, renderer), [html, renderer]);
 
 	useEffect(() => {
 		const onMessage = (event: MessageEvent) => {
@@ -170,7 +154,7 @@ function DemoFrame({
 	}, []);
 
 	return (
-		<div className="rounded-xl border bg-card p-4 text-card-foreground" data-testid="demo-card">
+		<div className={renderer ? "min-w-0 w-full text-card-foreground" : "rounded-xl border bg-card p-4 text-card-foreground"} data-testid="demo-card">
 			{/* Caption header (owner, 2026-10-07): kind label + title in the
 			   label's size/tracking (title normal-case, foreground) — the
 			   figure card's grammar plus a name. Switch + download far right. */}
@@ -193,7 +177,7 @@ function DemoFrame({
 						type="button"
 						aria-label="Download demo as HTML"
 						title="Download as HTML"
-						onClick={() => downloadFile(`${slugFilename(title)}.html`, html, "text/html")}
+						onClick={() => downloadFile(`${slugFilename(title)}.html`, renderer ? srcDoc : html, "text/html")}
 						data-testid="demo-download"
 						className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 					>
@@ -221,7 +205,7 @@ function DemoFrame({
 				// the wheel (session scrolling stalls over the demo). With
 				// scrolling disabled the wheel chains straight to the session.
 				scrolling="no"
-				className="mt-2 w-full rounded-lg border bg-white"
+				className={renderer ? "mt-2 w-full bg-transparent" : "mt-2 w-full rounded-lg border bg-white"}
 				// content-box: the bridge reports the CONTENT height — with the
 				// preflight's border-box the 2px border would eat into it and clip
 				// the bottom of the demo (smoke finding, 2026-10-07).

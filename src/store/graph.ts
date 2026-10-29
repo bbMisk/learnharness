@@ -168,7 +168,7 @@ export const graphStore: GraphStore = {
 	upsertSource(source: NotesSource): void {
 		const all = readSourceMap();
 		const prev = all[source.id];
-		all[source.id] = prev ? { ...source, extractions: prev.extractions } : source;
+		all[source.id] = prev ? { ...source, displayName: source.displayName ?? prev.displayName, extractions: prev.extractions } : source;
 		writeSourceMap(all);
 	},
 	readSources(): NotesSource[] {

@@ -25,7 +25,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
 	actionForBinding,
 	bindingForAction,
@@ -45,6 +45,8 @@ export { kbdEventForAction };
 
 export function KeyboardShortcuts() {
 	const router = useRouter();
+	const pathname = usePathname();
+	const tutorFocused = useRef(false);
 	const [cheatOpen, setCheatOpen] = useState(false);
 	const { open: openSettings } = useSettingsDialog();
 
@@ -54,11 +56,31 @@ export function KeyboardShortcuts() {
 		router: ReturnType<typeof useRouter>;
 		setCheatOpen: (v: boolean) => void;
 		openSettings: () => void;
-	}>({ router, setCheatOpen, openSettings });
-	handlersRef.current = { router, setCheatOpen, openSettings };
+		closeContext: () => void;
+	}>({ router, setCheatOpen, openSettings, closeContext: () => {} });
+	handlersRef.current = { router, setCheatOpen, openSettings, closeContext: () => {
+		if (tutorFocused.current && document.querySelector('[data-testid="side-tutor"]')) window.dispatchEvent(new CustomEvent("lh:close-side-tutor"));
+		else if (pathname !== "/") router.push("/");
+		else void window.lh?.quitFromHome?.();
+	} };
+
+	useEffect(() => {
+		const rememberPane = (event: Event) => {
+			if (event.target instanceof Element) tutorFocused.current = !!event.target.closest('[data-testid="side-tutor"]');
+		};
+		document.addEventListener("pointerdown", rememberPane, true);
+		document.addEventListener("focusin", rememberPane, true);
+		const off = window.lh?.onCloseRequest?.(() => handlersRef.current.closeContext());
+		return () => {
+			document.removeEventListener("pointerdown", rememberPane, true);
+			document.removeEventListener("focusin", rememberPane, true);
+			off?.();
+		};
+	}, []);
 
 	useEffect(() => {
 		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.defaultPrevented) return;
 			// ── Tab is dead (owner, 2026-09-17): preventDefault even when
 			// nothing is bound to it — browser tab-focus is abandoned, and
 			// the default action runs after dispatch, so suppressing it here
@@ -131,6 +153,7 @@ export function KeyboardShortcuts() {
 					handlersRef.current.setCheatOpen(true);
 					break;
 				case "find":
+				case "toggle-side-tutor":
 					// The mounted surface owns Find (session text / graph nodes).
 					// Claim Mod+F so Chromium's whole-window finder cannot open too.
 					e.preventDefault();
