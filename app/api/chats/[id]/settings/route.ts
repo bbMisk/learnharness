@@ -24,6 +24,13 @@ import type { ChatSettings } from "@/src/core";
  * The body parsing itself is shared with the draft route
  * (src/server/settings-body.ts, default-settings wave 2026-09-18).
  */
+/** Read the control's settings without transferring the lesson history. */
+export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+	const chat = getChat((await params).id);
+	if (!chat) return Response.json({ error: "Not found" }, { status: 404 });
+	return Response.json({ settings: chat.settings }, { headers: { "Cache-Control": "no-store" } });
+}
+
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
 	const { id } = await params;
 	if (!getChat(id)) return Response.json({ error: "Not found" }, { status: 404 });

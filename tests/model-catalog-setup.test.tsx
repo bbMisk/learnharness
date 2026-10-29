@@ -216,7 +216,7 @@ test("blocked session recovery opens its ordinary picker, never changes Strong o
 	const requestsOnly = globalThis.fetch; const sessionWrites: unknown[] = [];
 	globalThis.fetch = async (input, init) => {
 		if (input === "/api/settings") return Response.json({ settings: { models: globals } });
-		if (input === "/api/chats/fixture") return Response.json({ settings: session });
+		if (input === "/api/chats/fixture/settings" && init?.method !== "PUT") return Response.json({ settings: session });
 		if (input === "/api/chats/fixture/settings") { const next = JSON.parse(String(init?.body)); sessionWrites.push(next); return Response.json({ settings: next }); }
 		return requestsOnly(input, init);
 	};
@@ -245,7 +245,7 @@ for (const result of ["override", "legacy", "http-failure", "network-failure"] a
 	const requestsOnly = globalThis.fetch;
 	globalThis.fetch = async (input, init) => {
 		if (input === "/api/settings") return Response.json({ settings: { models: globals } });
-		if (input === "/api/chats/fixture") return sessionRead;
+		if (input === "/api/chats/fixture/settings") return sessionRead;
 		return requestsOnly(input, init);
 	};
 	await warm(body); const identities: Array<string | undefined> = [];
@@ -277,9 +277,11 @@ test("availability and setup completeness never conflate missing metadata, disco
 	body.slots.cheap = null; assert.equal(savedSlotsConfigured(body.slots), false);
 });
 
-test("shared refresh fences late failure as well as late success, and Retry clears a current error", async () => {
+test("menu refreshes coalesce; settings changes fence late failure and Retry clears a current error", async () => {
 	installFetch(); await warm();
 	await act(async () => snapshot.refresh()); await act(async () => snapshot.refresh());
+	assert.equal(requests.length, 2, "menu opens share the pending metadata read");
+	await act(async () => notifySettingsSaved("models"));
 	const fresh = catalog(); fresh.models = [b];
 	await answer(2, fresh); await answer(1, null);
 	assert.equal(snapshot.failed, false); assert.equal(snapshot.catalog?.models[0]?.id, b.id);

@@ -212,7 +212,7 @@ export function SettingsDialogBody({
 	// dialog's outer layer).
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
+			if (e.key === "Escape" && openMenus === 0) {
 				// THE ONE-ESC LAW (owner, keyboard round 2026-10-06): claim
 				// at the document level — the window chain (dictation →
 				// abort) must not also act. One Esc, one action.
@@ -223,7 +223,7 @@ export function SettingsDialogBody({
 		};
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
-	}, [onClose]);
+	}, [onClose, openMenus]);
 
 	/** ONE writer for the whole dialog: PUT the whole section, keep the
 	 *  record mirror in sync, surface route errors inline (a 400 is a
@@ -238,7 +238,8 @@ export function SettingsDialogBody({
 				method: "PUT",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify(body),
-			});
+			}).catch(() => null);
+			if (!res) { setError(`${section} settings could not be saved. Try again.`); return; }
 			if (!res.ok) {
 				const detail = (await res.json().catch(() => ({}))) as {
 					error?: string;
@@ -299,6 +300,7 @@ export function SettingsDialogBody({
 						<button
 					type="button"
 					aria-label="Close settings"
+					autoFocus
 					data-testid="settings-close"
 					className="ml-auto size-7 rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 					onClick={onClose}

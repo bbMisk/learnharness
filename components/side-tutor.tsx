@@ -6,6 +6,7 @@ import { MessageResponse } from "@/components/ai-elements/message";
 import { Conversation, ConversationContent } from "@/components/ai-elements/conversation";
 import { ResizableSidePanel } from "@/components/resizable-side-panel";
 import { TopBar } from "@/components/top-bar";
+import { sessionFindHasForegroundLayer } from "@/components/session-find";
 import { Button } from "@/components/ui/button";
 import { useFileDrop } from "@/components/file-drop";
 import { FileDropFeedback } from "@/components/file-drop-feedback";
@@ -37,7 +38,7 @@ export function SideTutor({ chatId, selectedText, onClose }: { chatId: string; s
 	useEffect(() => { input.current?.focus(); }, []);
 	useEffect(() => {
 		const close = (e: KeyboardEvent) => {
-			if (e.key !== "Escape" || e.defaultPrevented) return;
+			if (e.key !== "Escape" || e.defaultPrevented || sessionFindHasForegroundLayer(document)) return;
 			e.preventDefault(); e.stopPropagation(); onClose();
 		};
 		document.addEventListener("keydown", close);
@@ -87,6 +88,7 @@ export function SideTutor({ chatId, selectedText, onClose }: { chatId: string; s
 
 	return <ResizableSidePanel><aside aria-label="Temporary side tutor" data-testid="side-tutor" tabIndex={-1} className="flex h-full min-h-0 min-w-0 flex-col border-l border-border bg-background"
 		onKeyDown={(e) => {
+			if (e.key === "Escape" && sessionFindHasForegroundLayer(document)) return;
 			if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); }
 			// The lesson's question/field keyboard machine must not see side input.
 			else if (!(e.metaKey || e.ctrlKey || e.altKey)) e.stopPropagation();
