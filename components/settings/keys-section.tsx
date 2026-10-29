@@ -396,9 +396,9 @@ export function KeysSection({
 		if (openRow === null && adding === null && !addingCustom) return;
 		const onKeyDown = (e: KeyboardEvent) => {
 			if (e.key !== "Escape") return;
-			// A language dropdown above this editor in the dismissal stack owns
+			// A menu above this editor in the dismissal stack owns
 			// the first Escape; do not swallow it at document capture phase.
-			if (document.querySelector('[data-testid="dictation-language-menu"]')) return;
+			if (document.querySelector('[data-lh-menu]')) return;
 			e.preventDefault();
 			e.stopPropagation();
 			setOpenRow(null);

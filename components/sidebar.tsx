@@ -402,6 +402,7 @@ function SessionsSidebar() {
 	const { open, toggle } = useSidebar();
 	const [chats, setChats] = useState<ChatListItem[] | null>(null);
 	const [query, setQuery] = useState("");
+	const [updateError, setUpdateError] = useState<string | null>(null);
 	const [projects,setProjects]=useState<ProjectSummary[]>([]);
 	const [kindFilter, setKindFilter] = useState<SessionKindFilter>("all");
 	useEffect(() => {
@@ -463,6 +464,17 @@ function SessionsSidebar() {
 			if (refreshAgainRef.current) { refreshAgainRef.current = false; void refresh(); }
 		}
 	}, []);
+
+	const updateChat = async (id: string, changes: { pinned?: boolean; projectId?: string | null }) => {
+		setUpdateError(null);
+		try {
+			const response = await fetch(`/api/chats/${id}`, {
+				method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(changes),
+			});
+			if (!response.ok) throw new Error();
+			await refresh();
+		} catch { setUpdateError("Chat could not be updated. Try again."); }
+	};
 
 	/* Instant rename propagation (2026-09-17): the chat header's rename
 	   commits dispatch lh:chat-renamed; patch the snapshot in place instead
@@ -824,6 +836,7 @@ function SessionsSidebar() {
 					))}
 				</div>
 
+				{updateError && <p role="alert" className="px-4 py-2 text-xs text-destructive">{updateError}</p>}
 				<div ref={listRef} className="flex-1 overflow-y-auto p-2">
 					{shown === null ? (
 						<div className="px-2 py-4 text-xs text-muted-foreground">Loading…</div>
@@ -946,9 +959,9 @@ function SessionsSidebar() {
 						</button>
 						<div className="my-0.5 border-t border-border/60" aria-hidden="true" />
 
-                        <button className="rounded-lg px-2.5 py-1.5 text-left hover:bg-accent" onClick={()=>{const chat=chats?.find(c=>c.id===ctxChatId);if(chat)void fetch('/api/chats/'+chat.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({pinned:!chat.pinned})}).then(refresh);setCtxChatId(null);}}>{chats?.find(c=>c.id===ctxChatId)?.pinned?'Unpin chat':'Pin chat'}</button>
+                        <button className="rounded-lg px-2.5 py-1.5 text-left hover:bg-accent" onClick={()=>{const chat=chats?.find(c=>c.id===ctxChatId);if(chat)void updateChat(chat.id,{pinned:!chat.pinned});setCtxChatId(null);}}>{chats?.find(c=>c.id===ctxChatId)?.pinned?'Unpin chat':'Pin chat'}</button>
                         <div className="my-1 border-t border-border/60"/><span className="px-2.5 pt-1 text-[11px] text-muted-foreground">Move to project</span>
-                        {[{id:'',name:'No project'},...projects].map(project=><button key={project.id} className="truncate rounded-lg px-2.5 py-1.5 text-left hover:bg-accent" onClick={()=>{void fetch('/api/chats/'+ctxChatId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectId:project.id||null})}).then(refresh);setCtxChatId(null);}}>{project.name}</button>)}
+                        {[{id:'',name:'No project'},...projects].map(project=><button key={project.id} className="truncate rounded-lg px-2.5 py-1.5 text-left hover:bg-accent" onClick={()=>{void updateChat(ctxChatId,{projectId:project.id||null});setCtxChatId(null);}}>{project.name}</button>)}
 						<CoverageMenuBlock chatId={ctxChatId} />
 					</MenuShell>
 				)}
