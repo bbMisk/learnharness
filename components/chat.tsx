@@ -872,7 +872,7 @@ export function Chat({
 
 	// Turn-start window: the server inserts claimed steers right after our
 	// outgoing message, BEFORE the stream produces anything — so a bounded,
-	// self-terminating window of three record fetches (400ms/1s/2s) catches
+	// self-terminating window of one fallback record fetch (2s) recovers a failed initial canonical read and catches
 	// the insert and shows the marker during the turn, then stops. No
 	// standing poll — the window exists only for these seconds. (The dock
 	// nudges that lived here died at S5: dispatch writes announce jobs-changed
@@ -890,7 +890,7 @@ export function Chat({
 		// A turn just started (status flipped ready → submitted): open the
 		// bounded adoption window.
 		adoptionWindowOpenRef.current = true;
-		const timers = [400, 1000, 2000].map((ms) =>
+		const timers = [2000].map((ms) =>
 			setTimeout(() => {
 				if (adoptionWindowOpenRef.current) {
 					void adoptAppendOnly();

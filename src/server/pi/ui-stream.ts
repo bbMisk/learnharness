@@ -1,4 +1,5 @@
 import type { Agent, AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
+import { clientMessage } from "../../core/client-messages.ts";
 import { ToolCallIdUniquifier } from "./call-ids.ts";
 import type { ChatGPTRequestCycle } from "../../agent/chatgpt-request-cycle.ts";
 
@@ -68,6 +69,29 @@ export type TurnWireEvent =
 	| AgentEvent
 	| { type: "message_update"; message: AgentMessage }
 	| { type: "error"; errorText: string };
+
+/** Apply the same display boundary to replay and live frames. */
+function clientEvent(event: TurnWireEvent): TurnWireEvent {
+	switch (event.type) {
+		case "message_start":
+		case "message_update":
+		case "message_end":
+			return { ...event, message: clientMessage(event.message) };
+		case "turn_end":
+			return { ...event, message: clientMessage(event.message), toolResults: event.toolResults.map(clientMessage) };
+		case "agent_end":
+			return { ...event, messages: event.messages.map(clientMessage) };
+		case "tool_execution_end":
+		case "tool_execution_update": {
+			const key = event.type === "tool_execution_end" ? "result" : "partialResult";
+			const result = event[key as keyof typeof event] as { content?: Array<{ type: string }> } | null;
+			return result && Array.isArray(result.content)
+				? { ...event, [key]: { ...result, content: result.content.filter(block => block.type !== "image") } }
+				: event;
+		}
+		default: return event;
+	}
+}
 
 export interface PiTurnSpec {
 	requestCycle?: ChatGPTRequestCycle;
@@ -262,7 +286,7 @@ export function runPiTurn(spec: PiTurnSpec): PiTurnHandle {
 			uniqued.type === "message_update"
 				? { type: "message_update", message: uniqued.message }
 				: uniqued;
-		send(wire);
+		send(clientEvent(wire));
 		if (event.type === "message_end") {
 			const m = event.message as { role?: string; stopReason?: string } | undefined;
 			if (m?.role === "assistant" && m.stopReason === "aborted") sawAbort = true;
