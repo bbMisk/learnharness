@@ -2,7 +2,7 @@ import { abortExtraction, extractionStatuses } from "../agent/subagents/extracti
 import { isJobLive } from "../agent/subagents/aborts.ts";
 import { coverageOf } from "../core/coverage.ts";
 import { deleteChatTraces, type ChatDeleteMode, type ChatDeletionStats } from "../core/graph-deletion.ts";
-import { titleFromPrompt } from "../core/contracts.ts";
+import { titleFromPrompt, type ChatRecord } from "../core/contracts.ts";
 import { graphRevision } from "./graph.ts";
 import { stores } from "./stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
@@ -157,9 +157,9 @@ export interface SessionCoverage {
 
 /** The per-session coverage block (see SessionCoverage). Null when the
  *  chat doesn't exist — callers own the 404. */
-export function sessionCoverage(chatId: string): SessionCoverage | null {
-	const record = stores.chatStore.getChat(chatId);
+export function sessionCoverage(record: ChatRecord | null): SessionCoverage | null {
 	if (!record) return null;
+	const chatId = record.id;
 	const entries = stores.graphStore.readCoverage();
 	// Wave B: the record is native history — coverage reads through the
 	// projection (same view the extraction pipeline folds).
