@@ -1,5 +1,6 @@
 "use client";
 
+import { startChatDrag, useChatDrop } from "@/components/chat-drag";
 import { ProjectSidebar } from "@/components/project-sidebar";
 import { GlobalFileDrop } from "@/components/global-file-drop";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -8,7 +9,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode } from "@/src/core";
-import { DumbbellIcon, LayersIcon, PinIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { ArchiveIcon, DumbbellIcon, LayersIcon, PinIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
@@ -314,6 +315,8 @@ export function SessionRow({
 			type="button"
 			onClick={onOpen}
 			onContextMenu={onContextMenu}
+			draggable
+			onDragStart={event => startChatDrag(event, chat.id)}
 			data-testid={kbdSelected ? "session-row-kbd" : "session-row"}
 			className={cn(
 				"relative mb-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-accent",
@@ -402,6 +405,7 @@ function SessionsSidebar() {
 	const { open, toggle } = useSidebar();
 	const [chats, setChats] = useState<ChatListItem[] | null>(null);
 	const [query, setQuery] = useState("");
+	const [showArchived, setShowArchived] = useState(false);
 	const [updateError, setUpdateError] = useState<string | null>(null);
 	const [projects,setProjects]=useState<ProjectSummary[]>([]);
 	const [kindFilter, setKindFilter] = useState<SessionKindFilter>("all");
@@ -430,18 +434,18 @@ function SessionsSidebar() {
 	 * keeps the natural list order (scores are all 0, sort is stable). */
 	const shown = useMemo(() => {
 		const q = query.trim();
-		let list = chats;
+		let list = chats?.filter(chat => !!chat.archived === showArchived) ?? null;
 		if (list && kindFilter !== "all") {
 			list = list.filter((c) => (c.kind ?? "teach") === kindFilter);
 		}
 		if (!list) return list;
-		if (!q) return list;
+		if (!q) return showArchived ? list : list.filter(chat => !chat.projectId);
 		return list
 			.map((c) => ({ c, score: fuzzyScore(q, c.title) }))
 			.filter((r): r is { c: (typeof list)[number]; score: number } => r.score !== null)
 			.sort((a, b) => b.score - a.score)
 			.map((r) => r.c);
-	}, [chats, query, kindFilter]);
+	}, [chats, query, kindFilter, showArchived]);
 
 	const refreshInFlightRef = useRef(false);
 	const refreshAgainRef = useRef(false);
@@ -465,16 +469,26 @@ function SessionsSidebar() {
 		}
 	}, []);
 
-	const updateChat = async (id: string, changes: { pinned?: boolean; projectId?: string | null }) => {
-		setUpdateError(null);
-		try {
-			const response = await fetch(`/api/chats/${id}`, {
-				method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(changes),
-			});
-			if (!response.ok) throw new Error();
-			await refresh();
-		} catch { setUpdateError("Chat could not be updated. Try again."); }
+	const updateQueue = useRef(Promise.resolve());
+	const updateChat = (id: string, changes: { pinned?: boolean; archived?: boolean; projectId?: string | null }) => {
+		const apply = async () => {
+			setUpdateError(null);
+			try {
+				const response = await fetch(`/api/chats/${id}`, {
+					method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(changes),
+				});
+				if (!response.ok) throw new Error();
+				await refresh();
+			} catch { setUpdateError("Chat could not be updated. Try again."); }
+		};
+		return updateQueue.current = updateQueue.current.then(apply, apply);
 	};
+
+	const moveChat = (id: string, projectId: string | null) => {
+		const chat = chats?.find(chat => chat.id === id);
+		if (chat) void updateChat(id, { projectId });
+	};
+	const chatDrop = useChatDrop(id => moveChat(id, null));
 
 	/* Instant rename propagation (2026-09-17): the chat header's rename
 	   commits dispatch lh:chat-renamed; patch the snapshot in place instead
@@ -670,6 +684,13 @@ function SessionsSidebar() {
 		// freshness (S6) — no interval, nothing standing.
 	}, [open, pathname, refresh]);
 
+	const renderChat = (chat: ChatListItem, index?: number) => renamingId === chat.id ? (
+		<RenameRow key={chat.id} chat={chat} onCommit={next => void commitRename(chat.id, next)} onCancel={() => setRenamingId(null)} />
+	) : (
+		<SessionRow key={chat.id} chat={chat} active={pathname === `/chat/${chat.id}`} kbdSelected={index !== undefined && index === kbdIndex}
+			onOpen={() => { setKbdIndex(null); router.push(`/chat/${chat.id}`); }} onContextMenu={event => openContext(event, chat)} />
+	);
+
 	return (
 		<aside
 			className={cn("sidebar-motion shrink-0 overflow-hidden duration-200", open ? "w-72" : "w-0")}
@@ -748,9 +769,9 @@ function SessionsSidebar() {
 					</a>
 				</div>
 
-				<ProjectSidebar projects={projects} refresh={refresh} />
-				<div className="mx-3 mb-2 flex items-center gap-2">
-					<span className="text-xs uppercase tracking-widest text-muted-foreground/70">Sessions</span>
+				<ProjectSidebar projects={projects} chats={(chats ?? []).filter(chat => !chat.archived && (kindFilter === "all" || (chat.kind ?? "teach") === kindFilter))} refresh={refresh} moveChat={moveChat} renderChat={renderChat} showChats={!query.trim() && !showArchived} />
+				<div {...chatDrop.handlers} data-testid="unassigned-chat-drop" className={cn("mx-3 mb-2 flex items-center gap-2 rounded-md", chatDrop.over && "bg-accent ring-1 ring-border")}>
+					<span className="text-xs uppercase tracking-widest text-muted-foreground/70">{showArchived ? "Archived" : "Chats"}</span>
 					<Hint label="Search sessions" action="sessions-search" side="bottom">
 					<span className="relative flex-1">
 						<Input
@@ -802,12 +823,13 @@ function SessionsSidebar() {
 								}
 							}}
 							placeholder="Search…"
-							aria-label="Search sessions"
+							aria-label="Search chats"
 							className="h-6 rounded-sm border-border bg-background pl-6 text-xs placeholder:text-muted-foreground/60"
 						/>
 						<SearchIcon className="pointer-events-none absolute left-1.5 top-1/2 size-3 -translate-y-1/2 text-muted-foreground/70" />
 					</span>
 					</Hint>
+					<button type="button" aria-label={showArchived ? "Show active chats" : "Show archived chats"} title={showArchived ? "Show active chats" : "Show archived chats"} aria-pressed={showArchived} data-testid="archive-view" onClick={() => { setShowArchived(!showArchived); setKbdIndex(null); }} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"><ArchiveIcon className="size-3.5" /></button>
 				</div>
 
 				{/* The three-way filter, HEADING THE LIST (owner round 8b,
@@ -837,36 +859,15 @@ function SessionsSidebar() {
 				</div>
 
 				{updateError && <p role="alert" className="px-4 py-2 text-xs text-destructive">{updateError}</p>}
-				<div ref={listRef} className="flex-1 overflow-y-auto p-2">
+				<div {...chatDrop.handlers} ref={listRef} data-testid="unassigned-chat-list" className={cn("flex-1 overflow-y-auto p-2", chatDrop.over && "bg-accent/50 ring-1 ring-inset ring-border")}>
 					{shown === null ? (
 						<div className="px-2 py-4 text-xs text-muted-foreground">Loading…</div>
 					) : shown.length === 0 ? (
 						<div className="px-2 py-4 text-xs text-muted-foreground">
-							{query.trim() ? "No sessions match." : "No sessions yet."}
+							{query.trim() ? "No sessions match." : showArchived ? "No archived chats." : "No chats yet."}
 						</div>
 					) : (
-						shown.map((c, i) =>
-							renamingId === c.id ? (
-								<RenameRow
-									key={c.id}
-									chat={c}
-									onCommit={(next) => void commitRename(c.id, next)}
-									onCancel={() => setRenamingId(null)}
-								/>
-							) : (
-								<SessionRow
-									key={c.id}
-									chat={c}
-									active={pathname === `/chat/${c.id}`}
-									kbdSelected={i === kbdIndex}
-									onOpen={() => {
-										setKbdIndex(null);
-										router.push(`/chat/${c.id}`);
-									}}
-									onContextMenu={(e) => openContext(e, c)}
-								/>
-							),
-						)
+						shown.map((chat, index) => renderChat(chat, index))
 					)}
 				</div>
 
@@ -959,6 +960,7 @@ function SessionsSidebar() {
 						</button>
 						<div className="my-0.5 border-t border-border/60" aria-hidden="true" />
 
+                        <button data-testid="ctx-archive" className="rounded-lg px-2.5 py-1.5 text-left hover:bg-accent" onClick={() => { const chat = chats?.find(c => c.id === ctxChatId); if (chat) void updateChat(chat.id, { archived: !chat.archived }); setCtxChatId(null); }}>{chats?.find(c => c.id === ctxChatId)?.archived ? "Restore chat" : "Archive chat"}</button>
                         <button className="rounded-lg px-2.5 py-1.5 text-left hover:bg-accent" onClick={()=>{const chat=chats?.find(c=>c.id===ctxChatId);if(chat)void updateChat(chat.id,{pinned:!chat.pinned});setCtxChatId(null);}}>{chats?.find(c=>c.id===ctxChatId)?.pinned?'Unpin chat':'Pin chat'}</button>
                         <div className="my-1 border-t border-border/60"/><span className="px-2.5 pt-1 text-[11px] text-muted-foreground">Move to project</span>
                         {[{id:'',name:'No project'},...projects].map(project=><button key={project.id} className="truncate rounded-lg px-2.5 py-1.5 text-left hover:bg-accent" onClick={()=>{void updateChat(ctxChatId,{projectId:project.id||null});setCtxChatId(null);}}>{project.name}</button>)}

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { FileIcon, PaperclipIcon, PlusIcon, XIcon } from 'lucide-react';
 import { TopBar } from '@/components/top-bar';
+import { startChatDrag } from '@/components/chat-drag';
 import { useFileDrop } from '@/components/file-drop';
 import { FileDropFeedback } from '@/components/file-drop-feedback';
 import { useServerEvent, useServerResync } from '@/components/server-events';
@@ -20,7 +21,7 @@ export function ProjectPage({ initial }: {
     const [chats, setChats] = useState<ChatListItem[]>([]);
     const adopt = (next: ProjectView) => setProject(prev => next.updatedAt >= prev.updatedAt ? next : prev);
     const refresh = () => {
-        void fetch('/api/chats').then(r => r.json()).then(body => setChats((body.chats || []).filter((chat: ChatListItem) => chat.projectId === initial.id))).catch(() => {});
+        void fetch('/api/chats').then(r => r.json()).then(body => setChats((body.chats || []).filter((chat: ChatListItem) => chat.projectId === initial.id && !chat.archived))).catch(() => {});
         void fetch('/api/projects/' + initial.id).then(r => r.ok ? r.json() : null).then(next => { if (next) adopt(next); }).catch(() => {});
     };
     useEffect(refresh, [initial.id]);
@@ -80,7 +81,7 @@ export function ProjectPage({ initial }: {
     {project.missingFileIds?.map(id => <div key={id} className="flex items-center gap-3 border-t border-border/60 py-3 text-sm"><span className="flex-1 text-muted-foreground">File unavailable. Remove it and upload it again.</span><button type="button" aria-label="Remove unavailable file" onClick={() => void save({ removeFileIds: [id] }).catch(e => setError(e.message))} className="rounded p-1 hover:bg-accent"><XIcon className="size-4"/></button></div>)}
     {project.files.map(file => <div key={file.id} className="flex items-center gap-3 border-t border-border/60 py-3 text-sm"><FileIcon className="size-4 shrink-0 text-muted-foreground"/><a className="min-w-0 flex-1 truncate hover:underline" href={file.url}>{file.name}</a><button type="button" aria-label={'Remove ' + file.name} onClick={() => void save({ removeFileIds: [file.id] }).catch(e => setError(e.message))} className="rounded p-1 hover:bg-accent"><XIcon className="size-4"/></button></div>)}<FileDropFeedback files={files}/>
    </section>
-   <section><div className="mb-3 flex items-center justify-between"><h2 className="font-semibold">Chats</h2><Link href={'/chat/new?project=' + project.id} className="rounded-lg border px-3 py-1.5 text-sm hover:bg-accent">New chat</Link></div>{chats.map(chat => <Link key={chat.id} href={'/chat/' + chat.id} className="block rounded-lg px-3 py-3 hover:bg-accent">{chat.title}</Link>)}{!chats.length && <p className="text-sm text-muted-foreground">Start a chat to work with this project.</p>}</section>
+   <section><div className="mb-3 flex items-center justify-between"><h2 className="font-semibold">Chats</h2><Link href={'/chat/new?project=' + project.id} className="rounded-lg border px-3 py-1.5 text-sm hover:bg-accent">New chat</Link></div>{chats.map(chat => <Link key={chat.id} draggable onDragStart={event => startChatDrag(event, chat.id)} href={'/chat/' + chat.id} className="block rounded-lg px-3 py-3 hover:bg-accent">{chat.title}</Link>)}{!chats.length && <p className="text-sm text-muted-foreground">Start a chat to work with this project.</p>}</section>
   </div>
  </div>;
 }
