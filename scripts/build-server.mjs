@@ -80,11 +80,12 @@ for (const extra of ["dist", path.join("node_modules", "electron")]) {
 // 3) Sanity: the runtime-read prompt assets must be present (the teacher
 //    agent reads them from disk at request time).
 for (const asset of [
+	...["jbig2.wasm", "openjpeg.wasm", "qcms_bg.wasm"].map((file) => path.join("node_modules", "pdfjs-dist", "wasm", file)),
 	path.join("src", "agent", "system-prompt.md"),
 	path.join("src", "agent", "prompts", "teacher", "20-teaching.md"),
 ]) {
 	if (!exists(path.join(STANDALONE, asset))) {
-		console.error(`[build-server] prompt asset missing from the trace: ${asset}`);
+		console.error(`[build-server] runtime asset missing from the trace: ${asset}`);
 		process.exit(1);
 	}
 }
