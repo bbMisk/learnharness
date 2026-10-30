@@ -65,7 +65,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 				});
 		}
 		fetch("/api/settings")
-			.then((r) => r.json() as Promise<{ settings: { models?: ModelsSettings } | null }>)
+			.then((r) => { if (!r.ok) throw new Error(`settings read failed: ${r.status}`); return r.json() as Promise<{ settings: { models?: ModelsSettings } | null }>; })
 			.then((body) => setModels(body.settings?.models ?? undefined))
 			.catch(() => {
 				/* the record fetch failing leaves the control read-only

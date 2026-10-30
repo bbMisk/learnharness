@@ -298,3 +298,24 @@ test("OpenCode's saved shared credential names both Pi providers without changin
 	assert.equal(providerKeyLabel("FIXTURE_KEY", [provider]), "Fixture");
 	assert.equal(classifyKeys([{ id: "OPENCODE_API_KEY", info: null, present: true, masked: "…fake", source: "file", shadowedByEnv: false }], providers).addable.length, 0);
 });
+
+test("a failed settings refresh retains the confirmed draft model, then recovers on success", async () => {
+	installFetch(); await warm();
+	const settings: ModelsSettings = { strong: { model: { provider: a.provider, id: a.id }, thinkingLevel: "low" } };
+	let fail = false;
+	const requestsOnly = globalThis.fetch;
+	globalThis.fetch = async (input, init) => input === "/api/settings"
+		? fail ? Response.json({ error: "Temporarily unavailable" }, { status: 503 }) : Response.json({ settings: { models: settings } })
+		: requestsOnly(input, init);
+	let selected: string | undefined;
+	await render(<><Reader /><StatsBar turns={[]} onModelChange={(id) => { selected = id; }} /></>);
+	await answer(1, catalog());
+	assert.equal(selected, `${a.provider}:${a.id}`);
+	fail = true;
+	await act(async () => notifySettingsSaved("models")); await answer(2, catalog());
+	assert.equal(selected, `${a.provider}:${a.id}`, "an HTTP error cannot erase a confirmed preference");
+	assert.equal(element("stats-model").textContent, "model:free▾");
+	fail = false; settings.strong = { model: { provider: b.provider, id: b.id }, thinkingLevel: "medium" };
+	await act(async () => notifySettingsSaved("models")); await answer(3, catalog());
+	assert.equal(selected, `${b.provider}:${b.id}`);
+});

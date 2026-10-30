@@ -231,3 +231,32 @@ test("production AppShell uses the global upload owner across the sidebar and le
  assert.match(shell, /<GlobalFileDrop\s*\/>/);
  assert.doesNotMatch(shell, /<FilePathDropZone/);
 });
+
+test("global file-drag shield clears on a leave without file metadata, including nested drags", async () => {
+	const { window: win, document: doc } = parseHTML("<html><body><div id='root'></div></body></html>");
+	Object.assign(doc, { elementsFromPoint: () => [] });
+	const values = { React, window: win, document: doc, IS_REACT_ACT_ENVIRONMENT: true };
+	const previous = new Map(Object.keys(values).map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+	Object.assign(globalThis, values);
+	const { createRoot } = await import("react-dom/client");
+	const { GlobalFileDrop } = await import("../components/global-file-drop.tsx");
+	const root = createRoot(doc.getElementById("root")!);
+	cleanup = async () => {
+		await act(async () => root.unmount());
+		for (const [name, descriptor] of previous) {
+			if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+			else delete (globalThis as Record<string, unknown>)[name];
+		}
+	};
+	await act(async () => root.render(<GlobalFileDrop />));
+	const event = async (type: string, types: string[]) => act(async () => {
+		win.dispatchEvent(Object.assign(new win.Event(type), { dataTransfer: { types }, clientX: 0, clientY: 0 }));
+	});
+	const overlay = () => doc.querySelector('[data-testid="app-file-drop-overlay"]');
+	await event("dragenter", ["Files"]); assert.ok(overlay());
+	await event("dragleave", []); assert.ok(!overlay(), "drop shield must be cleared");
+	await event("dragenter", ["Files"]); await event("dragenter", ["Files"]);
+	await event("dragleave", ["Files"]); assert.ok(overlay());
+	await event("dragleave", []); assert.ok(!overlay(), "drop shield must be cleared");
+	await event("dragleave", []); await event("dragenter", ["text/plain"]); assert.ok(!overlay(), "drop shield must be cleared");
+});
