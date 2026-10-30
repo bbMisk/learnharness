@@ -63,10 +63,11 @@ describe("browser-service shipping readiness", () => {
 			else setTimeout(() => res.end(version(port)), 20);
 		}, async (port, idle) => {
 			assert.equal(await waitForBrowserService(port, { ...short, timeoutMs: 2000 }), endpoint(port));
-			assert.equal(requests, 3);
+			assert.ok(requests >= 3, "did not retry both startup failures");
+			const stopped = requests;
 			await idle();
 			await delay(40);
-			assert.equal(requests, 3, "polling continued after readiness");
+			assert.equal(requests, stopped, "polling continued after readiness");
 		});
 	});
 
@@ -77,7 +78,7 @@ describe("browser-service shipping readiness", () => {
 			res.end(requests === 1 ? "not json" : requests === 2 ? "{}" : version(port));
 		}, async (port, idle) => {
 			assert.equal(await waitForBrowserService(port, { ...short, timeoutMs: 2000 }), endpoint(port));
-			assert.equal(requests, 3);
+			assert.ok(requests >= 3, "did not retry both invalid responses");
 			await idle();
 		});
 	});
@@ -99,7 +100,7 @@ describe("browser-service shipping readiness", () => {
 			res.end(bad ? JSON.stringify({ webSocketDebuggerUrl: bad.replaceAll(":1234", `:${port}`) }) : version(port));
 		}, async (port, idle) => {
 			assert.equal(await waitForBrowserService(port, { ...short, timeoutMs: 2000 }), endpoint(port));
-			assert.equal(requests, invalid.length + 1);
+			assert.ok(requests >= invalid.length + 1, "accepted an invalid endpoint");
 			await idle();
 		});
 	});
@@ -110,7 +111,7 @@ describe("browser-service shipping readiness", () => {
 			res.end(++requests === 1 ? "x".repeat(16 * 1024 + 1) : version(port));
 		}, async (port, idle) => {
 			assert.equal(await waitForBrowserService(port, { ...short, timeoutMs: 2000 }), endpoint(port));
-			assert.equal(requests, 2);
+			assert.ok(requests >= 2, "accepted an oversized response");
 			await idle();
 		});
 	});

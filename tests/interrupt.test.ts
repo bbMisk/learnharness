@@ -93,3 +93,49 @@ it("rapid prompts serialize acceptance, then interrupt without waiting for eithe
 		assert.equal(f.model.getState().steerQueue.length, 0);
 	} finally { f.model.stop(); }
 });
+
+it("a new prompt waits for an initial durable POST before aborting its response", async () => {
+	const f = fixture({ deferFirstPost: true });
+	try {
+		const original = f.model.send({ type: "text", text: "first" });
+		await until(() => f.calls.includes("post:first"));
+		const next = f.model.steer("second");
+		await tick();
+		assert.deepEqual(f.calls, ["post:first"], "must not abort before the first turn can exist");
+		f.release();
+		assert.equal(await next, true);
+		assert.deepEqual(f.accepted, ["first", "second"]);
+		assert.deepEqual(f.calls, ["post:first", "abort", "post:second"]);
+		await original;
+	} finally { f.model.stop(); }
+});
+
+it("explicit Stop waits for an initial durable POST without cancelling that input", async () => {
+	const f = fixture({ deferFirstPost: true });
+	try {
+		const original = f.model.send({ type: "text", text: "first" });
+		await until(() => f.calls.includes("post:first"));
+		const stopped = f.model.abortTurn();
+		await tick();
+		assert.deepEqual(f.calls, ["post:first"]);
+		f.release();
+		assert.equal(await stopped, true);
+		await original;
+		assert.deepEqual(f.calls, ["post:first", "abort"]);
+		assert.deepEqual(f.accepted, ["first"]);
+		assert.equal(f.model.status, "ready");
+	} finally { f.model.stop(); }
+});
+
+it("an unknown POST outcome never authorizes an automatic interruption or replacement send", async () => {
+	const calls: string[] = [];
+	const model = new SessionModel({ chatId: "chat_unknown", initialMessages: [], fetch: (async input => {
+		calls.push(String(input));
+		throw new Error("lost acknowledgement");
+	}) as typeof fetch });
+	assert.equal(await model.send({ type: "text", text: "first" }), false);
+	assert.equal(await model.steer("second"), false);
+	assert.equal(await model.abortTurn(), false);
+	assert.deepEqual(calls, ["/api/chat"]);
+	assert.match(model.getState().error?.message ?? "", /could not be confirmed/);
+});

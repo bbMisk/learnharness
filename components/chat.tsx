@@ -181,6 +181,11 @@ export function retryFailedResponse(
 	void send({ type: "retry" });
 }
 
+/** Keep a rejected prompt even when the learner has already started another draft. */
+export function restoreInterruptedDraft(current: string, rejected: string): string {
+	return current ? `${current}\n\n${rejected}` : rejected;
+}
+
 /** useLayoutEffect that is silent during SSR (client components still render on the server in Next). */
 const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
@@ -260,7 +265,7 @@ export function Chat({
 	// (core/view.ts projectView); sends are ONE explicit input event each
 	// ({chatId, input} — the stash indirection died with the SDK), and the
 	// turn stream is the VERBATIM AgentEvent passthrough the server emits.
-	const { messages, nativeMessages, hasConfirmedConversation, contextTokens, send, continueIfOwed, steer, steerQueue, submitAnswer, dismissQuestion, dismissProblem, questionDraft, saveQuestionDraft, setMessages, adoptRecord, status, error, stop, clearError, resumeStream, setReattachSettled } =
+	const { messages, nativeMessages, hasConfirmedConversation, contextTokens, send, continueIfOwed, steer, steerQueue, submitAnswer, dismissQuestion, dismissProblem, questionDraft, saveQuestionDraft, setMessages, adoptRecord, status, error, abortTurn, clearError, resumeStream, setReattachSettled } =
 		useChatSession({ chatId, initialMessages, initialError, initiallyInFlight });
 
 	const sessionFindScopeRef = useRef<HTMLDivElement | null>(null);
@@ -348,25 +353,8 @@ export function Chat({
 		return () => window.removeEventListener("lh:chat-renamed", onRenamed);
 	}, [chatId]);
 
-	// The Esc chain's last link: abort the turn. The background runner
-	// decoupled turns from views, so the abort is ALWAYS the remote kill
-	// (POST /api/activity/abort — any in-flight turn dies server-side, our
-	// view renders the aborted-partial close when the finish arrives). A
-	// LOCAL view also detaches first — stop() settles the client instantly
-	// and keeps the partial; the server-side partial persists via the
-	// abort's own onFinish. Inert when nothing runs (busyRef gate).
-	const abortInFlightTurn = useCallback(() => {
-		if (localStreamRef.current) stop();
-		void fetch("/api/activity/abort", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ kind: "turn", id: chatId }),
-		}).catch(() => {
-			/* transient — the turn settles on its own; the record poll adopts */
-		});
-		// 409 not_running is the benign raced-settle: the stream's finish
-			// already settled the view (or the poll fallback adopts) — nothing owed.
-	}, [chatId, stop]);
+	// Explicit Stop shares the pending-send fence with composer interruptions.
+	const abortInFlightTurn = useCallback(() => { void abortTurn(); }, [abortTurn]);
 	// ESC-abort guard (owner, 2026-10-02): the abort chain opens a confirm
 	// popup EVERYWHERE (streams and pending questions alike). Both window
 	// listeners fire per Esc, so the state gate here — not stopPropagation
@@ -1215,7 +1203,7 @@ export function Chat({
 		if (busy) {
 			applyText("");
 			void steer(t).then(accepted => {
-				if (!accepted && !textRef.current) applyText(t);
+				if (!accepted) applyText(restoreInterruptedDraft(textRef.current, t));
 			});
 			return;
 		}

@@ -8,6 +8,7 @@
  */
 
 import * as fs from "node:fs";
+import { writeFileAtomic } from "./write-file.ts";
 import * as path from "node:path";
 import { PATHS } from "../../config.ts";
 import { mergeLearningEvents } from "../core/learning-history.ts";
@@ -56,14 +57,7 @@ function createChat(title: string, kind?: "practice"): ChatRecord {
  *  lazy migration means existing files only get stamped on their next write.
  *  A future-version guard lives on the read side (getChat). */
 function writeChat(record: ChatRecord): void {
-	const file = chatFile(record.id);
-	const temp = `${file}.${crypto.randomUUID()}.tmp`;
-	try {
-		fs.writeFileSync(temp, JSON.stringify({ ...record, version: CURRENT_CHAT_VERSION }, null, "\t"), "utf-8");
-		fs.renameSync(temp, file);
-	} finally {
-		fs.rmSync(temp, { force: true });
-	}
+	writeFileAtomic(chatFile(record.id), JSON.stringify({ ...record, version: CURRENT_CHAT_VERSION }, null, "\t"));
 }
 
 function getChat(id: string): ChatRecord | null {

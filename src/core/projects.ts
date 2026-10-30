@@ -15,6 +15,7 @@ export interface ProjectFile {
 }
 export interface ProjectView extends ProjectRecord {
     files: ProjectFile[];
+    missingFileIds?: string[];
 }
 
 export type ProjectSummary = Pick<ProjectRecord, "id" | "name">;

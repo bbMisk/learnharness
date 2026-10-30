@@ -175,7 +175,7 @@ test("waitForToolCalls resolves once that many calls are pending, in arrival ord
 	});
 
 	void client.callTool({ name: "read", arguments: { path: "a.md" }, _meta: { "claudecode/toolUseId": "call-1" } }).catch(() => {});
-	await new Promise((resolve) => setTimeout(resolve, 20));
+	await bridge.waitForToolCalls(1);
 	assert.equal(waited, false);
 
 	void client.callTool({ name: "screenshot", arguments: {}, _meta: { "claudecode/toolUseId": "call-2" } }).catch(() => {});

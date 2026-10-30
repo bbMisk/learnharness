@@ -231,6 +231,8 @@ export class SessionModel {
 	private steerQueueValue: SteerQueueItem[] = [];
 	// Serialize only interruption handoffs, never the response streams.
 	private interruptHandoff: Promise<unknown> = Promise.resolve();
+	/** A durable POST outlives view teardown; interruption waits for its outcome. */
+	private pendingInput: Promise<boolean> = Promise.resolve(true);
 	private readonly pollMs: number;
 	private readonly waitMaxMs: number;
 	private onReattachSettled?: () => void;
@@ -730,7 +732,9 @@ export class SessionModel {
 			// starve the connection pool, so it needs no teardown guard. The
 			// STREAM consume stays on the controller — releasing that held
 			// connection is Diet A's whole job.
-			const res = await this.postInputEvent(input);
+			const posted = this.postInputEvent(input);
+			this.pendingInput = posted.then(() => true, () => false);
+			const res = await posted;
 			if (res.status === 409) {
 				throw new Error("A turn is already running — try again in a moment.");
 			}
@@ -795,6 +799,27 @@ export class SessionModel {
 		}
 	}
 
+	/** Explicit cancellation, unlike stop()'s view-only teardown. A pending
+	 * POST must be acknowledged before its server turn can be aborted. */
+	async abortTurn(): Promise<boolean> {
+		try {
+			if (!await this.pendingInput) throw new Error("The previous send could not be confirmed. Reload the lesson before interrupting.");
+			const res = await this.fetch("/api/activity/abort", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ kind: "turn", id: this.chatId }),
+			});
+			if (!res.ok && !(res.status === 409 && (await res.json()).reason === "not_running")) {
+				throw new Error(`The interruption failed (${res.status}).`);
+			}
+			this.stop();
+			return true;
+		} catch (err) {
+			this.setError((err as Error).message);
+			return false;
+		}
+	}
+
 	/** Interrupt the current response, then send through the existing
 	 * write-ahead/retry path. Rapid prompts wait only for prior acceptance,
 	 * so each can abort the response its predecessor started. */
@@ -806,15 +831,7 @@ export class SessionModel {
 		this.onChange?.();
 		const handoff = this.interruptHandoff.then(async () => {
 			try {
-				const res = await this.fetch("/api/activity/abort", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ kind: "turn", id: this.chatId }),
-				});
-				if (!res.ok && !(res.status === 409 && (await res.json()).reason === "not_running")) {
-					throw new Error(`The interruption failed (${res.status}).`);
-				}
-				this.stop();
+				if (!await this.abortTurn()) return false;
 				return await new Promise<boolean>((resolve) => {
 					void this.send({ type: "text", text: t }, () => resolve(true)).then(resolve, () => resolve(false));
 				});
