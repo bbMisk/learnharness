@@ -1207,22 +1207,16 @@ export function Chat({
 		void send({ type: "text", text: t });
 	};
 
-	/* STEER VS SEND (owner arc 2026-10-03): a send while a turn runs steers
-	 * it — the quiet queue + the live agent's steering rail; the turn's own
-	 * stream lands the card when pi drains it. The branch is BUSY, not
-	 * turnInFlight: the own-stream case CLEARS turnInFlight (the local
-	 * dedup, chat.tsx ~370), so branching there swallowed Enter entirely
-	 * during our own turn (owner live report, fixed same day). busy covers
-	 * own stream AND foreign/wake turns — both have a live agent by the
-	 * time the send's POST resolved, so the steer lands. Idle takes the
-	 * plain send; a raced settle 409s and falls back to exactly that. */
+	// New input interrupts a busy response; idle input uses ordinary Send.
 	const doSteerOrSend = () => {
 		if (pending || compacting) return;
 		const t = textRef.current.trim();
 		if (!t) return;
 		if (busy) {
 			applyText("");
-			void steer(t);
+			void steer(t).then(accepted => {
+				if (!accepted && !textRef.current) applyText(t);
+			});
 			return;
 		}
 		doSend();
