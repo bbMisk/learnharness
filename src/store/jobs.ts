@@ -76,16 +76,16 @@ function updateJob(id: string, patch: JobPatch): JobRecord | null {
 	return next;
 }
 
-/** All jobs for a chat, newest activity first. */
-function listJobs(chatId: string): JobRecord[] {
+/** Scoped jobs are newest first; an unscoped scan preserves directory order. */
+function listJobs(chatId?: string): JobRecord[] {
 	try {
 		fs.mkdirSync(JOBS_DIR, { recursive: true });
-		return fs
+		const jobs = fs
 			.readdirSync(JOBS_DIR)
 			.filter((f) => f.endsWith(".json"))
 			.map((f) => getJob(f.slice(0, -5)))
-			.filter((j): j is JobRecord => j !== null && j.chatId === chatId)
-			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+			.filter((j): j is JobRecord => j !== null);
+		return chatId === undefined ? jobs : jobs.filter(j => j.chatId === chatId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 	} catch {
 		return [];
 	}

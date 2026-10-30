@@ -634,13 +634,13 @@ export async function handleChatInput(
 				if (process.env.NODE_ENV !== "test" && (!requestCycle || requestCycle.dispatched))
 					kickCompaction(() => {
 						const fresh = effectiveSettings();
-						const spec = resolveConversationSpec(stores.chatStore.getChat(chatId)?.settings, fresh.models.strong);
+						const freshRecord = stores.chatStore.getChat(chatId);
+						if (!freshRecord) return null;
+						const spec = resolveConversationSpec(freshRecord.settings, fresh.models.strong);
 						if (!spec || !connectionBackgroundAllowed(spec.provider)) return null;
 						let kickEngine: PiEngine;
 						try { kickEngine = piEngineForSpec(spec, true); } catch { return null; }
 						const kickModelId = `${kickEngine.model.provider}:${kickEngine.model.id}`;
-						const freshRecord = stores.chatStore.getChat(chatId);
-						if (!freshRecord) return null;
 						return {
 							chatStore: stores.chatStore,
 							engine: kickEngine,

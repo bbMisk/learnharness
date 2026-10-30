@@ -713,6 +713,20 @@ async function waitForIdle(chatId: string): Promise<void> {
 	}
 }
 
+/** One filesystem scan, preserving each chat's scoped ordering and failure isolation. */
+function groupedJobs(): Map<string, JobRecord[]> {
+	const groups = new Map<string, JobRecord[]>();
+	for (const job of stores.jobStore.listJobs()) {
+		const group = groups.get(job.chatId);
+		if (group) group.push(job); else groups.set(job.chatId, [job]);
+	}
+	for (const [chatId, group] of groups) {
+		try { group.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)); }
+		catch { groups.set(chatId, []); }
+	}
+	return groups;
+}
+
 // ─── crash recovery ──────────────────────────────────────────────────────────
 
 const SWEEP_THROTTLE_MS = 30_000;
@@ -738,8 +752,11 @@ export function recoverStaleJobs(): void {
 	if (now - s.lastSweepAt < SWEEP_THROTTLE_MS) return;
 	s.lastSweepAt = now;
 	try {
+		const groups = groupedJobs();
 		for (const chat of stores.chatStore.listChats()) {
-			for (const job of stores.jobStore.listJobs(chat.id)) {
+			for (const snapshot of groups.get(chat.id) ?? []) {
+				const job = stores.jobStore.getJob(snapshot.id);
+				if (!job || job.chatId !== chat.id) continue;
 				if (isJobLive(job.id)) continue; // never re-run beside live computation
 				if (!stores.chatStore.getChat(job.chatId)) continue;
 				if (isTurnRunning(job.chatId)) continue;
@@ -763,9 +780,14 @@ export function recoverStaleJobs(): void {
 /** The /api/jobs entry: job list for the client poll (+ lazy recovery). */
 export function listJobs(chatId: string): JobRecord[] {
 	if (process.env.NODE_ENV !== "test") recoverStaleJobs();
+	return projectJobs(chatId, stores.jobStore.listJobs(chatId));
+}
+
+function projectJobs(chatId: string, jobs: JobRecord[]): JobRecord[] {
+	if (!jobs.length) return [];
 	const chat = stores.chatStore.getChat(chatId);
 	const pendingAnswer = chat ? danglingQuestionOf(chat.messages) !== null : false;
-	return stores.jobStore.listJobs(chatId).map((job) => {
+	return jobs.map((job) => {
 		let task = job.task;
 		if (!task && chat) {
 			for (const message of chat.messages) {
@@ -779,4 +801,11 @@ export function listJobs(chatId: string): JobRecord[] {
 			? pendingAnswer ? "waiting-answer" : isTurnRunning(chatId) ? "waiting-lesson" : "delivering"
 			: undefined };
 	});
+}
+
+/** Batch the same projection without rereading the jobs directory for each chat. */
+export function listJobsForChats(chatIds: readonly string[]): Map<string, JobRecord[]> {
+	if (chatIds.length && process.env.NODE_ENV !== "test") recoverStaleJobs();
+	const groups = groupedJobs();
+	return new Map(chatIds.map(id => [id, projectJobs(id, groups.get(id) ?? [])]));
 }

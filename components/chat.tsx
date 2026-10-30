@@ -127,7 +127,7 @@ const EXPAND_DIST = 16;
  */
 export const ChatActionsContext = createContext<{
 	chatId: string;
-	syncFromServer: () => Promise<void>;
+	syncFromServer: () => Promise<boolean>;
 	/** Send a user message into the session (demo error-fix loop, W6). */
 	sendText: (text: string) => void;
 	/** Opens the model setup dialog (BYOK, 2026-09-22): refused job cards
@@ -821,21 +821,24 @@ export function Chat({
 	useEnterSubmits(sendNext);
 
 	const syncFromServer = useCallback(async () => {
-		const res = await fetch(`/api/chats/${chatId}`);
-		if (!res.ok) return;
-		const record = (await res.json()) as { messages?: LhMessage[]; turns?: TurnUsage[]; pricing?: SessionPricing; turnError?: string };
-		if (Array.isArray(record.turns)) setTurns(record.turns);
-		setPricing(record.pricing);
-		if (!Array.isArray(record.messages)) return;
-		setMessages(record.messages, record.turnError);
-		// The continuation seam (contracts.ts protocol §4): a job result
-		// landing in the record leaves the agent owing a continuation — the
-		// record ENDS on un-consumed results, the dock owns no question, and
-		// nothing runs. The native fold (needsContinuation) is the old SDK
-		// lastAssistantMessageIsCompleteWithToolCalls check.
-		// Current model truth also guards retained/live failures: canonical
-		// sync must never automatically replace a reply that failed to save.
-		continueIfOwed(record.messages);
+		try {
+			const res = await fetch(`/api/chats/${chatId}`);
+			if (!res.ok) return false;
+			const record = (await res.json()) as { messages?: LhMessage[]; turns?: TurnUsage[]; pricing?: SessionPricing; turnError?: string };
+			if (Array.isArray(record.turns)) setTurns(record.turns);
+			setPricing(record.pricing);
+			if (!Array.isArray(record.messages)) return false;
+			setMessages(record.messages, record.turnError);
+			// The continuation seam (contracts.ts protocol §4): a job result
+			// landing in the record leaves the agent owing a continuation — the
+			// record ENDS on un-consumed results, the dock owns no question, and
+			// nothing runs. The native fold (needsContinuation) is the old SDK
+			// lastAssistantMessageIsCompleteWithToolCalls check.
+			// Current model truth also guards retained/live failures: canonical
+			// sync must never automatically replace a reply that failed to save.
+			continueIfOwed(record.messages);
+			return true;
+		} catch { return false; /* retain the confirmed view on a transient read failure */ }
 	}, [chatId, setMessages, continueIfOwed]);
 
 	// The settled terminal's other half (stream-reattach wave): the
@@ -870,46 +873,23 @@ export function Chat({
 		}
 	}, [chatId, adoptRecord]);
 
-	// Turn-start window: the server inserts claimed steers right after our
-	// outgoing message, BEFORE the stream produces anything — so a bounded,
-	// self-terminating window of one fallback record fetch (2s) recovers a failed initial canonical read and catches
-	// the insert and shows the marker during the turn, then stops. No
-	// standing poll — the window exists only for these seconds. (The dock
-	// nudges that lived here died at S5: dispatch writes announce jobs-changed
-	// from the store, extraction announces activity-changed at setPhase.)
+	// One 2s fallback adoption per submitted turn. Keep it across streaming
+	// and ready transitions: an initial canonical read may have failed.
 	const turnStartStatusRef = useRef(status);
-	// The window must survive the submitted→streaming flip (the stream starts
-	// in well under 400ms), so the timers are guarded by this ref — dropped at
-	// unmount, left alone otherwise: the window self-terminates after 2s.
-	const adoptionWindowOpenRef = useRef(false);
-	const turnStartTimerRefs = useRef<ReturnType<typeof setTimeout>[]>([]);
+	const turnStartTimerRefs = useRef(new Set<ReturnType<typeof setTimeout>>());
 	useEffect(() => {
 		const was = turnStartStatusRef.current;
 		turnStartStatusRef.current = status;
 		if (was === "submitted" || status !== "submitted") return;
-		// A turn just started (status flipped ready → submitted): open the
-		// bounded adoption window.
-		adoptionWindowOpenRef.current = true;
-		const timers = [2000].map((ms) =>
-			setTimeout(() => {
-				if (adoptionWindowOpenRef.current) {
-					void adoptAppendOnly();
-				}
-			}, ms),
-		);
-		// Deliberately no cleanup here: this effect re-runs on every status
-		// flip, which would cancel the window at submitted→streaming.
-		timers.forEach((t) => {
-			turnStartTimerRefs.current.push(t);
-		});
+		const timer = setTimeout(() => {
+			turnStartTimerRefs.current.delete(timer);
+			void adoptAppendOnly();
+		}, 2000);
+		turnStartTimerRefs.current.add(timer);
 	}, [status, adoptAppendOnly]);
 	useEffect(() => {
-		const timers = turnStartTimerRefs;
-		return () => {
-			adoptionWindowOpenRef.current = false;
-			timers.current.forEach(clearTimeout);
-			timers.current = [];
-		};
+		const timers = turnStartTimerRefs.current;
+		return () => { timers.forEach(clearTimeout); timers.clear(); };
 	}, []);
 
 	// The live plan popup (wave 4): opened by any transcript plan block, the
@@ -982,17 +962,8 @@ export function Chat({
 	useEffect(() => {
 		void syncTurns();
 	}, [syncTurns]);
-	// After the learner's own turn ends the log has a fresh entry — and the
-	// Post-turn settle (the SLIMMED watch — push-architecture S3,
-	// 2026-10-02): our own stream just ended. Two instant LOCAL actions
-	// only — the turns-only refetch lands the log entry while the server's
-	// persist/endTurn lags by milliseconds, and the coverage ring re-reads
-	// (this turn's messages just joined the uncovered mass). The ADOPTION
-	// LOOP and the HANDOFF WATCH that lived here are RETIRED: a
-	// server-initiated turn (the probe→teach handoff, a job wake, another
-	// tab) is now ANNOUNCED on the events channel — the turn-started
-	// subscription (below the jobs poll) attaches to it live. No polling
-	// window can expire; the freeze class is gone.
+	// Settlement refreshes coverage and canonical messages/stats. Without a
+	// durable-settlement announcement (for example Stop), refresh stats only.
 	const prevStatusRef = useRef(status);
 	useEffect(() => {
 		const transitioned = prevStatusRef.current !== "ready" && status === "ready";
@@ -1000,9 +971,6 @@ export function Chat({
 		// branch — the re-fire-on-dep-churn wart, fixed S3).
 		prevStatusRef.current = status;
 		if (!transitioned) return;
-		// immediate: turns-only refetch — the stats bar updates even while
-		// the server's persist/endTurn lags the client by milliseconds
-		void syncTurns();
 		// The coverage ring re-reads at turn settle too (extraction-UX
 		// redesign, 2026-09-24); the ring's own running-poll handles runs.
 		setCoverageTick((t) => t + 1);
@@ -1021,8 +989,8 @@ export function Chat({
 		// lands at an idle, already-canonical view and attaches normally.
 		if (settleAnnouncedRef.current) {
 			settleAnnouncedRef.current = false;
-			void syncFromServer();
-		}
+			void syncFromServer().then(ok => { if (!ok) void syncTurns(); });
+		} else void syncTurns();
 		// (The extraction-discovery nudges that lived here died at S5: the
 		// pipeline announces every phase on the events channel.)
 	}, [status, syncTurns, syncFromServer]);
@@ -1081,10 +1049,6 @@ export function Chat({
 	// (The dispatch nudge effect that lived here — refreshActivity per new
 	// dispatch tool part — died at S5: the store announces jobs-changed at
 	// the dispatch write; the dock subscribes.)
-	// First-fetch guard (the old first-tick guard): the initial read adopts
-	// existing history (jobs recorded before mount) without nudging — a
-	// nudge is only owed for a running job the feed hasn't seen THIS session.
-	const firstFetchRef = useRef(true);
 	// The trailing debounce for jobs-changed announcements (one timer), and
 	// the ref the timer fires through (a stale closure must never fetch an
 	// old chatId).
@@ -1096,34 +1060,17 @@ export function Chat({
 			if (!res.ok) return;
 			const data = (await res.json()) as { jobs?: JobRecord[]; turnInFlight?: boolean };
 			const list = data.jobs ?? [];
-			for (const j of list) {
-				const prev = jobStatusRef.current.get(j.id);
-				if (prev === "running" && j.status !== "running") {
-					// A settle — the blob leaves the dock via the store's jobs-changed
-					// announce at this very write (S5); this handler owns the RECORD.
-					// The record is only guaranteed complete when no turn is in
-					// flight — locally or server-side (a coalesced settle fires
-					// mid-turn by design), so the FULL sync waits for idle.
-					// Ground rule (2026-09-15): delivered content shows
-					// immediately anyway — adopt append-only NOW; the idle
-					// sync still settles the record properly.
-					if (localStreamRef.current || data.turnInFlight === true) {
-						pendingSyncRef.current = true;
-						void adoptAppendOnly();
-					} else {
-						void syncFromServer();
-					}
-				}
-				jobStatusRef.current.set(j.id, j.status);
+			let settled = false;
+			for (const job of list) {
+				if (jobStatusRef.current.get(job.id) === "running" && job.status !== "running") settled = true;
+				jobStatusRef.current.set(job.id, job.status);
 			}
-			firstFetchRef.current = false;
-			if (
-				pendingSyncRef.current &&
-				!localStreamRef.current &&
-				data.turnInFlight !== true
-			) {
-				pendingSyncRef.current = false;
-				void syncFromServer();
+			const busy = localStreamRef.current || data.turnInFlight === true;
+			if (settled || (pendingSyncRef.current && !busy)) {
+				// A whole settled batch shares one read; streaming views adopt
+				// append-only until the canonical idle sync is safe.
+				pendingSyncRef.current = busy;
+				if (busy) void adoptAppendOnly(); else void syncFromServer();
 			}
 			setJobs(list);
 			// (Wake-turn adoption that lived here — the turnInFlight attach
@@ -1135,14 +1082,8 @@ export function Chat({
 		}
 	}, [chatId, syncFromServer, adoptAppendOnly]);
 	fetchJobsRef.current = () => void fetchJobs();
-	// Mount + chat switch: the IMMEDIATE (non-debounced) initial read. The
-	// firstFetch guard resets with the old rule — true only when this
-	// session has never seen a job (a chat switch keeps the map: job ids
-	// are unique per chat, and a newly-seen running job may still nudge).
-	useEffect(() => {
-		firstFetchRef.current = jobStatusRef.current.size === 0;
-		void fetchJobs();
-	}, [fetchJobs]); // identity changes exactly on chatId
+	// Fetch the current jobs on mount and chat switch.
+	useEffect(() => { void fetchJobs(); }, [fetchJobs]);
 	useServerEvent("jobs-changed", (p) => {
 		if (p.chatId != null && p.chatId !== chatId) return; // ours or unattributed
 		if (fetchDebounceRef.current) clearTimeout(fetchDebounceRef.current);

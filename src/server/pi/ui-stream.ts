@@ -311,7 +311,8 @@ export function runPiTurn(spec: PiTurnSpec): PiTurnHandle {
 				const outcome = requestCycle.finishNativeCycle();
 				if (denied) agent.state.messages = outcome.messages;
 				if (outcome.action !== "resumeForeground") {
-					handle({ type: "agent_end", messages: [...agent.state.messages] });
+					// Completion is a marker; settlement reads native state directly.
+					handle({ type: "agent_end", messages: [] });
 					break;
 				}
 			} while (!sawAbort);

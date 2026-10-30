@@ -59,3 +59,22 @@ it("slims every live/replay event while persisting native image and signature by
 	assert.equal(JSON.stringify(events), original);
 	assert.equal(await new Response(turn.subscribe()).text(), wire, "reattach replay uses the same display boundary");
 });
+
+
+it("subscription completion omits replayed history while persisting native messages", async () => {
+ const learner: LhMessage = { role: "user", id: "image-input", timestamp: 1, content: [fauxText("My screenshot"), image] };
+ const native = [{ role: "system", content: "Ephemeral prompt" } as never, learner, assistant];
+ let listener: (event: AgentEvent) => unknown;
+ let persisted: unknown;
+ const agent = { state: { messages: native }, subscribe(fn: typeof listener) { listener = fn; return () => {}; },
+  async continue() { await Promise.resolve(); listener({ type: "message_start", message: assistant }); listener({ type: "message_end", message: assistant }); listener({ type: "agent_end", messages: native }); }, abort() {} } as unknown as Agent;
+ const cycle = { bindRelease() {}, hold(event: AgentEvent) { return event.type === "agent_end"; }, finishNativeCycle() { return { action: "settle", messages: [] }; }, deniedBeforeDispatch: false } as unknown as NonNullable<Parameters<typeof runPiTurn>[0]["requestCycle"]>;
+ const handle = runPiTurn({ agent, requestCycle: cycle, onFinish(messages) { persisted = messages; } });
+ const wire = await new Response(handle.subscribe()).text();
+ const events = wire.split("\n").filter(line => line.startsWith("data: {")).map(line => JSON.parse(line.slice(6)));
+ assert.equal(events.find(event => event.type === "agent_end").messages.length, 0);
+ assert.ok(wire.length < 10_000, "completion must not replay the learner's image/history");
+ assert.ok(wire.endsWith("data: [DONE]\n\n"));
+ assert.deepEqual(persisted, [learner, assistant], "native settlement retains attachments and excludes the ephemeral prompt");
+ assert.equal(await new Response(handle.subscribe()).text(), wire, "late subscribers receive the same compact terminal");
+});
