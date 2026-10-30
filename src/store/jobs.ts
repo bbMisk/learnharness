@@ -9,6 +9,7 @@
  */
 
 import * as fs from "node:fs";
+import { writeFileAtomic } from "./write-file.ts";
 import * as path from "node:path";
 import { PATHS } from "../../config.ts";
 import { emit } from "../core/events.ts";
@@ -43,7 +44,7 @@ function createJob(init: CreateJobInit): JobRecord {
 		updatedAt: now,
 	};
 	fs.mkdirSync(JOBS_DIR, { recursive: true });
-	fs.writeFileSync(jobFile(record.id), JSON.stringify(record, null, "\t"), "utf-8");
+	writeFileAtomic(jobFile(record.id), JSON.stringify(record, null, "\t"));
 	emit("jobs-changed", { chatId: init.chatId });
 	return record;
 }
@@ -68,7 +69,7 @@ function updateJob(id: string, patch: JobPatch): JobRecord | null {
 		const history = record.activityHistory ?? [{ at: record.updatedAt, text: record.activity }];
 		next.activityHistory = [...history, { at: next.updatedAt, text: patch.activity.slice(0, 2000) }].slice(-200);
 	}
-	fs.writeFileSync(jobFile(id), JSON.stringify(next, null, "\t"), "utf-8");
+	writeFileAtomic(jobFile(id), JSON.stringify(next, null, "\t"));
 	// EVERY write, not just status flips: progress-line updates must reach
 	// the dispatch cards (the view debounces the fetch bursts). A missing id
 	// wrote nothing and stays silent.
@@ -76,16 +77,16 @@ function updateJob(id: string, patch: JobPatch): JobRecord | null {
 	return next;
 }
 
-/** All jobs for a chat, newest activity first. */
-function listJobs(chatId: string): JobRecord[] {
+/** Scoped jobs are newest first; an unscoped scan preserves directory order. */
+function listJobs(chatId?: string): JobRecord[] {
 	try {
 		fs.mkdirSync(JOBS_DIR, { recursive: true });
-		return fs
+		const jobs = fs
 			.readdirSync(JOBS_DIR)
 			.filter((f) => f.endsWith(".json"))
 			.map((f) => getJob(f.slice(0, -5)))
-			.filter((j): j is JobRecord => j !== null && j.chatId === chatId)
-			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+			.filter((j): j is JobRecord => j !== null);
+		return chatId === undefined ? jobs : jobs.filter(j => j.chatId === chatId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 	} catch {
 		return [];
 	}

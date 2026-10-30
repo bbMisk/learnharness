@@ -61,6 +61,9 @@ export function eventsResponse(): Response {
 				const { type, ...payload } = event;
 				frame(`event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`);
 			});
+			// Flush the connection now; an idle window must not wait for the
+			// first notification or the 25-second heartbeat to open EventSource.
+			frame(": connected\n\n");
 			heartbeat = setInterval(() => frame(": ping\n\n"), 25_000);
 
 			teardown = stop;

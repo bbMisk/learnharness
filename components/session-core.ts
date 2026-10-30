@@ -229,6 +229,10 @@ export class SessionModel {
 	fetch: typeof globalThis.fetch;
 	/** Steers sent but not yet drained (the queued indicator's truth). */
 	private steerQueueValue: SteerQueueItem[] = [];
+	// Serialize only interruption handoffs, never the response streams.
+	private interruptHandoff: Promise<unknown> = Promise.resolve();
+	/** A durable POST outlives view teardown; interruption waits for its outcome. */
+	private pendingInput: Promise<boolean> = Promise.resolve(true);
 	private readonly pollMs: number;
 	private readonly waitMaxMs: number;
 	private onReattachSettled?: () => void;
@@ -728,7 +732,9 @@ export class SessionModel {
 			// starve the connection pool, so it needs no teardown guard. The
 			// STREAM consume stays on the controller — releasing that held
 			// connection is Diet A's whole job.
-			const res = await this.postInputEvent(input);
+			const posted = this.postInputEvent(input);
+			this.pendingInput = posted.then(() => true, () => false);
+			const res = await posted;
 			if (res.status === 409) {
 				throw new Error("A turn is already running — try again in a moment.");
 			}
@@ -793,46 +799,52 @@ export class SessionModel {
 		}
 	}
 
-	/**
-	 *  STEER (composer steering, owner arc 2026-10-03): the learner's
-	 *  mid-turn message for the RUNNING turn. NOT a turn — no optimistic
-	 *  transcript card, no status flip: the message joins the queued
-	 *  indicator (the quiet line above the composer) and POSTs to the
-	 *  steer route, which hands it to the live agent's steering queue.
-	 *  When pi drains it at the next response boundary, the verbatim
-	 *  message events upsert the real card (the client-minted id is the
-	 *  key) and the indicator's fold drops the line. A 409 means the turn
-	 *  settled mid-send (the race): fall back to the plain text send —
-	 *  the entry is dropped and send() pushes its own optimistic card.
-	 */
-	async steer(text: string): Promise<void> {
+	/** Explicit cancellation, unlike stop()'s view-only teardown. A pending
+	 * POST must be acknowledged before its server turn can be aborted. */
+	async abortTurn(): Promise<boolean> {
+		try {
+			if (!await this.pendingInput) throw new Error("The previous send could not be confirmed. Reload the lesson before interrupting.");
+			const res = await this.fetch("/api/activity/abort", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ kind: "turn", id: this.chatId }),
+			});
+			if (!res.ok && !(res.status === 409 && (await res.json()).reason === "not_running")) {
+				throw new Error(`The interruption failed (${res.status}).`);
+			}
+			this.stop();
+			return true;
+		} catch (err) {
+			this.setError((err as Error).message);
+			return false;
+		}
+	}
+
+	/** Interrupt the current response, then send through the existing
+	 * write-ahead/retry path. Rapid prompts wait only for prior acceptance,
+	 * so each can abort the response its predecessor started. */
+	async steer(text: string): Promise<boolean> {
 		const t = text.trim();
-		if (!t) return;
+		if (!t) return false;
 		const id = `steer_${localId()}`;
 		this.steerQueueValue = [...this.steerQueueValue, { id, text: t }];
 		this.onChange?.();
-		const dropSteer = () => {
-			this.steerQueueValue = this.steerQueueValue.filter((s) => s.id !== id);
-			this.onChange?.();
-		};
-		try {
-			const res = await this.fetch(`/api/chats/${this.chatId}/steer`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ input: { type: "steer", id, text: t } }),
-			});
-			if (res.ok) return; // parked or delivered — the stream lands the card
-			if (res.status === 409) {
-				dropSteer();
-				await this.send({ type: "text", text: t }); // the settle race: plain send
-				return;
+		const handoff = this.interruptHandoff.then(async () => {
+			try {
+				if (!await this.abortTurn()) return false;
+				return await new Promise<boolean>((resolve) => {
+					void this.send({ type: "text", text: t }, () => resolve(true)).then(resolve, () => resolve(false));
+				});
+			} catch (err) {
+				this.setError((err as Error).message);
+				return false;
+			} finally {
+				this.steerQueueValue = this.steerQueueValue.filter(s => s.id !== id);
+				this.onChange?.();
 			}
-			dropSteer();
-			this.setError((await res.text()) || `The steer failed (${res.status}).`);
-		} catch (err) {
-			dropSteer();
-			this.setError((err as Error).message);
-		}
+		});
+		this.interruptHandoff = handoff;
+		return handoff;
 	}
 
 	/** The answer path (the dock): the answer IS the question call's tool

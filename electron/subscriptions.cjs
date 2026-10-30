@@ -1,7 +1,7 @@
 "use strict";
 const { randomUUID } = require("node:crypto");
 const path = require("node:path");
-const { createRequire, registerHooks } = require("node:module");
+const { registerHooks } = require("node:module");
 const { pathToFileURL } = require("node:url");
 const { PROVIDERS, fileStore, validateCredential, safeHttps, failure } = require("./subscription-store.cjs");
 
@@ -21,20 +21,19 @@ const MESSAGES = {
 function publicError(error) { return MESSAGES[error?.code] ?? MESSAGES.unavailable; }
 /** Resolve the SAME SDK installation as the standalone server, through public exports. */
 async function loadSubscriptionSDK(baseDirectory) {
-	const resolve = createRequire(path.join(baseDirectory, "package.json"));
-	const load = (id) => {
-		// Pi exports are import-only. Resolve the public export with ESM
-		// conditions, then remove this synchronous, exact-specifier hook
-		// BEFORE evaluation; no private package path or global hook remains.
-		const hook = registerHooks({ resolve(specifier, context, next) {
-			return next(specifier, specifier === id ? { ...context, conditions: [...context.conditions, "import"] } : context);
-		} });
-		let file;
-		try { file = resolve.resolve(id); } finally { hook.deregister(); }
-		return import(pathToFileURL(file).href);
-	};
-	const [sdk, copilot, xai] = await Promise.all([load("@earendil-works/pi-ai"), load("@earendil-works/pi-ai/providers/github-copilot"), load("@earendil-works/pi-ai/providers/xai")]);
-	return { ...sdk, ...copilot, ...xai };
+	const ids = ["@earendil-works/pi-ai", "@earendil-works/pi-ai/providers/github-copilot", "@earendil-works/pi-ai/providers/xai"];
+	const imports = new Map(ids.map(id => [`lh-sdk-${randomUUID()}`, id]));
+	const parentURL = pathToFileURL(path.join(baseDirectory, "package.json")).href;
+	// Resolve public ESM exports from the server's SDK installation. Unique
+	// aliases isolate concurrent loads; unrelated imports pass through.
+	const hook = registerHooks({ resolve(specifier, context, next) {
+		const id = imports.get(specifier);
+		return id ? next(id, { ...context, parentURL }) : next(specifier, context);
+	} });
+	try {
+		const [sdk, copilot, xai] = await Promise.all([...imports.keys()].map(id => import(id)));
+		return { ...sdk, ...copilot, ...xai };
+	} finally { hook.deregister(); }
 }
 function validEndpoint(providerId, auth, credential) {
 	if (!auth || (!(typeof auth.apiKey === "string" && auth.apiKey.length > 0) && !Object.entries(auth.headers ?? {}).some(([key, value]) => ["authorization", "x-api-key", "api-key"].includes(key.toLowerCase()) && typeof value === "string" && value.trim().length > 0))) return false;

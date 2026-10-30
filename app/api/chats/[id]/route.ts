@@ -1,4 +1,5 @@
 import { projectStore, setChatOrganization, compactionInFlight, deleteChatSession, getChat, isTurnRunning, sessionCoverage, sessionCost, stores, turnFailure, type ChatDeleteMode } from "@/src/server";
+import { clientMessage } from "@/src/core";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
 	const { id } = await params;
@@ -11,19 +12,19 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 	// route died with the redesign; the Extract POST stays). getChat
 	// already 404'd, so the block exists.
 	// Wave D (owner-approved 2026-09-26): the record's messages are native
-	// agent history, served VERBATIM — the client derives its view
+	// agent history with non-display bytes omitted — the client derives its view
 	// (core/view.ts projectView). turnInFlight lets a returning client
 	// re-attach to a running turn; coverage is the chat view's ring meter.
 	const { learningEvents: _learningEvents, ...view } = chat;
 	return Response.json({
 		...view,
-		messages: chat.messages,
+		messages: chat.messages.map(clientMessage),
 		pricing: sessionCost(chat),
 		turnInFlight: isTurnRunning(id),
 		// Also reaches idle views that missed the failing turn's stream.
 		turnError: turnFailure(id),
 		compacting: compactionInFlight(id),
-		coverage: sessionCoverage(id),
+		coverage: sessionCoverage(chat),
 	});
 }
 

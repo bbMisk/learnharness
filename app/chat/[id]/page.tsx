@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { Chat } from "@/components/chat";
-import { resolveSettings, slotsConfigured } from "@/src/core";
+import { clientMessage, resolveSettings, slotsConfigured } from "@/src/core";
 import { compactionInFlight, getChat, isTurnRunning, readSettingsRecord, turnFailure } from "@/src/server";
 
 export const dynamic = "force-dynamic";
@@ -27,8 +27,8 @@ export default async function ChatPage({
 			kind={chat.kind ?? "teach"}
 			// Wave D: the record IS native agent history — the client view is
 				// derived app-side (core/view.ts projectView; GET serves the same
-				// native messages).
-				initialMessages={chat.messages}
+				// display messages).
+				initialMessages={chat.messages.map(clientMessage)}
 			initialError={turnFailure(chat.id)}
 			initialConfigured={slotsConfigured(record?.models)}
 			initialShowReadingThinking={resolveSettings(record ?? null).general.showReadingThinking}

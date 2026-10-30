@@ -40,6 +40,7 @@ export * from "./math-delims.ts";
 // and the input-events contract — all
 // pure logic, browser-safe.
 export * from "./native-messages.ts";
+export { clientMessage } from "./client-messages.ts";
 export * from "./compaction.ts";
 export * from "./input-events.ts";
 export { parseFilePaths, quoteFilePath, filePathLabel } from "./file-paths.ts";

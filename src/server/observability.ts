@@ -23,7 +23,7 @@ import { extractionStatuses, type ExtractionPhase } from "../agent/subagents/ext
 import { chatStore } from "../store/chats.ts";
 import { graphRevision } from "./graph.ts";
 import { catalogContextLimits } from "./model-catalog.ts";
-import { listJobs } from "./jobs.ts";
+import { listJobsForChats } from "./jobs.ts";
 import { jobCost } from "./pricing.ts";
 import type { JobRecord } from "../core/contracts.ts";
 
@@ -74,8 +74,9 @@ export function activityFeed(): {
 	const chats = chatStore.listChats();
 	const limits = catalogContextLimits();
 	const jobs: ActivityJob[] = [];
+	const grouped = listJobsForChats(chats.map(chat => chat.id));
 	for (const chat of chats) {
-		for (const job of listJobs(chat.id)) {
+		for (const job of grouped.get(chat.id) ?? []) {
 			if (job.status === "running") {
 				jobs.push({
 					...job,

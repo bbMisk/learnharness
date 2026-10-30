@@ -47,6 +47,11 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 	const [open, setOpen] = useState<"model" | "thinking" | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
+	const recordRevision = useRef(0);
+	const writeQueue = useRef(Promise.resolve());
+	const enqueueWrite = useCallback((write: () => Promise<void>) => {
+		return writeQueue.current = writeQueue.current.then(write, write);
+	}, []);
 
 	// The record read — BOTH mount and the cross-surface signal land
 	// here (fix wave: another surface's models write re-reads into the
@@ -56,17 +61,18 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 	// unstamped session — exactly what the engine resolves); draft mode
 	// reads the models section alone.
 	const readRecord = useCallback(() => {
+		const revision = ++recordRevision.current;
 		if (chatId) {
-			fetch(`/api/chats/${chatId}`)
+			fetch(`/api/chats/${chatId}/settings`)
 				.then((r) => { if (!r.ok) throw new Error(`session read failed: ${r.status}`); return r.json() as Promise<{ settings?: ChatSettings }>; })
-				.then((body) => setSession({ settings: body.settings }))
+				.then((body) => { if (revision === recordRevision.current) setSession({ settings: body.settings }); })
 				.catch(() => {
 					/* same read-only posture as a models-section failure */
 				});
 		}
 		fetch("/api/settings")
-			.then((r) => r.json() as Promise<{ settings: { models?: ModelsSettings } | null }>)
-			.then((body) => setModels(body.settings?.models ?? undefined))
+			.then((r) => { if (!r.ok) throw new Error(`settings read failed: ${r.status}`); return r.json() as Promise<{ settings: { models?: ModelsSettings } | null }>; })
+			.then((body) => { if (revision === recordRevision.current) setModels(body.settings?.models ?? undefined); })
 			.catch(() => {
 				/* the record fetch failing leaves the control read-only
 				   ("—" triggers, closed menus) — same posture as a
@@ -76,6 +82,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 
 	useEffect(() => {
 		readRecord();
+		return () => { recordRevision.current++; };
 	}, [readRecord]);
 
 	useSettingsSaved((section) => {
@@ -148,7 +155,8 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 	// (replace-whole-section discipline) and the per-field independence of
 	// model + thinkingLevel within the strong slot.
 	const save = useCallback(
-		async (next: ModelsSettings) => {
+		(next: ModelsSettings) => enqueueWrite(async () => {
+			recordRevision.current++;
 			setError(null);
 			try {
 				const res = await fetch("/api/settings/models", {
@@ -167,14 +175,15 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 				const stored = (
 					(await res.json().catch(() => null)) as { settings?: UserSettings } | null
 				)?.settings?.models;
+				recordRevision.current++;
 				setModels(stored ?? next);
 				setOpen(null);
 				notifySettingsSaved("models");
 			} catch {
 				setError("Could not reach the server — try again.");
 			}
-		},
-		[],
+		}),
+		[enqueueWrite],
 	);
 
 	// The session write seam (chat mode): PUT the per-chat settings route
@@ -183,7 +192,8 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 	// shows the stored value). No notifySettingsSaved: the write touches
 	// one session's record, not the slots — no other surface reads it.
 	const saveChat = useCallback(
-		async (next: ChatSettings) => {
+		(next: ChatSettings) => enqueueWrite(async () => {
+			recordRevision.current++;
 			setError(null);
 			try {
 				const res = await fetch(`/api/chats/${chatId}/settings`, {
@@ -197,13 +207,14 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 					return;
 				}
 				const stored = (await res.json().catch(() => null)) as { settings?: ChatSettings } | null;
+				recordRevision.current++;
 				setSession({ settings: stored?.settings ?? next });
 				setOpen(null);
 			} catch {
 				setError("Could not reach the server — try again.");
 			}
-		},
-		[chatId],
+		}),
+		[chatId, enqueueWrite],
 	);
 
 	// One apply seam over both write paths: a pick names provider + id +

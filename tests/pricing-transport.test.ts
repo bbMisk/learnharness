@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import test, { after } from "node:test";
+import test, { after, mock } from "node:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { syncBuiltinESMExports } from "node:module";
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "lh-pricing-transport-"));
 process.env.LH_DATA_DIR = scratch;
 process.env.LH_AUTH_FILE = path.join(scratch, "empty-auth.json");
@@ -31,4 +32,33 @@ test("chat GET supplies derived Pi costs without persisting dollars or changing 
 	assert.equal(body.pricing.unpriced, 1);
 	assert.deepEqual(body.pricing.turnCosts, { api: 0.037, plan: null, unknown: null });
 	assert.equal(fs.readFileSync(file, "utf8"), before, "read-time estimates must never rewrite the usage log");
+});
+
+
+test("chat detail reads one lesson snapshot for both history and coverage", async () => {
+	const { fauxAssistantMessage } = await import("@earendil-works/pi-ai");
+	const record = chatStore.createChat("single snapshot fixture");
+	chatStore.saveMessages(record.id, [{ ...fauxAssistantMessage([{ type: "text", text: "A lesson paragraph." }]), id: "lesson" }]);
+	const file = path.join(scratch, "chats", `${record.id}.json`);
+	const read = fs.readFileSync;
+	let reads = 0;
+	const spy = mock.method(fs, "readFileSync", (...args: Parameters<typeof read>) => {
+		if (String(args[0]) === file) reads++;
+		return read(...args);
+	});
+	syncBuiltinESMExports();
+	try {
+		const response = await GET(new Request(`http://localhost/api/chats/${record.id}`), { params: Promise.resolve({ id: record.id }) });
+		const body = await response.json();
+		assert.equal(response.status, 200);
+		assert.equal(body.coverage.totalMessages, 1);
+		assert.equal(body.messages[0].content[0].text, "A lesson paragraph.");
+		assert.equal(reads, 1, "coverage must reuse the lesson already read by the route");
+	} finally { spy.mock.restore(); syncBuiltinESMExports(); }
+});
+
+test("chat detail retains its missing-lesson 404", async () => {
+	const response = await GET(new Request("http://localhost/api/chats/missing"), { params: Promise.resolve({ id: "missing" }) });
+	assert.equal(response.status, 404);
+	assert.deepEqual(await response.json(), { error: "Not found" });
 });

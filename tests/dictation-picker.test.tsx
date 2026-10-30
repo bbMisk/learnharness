@@ -42,6 +42,7 @@ async function fixture(failRead = false) {
 		writes: [] as string[], failWrite: false, outerEscapes: 0,
 		failRead,
 		keys: [] as AuthKeyStatus[],
+		providers: [] as { id: string; envVar: string; label: string }[],
 		nextWrite: undefined as Promise<Response> | undefined,
 	};
 	const previous = new Map<string, PropertyDescriptor | undefined>();
@@ -53,7 +54,7 @@ async function fixture(failRead = false) {
 		requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0),
 		cancelAnimationFrame: clearTimeout,
 		fetch: async (url: string, init?: RequestInit) => {
-			if (url === "/api/keys") return Response.json({ keys: state.keys, providers: [] });
+			if (url === "/api/keys") return Response.json({ keys: state.keys, providers: state.providers });
 			if (url === "/api/settings") return state.failRead ? Response.json({}, { status: 500 }) : Response.json({ settings: state.record });
 			assert.equal(url, "/api/settings/dictation");
 			const body = JSON.parse(init!.body as string);
@@ -297,4 +298,57 @@ test("clearing each search restores the complete catalog order with Multilingual
 		await search("");
 		assert.deepEqual(order(), expected, `catalog order after clearing ${query}`);
 	}
+});
+
+
+test("Add Provider owns Escape above an open key editor", async () => {
+	const f = await fixture();
+	f.state.providers = [{ id: "fixture", envVar: "FIXTURE_KEY", label: "Fixture" }];
+	f.state.keys = [{ id: "DEEPGRAM_API_KEY", info: AUTH_KEYS.find((key) => key.id === "DEEPGRAM_API_KEY")!, present: false, masked: null, source: "none", shadowedByEnv: false }];
+	const { KeysSection } = await import("../components/settings/keys-section.tsx");
+	let outer = 0;
+	const fallback = () => outer++;
+	window.addEventListener("keydown", fallback);
+	try {
+		await f.render(<KeysSection />);
+		await click(byTest("key-deepgram_api_key-row"));
+		await click(byTest("add-provider"));
+		assert.ok(document.querySelector('[data-lh-menu]'));
+		await key(document.activeElement as HTMLElement, "Escape");
+		assert.equal(document.querySelector('[data-lh-menu]'), null);
+		assert.ok(byTest("key-deepgram_api_key-editor"));
+		assert.equal(outer, 0);
+		await key(byTest("key-deepgram_api_key-editor"), "Escape");
+		assert.equal(byTest("key-deepgram_api_key-editor"), null);
+		assert.equal(outer, 0);
+	} finally { window.removeEventListener("keydown", fallback); }
+});
+
+test("Settings above the plan consumes one Escape without reaching the abort fallback", async () => {
+	const f = await fixture();
+	const { PlanPopup } = await import("../components/plan-block.tsx");
+	const { SettingsDialogBody } = await import("../components/settings/settings-dialog.tsx");
+	let outer = 0;
+	const fallback = (event: KeyboardEvent) => { if (event.key === "Escape") outer++; };
+	window.addEventListener("keydown", fallback);
+	function Layers() {
+		const [plan, setPlan] = React.useState(true);
+		const [settings, setSettings] = React.useState(false);
+		return <>{plan && <PlanPopup messages={[]} onClose={() => setPlan(false)} />}
+			<button data-testid="open-settings" onClick={() => setSettings(true)}>Settings</button>
+			{settings && <SettingsDialogBody initialSection="general" onClose={() => setSettings(false)} />}</>;
+	}
+	try {
+		await f.render(<Layers />);
+		await click(byTest("open-settings"));
+		await key(byTest("settings-close"), "Escape");
+		assert.equal(byTest("settings-dialog"), null);
+		assert.ok(byTest("plan-popup"));
+		assert.equal(outer, 0);
+		await key(byTest("plan-popup"), "Escape");
+		assert.equal(byTest("plan-popup"), null);
+		assert.equal(outer, 0);
+		await key(document.body, "Escape");
+		assert.equal(outer, 1);
+	} finally { window.removeEventListener("keydown", fallback); }
 });

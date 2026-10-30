@@ -79,3 +79,30 @@ it('keeps concurrent file changes and rejects conflicting text while allowing in
  const listing = await (await projects.GET()).json();
  assert.ok(listing.projects.every((p:object) => Object.keys(p).sort().join(',') === 'id,name'));
 });
+
+it('keeps projects editable and chats usable when a shared upload disappears', async () => {
+ const p = projectStore.create('Recovery project');
+ const missing = await uploadStore.save('missing.txt', new Blob(['Missing notes.']).stream());
+ const available = await uploadStore.save('available.txt', new Blob(['Available notes.']).stream());
+ projectStore.update(p.id, { fileIds: [missing.id, available.id], instructions: 'Keep course notation.' });
+ fs.unlinkSync(missing.path);
+ const context = {params:Promise.resolve({id:p.id})};
+ const loaded = await project.GET(new Request('http://test/api'), context);
+ assert.equal(loaded.status, 200);
+ const view = await loaded.json();
+ assert.deepEqual(view.missingFileIds, [missing.id]);
+ assert.deepEqual(view.files.map((f:{id:string}) => f.id), [available.id]);
+ const instructions = await projectInstructions(p.id);
+ assert.match(instructions, /unavailable/);
+ assert.match(instructions, /contents were not supplied/);
+ assert.ok(instructions.includes(available.path));
+ assert.ok(!instructions.includes(missing.path));
+ const edited = await project.PUT(request({ instructions: 'Updated instructions.', expected:{instructions:'Keep course notation.'} }), context);
+ assert.equal(edited.status, 200, 'saving must not commit and then report a projection failure');
+ assert.equal((await edited.json()).instructions, 'Updated instructions.');
+ const removed = await project.PUT(request({removeFileIds:[missing.id]}), context);
+ assert.equal(removed.status, 200);
+ assert.deepEqual((await removed.json()).fileIds, [available.id]);
+ assert.deepEqual(projectStore.get(p.id)!.fileIds, [available.id]);
+ assert.doesNotMatch(await projectInstructions(p.id), /unavailable/);
+});

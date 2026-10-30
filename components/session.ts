@@ -104,7 +104,7 @@ export function useChatSession({ chatId, initialMessages, initialError, initiall
 
 	const send = useCallback((input: ChatInput, onAccepted?: () => void) => model.send(input, onAccepted), [model]);
 	const continueIfOwed = useCallback((record: readonly LhMessage[]) => void model.continueIfOwed(record), [model]);
-	const steer = useCallback((text: string) => void model.steer(text), [model]);
+	const steer = useCallback((text: string) => model.steer(text), [model]);
 	const submitAnswer = useCallback(
 		(tool: string, toolCallId: string, output: QuestionAnswerData, questionKey?: string) =>
 			void model.submitAnswer(tool, toolCallId, output, questionKey),
@@ -123,6 +123,7 @@ export function useChatSession({ chatId, initialMessages, initialError, initiall
 	const setMessages = useCallback((record: LhMessage[], turnError?: string) => model.setMessages(record, turnError), [model]);
 	const adoptRecord = useCallback((record: LhMessage[]) => model.adoptRecord(record), [model]);
 	const stop = useCallback(() => model.stop(), [model]);
+	const abortTurn = useCallback(() => model.abortTurn(), [model]);
 	const clearError = useCallback(() => model.clearError(), [model]);
 	const resumeStream = useCallback(() => void model.resumeStream(), [model]);
 
@@ -145,6 +146,7 @@ export function useChatSession({ chatId, initialMessages, initialError, initiall
 		setMessages,
 		adoptRecord,
 		stop,
+		abortTurn,
 		clearError,
 		resumeStream,
 		setReattachSettled,

@@ -49,6 +49,6 @@ export function useModelCatalog(): { catalog: ModelCatalogResponse | undefined; 
 		read();
 		return () => { catalogReaders.delete(read); if (!catalogReaders.size) { stopCatalogSignals?.(); stopCatalogSignals = undefined; } };
 	}, []);
-	const refresh = useCallback(() => fetchCatalog(true), []);
+	const refresh = useCallback(() => fetchCatalog(), []);
 	return { ...snapshot, refresh };
 }

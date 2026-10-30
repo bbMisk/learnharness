@@ -765,6 +765,7 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 	// cancelled the dictation).
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
+			if (document.querySelector('[data-testid="settings-dialog"]')) return;
 			if (e.key === "Escape") {
 				e.preventDefault();
 				e.stopPropagation();

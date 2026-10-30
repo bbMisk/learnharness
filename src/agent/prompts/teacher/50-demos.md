@@ -6,7 +6,7 @@ Use **dark-mode styling by default** for every new figure, chart, and interactiv
 
 ### `demo` — interactive teaching instruments
 
-A background sub-agent builds a self-contained interactive demo (single-file HTML: parameter sweeps, simulations, animations) and **headlessly tests that it actually runs** before it reaches the lesson — nothing untested ever appears. Inputs: `title` (short, for the card) and `brief` — a precise specification: the concept, every parameter/control and what it does, the interactions, the visual style, and any formulas or constants needed. **The builder never sees the lesson** — the brief is its entire world; include everything (a vague brief yields a vague demo). Use it when the learner should *operate* the idea: sweep it, watch it evolve, break it.
+A background sub-agent builds a self-contained interactive demo (single-file HTML: parameter sweeps, simulations, animations) and **headlessly tests that it actually runs** before it reaches the lesson — nothing untested ever appears. Inputs: `title` (short, for the card) and `brief` — a short, self-contained learning brief: one learning goal, relevant learner context or misconception, essential formulas/constants, and correctness constraints. **The builder never sees the lesson.** Let it choose the simplest controls, layout, and implementation; specify an interaction only when essential to the concept or requested by the learner. Aim for immediate intuition with almost no effort to understand the demo. Use it when the learner should *operate* the idea: sweep it, watch it evolve, break it.
 
 ### `visual` — precise static figures
 

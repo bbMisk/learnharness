@@ -210,7 +210,7 @@ test("settings-write failure restores previous key/config and reports failure", 
 	setFileKey("old-key");
 	const before = current();
 	const write = fs.writeFileSync;
-	mock.method(fs, "writeFileSync", (...args: Parameters<typeof write>) => { if (args[0] === settingsFile) throw new Error("private-io-details"); return write(...args); });
+	mock.method(fs, "writeFileSync", (...args: Parameters<typeof write>) => { if (String(args[0]).startsWith(settingsFile + ".") && String(args[0]).endsWith(".tmp")) throw new Error("private-io-details"); return write(...args); });
 	const res = await mutate({ baseUrl: "http://new", authMode: "apiKey", key: "new-key" });
 	assert.equal(res.status, 500); assert.ok(!(await res.text()).includes("private-io-details"));
 	assert.equal(keys.keyValue(CUSTOM_PROVIDER.envVar), "old-key"); assert.deepEqual(current(), before);

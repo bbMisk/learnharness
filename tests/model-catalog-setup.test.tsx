@@ -216,7 +216,7 @@ test("blocked session recovery opens its ordinary picker, never changes Strong o
 	const requestsOnly = globalThis.fetch; const sessionWrites: unknown[] = [];
 	globalThis.fetch = async (input, init) => {
 		if (input === "/api/settings") return Response.json({ settings: { models: globals } });
-		if (input === "/api/chats/fixture") return Response.json({ settings: session });
+		if (input === "/api/chats/fixture/settings" && init?.method !== "PUT") return Response.json({ settings: session });
 		if (input === "/api/chats/fixture/settings") { const next = JSON.parse(String(init?.body)); sessionWrites.push(next); return Response.json({ settings: next }); }
 		return requestsOnly(input, init);
 	};
@@ -245,7 +245,7 @@ for (const result of ["override", "legacy", "http-failure", "network-failure"] a
 	const requestsOnly = globalThis.fetch;
 	globalThis.fetch = async (input, init) => {
 		if (input === "/api/settings") return Response.json({ settings: { models: globals } });
-		if (input === "/api/chats/fixture") return sessionRead;
+		if (input === "/api/chats/fixture/settings") return sessionRead;
 		return requestsOnly(input, init);
 	};
 	await warm(body); const identities: Array<string | undefined> = [];
@@ -277,9 +277,11 @@ test("availability and setup completeness never conflate missing metadata, disco
 	body.slots.cheap = null; assert.equal(savedSlotsConfigured(body.slots), false);
 });
 
-test("shared refresh fences late failure as well as late success, and Retry clears a current error", async () => {
+test("menu refreshes coalesce; settings changes fence late failure and Retry clears a current error", async () => {
 	installFetch(); await warm();
 	await act(async () => snapshot.refresh()); await act(async () => snapshot.refresh());
+	assert.equal(requests.length, 2, "menu opens share the pending metadata read");
+	await act(async () => notifySettingsSaved("models"));
 	const fresh = catalog(); fresh.models = [b];
 	await answer(2, fresh); await answer(1, null);
 	assert.equal(snapshot.failed, false); assert.equal(snapshot.catalog?.models[0]?.id, b.id);
@@ -295,4 +297,119 @@ test("OpenCode's saved shared credential names both Pi providers without changin
 	assert.equal(providerKeyLabel("OPENCODE_API_KEY", [...providers].reverse()), "OpenCode (Zen / Go)");
 	assert.equal(providerKeyLabel("FIXTURE_KEY", [provider]), "Fixture");
 	assert.equal(classifyKeys([{ id: "OPENCODE_API_KEY", info: null, present: true, masked: "…fake", source: "file", shadowedByEnv: false }], providers).addable.length, 0);
+});
+
+test("a failed settings refresh retains the confirmed draft model, then recovers on success", async () => {
+	installFetch(); await warm();
+	const settings: ModelsSettings = { strong: { model: { provider: a.provider, id: a.id }, thinkingLevel: "low" } };
+	let fail = false;
+	const requestsOnly = globalThis.fetch;
+	globalThis.fetch = async (input, init) => input === "/api/settings"
+		? fail ? Response.json({ error: "Temporarily unavailable" }, { status: 503 }) : Response.json({ settings: { models: settings } })
+		: requestsOnly(input, init);
+	let selected: string | undefined;
+	await render(<><Reader /><StatsBar turns={[]} onModelChange={(id) => { selected = id; }} /></>);
+	await answer(1, catalog());
+	assert.equal(selected, `${a.provider}:${a.id}`);
+	fail = true;
+	await act(async () => notifySettingsSaved("models")); await answer(2, catalog());
+	assert.equal(selected, `${a.provider}:${a.id}`, "an HTTP error cannot erase a confirmed preference");
+	assert.equal(element("stats-model").textContent, "model:free▾");
+	fail = false; settings.strong = { model: { provider: b.provider, id: b.id }, thinkingLevel: "medium" };
+	await act(async () => notifySettingsSaved("models")); await answer(3, catalog());
+	assert.equal(selected, `${b.provider}:${b.id}`);
+});
+
+for (const chatId of [undefined, "fixture"]) {
+	const scope = chatId ? "session" : "new-session default";
+	test(`${scope} ignores an older read arriving after a newer settings refresh`, async () => {
+		installFetch(); await warm();
+		const held: ReturnType<typeof deferred<Response>>[] = [];
+		const settingsPath = chatId ? "/api/chats/fixture/settings" : "/api/settings";
+		const requestsOnly = globalThis.fetch;
+		globalThis.fetch = async (input, init) => {
+			if (input === settingsPath) { const read = deferred<Response>(); held.push(read); return read.promise; }
+			if (input === "/api/settings") return Response.json({ settings: { models: {} } });
+			return requestsOnly(input, init);
+		};
+		let selected: string | undefined;
+		await render(<><Reader /><StatsBar turns={[]} chatId={chatId} onModelChange={id => { selected = id; }} /></>);
+		await answer(1, catalog());
+		await act(async () => notifySettingsSaved("models"));
+		const response = (model: ModelCatalogEntry) => {
+			const settings = { model: { provider: model.provider, id: model.id }, thinkingLevel: "low" };
+			return Response.json(chatId ? { settings } : { settings: { models: { strong: settings } } });
+		};
+		await act(async () => held[1]!.resolve(response(b)));
+		assert.equal(selected, `${b.provider}:${b.id}`);
+		await act(async () => held[0]!.resolve(response(a)));
+		assert.equal(selected, `${b.provider}:${b.id}`, "late reads cannot revert the displayed or reported model");
+		await answer(2, catalog());
+	});
+
+	test(`${scope} ignores a pre-save read arriving after its confirmed model change`, async () => {
+		installFetch(); await warm();
+		const held = deferred<Response>();
+		let reads = 0;
+		let saved = { model: { provider: a.provider, id: a.id }, thinkingLevel: "low" };
+		const settingsPath = chatId ? "/api/chats/fixture/settings" : "/api/settings";
+		const response = () => Response.json(chatId ? { settings: saved } : { settings: { models: { strong: saved } } });
+		const requestsOnly = globalThis.fetch;
+		globalThis.fetch = async (input, init) => {
+			if (init?.method === "PUT" && (input === "/api/settings/models" || input === settingsPath)) {
+				const body = JSON.parse(String(init.body)); saved = chatId ? body : body.strong;
+				return response();
+			}
+			if (input === settingsPath) return ++reads === 2 ? held.promise : response();
+			if (input === "/api/settings") return Response.json({ settings: { models: {} } });
+			return requestsOnly(input, init);
+		};
+		let selected: string | undefined;
+		await render(<><Reader /><StatsBar turns={[]} chatId={chatId} onModelChange={id => { selected = id; }} /></>);
+		await answer(1, catalog());
+		const stale = response();
+		await act(async () => notifySettingsSaved("models"));
+		await act(async () => openModelPicker());
+		await click("model-option-claude-opus-5-5");
+		assert.equal(selected, `${b.provider}:${b.id}`);
+		await act(async () => held.resolve(stale));
+		assert.equal(selected, `${b.provider}:${b.id}`, "a confirmed save fences the pending read");
+	});
+}
+
+for (const chatId of [undefined, "fixture"]) test(`${chatId ? "session" : "default"} model picks serialize writes through acknowledgement and recover after a refused pick`, async () => {
+	installFetch(); await warm();
+	const pending: ReturnType<typeof deferred<Response>>[] = [];
+	const changes: Array<{ model: { provider: string; id: string }; thinkingLevel: string }> = [];
+	let stored = { model: { provider: a.provider, id: a.id }, thinkingLevel: "low" };
+	const requestsOnly = globalThis.fetch;
+	globalThis.fetch = async (input, init) => {
+		if (init?.method === "PUT") {
+			const body = JSON.parse(String(init.body)); changes.push(chatId ? body : body.strong);
+			const reply = deferred<Response>(); pending.push(reply); return reply.promise;
+		}
+		if (input === "/api/settings") return Response.json({ settings: { models: { strong: stored } } });
+		if (input === "/api/chats/fixture/settings") return Response.json({ settings: stored });
+		return requestsOnly(input, init);
+	};
+	let selected: string | undefined;
+	await render(<><Reader /><StatsBar turns={[]} chatId={chatId} onModelChange={id => { selected = id; }} /></>);
+	await answer(1, catalog()); await act(async () => openModelPicker());
+	await click("model-option-claude-opus-5-5");
+	await click("model-option-vendor_model_free");
+	assert.equal(changes.length, 1, "a later pick must not race the pending server write");
+	stored = changes[0]!;
+	await act(async () => pending[0]!.resolve(Response.json(chatId ? { settings: stored } : { settings: { models: { strong: stored } } })));
+	assert.equal(changes.length, 2);
+	stored = changes[1]!;
+	await act(async () => pending[1]!.resolve(Response.json(chatId ? { settings: stored } : { settings: { models: { strong: stored } } })));
+	assert.equal(selected, `${stored.model.provider}:${stored.model.id}`);
+	assert.deepEqual(changes.map(change => change.model.id), [b.id, a.id]);
+	await act(async () => openModelPicker());
+	await click("model-option-claude-opus-5-5"); await click("model-option-vendor_model_free");
+	await act(async () => pending[2]!.resolve(Response.json({ error: "fixture refusal" }, { status: 503 })));
+	assert.equal(changes.length, 4, "a failed pick must not poison the write queue");
+	stored = changes[3]!;
+	await act(async () => pending[3]!.resolve(Response.json(chatId ? { settings: stored } : { settings: { models: { strong: stored } } })));
+	assert.equal(selected, `${stored.model.provider}:${stored.model.id}`);
 });

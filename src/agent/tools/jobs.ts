@@ -44,8 +44,8 @@ export const demoInputSchema = Type.Object({
 	title: Type.String({ description: "Short title for the demo card, e.g. 'Damped harmonic oscillator'." }),
 	brief: Type.String({
 		description:
-			"Precise brief for the builder: the concept, the parameters/controls and what each does, the interactions, and the visual style. " +
-			"The builder sees NOTHING else of the lesson — include everything it needs, including necessary formulas and constants.",
+			"Short, self-contained learning brief: one learning goal, relevant learner context, essential formulas/constants, and correctness constraints. " +
+			"The builder sees no lesson context; let it choose the simplest controls, layout, and implementation.",
 	}),
 });
 
@@ -106,7 +106,7 @@ const DEMO_DESCRIPTION =
 	"demo (parameter sweep, simulation, animation, sampling) rendered live in the lesson. Use it when the concept is DYNAMIC: " +
 	"something to sweep, animate, or sample is better experienced than described. " +
 	"The call is ASYNC and fire-and-forget — it resolves immediately and your turn continues; the tested demo arrives later " +
-	"as a new message. Write a precise brief: concept, controls, interactions, style. Use native dark-mode styling by default.";
+	"as a new message. Give a short learning brief; let the builder design for immediate intuition with minimal effort. Use native dark-mode styling by default.";
 const VISUAL_DESCRIPTION =
 	"Dispatch a background sub-agent that hand-authors ONE precise SVG figure, renders it, LOOKS at the render, and iterates " +
 	"until correct. Use it for exact spatial pictures auto-layout diagrams can't do: coordinate geometry, number lines, vectors, " +

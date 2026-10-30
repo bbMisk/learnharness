@@ -59,8 +59,7 @@ export function GlobalFileDrop() {
 			setLabel(destination(event)?.label() || "a chat");
 			setOver(true);
 		};
-		const leave = (event: DragEvent) => {
-			if (!files(event)) return;
+		const leave = () => {
 			if (--depth <= 0) { depth = 0; setOver(false); }
 		};
 		const drag = (event: DragEvent) => {

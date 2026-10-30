@@ -20,11 +20,11 @@ fs.renameSync = (...args: Parameters<typeof rename>) => {
 		if (fault === "after-auth") process.exit(77);
 		return;
 	}
+	if (args[1] === SETTINGS_FILE && fault === "settings-landed") { rename(...args); throw new Error("fixture ambiguous settings completion"); }
 	return rename(...args);
 };
 fs.writeFileSync = (...args: Parameters<typeof write>) => {
-	if (args[0] === SETTINGS_FILE && fault === "double-io") throw new Error("fixture settings I/O failure");
-	if (args[0] === SETTINGS_FILE && fault === "settings-landed") { write(...args); throw new Error("fixture ambiguous settings completion"); }
+	if (String(args[0]).startsWith(SETTINGS_FILE + ".") && String(args[0]).endsWith(".tmp") && fault === "double-io") throw new Error("fixture settings I/O failure");
 	return write(...args);
 };
 fs.readFileSync = ((...args: Parameters<typeof read>) => {

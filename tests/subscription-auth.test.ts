@@ -41,6 +41,26 @@ test("main loader resolves Pi's import-only PUBLIC package exports and native OA
 		const resolved = await models.getAuth(provider.getModels()[0]); assert.equal(resolved.auth.apiKey, credential(id).access);
 	}
 });
+test("SDK loads isolate concurrent installations and support asynchronous import-only exports", async () => {
+	const directory = await fs.mkdtemp(path.join(os.tmpdir(), "lh-sdk-loader-"));
+	try {
+		const roots = [path.join(directory, "one"), path.join(directory, "two")];
+		for (const [index, root] of roots.entries()) {
+			const sdk = path.join(root, "node_modules/@earendil-works/pi-ai");
+			await fs.mkdir(sdk, { recursive: true });
+			await fs.writeFile(path.join(sdk, "package.json"), JSON.stringify({ type: "module", exports: { ".": { import: "./index.js" }, "./providers/github-copilot": { import: "./copilot.js" }, "./providers/xai": { import: "./xai.js" } } }));
+			for (const [file, name] of [["index", "createModels"], ["copilot", "githubCopilotProvider"], ["xai", "xaiProvider"]]) {
+				await fs.writeFile(path.join(sdk, `${file}.js`), `await Promise.resolve(); export const ${name} = () => ${index};`);
+			}
+		}
+		const loaded = await Promise.all(roots.map(root => loadSubscriptionSDK(root)));
+		for (const [index, sdk] of loaded.entries()) {
+			for (const name of ["createModels", "githubCopilotProvider", "xaiProvider"]) assert.equal(sdk[name](), index);
+		}
+		await assert.rejects(loadSubscriptionSDK(path.join(directory, "missing")));
+		assert.equal((await loadSubscriptionSDK(roots[0])).createModels(), 0);
+	} finally { await fs.rm(directory, { recursive: true, force: true }); }
+});
 for (const id of ids) test(`${id}: independent default-ON file, restart, explicit OAuth lease and local disconnect`, async () => {
 	const f = await fixture();
 	try {
