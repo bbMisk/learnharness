@@ -1,13 +1,26 @@
 "use client";
 
-import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Component, createContext, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActivityIcon, BotIcon, FileTextIcon, PenToolIcon, PlayIcon, SearchIcon, SquareIcon, WaypointsIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CallUsage, JobKind, JobRecord } from "@/src/core";
 import { isModelsRefusal, isProviderKeyRefusal, jobCost } from "@/src/core";
 import { formatTokens, formatUsd } from "@/components/usage-format";
 // Lazy: job details reach the chat view and its renderers; the dock is in every page.
-const JobDetails = lazy(() => import("@/components/job-details").then((m) => ({ default: m.JobDetails })));
+// ActivityProvider preloads the chunk after first paint, so details open without a wait.
+const loadJobDetails = () => import("@/components/job-details");
+const JobDetails = lazy(() => loadJobDetails().then((m) => ({ default: m.JobDetails })));
+
+/** A failed chunk load stays inside the dock instead of reaching the app's error screen. */
+export class JobDetailsBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+	state = { failed: false };
+	static getDerivedStateFromError() {
+		return { failed: true };
+	}
+	render() {
+		return this.state.failed ? <div className="text-muted-foreground">Details unavailable. Reload to retry.</div> : this.props.children;
+	}
+}
 import { jobDisplay, jobElapsedMs } from "@/src/core";
 import { subscriptionLabel, subscriptionLabels } from "@/src/core";
 import { planCostLabel } from "@/components/usage-format";
@@ -106,6 +119,11 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
 	const refreshRef = useRef(refresh);
 	refreshRef.current = refresh;
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+	useEffect(() => {
+		const timer = setTimeout(() => void loadJobDetails().catch(() => {}), 1000);
+		return () => clearTimeout(timer);
+	}, []);
 
 	useEffect(() => {
 		let alive = true;
@@ -496,7 +514,7 @@ function ActivityBlobRow({
 								<span className="tabular-nums text-card-foreground">{blob.steps}</span>
 							</div>
 						)}
-						{blob.job && <Suspense fallback={null}><JobDetails job={blob.job} compact /></Suspense>}
+						{blob.job && <JobDetailsBoundary><Suspense fallback={null}><JobDetails job={blob.job} compact /></Suspense></JobDetailsBoundary>}
 						<a href={blob.process === "flashcards" ? "/review/index.html" : `/chat/${blob.chatId}`} className="text-primary hover:underline">
 							{blob.process === "flashcards" ? "Open flashcards →" : "Open session →"}
 						</a>

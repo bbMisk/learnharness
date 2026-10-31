@@ -114,9 +114,10 @@ function summaryOf(id: string): ChatSummary | null {
 }
 
 /** Summaries keyed by file, valid while the file's stat signature holds.
- *  Every write is an atomic rename (new inode), so in-process and external
- *  writes both invalidate; listing costs a stat per chat, not a full parse. */
-const summaryCache = new Map<string, { signature: string; summary: ChatSummary | null }>();
+ *  App writes are atomic renames (new inode); ctime also changes on any
+ *  in-place write, even one that preserves mtime. Only successful
+ *  projections are cached, so a transient read failure retries next list. */
+const summaryCache = new Map<string, { signature: string; summary: ChatSummary }>();
 
 function listChats(): ChatSummary[] {
 	try {
@@ -129,17 +130,23 @@ function listChats(): ChatSummary[] {
 			let signature: string;
 			try {
 				const stat = fs.statSync(path.join(PATHS.chats, file));
-				signature = `${stat.ino}:${stat.size}:${stat.mtimeMs}`;
+				signature = `${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
 			} catch {
 				summaryCache.delete(file);
 				continue;
 			}
-			let entry = summaryCache.get(file);
-			if (entry?.signature !== signature) {
-				entry = { signature, summary: summaryOf(file.slice(0, -5)) };
-				summaryCache.set(file, entry);
+			const cached = summaryCache.get(file);
+			if (cached?.signature === signature) {
+				summaries.push({ ...cached.summary });
+				continue;
 			}
-			if (entry.summary) summaries.push({ ...entry.summary });
+			const summary = summaryOf(file.slice(0, -5));
+			if (!summary) {
+				summaryCache.delete(file);
+				continue;
+			}
+			summaryCache.set(file, { signature, summary });
+			summaries.push({ ...summary });
 		}
 		return summaries.sort((a, b) => Number(!!b.pinned)-Number(!!a.pinned) || b.updatedAt.localeCompare(a.updatedAt));
 	} catch {

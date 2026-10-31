@@ -8,7 +8,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { after, describe, it } from "node:test";
+import { syncBuiltinESMExports } from "node:module";
+import { after, describe, it, mock } from "node:test";
 
 const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-chat-list-cache-"));
 process.env.LH_DATA_DIR = TMP_DATA;
@@ -74,5 +75,37 @@ describe("listChats summary cache", () => {
 		const first = chatStore.listChats().find((x) => x.id === d.id)!;
 		first.title = "mutated by a caller";
 		assert.equal(chatStore.listChats().find((x) => x.id === d.id)?.title, "copy check");
+	});
+
+	it("sees an in-place rewrite that keeps size and mtime", async () => {
+		const e = chatStore.createChat("AAAA");
+		const file = path.join(PATHS.chats, `${e.id}.json`);
+		fs.utimesSync(file, 1_700_000_000, 1_700_000_000); // whole seconds restore exactly
+		chatStore.listChats();
+		const before = fs.statSync(file);
+		fs.writeFileSync(file, fs.readFileSync(file, "utf-8").replace('"AAAA"', '"BBBB"'));
+		fs.utimesSync(file, 1_700_000_000, 1_700_000_000);
+		const after = fs.statSync(file);
+		assert.equal(after.size, before.size);
+		assert.equal(after.mtimeMs, before.mtimeMs);
+		assert.equal(chatStore.listChats().find((x) => x.id === e.id)?.title, "BBBB");
+		await assertParity();
+	});
+
+	it("retries a chat whose read failed transiently", () => {
+		const f = chatStore.createChat("flaky read");
+		const realRead = fs.readFileSync;
+		const failing = mock.method(fs, "readFileSync", ((target: fs.PathOrFileDescriptor, ...rest: unknown[]) => {
+			if (String(target).endsWith(`${f.id}.json`)) throw Object.assign(new Error("EMFILE"), { code: "EMFILE" });
+			return (realRead as (...args: unknown[]) => unknown)(target, ...rest);
+		}) as typeof fs.readFileSync);
+		syncBuiltinESMExports();
+		try {
+			assert.equal(chatStore.listChats().some((x) => x.id === f.id), false);
+		} finally {
+			failing.mock.restore();
+			syncBuiltinESMExports();
+		}
+		assert.equal(chatStore.listChats().some((x) => x.id === f.id), true);
 	});
 });

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRightIcon, FileIcon, FolderIcon, MessageSquareIcon, PaperclipIcon, PlusIcon, XIcon } from "lucide-react";
 import { Tabs } from "radix-ui";
@@ -41,15 +41,20 @@ export function ProjectPage({ initial }: { initial: ProjectView }) {
 	const [chats, setChats] = useState<ChatListItem[] | null>(null);
 	const [chatsError, setChatsError] = useState("");
 	const adopt = (next: ProjectView) => setProject((prev) => (next.updatedAt >= prev.updatedAt ? next : prev));
+	const chatsRequest = useRef(0);
 	const refresh = async () => {
+		const request = ++chatsRequest.current; // only the latest list request may update the view
 		await Promise.all([
 			fetch("/api/chats")
 				.then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))))
 				.then((body) => {
+					if (request !== chatsRequest.current) return;
 					setChats((body.chats || []).filter((chat: ChatListItem) => chat.projectId === initial.id && !chat.archived));
 					setChatsError("");
 				})
-				.catch(() => setChatsError("Could not load chats.")),
+				.catch(() => {
+					if (request === chatsRequest.current) setChatsError("Could not load chats.");
+				}),
 			fetch("/api/projects/" + initial.id)
 				.then((r) => (r.ok ? r.json() : null))
 				.then((next) => {

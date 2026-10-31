@@ -47,3 +47,26 @@ it("shows the empty state when the chat list loads", async () => {
 	assert.doesNotMatch(text, /Could not load chats\.|Loading chats…/);
 	assert.match(text, /Start a conversation in Fixture/);
 });
+
+it("keeps a newer successful list when an older request fails later", async () => {
+	let open: () => void = () => {};
+	let failFirst: (response: Response) => void = () => {};
+	let calls = 0;
+	globalThis.fetch = (async (input: RequestInfo | URL) => {
+		if (String(input) !== "/api/chats") return new Response(JSON.stringify(project), { status: 200 });
+		calls++;
+		if (calls === 1) return new Promise<Response>((resolve) => { failFirst = resolve; });
+		return new Response(JSON.stringify({ chats: [] }), { status: 200 });
+	}) as typeof fetch;
+	const channel = () => ({ close() {}, onOpen(cb: () => void) { open = cb; }, onEvent() {} });
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	await act(async () => root.render(<ServerEventsProvider connect={channel}><ProjectPage initial={project} /></ServerEventsProvider>));
+	await act(async () => { open(); await new Promise((resolve) => setTimeout(resolve, 0)); });
+	assert.equal(calls, 2);
+	await act(async () => { failFirst(new Response("{}", { status: 500 })); await new Promise((resolve) => setTimeout(resolve, 0)); });
+	const text = host.textContent ?? "";
+	assert.doesNotMatch(text, /Could not load chats\./);
+	assert.match(text, /Start a conversation in Fixture/);
+});
