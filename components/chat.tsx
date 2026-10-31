@@ -56,6 +56,7 @@ import type { PlanBlockData } from "@/src/core";
 import { QuestionDock } from "@/components/question-dock";
 import { SessionFind } from "@/components/session-find";
 import { SessionMessageNavigation } from "@/components/session-navigation";
+import { useProgressiveTranscript } from "@/components/progressive-transcript";
 import { PracticeDock } from "@/components/practice-dock";
 import { ThinkingCard, type PracticeThinkingData } from "@/components/practice-cards";
 import { GraphContextCard, type GraphContextData } from "@/components/graph-context-card";
@@ -563,6 +564,7 @@ export function Chat({
 	// color-coded dotted divider at each boundary; the header chip reads the
 	// session's current phase.
 	const phases = useMemo(() => phaseTimeline(messages), [messages]);
+	const transcript = useProgressiveTranscript(messages);
 
 	const [text, setText] = useState("");
 	/* The composer's value MIRROR ("nothing gets lost" round, owner
@@ -1363,7 +1365,7 @@ export function Chat({
 								/>
 							)}
 
-							{messages.map((m, mi) =>
+							{messages.map((m, mi) => transcript.hidesMessage(mi) ? null :
 								m.role === "user" && isSubagentSteer(m) ? (
 									// Sub-agent delivery (wake-pipeline steer): NO message bubble — the
 									// artifact card sits in the transcript column directly, full width
@@ -1478,6 +1480,7 @@ export function Chat({
 									<Message from="assistant" className="max-w-full">
 									<MessageContent className="w-full">
 											{m.parts.map((part, pi) => {
+												if (transcript.hidesPart(mi, pi)) return null;
 												const isLastPart = mi === messages.length - 1 && pi === m.parts.length - 1;
 												// The step boundary where teaching begins (round 8): when
 												// the teach flip happens in a LATER step, its PhaseDivider
