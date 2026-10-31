@@ -73,12 +73,12 @@ async function request(action: "start" | "stop" | "session", id?: string): Promi
 	return result;
 }
 
-function focusDictationField() {
+function focusDictationField(): HTMLTextAreaElement | HTMLInputElement {
 	const focused = document.activeElement;
-	if (focused instanceof HTMLTextAreaElement || (focused instanceof HTMLInputElement && focused.type === "text")) return;
+	if (focused instanceof HTMLTextAreaElement || (focused instanceof HTMLInputElement && focused.type === "text")) return focused;
 	for (const selector of ['[data-testid="reading-thinking-field"] textarea', '[data-testid="question-dock"] textarea', '[data-testid="practice-dock"] textarea', '[data-testid="composer"] textarea', 'textarea']) {
 		const field = [...document.querySelectorAll<HTMLTextAreaElement>(selector)].find((el) => !el.disabled && el.getClientRects().length > 0);
-		if (field) { field.focus(); return; }
+		if (field) { field.focus(); return field; }
 	}
 	throw new Error("Focus a lesson text field before dictating.");
 }
@@ -88,17 +88,26 @@ export function useTypeWhisperDictation(enabled: boolean): Dictation {
 	const [error, setError] = useState<string | null>(null);
 	const levelRef = useRef(0);
 	const controller = useRef<TypeWhisperDictationController | null>(null);
+	const target = useRef<HTMLTextAreaElement | HTMLInputElement | null>(null);
 	useEffect(() => {
 		if (!enabled) return;
 		const current = new TypeWhisperDictationController(request, (next, message) => { setPhase(next); setError(message); });
 		controller.current = current;
 		return () => { current.dispose(); if (controller.current === current) controller.current = null; };
 	}, [enabled]);
+	const finish = () => {
+		// Restore the recording's field before TypeWhisper inserts its final text.
+		// A removed field must never prevent the microphone from stopping.
+		if (controller.current?.phase !== "idle") {
+			try { if (target.current?.isConnected && !target.current.disabled) target.current.focus(); } catch { /* Still finish the owned session. */ }
+		}
+		return controller.current?.finish() ?? Promise.resolve();
+	};
 	const toggle = () => {
-		try { focusDictationField(); controller.current?.toggle(); }
+		if (controller.current && controller.current.phase !== "idle") { void finish(); return; }
+		try { target.current = focusDictationField(); controller.current?.start(); }
 		catch (error) { setError(error instanceof Error ? error.message : "Focus a text field first."); }
 	};
-	const finish = () => controller.current?.finish() ?? Promise.resolve();
-	return { phase, error, levelRef, active: phase !== "idle", backend: "typewhisper", toggle, stop: () => { focusDictationField(); void finish(); }, finish,
-		cancel: () => { focusDictationField(); void finish(); }, clearError: () => setError(null) };
+	return { phase, error, levelRef, active: phase !== "idle", backend: "typewhisper", toggle, stop: () => { void finish(); }, finish,
+		cancel: () => { void finish(); }, clearError: () => setError(null) };
 }

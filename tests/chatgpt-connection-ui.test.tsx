@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
 import { createRequire } from "node:module";
 import { generateKeyPair, exportJWK, SignJWT } from "jose";
-import { ChatGPTBackgroundAccess, ChatGPTConnection, ChatGPTUIProvider, CHATGPT_NOTICE, CHATGPT_DISCONNECT_COPY } from "../components/settings/chatgpt-connection.tsx";
+import { ChatGPTSpeedIndicator, ChatGPTBackgroundAccess, ChatGPTConnection, ChatGPTUIProvider, CHATGPT_NOTICE, CHATGPT_DISCONNECT_COPY } from "../components/settings/chatgpt-connection.tsx";
 import { SettingsDialogBody } from "../components/settings/settings-dialog.tsx";
 import { KeysSection } from "../components/settings/keys-section.tsx";
 import { ModelControl } from "../components/model-picker.tsx";
@@ -560,4 +560,21 @@ test("browser-only sign-in is disabled; foreground toolbar has no plan badge or 
  };
  fixture(connected(false)); await mount(<ModelControl />); assert.match(byTest("stats-model").textContent!, /gpt/i);
  assert(!document.body.textContent?.includes("Using ChatGPT plan")); assert(!document.body.textContent?.includes("Enable background use"));
+});
+
+
+test("Fast remains an explicit preference when the service delivers Standard, and unavailable models can still turn it off",async()=>{
+ const changed:boolean[]=[];
+ const initial={...connected(),fastMode:true,fastModels:["gpt-6.1-terra"],lastServiceTier:{modelId:"gpt-6.1-terra",requested:"priority",served:"default",at:Date.now()}} as ChatGPTStatus;
+ const f=fixture(initial,{fast:async enabled=>{changed.push(enabled);const next={...f.status,fastMode:enabled};f.push(next);return next;}});
+ await mount(<ChatGPTSpeedIndicator modelId="gpt-6.1-terra"/>);
+ const speed=()=>byTest("chatgpt-speed-indicator");
+ assert.equal(speed().textContent,"Fast on");assert.equal(speed().getAttribute("aria-pressed"),"true");
+ assert.match(speed().title,/Last response: Standard/);
+ await click(speed());assert.equal(speed().textContent,"Fast off");assert.deepEqual(changed,[false]);
+ await click(speed());assert.equal(speed().textContent,"Fast on");assert.deepEqual(changed,[false,true]);
+ await act(async()=>f.push({...f.status,fastModels:[]}));
+ assert.equal((speed() as HTMLButtonElement).disabled,false,"turning off is always allowed");
+ await click(speed());assert.equal((speed() as HTMLButtonElement).disabled,true,"unsupported models cannot request Fast");
+ assert.match(speed().title,/unavailable/);
 });
