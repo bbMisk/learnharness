@@ -67,6 +67,7 @@ import type {
 import { MIN_CLUSTER_SIZE } from "./clusters.ts";
 import { formatChainLine } from "./chains.ts";
 import { attachImpToCommunities, birthSessionOf, birthSessionPartition } from "./session-clusters.ts";
+import { sourceFileLabel } from "./source-label.ts";
 import type { ChatStore, GraphStore } from "./ports.ts";
 
 /** The storage ports every graph operation needs, passed explicitly. */
@@ -506,7 +507,7 @@ export function deriveView(graph: DerivedGraph): {
 // ─── the /api/graph payload ──────────────────────────────────────────────────
 
 /** Everything the home graph view needs, in one fetch (shape: contracts). */
-export function graphSnapshot(deps: GraphDeps): GraphSnapshot {
+export function graphSnapshot(deps: GraphDeps, sourceNames: Readonly<Record<string, string>> = {}): GraphSnapshot {
 	const graph = getGraph(deps.graphStore);
 	// The canvas-facing lossy image: propositions + derived implication
 	// nodes, untyped arrows. `chains` (the stored truth) ride along for
@@ -536,14 +537,22 @@ export function graphSnapshot(deps: GraphDeps): GraphSnapshot {
 	}
 	const sessions: Record<string, string> = {};
 	const fileSources: Record<string, string> = {};
-	const sourceLabels = new Map(deps.graphStore.readSources().map(source => [source.id, typeof source.displayName === "string" ? source.displayName : undefined]));
+	const sources = deps.graphStore.readSources();
+	const sourceLabels = new Map(sources.map(source => [source.id, typeof source.displayName === "string" ? source.displayName : undefined]));
+	// Titles come from the (cached) session list; a chat the list cannot
+	// project still falls back to its full record.
+	const listed = new Map(deps.chatStore.listChats().map((chat) => [chat.id, chat.title]));
 	for (const id of sourceIds) {
+		if (listed.has(id)) {
+			sessions[id] = listed.get(id)!;
+			continue;
+		}
 		const chat = deps.chatStore.getChat(id);
 		if (chat) {
 			sessions[id] = chat.title;
 			continue;
 		}
-		const source = deps.graphStore.readSources().find((s) => s.id === id);
+		const source = sources.find((s) => s.id === id);
 		if (source) fileSources[id] = source.filePath;
 	}
 
@@ -566,11 +575,17 @@ export function graphSnapshot(deps: GraphDeps): GraphSnapshot {
 	const communities = birthSessionPartition(graph.nodes);
 	const clusters: Cluster[] = communities
 		.filter((community) => community.members.length >= MIN_CLUSTER_SIZE)
-		.map((community) => ({
-			id: community.id,
-			label: sessions[community.id] ?? (sourceLabels.get(community.id)?.trim() || fileSources[community.id]) ?? null,
-			members: community.members,
-		}));
+		.map((community) => {
+			// Display names never replace the original provenance path. An
+			// in-app rename wins; a source record's imported displayName (fork)
+			// comes before the tidied file label.
+			const file = fileSources[community.id];
+			return {
+				id: community.id,
+				label: sessions[community.id] ?? (file === undefined ? null : sourceNames[community.id] ?? (sourceLabels.get(community.id)?.trim() || sourceFileLabel(file))),
+				members: community.members,
+			};
+		});
 	// IMP-NODE CLUSTER ASSIGNMENT (owner, 2026-09-30): majority among the
 	// premises' birth sessions, ties to the chain's own birth — attached
 	// AFTER the hull filter so a two-proposition community + its bundle

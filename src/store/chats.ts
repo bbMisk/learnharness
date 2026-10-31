@@ -55,12 +55,122 @@ function createChat(title: string, kind?: "practice"): ChatRecord {
 /** THE WRITE CHOKE POINT (schema-versioning wave, owner 2026-10-10): every
  *  record persist goes through here and carries the CURRENT version stamp —
  *  lazy migration means existing files only get stamped on their next write.
- *  A future-version guard lives on the read side (getChat). */
+ *  A future-version guard lives on the read side (getChat). The record
+ *  cache keeps what was written, so the next read does not parse it. */
 function writeChat(record: ChatRecord): void {
-	writeFileAtomic(chatFile(record.id), JSON.stringify({ ...record, version: CURRENT_CHAT_VERSION }, null, "\t"));
+	const file = chatFile(record.id);
+	const stamped = { ...record, version: CURRENT_CHAT_VERSION };
+	const json = JSON.stringify(stamped, null, "\t");
+	const previous = recordCache.get(record.id)?.record;
+	forgetRecord(record.id);
+	writeFileAtomic(file, json);
+	let stat: fs.Stats;
+	try {
+		stat = fs.statSync(file);
+	} catch {
+		return; // the next getChat reads the file
+	}
+	if (stat.size > RECORD_CACHE_BYTES) return;
+	rememberRecord(record.id, signatureOf(stat), stat.size, writtenRecord(stamped, json, previous));
+}
+
+/** What a fresh parse of the file writeChat just wrote returns, without
+ *  parsing it: values the previous cached record already holds are cache-
+ *  owned and reused as they are; every other value goes through JSON, so
+ *  the cache shares nothing the caller still holds and keeps nothing JSON
+ *  drops or transforms (undefined, Dates). */
+function writtenRecord(stamped: ChatRecord, json: string, previous: ChatRecord | undefined): ChatRecord {
+	if (!previous) return JSON.parse(json) as ChatRecord;
+	const owned = new Set<unknown>();
+	for (const value of Object.values(previous)) {
+		if (Array.isArray(value)) for (const item of value) owned.add(item);
+		else owned.add(value);
+	}
+	const viaJson = (value: unknown): unknown => {
+		if (owned.has(value)) return value;
+		const text = JSON.stringify(value);
+		return text === undefined ? undefined : JSON.parse(text);
+	};
+	const record: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(stamped)) {
+		const copy = Array.isArray(value) ? Array.from(value, (item) => viaJson(item) ?? null) : viaJson(value);
+		if (copy !== undefined) record[key] = copy;
+	}
+	return record as unknown as ChatRecord;
+}
+
+/** Parsed records keyed by id, valid while the file's stat signature holds
+ *  (the same signature as the summary cache below). Only successful reads
+ *  and writes are cached; least recently used records go first once the files they
+ *  came from pass RECORD_CACHE_BYTES. Callers get a fresh top level and
+ *  fresh top-level arrays, so they can replace fields and push or splice
+ *  freely; everything deeper is shared and must be copied before it is
+ *  changed. Tests deep-freeze the cached copy so a deep change fails loudly. */
+const recordCache = new Map<string, { signature: string; bytes: number; record: ChatRecord }>();
+const RECORD_CACHE_BYTES = 32 * 1024 * 1024;
+const FREEZE_CACHED_RECORDS = process.env.NODE_ENV === "test";
+let recordCacheBytes = 0;
+
+function signatureOf(stat: fs.Stats): string {
+	return `${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+}
+
+function forgetRecord(id: string): void {
+	const cached = recordCache.get(id);
+	if (!cached) return;
+	recordCache.delete(id);
+	recordCacheBytes -= cached.bytes;
+}
+
+function rememberRecord(id: string, signature: string, bytes: number, record: ChatRecord): void {
+	forgetRecord(id);
+	if (bytes > RECORD_CACHE_BYTES) return;
+	if (FREEZE_CACHED_RECORDS) deepFreeze(record);
+	recordCache.set(id, { signature, bytes, record });
+	recordCacheBytes += bytes;
+	for (const [oldest, entry] of recordCache) {
+		if (recordCacheBytes <= RECORD_CACHE_BYTES) break;
+		recordCache.delete(oldest);
+		recordCacheBytes -= entry.bytes;
+	}
+}
+
+function deepFreeze(value: unknown): void {
+	if (value === null || typeof value !== "object" || Object.isFrozen(value)) return;
+	Object.freeze(value);
+	for (const child of Object.values(value)) deepFreeze(child);
+}
+
+function copyRecord(record: ChatRecord): ChatRecord {
+	const copy: Record<string, unknown> = { ...record };
+	for (const [key, value] of Object.entries(copy)) if (Array.isArray(value)) copy[key] = [...value];
+	return copy as unknown as ChatRecord;
 }
 
 function getChat(id: string): ChatRecord | null {
+	let stat: fs.Stats | undefined;
+	try {
+		stat = fs.statSync(chatFile(id));
+	} catch {
+		// Missing or unstattable: the uncached read below decides.
+	}
+	const signature = stat && signatureOf(stat);
+	const cached = recordCache.get(id);
+	if (signature && cached?.signature === signature) {
+		recordCache.delete(id); // most recently used goes last
+		recordCache.set(id, cached);
+		return copyRecord(cached.record);
+	}
+	const record = readChat(id);
+	if (!record || !stat || !signature) {
+		forgetRecord(id);
+		return record;
+	}
+	rememberRecord(id, signature, stat.size, record);
+	return copyRecord(record);
+}
+
+function readChat(id: string): ChatRecord | null {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(fs.readFileSync(chatFile(id), "utf-8"));
@@ -130,7 +240,7 @@ function listChats(): ChatSummary[] {
 			let signature: string;
 			try {
 				const stat = fs.statSync(path.join(PATHS.chats, file));
-				signature = `${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+				signature = signatureOf(stat);
 			} catch {
 				summaryCache.delete(file);
 				continue;
@@ -236,6 +346,7 @@ function renameChat(id: string, title: string): ChatRecord {
  *  choreography (core/graph-deletion.ts), not the store's. */
 function deleteChat(id: string): boolean {
 	try {
+		forgetRecord(id);
 		fs.unlinkSync(chatFile(id));
 		emit("chats-changed", {}); // only a real removal — the present-entry law
 		return true;

@@ -4,6 +4,7 @@ import { AssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-s
 import { transformMessages } from "@earendil-works/pi-ai/api/transform-messages";
 import { chatGPTAbortController, chatGPTScope, chatGPTScopeCurrent, chatGPTLease, chatGPTDenial, chatGPTRequest } from "./chatgpt-bridge.ts";
 import type { AdmissionScope, ChatGPTDispatchLifecycle } from "./chatgpt-request-cycle.ts";
+import { capturePreparedBackgroundPayload } from "./background-capture.ts";
 
 const USAGE = "https://chatgpt.com/settings/usage";
 export function chatGPTStreamError(message: string): string {
@@ -87,6 +88,7 @@ export function chatGPTStream(background: () => boolean, lifecycle?: ChatGPTDisp
 						const payload = chatGPTPayload(replacement === undefined ? raw : replacement, logicalModel.id);
 						if (credentials.requestedTier) payload.service_tier = credentials.requestedTier;
 						check();
+						capturePreparedBackgroundPayload(payload, logicalModel);
 						return payload;
 					},
 					onProviderStreamEvent: async (raw, model) => {

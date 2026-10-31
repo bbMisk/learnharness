@@ -14,7 +14,8 @@ export function createProjectStore(root: string) {
 		try {
 			const record = JSON.parse(fs.readFileSync(file(id), "utf8"));
 			return record.id === id && Array.isArray(record.fileIds) ? record : null;
-		} catch {
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.error(`[project ${id}] could not be read:`, error);
 			return null;
 		}
 	};
@@ -34,7 +35,8 @@ export function createProjectStore(root: string) {
 					.map((f) => get(f.slice(0, -5)))
 					.filter((p): p is ProjectRecord => !!p)
 					.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-			} catch {
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.error("[projects] could not be listed:", error);
 				return [];
 			}
 		},

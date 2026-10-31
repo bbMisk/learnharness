@@ -18,6 +18,9 @@
 export * from "./contracts.ts";
 export * from "./ports.ts";
 export * from "./chains.ts";
+export * from "./source-organization.ts";
+export * from "./source-selection.ts";
+export * from "./source-label.ts";
 export * from "./render-settings.ts";
 
 export * from "./question-core.ts";
@@ -91,5 +94,5 @@ export * from "./session-markdown.ts";
 export * from "./demo-document.ts";
 
 export * from "./review.ts";
-export { uploadedImageReferences, withoutUploadedImagePaths } from "./upload-images.ts";
+export { IMAGE_MIME, uploadedImageReferences, withoutUploadedImagePaths } from "./upload-images.ts";
 export type { ProjectRecord, ProjectView, ProjectFile, ProjectSummary } from './projects.ts';

@@ -853,7 +853,7 @@ function SessionsSidebar() {
 				</div>
 
 				<ProjectSidebar projects={projects} chats={(chats ?? []).filter(chat => !chat.archived && (kindFilter === "all" || (chat.kind ?? "teach") === kindFilter))} refresh={refresh} moveChat={moveChat} renderChat={renderChat} showChats={!query.trim() && !showArchived} />
-				<div {...chatDrop.handlers} data-testid="unassigned-chat-drop" className={cn("mx-3 mt-2 flex h-8 shrink-0 items-center rounded-md px-2 text-xs text-muted-foreground", chatDrop.over && "bg-accent ring-1 ring-primary/30")}>{chatDrop.over ? "Move chat out of project" : showArchived ? "Archived" : "Chats"}</div>
+				<div {...chatDrop.handlers} data-testid="unassigned-chat-drop" className={cn("mx-3 mt-2 flex h-8 shrink-0 items-center rounded-md px-2 text-xs uppercase tracking-widest text-muted-foreground/70", chatDrop.over && "bg-accent text-muted-foreground ring-1 ring-primary/30")}>{chatDrop.over ? "Move chat out of project" : showArchived ? "Archived" : "Chats"}</div>
 				{moveStatus && <p role="status" className="px-4 py-1 text-xs text-muted-foreground">{moveStatus}</p>}
 				{updateError && <p role="alert" className="px-4 py-2 text-xs text-destructive">{updateError}</p>}
 				<div {...chatDrop.handlers} ref={listRef} data-testid="unassigned-chat-list" className={cn("flex-1 overflow-y-auto px-2 pb-2 pt-1", chatDrop.over && "bg-accent/50 ring-1 ring-inset ring-border")}>

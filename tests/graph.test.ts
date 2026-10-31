@@ -510,7 +510,7 @@ describe("the merger (mergeFindings)", () => {
 		const mine = snap.clusters.find((c) => c.members.length === 3 && tri.every((s) => c.members.includes(snap.nodes.find((n) => n.statement === s)!.id)));
 		assert.ok(mine, "the trio is one cluster");
 		assert.equal(mine!.id, "src_clusterfixture");
-		assert.equal(mine!.label, "/vault/cluster notes.md", "a notes file is a birth-session — the label is its path");
+		assert.equal(mine!.label, "cluster notes", "a notes file label is its exact filename minus extension");
 
 		// Chains-primary split (owner, 2026-09-30): `nodes` is the canvas
 		// image, `propositions` the stored truth alone (the chain table's
@@ -548,6 +548,22 @@ describe("the merger (mergeFindings)", () => {
 		);
 		// Gamma was only ever touched by chat1.
 		assert.deepEqual(snap.nodeSessions[idByStatement.get("Gamma application")!], [chat1.id]);
+	});
+
+	it("labels chat sessions from the session list and reads the notes sources once", () => {
+		const fullReads: string[] = [];
+		let sourceReads = 0;
+		const counted = (listChats: GraphDeps["chatStore"]["listChats"]): GraphDeps => ({
+			chatStore: { ...chatStore, listChats, getChat: (id: string) => { fullReads.push(id); return chatStore.getChat(id); } },
+			graphStore: { ...graphStore, readSources: () => { sourceReads++; return graphStore.readSources(); } },
+		});
+		const expected = graphSnapshot(graphDeps);
+		assert.ok(Object.keys(expected.sessions).length > 0, "the fixture has chat sessions to label");
+		assert.deepEqual(graphSnapshot(counted(chatStore.listChats)), expected);
+		assert.equal(sourceReads, 1);
+		assert.deepEqual(fullReads.filter((id) => id in expected.sessions), [], "listed chats need no full record");
+		// A chat the list cannot project still gets its title from the record.
+		assert.deepEqual(graphSnapshot(counted(() => [])), expected);
 	});
 
 	it("never string-matches without a verdict — an identical statement without linkTo is a NEW node", () => {

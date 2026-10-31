@@ -545,6 +545,25 @@ export function incrementalLayout(
 	previous: ReadonlyMap<string, Position>,
 	options: IncrementalLayoutOptions = {},
 ): Map<string, Position> {
+	const steps = incrementalLayoutSteps(nodes, edges, previous, options);
+	for (;;) {
+		const step = steps.next();
+		if (step.done) return step.value;
+	}
+}
+
+/**
+ * incrementalLayout as a generator: yields after every tick and returns
+ * the same positions. The computation and its order are unchanged, so a
+ * driver may pause between ticks (the server settle yields to the event
+ * loop — core/layout-settle.ts) without moving a single coordinate.
+ */
+export function* incrementalLayoutSteps(
+	nodes: ReadonlyArray<Pick<GraphNode, "id">>,
+	edges: ReadonlyArray<LayoutEdge>,
+	previous: ReadonlyMap<string, Position>,
+	options: IncrementalLayoutOptions = {},
+): Generator<void, Map<string, Position>, void> {
 	const ticks = options.ticks ?? 300;
 	const retention = options.anchorRetention ?? ANCHOR_RETENTION;
 
@@ -712,6 +731,7 @@ export function incrementalLayout(
 				}
 			}
 		}
+		yield;
 	}
 
 	const out = new Map<string, Position>();

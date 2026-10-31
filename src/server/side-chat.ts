@@ -2,7 +2,7 @@ import { normalizeContext, type AssistantMessage } from "@earendil-works/pi-ai";
 import { stores, effectiveSettings } from "./stores.ts";
 import { piEngineForSpec } from "../agent/models.ts";
 import { providerKeyPresent } from "./keys.ts";
-import { refreshConnectionCatalog } from "./model-catalog.ts";
+import { prepareConnectionCatalog } from "./model-catalog.ts";
 import { resolveConversationSpec } from "../core/settings-resolution.ts";
 import { parseSideRequest, sideLessonContext, type SideFrame } from "../core/side-chat.ts";
 import type { PiEngine } from "../agent/models.ts";
@@ -25,7 +25,7 @@ const production: SideChatDeps = {
 	settings: effectiveSettings,
 	engine: (spec) => piEngineForSpec(spec, false),
 	keyPresent: providerKeyPresent,
-	refresh: refreshConnectionCatalog,
+	refresh: prepareConnectionCatalog,
 };
 
 export async function sideChatSnapshot(chatId: string, deps = production): Promise<Response> {

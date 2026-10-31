@@ -27,7 +27,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { after, afterEach, before, describe, it } from "node:test";
+import { after, afterEach, before, describe, it, mock } from "node:test";
 import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, type AssistantMessage, type FauxResponseStep } from "@earendil-works/pi-ai";
 import {
 	accumulateJobUsage,
@@ -1029,7 +1029,7 @@ describe("wake pipeline (src/server/jobs.ts)", () => {
 		assert.equal(jobStore.getJob(jobId)!.status, "done");
 	});
 
-	it("the dismissal pause holds deliveries — no wake until the user's next turn settles (A2)", async () => {
+	for (const pause of ["dismissal", "question recovery"] as const) it(`the ${pause} pause holds deliveries until the user's next turn settles`, async () => {
 		const { chatId, jobId, steer } = setup();
 		let fired = 0;
 		setTurnRunner(async () => {
@@ -1037,9 +1037,9 @@ describe("wake pipeline (src/server/jobs.ts)", () => {
 			return 200;
 		});
 
-		// The record ends in a DISMISSAL (owner design 2026-10-03): the
-		// question was skipped via the silent route — no dangling call (the
-		// quiz gate would pass), so ONLY the dismissal pause holds the wake.
+		// Both resolutions clear the dangling call, so only the persisted
+		// manual-only pause holds the wake. Recovery can be interrupted after
+		// write-ahead but before any replacement output is persisted.
 		chatStore.saveMessages(chatId, [
 			{ id: "u1", role: "user", content: "hello", timestamp: 1 } as never,
 			{
@@ -1058,9 +1058,9 @@ describe("wake pipeline (src/server/jobs.ts)", () => {
 				role: "toolResult",
 				toolCallId: "quiz-call",
 				toolName: "quiz",
-				content: [{ type: "text", text: "skipped" }],
-				details: { kind: "quiz", questionText: "q", dontKnow: false, answers: [], dismissed: true, answeredAt: "t" },
-				isError: false,
+				content: [{ type: "text", text: pause === "dismissal" ? "skipped" : "Replacement requested" }],
+				details: pause === "dismissal" ? { kind: "quiz", questionText: "q", dontKnow: false, answers: [], dismissed: true, answeredAt: "t" } : { questionRecovery: true },
+				isError: pause === "question recovery",
 				timestamp: 1,
 			} as never,
 		]);
@@ -1068,7 +1068,7 @@ describe("wake pipeline (src/server/jobs.ts)", () => {
 		const delivery = deliverJobResult(steer);
 
 		await delay(1200);
-		assert.equal(fired, 0, "no wake while the session sits dismissal-paused");
+		assert.equal(fired, 0, `no wake while the session sits ${pause}-paused`);
 		assert.equal(jobStore.getJob(jobId)!.delivery?.status, "pending", "the delivery holds (queued, not lost)");
 
 		// The user's next message is the wake — its turn settles, and the
@@ -1758,6 +1758,36 @@ describe("stale-job recovery sweep (liveness-gated)", () => {
 		// Hermetic teardown (see above) — the respawned loop is the TEST's
 		// fake seam, nothing real runs.
 		jobStore.updateJob(jobId, { status: "done", activity: "settled (test)" });
+	});
+
+	it("reads each chat record at most once per sweep, however many orphans it has", () => {
+		const { chatId, jobId } = orphanJob();
+		const siblings = [1, 2].map((n) => {
+			const job = jobStore.createJob({ kind: "research", chatId, toolCallId: `call-sweep-sibling-${n}` });
+			trackJob(job.id);
+			return job.id;
+		});
+		const respawnedIds: string[] = [];
+		setJobRespawn((id) => {
+			respawnedIds.push(id);
+		});
+		let reads = 0;
+		const realGetChat = chatStore.getChat;
+		const counting = mock.method(chatStore, "getChat", (id: string) => {
+			if (id === chatId) reads++;
+			return realGetChat(id);
+		});
+		try {
+			resetSweepThrottle();
+			recoverStaleJobs();
+		} finally {
+			counting.mock.restore();
+		}
+		for (const id of [jobId, ...siblings]) {
+			assert.ok(respawnedIds.includes(id), "every orphan of the chat is still re-spawned");
+			jobStore.updateJob(id, { status: "done", activity: "settled (test)" });
+		}
+		assert.equal(reads, 1, "one record read serves every job of the chat");
 	});
 
 	it("does not queue the same recovered result repeatedly while a question is pending", () => {

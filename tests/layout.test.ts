@@ -8,6 +8,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createGraphSimulation, incrementalLayout, inferenceDepths } from "../src/core/layout.ts";
 import { settleGraphLayout } from "../src/core/layout-settle.ts";
+import { deriveView, getGraph } from "../src/core/graph.ts";
+import { attachImpToCommunities, birthSessionPartition } from "../src/core/session-clusters.ts";
 import type { GraphChain, GraphNode, Position } from "../src/core/contracts.ts";
 
 const node = (id: string): GraphNode => ({
@@ -104,7 +106,7 @@ describe("incrementalLayout", () => {
 });
 
 describe("settleGraphLayout", () => {
-	it("dedupes repeated node lines, runs, and writes the whole ledger", () => {
+	it("dedupes repeated node lines, runs, and writes the whole ledger", async () => {
 		const written: Record<string, Position>[] = [];
 		const lines = [node("a"), node("b"), node("c"), node("d"), node("a")]; // "a" appended twice
 		const store = {
@@ -113,22 +115,152 @@ describe("settleGraphLayout", () => {
 			readPositions: () => ({} as Record<string, Position>),
 			writePositions: (p: Record<string, Position>) => void written.push(p),
 		};
-		settleGraphLayout(store);
+		await settleGraphLayout(store);
 		assert.equal(written.length, 1);
 		// arg_ab is single-premise → collapsed to a direct arrow, NO imp
 		// node; arg_bcd is multi-premise → its imp node joins the layout.
 		assert.deepEqual(Object.keys(written[0]!).sort(), ["a", "arg_bcd", "b", "c", "d"], "positions for the unique nodes and ONLY the multi-premise chain's imp node");
 	});
 
-	it("does nothing on an empty graph", () => {
+	it("does nothing on an empty graph", async () => {
 		const written: Record<string, Position>[] = [];
-		settleGraphLayout({
+		await settleGraphLayout({
 			readNodes: () => [],
 			readChains: () => [],
 			readPositions: () => ({} as Record<string, Position>),
 			writePositions: (p) => void written.push(p),
 		});
 		assert.equal(written.length, 0);
+	});
+});
+
+describe("settleGraphLayout yields to the event loop (2026-10-31)", () => {
+	/** A 120-proposition graph over 3 sessions with 2-premise chains —
+	 *  big enough for many slices, small enough to stay fast. */
+	const fixture = () => {
+		const nodes: GraphNode[] = [];
+		const chains: GraphChain[] = [];
+		for (let i = 0; i < 120; i++) {
+			nodes.push({ ...node(`n${i}`), provenance: [{ chatId: `s${i % 3}`, messageId: `m${i}` }] });
+			if (i >= 2 && i % 2 === 0) chains.push(chain(`arg_${i}`, [`n${i - 2}`, `n${i - 1}`], `n${i}`));
+		}
+		return { nodes, chains };
+	};
+	/** An in-memory store (ledger copied in and out, like the real one),
+	 *  logging each call so tests can see the order of reads and writes. */
+	const memoryStore = (positions: Record<string, Position> = {}) => {
+		const { nodes, chains } = fixture();
+		const log: string[] = [];
+		let ledger = structuredClone(positions);
+		return {
+			nodes,
+			log,
+			readNodes: () => (log.push("readNodes"), structuredClone(nodes)),
+			readChains: () => (log.push("readChains"), structuredClone(chains)),
+			readPositions: () => (log.push("readPositions"), structuredClone(ledger)),
+			writePositions: (p: Record<string, Position>) => {
+				log.push("write");
+				ledger = structuredClone(p);
+			},
+		};
+	};
+	/** The settle as it was before slicing (one synchronous block) — the
+	 *  parity reference. */
+	const synchronousSettle = (store: ReturnType<typeof memoryStore>): void => {
+		const graph = getGraph(store);
+		if (graph.nodes.length === 0) return;
+		const view = deriveView(graph);
+		const previous = new Map(Object.entries(store.readPositions()));
+		const communities = birthSessionPartition(graph.nodes);
+		attachImpToCommunities(communities, graph.nodes, graph.chains);
+		const next = incrementalLayout(view.nodes, view.edges, previous, {
+			clusters: communities,
+			logicalEdges: view.logicalEdges,
+			impLinks: view.impLinks,
+		});
+		store.writePositions(Object.fromEntries(next));
+	};
+	/** The ledger after `settles` synchronous settles from `start`. */
+	const reference = (start: Record<string, Position> = {}, settles = 1) => {
+		const store = memoryStore(start);
+		for (let i = 0; i < settles; i++) synchronousSettle(store);
+		return store.readPositions();
+	};
+
+	it("writes exactly the positions of the synchronous settle (bootstrap and warm start)", async () => {
+		const cold = memoryStore();
+		await settleGraphLayout(cold, { sliceMs: 0 });
+		const first = cold.readPositions();
+		assert.deepEqual(first, reference());
+		await settleGraphLayout(cold);
+		assert.deepEqual(cold.readPositions(), reference({}, 2), "warm start from the ledger, default slicing");
+	});
+
+	it("gives the event loop control while it runs", async () => {
+		let turns = 0;
+		let done = false;
+		const spin = (): void => {
+			turns++;
+			if (!done) setImmediate(spin);
+		};
+		setImmediate(spin);
+		await settleGraphLayout(memoryStore(), { sliceMs: 0 });
+		done = true;
+		// sliceMs 0 yields after every one of the 300 ticks.
+		assert.ok(turns >= 100, `the event loop ran ${turns} turns during the settle`);
+	});
+
+	it("serializes concurrent settles: the second reads only after the first wrote", async () => {
+		const store = memoryStore();
+		await Promise.all([settleGraphLayout(store, { sliceMs: 0 }), settleGraphLayout(store, { sliceMs: 0 })]);
+		const writes = store.log.flatMap((entry, i) => (entry === "write" ? [i] : []));
+		const reads = store.log.flatMap((entry, i) => (entry === "readNodes" ? [i] : []));
+		// Each settle reads the graph twice (its inputs, then the staleness
+		// check) and writes once: no restart, and the second settle began
+		// only after the first had written.
+		assert.equal(writes.length, 2);
+		assert.equal(reads.length, 4);
+		assert.ok(reads[1]! < writes[0]! && writes[0]! < reads[2]!, store.log.join(" "));
+		assert.deepEqual(store.readPositions(), reference({}, 2));
+	});
+
+	it("never writes a stale result: a positions commit mid-settle is honored as the anchor set", async () => {
+		const start = reference();
+		const store = memoryStore(start);
+		// A drag commit lands while the settle yields.
+		const dragged = structuredClone(start);
+		dragged.n0 = { x: dragged.n0!.x + 500, y: dragged.n0!.y - 500 };
+		setImmediate(() => store.writePositions(dragged));
+		await settleGraphLayout(store, { sliceMs: 0 });
+		// Same result as if the commit had landed before the settle began.
+		assert.deepEqual(store.readPositions(), reference(dragged));
+	});
+
+	it("never writes a stale result: a node merged mid-settle gets a position", async () => {
+		const store = memoryStore();
+		setImmediate(() => store.nodes.push({ ...node("late"), provenance: [{ chatId: "s0", messageId: "late" }] }));
+		await settleGraphLayout(store, { sliceMs: 0 });
+		assert.ok("late" in store.readPositions(), "the restart laid out the node that arrived mid-settle");
+	});
+
+	it("finishes even when the inputs keep changing on every yield", async () => {
+		const store = memoryStore(reference());
+		let stop = false;
+		let k = 0;
+		const churn = (): void => {
+			if (stop) return;
+			const p = store.readPositions();
+			p.n0 = { x: k++, y: 0 };
+			store.writePositions(p);
+			setImmediate(churn);
+		};
+		setImmediate(churn);
+		const finished = await Promise.race([
+			settleGraphLayout(store, { sliceMs: 0 }).then(() => true),
+			new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000)),
+		]);
+		stop = true;
+		assert.equal(finished, true, "the settle ends after its yielding retries");
 	});
 });
 describe("imp-link half distance (rendering arc, owner 2026-09-30)", () => {

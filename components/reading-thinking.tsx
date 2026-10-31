@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useLayoutEffect, useState } from "react";
 import { joinDictation, useDictationTarget } from "@/components/dictation";
 import { useFileDrop } from "@/components/file-drop";
 import { FileDropFeedback } from "@/components/file-drop-feedback";
@@ -24,6 +24,7 @@ import { PathInput } from "@/components/path-input";
  */
 export function ReadingThinkingField({
 	value,
+	revision,
 	onChange,
 	onEscape,
 	onOpen,
@@ -31,6 +32,7 @@ export function ReadingThinkingField({
 	onUploadingChange,
 }: {
 	value: string;
+	revision: number;
 	onChange: (v: string) => void;
 	/** Esc in the field stops dictation (threaded from the page's hook). */
 	onEscape?: () => void;
@@ -43,7 +45,17 @@ export function ReadingThinkingField({
 	claim: boolean;
 	onUploadingChange?: (busy: boolean) => void;
 }) {
-	const files = useFileDrop(value, onChange, {onUploadingChange,hideImagePaths:true,priority:30,label:"Thinking while reading"});
+	// Local keystroke state (upstream): the owning Chat keeps the draft in a
+	// ref, so typing does not rerender the transcript; revision signals an
+	// explicit parent reset. The file drop (fork) edits this local draft and
+	// keeps its own synchronous mirror for back-to-back dictation appends.
+	const [draft, setDraft] = useState(value);
+	useLayoutEffect(() => { setDraft(value); }, [revision, value]);
+	const applyDraft = useCallback((next: string) => {
+		setDraft(next);
+		onChange(next);
+	}, [onChange]);
+	const files = useFileDrop(draft, applyDraft, {onUploadingChange,hideImagePaths:true,priority:30,label:"Thinking while reading"});
 	useDictationTarget(
 		useCallback(
 			(t: string) => {

@@ -28,6 +28,7 @@
  */
 
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { CacheRetention } from "@earendil-works/pi-ai";
 import { AUTH_PROVIDER_KEYS } from "./auth-keys.ts";
 import { CLAUDE_CODE_PROVIDER } from "./contracts/claude-code.ts";
 import type { ModelRole } from "../../config.ts";
@@ -189,11 +190,15 @@ export class ProviderKeyMissingError extends Error {
 	}
 }
 
+export const CACHE_RETENTIONS = ["none", "short", "long"] as const satisfies readonly CacheRetention[];
+
 /** One slot's stored state. BYOK (owner, 2026-09-22): the WRITE side
  *  requires model (a level alone can never run — no factory floor); the
  *  sanitizer keeps whatever is on disk, but RESOLUTION treats a slot
  *  without a model as unset (inert level, no phantom default). */
 export interface ModelSlot {
+	/** Native Pi preference. Absent leaves Pi/environment behavior unchanged. */
+	cacheRetention?: CacheRetention;
 	/** The model swap: both coordinates or neither. */
 	model?: { provider: string; id: string };
 	/** The thinking budget swap. */
@@ -333,6 +338,8 @@ export interface GeneralSettings {
 	autoUpdate?: boolean;
 	/** Show the optional reading-notes field beside teaching checks (default OFF). */
 	showReadingThinking?: boolean;
+	/** Keep typing, paste and dictation in a question's "Your thinking" field (default ON). */
+	keepThinkingFocus?: boolean;
 	/** Flashcard source scope. Chat provenance is required by default. */
 	flashcardSources?: "chats" | "all";
 }
@@ -517,7 +524,7 @@ export interface FactorySettings {
 
 export const FACTORY_SETTINGS: FactorySettings = {
 	version: CURRENT_SETTINGS_VERSION,
-	general: { autoUpdate: true, showReadingThinking: false, flashcardSources: "chats" },
+	general: { autoUpdate: true, showReadingThinking: false, keepThinkingFocus: true, flashcardSources: "chats" },
 	dictation: { language: "en" },
 	appearance: {
 		mode: "dark",
@@ -566,6 +573,8 @@ function sanitizeGeneral(raw: Record<string, unknown>): GeneralSettings {
 	if (autoUpdate !== undefined) out.autoUpdate = autoUpdate;
 	const showReadingThinking = boolOrDrop(raw.showReadingThinking);
 	if (showReadingThinking !== undefined) out.showReadingThinking = showReadingThinking;
+	const keepThinkingFocus = boolOrDrop(raw.keepThinkingFocus);
+	if (keepThinkingFocus !== undefined) out.keepThinkingFocus = keepThinkingFocus;
 	return out;
 }
 
@@ -607,8 +616,13 @@ function sanitizeRoleOverride(raw: unknown): RoleModelOverride | undefined {
 function sanitizeModels(raw: Record<string, unknown>): ModelsSettings {
 	const out: ModelsSettings = {};
 	for (const slot of MODEL_SLOTS) {
-		const cleaned = sanitizeRoleOverride(raw[slot]);
-		if (cleaned) out[slot] = cleaned;
+		const cleaned: ModelSlot = sanitizeRoleOverride(raw[slot]) ?? {};
+		const value = raw[slot];
+		if (value && typeof value === "object" && !Array.isArray(value)) {
+			const retention = (value as Record<string, unknown>).cacheRetention;
+			if (CACHE_RETENTIONS.includes(retention as CacheRetention)) cleaned.cacheRetention = retention as CacheRetention;
+		}
+		if (Object.keys(cleaned).length) out[slot] = cleaned;
 	}
 	return out;
 }

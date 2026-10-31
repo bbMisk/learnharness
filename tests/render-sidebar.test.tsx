@@ -82,8 +82,11 @@ describe("SessionRow", () => {
 	});
 
 	it("the meta line: state replaces the count when the state is the useful fact", () => {
-		const awaiting = render(item({ pendingQuestion: true, updatedAt: "2026-01-02T01:00:00.000Z" }));
-		assert.ok(awaiting.includes("Waiting for input · " + timeAgo("2026-01-02T01:00:00.000Z")), "awaiting meta keeps the existing date");
+		// Local noon: timeAgo renders the local date, so a fixed UTC instant
+		// lands on 2026-01-01 west of UTC.
+		const updatedAt = new Date(2026, 0, 2, 12).toISOString();
+		const awaiting = render(item({ pendingQuestion: true, updatedAt }));
+		assert.ok(awaiting.includes("Waiting for input · " + timeAgo(updatedAt)), "awaiting meta keeps the existing date");
 		assert.ok(!awaiting.includes("messages"), "count yields to the state");
 		assert.ok(!awaiting.includes("braille-spinner"), "…and the spinner stays off");
 
@@ -129,7 +132,9 @@ describe("timeAgo", () => {
 		assert.equal(timeAgo("2026-01-02T11:55:00.000Z", now), "5m ago");
 		assert.equal(timeAgo("2026-01-02T09:00:00.000Z", now), "3h ago");
 		assert.equal(timeAgo("2025-12-31T12:00:00.000Z", now), "2d ago");
-		assert.equal(timeAgo("2025-06-02T12:00:00.000Z", now), "2025-06-02", "beyond a week: ISO — unambiguous, sortable");
+		// Local noon, so the local date is 2025-06-02 in every time zone.
+		const old = new Date(2025, 5, 2, 12).toISOString();
+		assert.equal(timeAgo(old, now), "2025-06-02", "beyond a week: ISO — unambiguous, sortable");
 	});
 
 	it("negative drift (clock skew) reads as just now, never a future date", () => {

@@ -398,13 +398,42 @@ export function SettingsDialogBody({
 											onChange={(on) => void writeGeneral({ showReadingThinking: on })}
 										/>
 									</SettingsRow>
-									<SettingsRow label="Flashcard sources" hint="Choose which material appears in your flashcards. Review history is preserved." testid="row-flashcard-sources">
-                                        <select aria-label="Flashcard sources" value={record.general?.flashcardSources ?? "chats"} disabled={savingGeneral} onChange={event => void writeGeneral({flashcardSources:event.target.value as "chats" | "all"})} className="max-w-56 rounded-md border bg-background p-2 text-xs">
-                                            <option value="chats">Chat history only</option><option value="all">Chat history + imported knowledge</option>
-                                        </select>
-                                    </SettingsRow>
-									<SettingsRow label="Learning history" hint="Export questions, responses and timestamps for future review." testid="row-learning-history">
-										<a href="/api/learning-history?download=1" download className="text-xs text-foreground underline underline-offset-4">Export JSON</a>
+									<SettingsRow
+										label="Keep cursor in Your thinking"
+										hint="During a question, typing, pasting and dictation stay in Your thinking."
+										testid="row-keep-thinking-focus"
+									>
+										<Toggle
+											checked={record.general?.keepThinkingFocus ?? true}
+											label="keep cursor in your thinking"
+											disabled={savingGeneral}
+											onChange={(on) => void writeGeneral({ keepThinkingFocus: on })}
+										/>
+									</SettingsRow>
+									<SettingsRow
+										label="Cards from imported knowledge"
+										hint="Also make flashcards from imported material, not just chat history. Review history is kept."
+										testid="row-flashcard-sources"
+									>
+										<Toggle
+											checked={record.general?.flashcardSources === "all"}
+											label="cards from imported knowledge"
+											disabled={savingGeneral}
+											onChange={(on) => void writeGeneral({ flashcardSources: on ? "all" : "chats" })}
+										/>
+									</SettingsRow>
+									<SettingsRow
+										label="Learning history"
+										hint="Export questions, responses and timestamps for future review."
+										testid="row-learning-history"
+									>
+										<a
+											href="/api/learning-history?download=1"
+											download
+											className="font-ui text-xs text-foreground underline underline-offset-4"
+										>
+											Export JSON
+										</a>
 									</SettingsRow>
 								</SettingsSection>
 							)}
