@@ -63,13 +63,11 @@ it("does nothing while the server runs the same build", async () => {
 	assert.equal(r.pill(), null);
 });
 
-it("reloads after a deploy when nothing unsent would be lost", async () => {
-	const r = await reconnect("build-b", "<textarea></textarea>");
+it("offers a reload after a deploy and never reloads by itself", async () => {
+	const r = await reconnect("build-b");
+	assert.equal(r.reloads(), 0, "attachments and side-tutor state live only in the page");
+	const pill = r.pill() as HTMLButtonElement | null;
+	assert.ok(pill, "the reload pill is shown");
+	pill.click();
 	assert.equal(r.reloads(), 1);
-});
-
-it("offers the reload instead when a field holds unsent text", async () => {
-	const r = await reconnect("build-b", "<textarea>half a message</textarea>");
-	assert.equal(r.reloads(), 0);
-	assert.ok(r.pill(), "the reload pill is shown");
 });

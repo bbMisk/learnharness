@@ -8,7 +8,7 @@ This fork tracks [upstream LearnHarness](https://github.com/amosblomqvist/learnh
 
 ## Beta, then main
 1. Branch from `main`, make the change, and run `npm test`, `npm run typecheck` and `npm run lint`.
-2. Push the branch, then run `scripts/deploy-local.sh`. The desktop app talks to the local host (`http://127.0.0.1:8787`), so the branch is now the beta Hanson uses. The script keeps the two newest previous versions as `~/dev/learnharness-remote.before-<time>`, records the running commit in `~/dev/learnharness-remote/DEPLOYED.json`, and rolls back if the host does not come up. Open windows reload themselves afterwards, unless a field holds unsent text; then they offer a Reload button.
+2. Push the branch, then run `scripts/deploy-local.sh`. The desktop app talks to the local host (`http://127.0.0.1:8787`), so the branch is now the beta Hanson uses. The script keeps the two newest previous versions as `~/dev/learnharness-remote.before-<time>`, records the running commit in `~/dev/learnharness-remote/DEPLOYED.json`, and rolls back if the host does not come up. Open windows then show a "LearnHarness was updated · Reload" button; they never reload on their own, so nothing unsent is lost.
 3. When the beta is good, open a PR and merge it to `main`.
 
 To roll back by hand, move a `before-<time>` folder back to `~/dev/learnharness-remote`, then run `launchctl kickstart -k gui/$(id -u)/io.hanson.learnharness.remote`.
