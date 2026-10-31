@@ -1,5 +1,7 @@
 import { DEMO_CSS, DEMO_CONTROLS } from "./demo-style.ts";
 import { D3_RUNTIME } from "./vendor/d3-v7.ts";
+import { FLOATING_UI_RUNTIME } from "./vendor/floating-ui-v1.ts";
+import { LUCIDE_RUNTIME } from "./vendor/lucide-v1.ts";
 
 export type DemoRenderer = "learnharness-v1" | "visualize-v1";
 
@@ -22,18 +24,23 @@ const KIT_HEAD =
 	'<meta name="viewport" content="width=device-width, initial-scale=1">' +
 	"<style>" +
 	DEMO_CSS +
-	"\n:root{color-scheme:dark;--background:#141414;--font-text-md-size:14px}html>body{padding:4px 0}</style>" +
+	"</style>" +
 	LOCAL_STATE +
-	script(D3_RUNTIME);
+	script(D3_RUNTIME) +
+	script(FLOATING_UI_RUNTIME);
+
+/** lucide is ~400 KB, so it rides along only when the demo mentions it (data-lucide or window.lucide). */
+const ICON_HEAD = script(LUCIDE_RUNTIME);
 
 /** One renderer for builder verification, lesson display, previews, and exports. */
 export function buildDemoDocument(html: string, renderer?: DemoRenderer): string {
 	let doc = html;
 	let tail = DEMO_BRIDGE_SCRIPT;
 	if (renderer === "learnharness-v1" || renderer === "visualize-v1") {
-		if (/<head\b[^>]*>/i.test(doc)) doc = doc.replace(/<head\b[^>]*>/i, (tag) => tag + KIT_HEAD);
-		else if (/<html\b[^>]*>/i.test(doc)) doc = doc.replace(/<html\b[^>]*>/i, (tag) => tag + "<head>" + KIT_HEAD + "</head>");
-		else doc = "<!doctype html><html><head>" + KIT_HEAD + "</head><body>" + doc + "</body></html>";
+		const head = /lucide/i.test(html) ? KIT_HEAD + ICON_HEAD : KIT_HEAD;
+		if (/<head\b[^>]*>/i.test(doc)) doc = doc.replace(/<head\b[^>]*>/i, (tag) => tag + head);
+		else if (/<html\b[^>]*>/i.test(doc)) doc = doc.replace(/<html\b[^>]*>/i, (tag) => tag + "<head>" + head + "</head>");
+		else doc = "<!doctype html><html><head>" + head + "</head><body>" + doc + "</body></html>";
 		tail = script(DEMO_CONTROLS) + VISUALIZE_BRIDGE_SCRIPT;
 	}
 	return /<\/body>/i.test(doc) ? doc.replace(/<\/body>/i, () => tail + "</body>") : doc + tail;
