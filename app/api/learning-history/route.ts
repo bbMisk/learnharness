@@ -1,6 +1,6 @@
 import { learningHistory, captureLearningHistory } from "@/src/server";
 
-/** Portable raw history; scheduler state and model credentials are excluded. */
+/** Portable raw history plus the flashcard review archive; model credentials are excluded. */
 export async function GET(request: Request) {
 	const url = new URL(request.url);
 	const history = learningHistory(url.searchParams.get("chatId"));

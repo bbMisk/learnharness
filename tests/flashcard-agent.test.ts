@@ -128,3 +128,11 @@ it("charges a concept shared by projects once in each and preserves reservations
     assert.deepEqual(readFlashcardCuration().projectDays![day],before);
     assert.equal(h.prepared.length,1);
 });
+
+it("a failed save never leaves the curator marked running",async()=>{
+    const h=harness();
+    fs.chmodSync(temp,0o500);
+    try{await assert.rejects(runFlashcardCuration(false,h.deps));}
+    finally{fs.chmodSync(temp,0o700);}
+    assert.deepEqual(flashcardAgentActivity(),[],"no run is left behind");
+});
