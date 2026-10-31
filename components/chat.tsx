@@ -86,8 +86,8 @@ import {
 import { ReadingThinkingField } from "@/components/reading-thinking";
 import { SideTutor, useSideTutor } from "@/components/side-tutor";
 import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/thinking-block";
-import { FACTORY_SETTINGS, slotsConfigured, type UserSettings } from "@/src/core";
-import { useSettingsSaved } from "@/components/settings-signal";
+import { FACTORY_SETTINGS, slotsConfigured } from "@/src/core";
+import { useReadingThinkingRefresh } from "@/components/reading-thinking-refresh";
 
 /** One width for everything: transcript, cards, and the bottom blob share this column. */
 /**
@@ -557,15 +557,7 @@ export function Chat({
 	const catalogRef = useRef(catalog);
 	catalogRef.current = catalog;
 	const [selectedModel, setSelectedModel] = useState<string | undefined>();
-	useSettingsSaved((section) => {
-		if (section !== "models" && section !== "general") return;
-		fetch("/api/settings")
-			.then((r) => r.ok ? r.json() as Promise<{ settings?: UserSettings | null }> : Promise.reject())
-			.then((body) => {
-				setShowReadingThinking(body.settings?.general?.showReadingThinking ?? FACTORY_SETTINGS.general.showReadingThinking);
-			})
-			.catch(() => {});
-	});
+	const settingsRefreshError = useReadingThinkingRefresh(setShowReadingThinking);
 	const [setupOpen, setSetupOpen] = useState(false);
 	/** The last explicitly-sent draft (composer send): the
 	 *  refusal flow restores it into the composer, where it waits for the
@@ -1590,6 +1582,7 @@ export function Chat({
 								</span>
 							)}
 							{openingError && <p role="alert" className="text-sm text-destructive">{OPENING_PROMPT_FAILURE}</p>}
+							{settingsRefreshError && <p role="alert" className="text-xs text-destructive">{settingsRefreshError}</p>}
 							{error && (
 								<div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm">
 									<span>Something went wrong: {error.message}</span>
