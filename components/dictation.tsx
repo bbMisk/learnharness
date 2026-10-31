@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2Icon, MicIcon } from "lucide-react";
+import { Loader2Icon, MicIcon, SquareIcon } from "lucide-react";
 import { useSettingsDialog } from "@/components/settings/settings-dialog";
 import { Hint } from "@/components/ui/hint";
 import { useTypeWhisperDictation } from "./typewhisper-dictation";
@@ -729,6 +729,22 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 				</button>
 			</Hint>
 		);
+	}
+
+	if (typeWhisper) {
+		const finishing = phase === "stopping";
+		return <div className="flex w-full min-w-0 flex-wrap items-center justify-center gap-x-2 gap-y-1" data-testid="dictation-bar">
+			<button type="button" data-testid="dictation-toggle" aria-label="End transcription" aria-busy={finishing} disabled={finishing}
+				onMouseDown={event => event.preventDefault()} onClick={dictation.stop}
+				className="flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-card/85 px-2.5 text-xs text-foreground transition-colors hover:bg-accent disabled:cursor-wait disabled:text-muted-foreground">
+				{finishing ? <Loader2Icon className="size-3.5 animate-spin"/> : <SquareIcon className="size-3 fill-current"/>}
+				{finishing ? "Transcribing…" : "End transcription"}
+			</button>
+			<span role="status" aria-live="polite" className="flex items-center gap-1.5 text-xs text-muted-foreground">
+				{!finishing && <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-destructive" aria-hidden/>}
+				{finishing ? <span className="sr-only">Finishing transcription. Your text will be kept.</span> : phase === "connecting" ? "Starting…" : "Recording"}
+			</span>
+		</div>;
 	}
 
 	return (
