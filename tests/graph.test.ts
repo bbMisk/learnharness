@@ -550,6 +550,22 @@ describe("the merger (mergeFindings)", () => {
 		assert.deepEqual(snap.nodeSessions[idByStatement.get("Gamma application")!], [chat1.id]);
 	});
 
+	it("labels chat sessions from the session list and reads the notes sources once", () => {
+		const fullReads: string[] = [];
+		let sourceReads = 0;
+		const counted = (listChats: GraphDeps["chatStore"]["listChats"]): GraphDeps => ({
+			chatStore: { ...chatStore, listChats, getChat: (id: string) => { fullReads.push(id); return chatStore.getChat(id); } },
+			graphStore: { ...graphStore, readSources: () => { sourceReads++; return graphStore.readSources(); } },
+		});
+		const expected = graphSnapshot(graphDeps);
+		assert.ok(Object.keys(expected.sessions).length > 0, "the fixture has chat sessions to label");
+		assert.deepEqual(graphSnapshot(counted(chatStore.listChats)), expected);
+		assert.equal(sourceReads, 1);
+		assert.deepEqual(fullReads.filter((id) => id in expected.sessions), [], "listed chats need no full record");
+		// A chat the list cannot project still gets its title from the record.
+		assert.deepEqual(graphSnapshot(counted(() => [])), expected);
+	});
+
 	it("never string-matches without a verdict — an identical statement without linkTo is a NEW node", () => {
 		const chat3 = fixtureChat("Graph fixture 3", [user("u1", "third")].flat());
 		chat3Id = chat3.id;

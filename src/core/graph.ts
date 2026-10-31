@@ -537,14 +537,22 @@ export function graphSnapshot(deps: GraphDeps, sourceNames: Readonly<Record<stri
 	}
 	const sessions: Record<string, string> = {};
 	const fileSources: Record<string, string> = {};
-	const sourceLabels = new Map(deps.graphStore.readSources().map(source => [source.id, typeof source.displayName === "string" ? source.displayName : undefined]));
+	const sources = deps.graphStore.readSources();
+	const sourceLabels = new Map(sources.map(source => [source.id, typeof source.displayName === "string" ? source.displayName : undefined]));
+	// Titles come from the (cached) session list; a chat the list cannot
+	// project still falls back to its full record.
+	const listed = new Map(deps.chatStore.listChats().map((chat) => [chat.id, chat.title]));
 	for (const id of sourceIds) {
+		if (listed.has(id)) {
+			sessions[id] = listed.get(id)!;
+			continue;
+		}
 		const chat = deps.chatStore.getChat(id);
 		if (chat) {
 			sessions[id] = chat.title;
 			continue;
 		}
-		const source = deps.graphStore.readSources().find((s) => s.id === id);
+		const source = sources.find((s) => s.id === id);
 		if (source) fileSources[id] = source.filePath;
 	}
 

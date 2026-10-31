@@ -62,6 +62,7 @@ import {
 	buildSubagentSteer,
 	isSubagentFailure,
 	steerDelivered,
+	type ChatRecord,
 	type JobRecord,
 	type SteerMessage,
 } from "../core/contracts.ts";
@@ -703,11 +704,15 @@ export function recoverStaleJobs(): void {
 	try {
 		const groups = groupedJobs();
 		for (const chat of stores.chatStore.listChats()) {
+			// Read the record at most once per chat per sweep: nothing below
+			// removes it, and only its presence is checked here.
+			let present: boolean | undefined;
 			for (const snapshot of groups.get(chat.id) ?? []) {
 				const job = stores.jobStore.getJob(snapshot.id);
 				if (!job || job.chatId !== chat.id) continue;
 				if (isJobLive(job.id)) continue; // never re-run beside live computation
-				if (!stores.chatStore.getChat(job.chatId)) continue;
+				present ??= !!stores.chatStore.getChat(job.chatId);
+				if (!present) continue;
 				if (isTurnRunning(job.chatId)) continue;
 				const recovered = normalizeLegacyResult(job);
 				if (recovered.delivery?.status === "pending") {
@@ -734,11 +739,22 @@ export function listJobs(chatId: string): JobRecord[] {
 
 function projectJobs(chatId: string, jobs: JobRecord[]): JobRecord[] {
 	if (!jobs.length) return [];
-	const chat = stores.chatStore.getChat(chatId);
-	// Same gate the pump parks on: any unresolved question (incl. malformed) waits for the learner.
-	const pendingAnswer = chat ? hasUnresolvedQuestion(chat.messages) : false;
+	// The record is read only when a job needs it (no stored task, or a
+	// delivery state to derive), and then once.
+	let loaded: ChatRecord | null | undefined;
+	let pending: boolean | undefined;
+	const record = () => loaded === undefined ? (loaded = stores.chatStore.getChat(chatId)) : loaded;
+	const pendingAnswer = (): boolean => {
+		if (pending === undefined) {
+			const chat = record();
+			// Same gate the pump parks on: any unresolved question (incl. malformed) waits for the learner.
+			pending = chat ? hasUnresolvedQuestion(chat.messages) : false;
+		}
+		return pending;
+	};
 	return jobs.map((job) => {
 		let task = job.task;
+		const chat = task ? null : record();
 		if (!task && chat) {
 			for (const message of chat.messages) {
 				if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
@@ -748,7 +764,7 @@ function projectJobs(chatId: string, jobs: JobRecord[]): JobRecord[] {
 			}
 		}
 		return { ...job, task, deliveryState: (job.status === "running" || job.delivery?.status === "pending") && job.result !== undefined
-			? pendingAnswer ? "waiting-answer" : isTurnRunning(chatId) ? "waiting-lesson" : "delivering"
+			? pendingAnswer() ? "waiting-answer" : isTurnRunning(chatId) ? "waiting-lesson" : "delivering"
 			: undefined };
 	});
 }

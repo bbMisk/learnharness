@@ -63,6 +63,26 @@ test("activity scans each job file once and preserves legacy task, delivery, tie
 	} finally { spy.mock.restore(); syncBuiltinESMExports(); fs.unlinkSync(path.join(directory, "jobs", orphan.id + ".json")); }
 });
 
+test("the job projection reads a chat record only for a job that needs it", () => {
+	const c = chat("Lazy");
+	chatStore.saveMessages(c.id, [{ ...fauxAssistantMessage([fauxToolCall("research", { question: "From the record" }, { id: "untasked" })]), id: "calls" }]);
+	const tasked = jobStore.createJob({ kind: "research", chatId: c.id, toolCallId: "tasked" });
+	jobStore.updateJob(tasked.id, { task: "Stored task", status: "done" });
+	let reads = 0;
+	const getChat = chatStore.getChat;
+	const spy = mock.method(chatStore, "getChat", (id: string) => { if (id === c.id) reads++; return getChat(id); });
+	try {
+		assert.equal(listJobsForChats([c.id]).get(c.id)![0]!.task, "Stored task");
+		assert.equal(reads, 0, "a stored task and no delivery to derive need no record");
+		const untasked = jobStore.createJob({ kind: "research", chatId: c.id, toolCallId: "untasked" });
+		jobStore.updateJob(untasked.id, { result: { brief: "Ready", sources: [] } });
+		const projected = listJobsForChats([c.id]).get(c.id)!;
+		assert.equal(projected.find(j => j.id === untasked.id)!.task, "From the record");
+		assert.equal(projected.find(j => j.id === untasked.id)!.deliveryState, "delivering");
+		assert.equal(reads, 1, "one read serves the task and the delivery state");
+	} finally { spy.mock.restore(); }
+});
+
 test("one chat's invalid timestamp cannot hide another chat's jobs", () => {
 	const a = chat("Bad"), b = chat("Good");
 	const malformed = jobStore.createJob({ kind: "research", chatId: a.id, toolCallId: "bad" });
