@@ -30,10 +30,14 @@ export function ProjectPage({ initial }: {
         }).catch(error => { setMoveStatus(""); setError(error.message); });
     });
     const [chats, setChats] = useState<ChatListItem[] | null>(null);
+    const [chatsError, setChatsError] = useState("");
     const adopt = (next: ProjectView) => setProject(prev => next.updatedAt >= prev.updatedAt ? next : prev);
     const refresh = async () => {
         await Promise.all([
-        fetch('/api/chats').then(r => r.json()).then(body => setChats((body.chats || []).filter((chat: ChatListItem) => chat.projectId === initial.id && !chat.archived))).catch(() => {}),
+        fetch('/api/chats').then(r => r.ok ? r.json() : Promise.reject(new Error(r.statusText))).then(body => {
+            setChats((body.chats || []).filter((chat: ChatListItem) => chat.projectId === initial.id && !chat.archived));
+            setChatsError('');
+        }).catch(() => setChatsError('Could not load chats.')),
         fetch('/api/projects/' + initial.id).then(r => r.ok ? r.json() : null).then(next => { if (next) adopt(next); }).catch(() => {})]);
     };
     useEffect(() => { void refresh(); }, [initial.id]);
@@ -114,7 +118,8 @@ export function ProjectPage({ initial }: {
                                 <ArrowUpRightIcon className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"/>
                             </Link>)}
                         </div>
-                        {chats === null && <p className="py-8 text-xs text-muted-foreground">Loading chats…</p>}
+                        {chatsError && <p role="alert" className="py-2 text-xs text-destructive">{chatsError}</p>}
+                        {chats === null && !chatsError && <p className="py-8 text-xs text-muted-foreground">Loading chats…</p>}
                         {chats?.length === 0 && <div className="py-12 text-center"><MessageSquareIcon className="mx-auto mb-4 size-6 text-muted-foreground"/><h2 className="font-prose text-xl">Start a conversation in {project.name}</h2><p className="mt-2 font-prose text-base text-muted-foreground">Every chat here can use this project’s files and instructions.</p><Link href={'/chat/new?project=' + project.id} className={buttonClass + " mt-5 bg-accent"}><PlusIcon className="size-3.5"/>New chat</Link></div>}
                     </Tabs.Content>
                     <Tabs.Content value="files" forceMount className="data-[state=inactive]:hidden">
