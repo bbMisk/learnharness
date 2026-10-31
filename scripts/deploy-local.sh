@@ -50,7 +50,8 @@ restart() {
 [ -d "$HOST_DIR" ] && mv "$HOST_DIR" "$BACKUP"
 mv "$STAGE" "$HOST_DIR"
 if restart; then
-	echo "deploy-local: $BRANCH @ ${COMMIT:0:7} is live on $URL (previous version: $BACKUP)"
+	echo "deploy-local: $BRANCH @ ${COMMIT:0:7} is live on $URL"
+	[ -d "$BACKUP" ] && echo "deploy-local: previous version kept in $BACKUP"
 else
 	echo "deploy-local: host unhealthy after restart; rolling back" >&2
 	mv "$HOST_DIR" "$HOST_DIR.failed-$STAMP"
