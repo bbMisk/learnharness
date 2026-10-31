@@ -10,7 +10,7 @@ import type { ChatListItem } from "../src/core/contracts/chat.ts";
 const dom = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { window: dom.window, document: dom.document, Node: dom.window.Node, IS_REACT_ACT_ENVIRONMENT: true });
 
-const chats = [{ id: "chat_a", title: "A" }] as ChatListItem[];
+let chats: ChatListItem[] | null = [{ id: "chat_a", title: "A" }] as ChatListItem[];
 const projects = [{ id: "project_p", name: "Physics" }];
 let root: Root;
 let host: HTMLElement;
@@ -90,4 +90,16 @@ it("a chat dropped on a project page's drop target moves into that project", asy
 	});
 	assert.deepEqual(fixture.requests, [{ url: "/api/chats/chat_a", body: { projectId: "project_p" } }]);
 	assert.equal(organize.moveStatus, "Moved to Physics.");
+});
+
+it("a chat dropped before the list has loaded still moves", async () => {
+	const loaded = chats;
+	chats = null;
+	try {
+		const fixture = await mount(true);
+		assert.equal(await move(fixture, "project_p"), "Moving chat…");
+		assert.deepEqual(fixture.requests, [{ url: "/api/chats/chat_a", body: { projectId: "project_p" } }]);
+	} finally {
+		chats = loaded;
+	}
 });

@@ -42,8 +42,9 @@ export function useChatOrganization({
 	};
 
 	const moveChat = (id: string, projectId: string | null) => {
+		// Skip only a known no-op: a chat dropped before this list loads still moves.
 		const chat = chats?.find((chat) => chat.id === id);
-		if (!chat || (chat.projectId ?? null) === projectId) return;
+		if (chat && (chat.projectId ?? null) === projectId) return;
 		setMoveStatus("Moving chat…");
 		void updateChat(id, { projectId }).then((saved) =>
 			setMoveStatus(
