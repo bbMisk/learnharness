@@ -67,7 +67,7 @@ import {
 } from "../core/contracts.ts";
 import { jobTaskFromInput } from "../core/job-visibility.ts";
 import type { TurnInput } from "../core/input-events.ts";
-import { danglingQuestionOf, endsInDismissal, type LhMessage } from "../core/native-messages.ts";
+import { hasUnresolvedQuestion, endsInDismissal, endsInQuestionRecovery, type LhMessage } from "../core/native-messages.ts";
 import { fireJobAbort, isJobLive } from "../agent/subagents/aborts.ts";
 import { stores, effectiveSettings } from "./stores.ts";
 import { resolveConversationSpec } from "../core/settings-resolution.ts";
@@ -522,7 +522,7 @@ async function pump(chatId: string): Promise<void> {
 				if (live) handOffEligible(chatId, live);
 				return;
 			}
-			if (danglingQuestionOf(record.messages) !== null || endsInDismissal(record.messages)) return;
+			if (hasUnresolvedQuestion(record.messages) || endsInDismissal(record.messages)) return;
 			const fresh = record;
 
 			// The runner is required — chat-handler sets it at init. If some
@@ -546,7 +546,9 @@ async function pump(chatId: string): Promise<void> {
 			// hands them to that turn once the text-claim lands — until then,
 			// settlement re-pumps and lands them right after it). The pause is
 			// derived from the tail, so any user message un-holds by construction.
-			if (endsInDismissal(fresh.messages) || !automaticFollowUpAllowed(chatId)) {
+			// An interrupted question-recovery request also waits for explicit
+			// input; a queued job must not restart its replacement turn.
+			if (endsInDismissal(fresh.messages) || endsInQuestionRecovery(fresh.messages) || !automaticFollowUpAllowed(chatId)) {
 				return;
 			}
 
@@ -733,7 +735,8 @@ export function listJobs(chatId: string): JobRecord[] {
 function projectJobs(chatId: string, jobs: JobRecord[]): JobRecord[] {
 	if (!jobs.length) return [];
 	const chat = stores.chatStore.getChat(chatId);
-	const pendingAnswer = chat ? danglingQuestionOf(chat.messages) !== null : false;
+	// Same gate the pump parks on: any unresolved question (incl. malformed) waits for the learner.
+	const pendingAnswer = chat ? hasUnresolvedQuestion(chat.messages) : false;
 	return jobs.map((job) => {
 		let task = job.task;
 		if (!task && chat) {

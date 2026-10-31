@@ -62,11 +62,13 @@ Future teaching sessions can read the graph instead of starting from scratch. Pr
 
 This is a **preview**, ad-hoc signed and not Apple notarized. If macOS blocks it, use **System Settings → Privacy & Security → Open Anyway** after verifying the download source. Automatic app updates are not active in this preview; install newer releases from this repository. Your learning data remains in the app’s local data folder. Other platforms are not packaged by this fork yet.
 
+Besides your ChatGPT account or API keys, you can use an installed [Claude Code CLI](docs/claude-code.md) or a [custom OpenAI-compatible endpoint](docs/custom-providers.md), including a local model server. Each model slot can also set a [prompt-cache retention preference](docs/compaction-accounting.md#prompt-cache-retention) under **Settings → Agent → Models → Show advanced settings**.
+
 Optional shared-host mode connects your own Macs to one running LearnHarness host; otherwise every installation uses its own local chats, graph, files and account. It does not include access to Hanson’s host or accounts.
 
 ## Your keys, your data
 
-- **Your keys and models.** No LearnHarness subscription or markup. You pay your providers for usage; a live cost meter shows model costs.
+- **Your keys and models.** No LearnHarness subscription or markup. Billing depends on your provider, CLI configuration, subscription, or local setup. The live cost meter estimates known API costs, not subscription, CLI, or custom-endpoint charges.
 - **Local storage.** Your chats, graph, settings, and API keys live on your machine. Learning records are plain files you can inspect.
 - **External services.** Models run through your configured providers. Model requests send the context needed for the task; web research and dictation also contact external services. Local storage does not mean offline processing.
 - **Inspectable behavior.** System prompts are visible and editable. The app is open source under the AGPL-3.0 license.
@@ -81,7 +83,7 @@ npm run dev        # http://localhost:3000
 npm test           # deterministic, no LLM, no network
 ```
 
-See the [development guide](docs/development.md), [architecture](docs/architecture.md), and [desktop release guide](docs/desktop-release.md).
+See the [development guide](docs/development.md) for setup and checks, [architecture](docs/architecture.md) for the shipped runtime, [keyboard reference](docs/keyboard.md) for shortcuts, and [desktop release guide](docs/desktop-release.md) for packaging and updates.
 
 Questions, bug reports, and feature requests: [GitHub Issues](https://github.com/bbMisk/learnharness/issues).
 
