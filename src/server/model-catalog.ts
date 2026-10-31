@@ -25,18 +25,28 @@ import { chatGPTConnected, chatGPTModel, chatGPTModels, refreshChatGPTModels } f
 import { NATIVE_SUBSCRIPTIONS } from "../core/contracts/subscriptions.ts";
 import { nativeSubscriptionId, nativeSubscriptionConnected, nativeSubscriptionModel, nativeSubscriptionModels, refreshSubscriptionModels } from "../agent/subscription-bridge.ts";
 
+const refreshChatGPT = () =>
+	refreshChatGPTModels(piModels().getModels("openai").filter((m): m is Model<"openai-responses"> => m.api === "openai-responses"));
+
 export async function refreshConnectionCatalog(provider?: string): Promise<void> {
 	await Promise.all([
-		!provider || provider === "chatgpt" ? refreshChatGPTModels(piModels().getModels("openai").filter((m): m is Model<"openai-responses"> => m.api === "openai-responses")) : Promise.resolve(),
+		!provider || provider === "chatgpt" ? refreshChatGPT() : Promise.resolve(),
 		!provider || nativeSubscriptionId(provider) ? refreshSubscriptionModels() : Promise.resolve(),
 	]);
 }
-/** Before a send: reuse the ChatGPT model list already loaded and refresh it
- *  in the background (owner 2026-10-31: the awaited OpenAI round trip cost
- *  ~0.5 s before every reply). Waits only when no list is loaded yet. */
+
+/** Before a send or a model-list read: reuse the ChatGPT model list already
+ *  loaded and refresh it in the background (owner 2026-10-31: the awaited
+ *  OpenAI round trip cost ~0.5 s); wait only when no list is loaded yet.
+ *  Other subscriptions refresh from their local owner and are awaited. */
 export async function prepareConnectionCatalog(provider?: string): Promise<void> {
-	if (provider !== "chatgpt" || chatGPTModels().length === 0) return refreshConnectionCatalog(provider);
-	void refreshConnectionCatalog(provider).catch(() => undefined);
+	const chatgpt = !provider || provider === "chatgpt";
+	const reuse = chatgpt && chatGPTModels().length > 0;
+	if (reuse) void refreshChatGPT().catch(() => undefined);
+	await Promise.all([
+		chatgpt && !reuse ? refreshChatGPT() : Promise.resolve(),
+		!provider || nativeSubscriptionId(provider) ? refreshSubscriptionModels() : Promise.resolve(),
+	]);
 }
 function connectionModel(provider: string, id: string): Model<Api> | undefined {
 	if (provider === CLAUDE_CODE_PROVIDER && !claudeCodeAvailable()) return undefined;

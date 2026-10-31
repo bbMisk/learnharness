@@ -45,6 +45,7 @@ const { webSubscriptionOwner } = await import("../src/server/web-subscriptions.t
 const chat = await import("../src/agent/chatgpt-bridge.ts");
 const { piModels } = await import("../src/agent/models.ts");
 const { prepareConnectionCatalog } = await import("../src/server/model-catalog.ts");
+const modelsRoute = await import("../app/api/models/route.ts");
 const model = piModels()
 	.getModels("openai")
 	.find((entry) => entry.api === "openai-responses")!;
@@ -80,6 +81,21 @@ test("with a list loaded, a send continues while the refresh runs in the backgro
 		new Promise<string>((resolve) => setTimeout(() => resolve("waited"), 200)),
 	]);
 	assert.equal(settled, "returned", "the send did not wait for the OpenAI round trip");
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assert.equal(catalogRequests, before + 1, "the list is still refreshed");
+	release();
+	hold = null;
+});
+
+test("the model list endpoint answers from the loaded list while it refreshes", async () => {
+	const before = catalogRequests;
+	let release!: () => void;
+	hold = new Promise<void>((resolve) => (release = resolve));
+	const settled = await Promise.race([
+		modelsRoute.GET().then((response) => response.status),
+		new Promise<string>((resolve) => setTimeout(() => resolve("waited"), 200)),
+	]);
+	assert.equal(settled, 200, "the picker did not wait for the OpenAI round trip");
 	await new Promise((resolve) => setTimeout(resolve, 0));
 	assert.equal(catalogRequests, before + 1, "the list is still refreshed");
 	release();
