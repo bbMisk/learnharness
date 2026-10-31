@@ -1,12 +1,13 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIcon, BotIcon, FileTextIcon, PenToolIcon, PlayIcon, SearchIcon, SquareIcon, WaypointsIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CallUsage, JobKind, JobRecord } from "@/src/core";
 import { isModelsRefusal, isProviderKeyRefusal, jobCost } from "@/src/core";
 import { formatTokens, formatUsd } from "@/components/usage-format";
-import { JobDetails } from "@/components/job-details";
+// Lazy: job details reach the chat view and its renderers; the dock is in every page.
+const JobDetails = lazy(() => import("@/components/job-details").then((m) => ({ default: m.JobDetails })));
 import { jobDisplay, jobElapsedMs } from "@/src/core";
 import { subscriptionLabel, subscriptionLabels } from "@/src/core";
 import { planCostLabel } from "@/components/usage-format";
@@ -495,7 +496,7 @@ function ActivityBlobRow({
 								<span className="tabular-nums text-card-foreground">{blob.steps}</span>
 							</div>
 						)}
-						{blob.job && <JobDetails job={blob.job} compact />}
+						{blob.job && <Suspense fallback={null}><JobDetails job={blob.job} compact /></Suspense>}
 						<a href={blob.process === "flashcards" ? "/review/index.html" : `/chat/${blob.chatId}`} className="text-primary hover:underline">
 							{blob.process === "flashcards" ? "Open flashcards →" : "Open session →"}
 						</a>

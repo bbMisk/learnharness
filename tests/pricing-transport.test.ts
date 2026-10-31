@@ -62,3 +62,14 @@ test("chat detail retains its missing-lesson 404", async () => {
 	assert.equal(response.status, 404);
 	assert.deepEqual(await response.json(), { error: "Not found" });
 });
+
+test("metadata-only chat reads equal the matching fields of the full read", async () => {
+	const record = chatStore.createChat("metadata-only fixture");
+	chatStore.saveMessages(record.id, [{ id: "meta-input", role: "user", content: "synthetic", timestamp: 1 }]);
+	chatStore.appendTurnUsage(record.id, { id: "api", model: "openrouter:openai/gpt-6.1-sol", messageId: "meta-input", at: "fixture", steps: [{ inputTokens: 10_000, outputTokens: 1_000, cacheReadTokens: 0, cacheWriteTokens: 0, cacheWrite1hTokens: 0, reasoningTokens: 0 }] });
+	const read = async (query: string) => (await GET(new Request(`http://localhost/api/chats/${record.id}${query}`), { params: Promise.resolve({ id: record.id }) })).json();
+	const full = await read("");
+	assert.deepEqual(await read("?only=stats"), { turns: full.turns, pricing: full.pricing });
+	assert.deepEqual(await read("?only=coverage"), { coverage: full.coverage });
+	assert.ok(Array.isArray(full.turns) && full.turns.length === 1, "fixture carries usage");
+});
