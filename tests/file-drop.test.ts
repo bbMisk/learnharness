@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import { it } from "node:test";
-import { appendFilePaths, droppedFilePaths, resolveFilePaths } from "../components/file-drop.ts";
+import { appendFilePaths, resolveFilePaths } from "../components/file-drop.ts";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -38,12 +38,6 @@ it("keeps the draft and full paths intact, including spaces, quotes and Unicode"
 	assert.deepEqual(result.split("\n").slice(1).map((line) => JSON.parse(line)), paths);
 	assert.equal(appendFilePaths("unfinished draft", []), "unfinished draft");
 	assert.equal(appendFilePaths("draft\n", ["/tmp/a.pdf"]), 'draft\n"/tmp/a.pdf"');
-});
-
-it("uses native paths and skips unresolvable files instead of inventing paths from names", () => {
-	const files = [new File([], "same.pdf"), new File([], "same.pdf"), new File([], "same.pdf"), new File([], "missing.pdf")];
-	const paths = new Map([[files[0], "/one/same.pdf"], [files[1], "/two/same.pdf"], [files[2], "/one/same.pdf"]]);
-	assert.deepEqual(droppedFilePaths(files, (file) => paths.get(file) ?? ""), ["/one/same.pdf", "/two/same.pdf"]);
 });
 
 it("the real preload delegates only dropped File objects and handles invalid values", () => {

@@ -1,6 +1,7 @@
 "use client";
 
-import { startChatDrag, useChatDrop } from "@/components/chat-drag";
+import { startChatDrag } from "@/components/chat-drag";
+import { useChatOrganization } from "@/components/chat-organization";
 import { ProjectSidebar } from "@/components/project-sidebar";
 import { GlobalFileDrop } from "@/components/global-file-drop";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -418,7 +419,6 @@ function SessionsSidebar() {
 	const [chats, setChats] = useState<ChatListItem[] | null>(null);
 	const [query, setQuery] = useState("");
 	const [showArchived, setShowArchived] = useState(false);
-	const [updateError, setUpdateError] = useState<string | null>(null);
 	const [projects,setProjects]=useState<ProjectSummary[]>([]);
 	const [kindFilter, setKindFilter] = useState<SessionKindFilter>("all");
 	useEffect(() => {
@@ -481,30 +481,7 @@ function SessionsSidebar() {
 		}
 	}, []);
 
-	const [moveStatus, setMoveStatus] = useState("");
-	const updateQueue = useRef<Promise<unknown>>(Promise.resolve());
-	const updateChat = (id: string, changes: { pinned?: boolean; archived?: boolean; projectId?: string | null }) => {
-		const apply = async () => {
-			setUpdateError(null);
-			try {
-				const response = await fetch(`/api/chats/${id}`, {
-					method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(changes),
-				});
-				if (!response.ok) throw new Error();
-				await refresh();
-				return true;
-			} catch { setUpdateError("Chat could not be updated. Try again."); return false; }
-		};
-		return updateQueue.current = updateQueue.current.then(apply, apply);
-	};
-
-	const moveChat = (id: string, projectId: string | null) => {
-		const chat = chats?.find(chat => chat.id === id);
-		if (!chat || (chat.projectId ?? null) === projectId) return;
-		setMoveStatus("Moving chat…");
-		void updateChat(id, { projectId }).then(saved => setMoveStatus(saved ? `Moved to ${projectId ? projects.find(project => project.id === projectId)?.name ?? "project" : "Chats"}.` : ""));
-	};
-	const chatDrop = useChatDrop(id => moveChat(id, null));
+	const { updateError, moveStatus, updateChat, moveChat, chatDrop } = useChatOrganization({ chats, projects, refresh });
 
 	/* Instant rename propagation (2026-09-17): the chat header's rename
 	   commits dispatch lh:chat-renamed; patch the snapshot in place instead

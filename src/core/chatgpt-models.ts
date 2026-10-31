@@ -1,6 +1,7 @@
 import type { Model } from "@earendil-works/pi-ai";
 
-const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+/** Thinking levels the harness accepts; ChatGPT discovery maps "off" to "none". */
+export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 const positive = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 
@@ -32,7 +33,7 @@ export function projectChatGPTModels(entries: unknown[], known: readonly Model<"
 			: undefined;
 		const thinkingLevelMap = advertised
 			? Object.fromEntries(
-					levels.map((level) => [
+					THINKING_LEVELS.map((level) => [
 						level,
 						advertised.includes(level === "off" ? "none" : level) ? (level === "off" ? "none" : level) : null,
 					]),
@@ -43,7 +44,7 @@ export function projectChatGPTModels(entries: unknown[], known: readonly Model<"
 		if (
 			!contextWindow ||
 			!input?.includes("text") ||
-			(!template && (!advertised || (advertised.length > 0 && !levels.some((level) => thinkingLevelMap?.[level] != null))))
+			(!template && (!advertised || (advertised.length > 0 && !THINKING_LEVELS.some((level) => thinkingLevelMap?.[level] != null))))
 		)
 			continue;
 		const reasoning = advertised ? advertised.some((level) => level !== "none") : (template?.reasoning ?? false);

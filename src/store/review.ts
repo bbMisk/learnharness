@@ -3,6 +3,7 @@ import type { Flashcard, ReviewProject, ReviewSnapshot, StoredReview } from "../
 import fs from "node:fs";
 import path from "node:path";
 import { PATHS } from "../../config.ts";
+import { writeFileAtomic } from "./write-file.ts";
 import { REVIEW_ENGINE } from "../core/review-engine.ts";
 import { assertReviewSnapshot, deviceReceipts, newCardSchedule, replayCard, ReviewError, validateReviewRequest } from "../core/review.ts";
 export interface ReviewCollection {
@@ -73,19 +74,7 @@ export function readReviewArchive(): ReviewCollection | null {
 
 function persist(collection: ReviewCollection): void {
 	fs.mkdirSync(PATHS.data, { recursive: true });
-	const temp = `${file}.${crypto.randomUUID()}.tmp`;
-	let descriptor: number | undefined;
-	try {
-		descriptor = fs.openSync(temp, "wx", 0o600);
-		fs.writeFileSync(descriptor, JSON.stringify(collection), "utf8");
-		fs.fsyncSync(descriptor);
-		fs.closeSync(descriptor);
-		descriptor = undefined;
-		fs.renameSync(temp, file);
-	} finally {
-		if (descriptor !== undefined) fs.closeSync(descriptor);
-		fs.rmSync(temp, { force: true });
-	}
+	writeFileAtomic(file, JSON.stringify(collection), { mode: 0o600, fsync: true, exclusive: true });
 }
 
 /** One synchronous transaction after engine initialization; no await between read/write. */
