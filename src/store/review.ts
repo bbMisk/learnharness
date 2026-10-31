@@ -1,11 +1,11 @@
 import type { ReviewEngine } from "../core/review-engine.ts";
-import type { Flashcard, ReviewSnapshot, StoredReview } from "../core/review.ts";
+import type { Flashcard, ReviewProject, ReviewSnapshot, StoredReview } from "../core/review.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { PATHS } from "../../config.ts";
 import { REVIEW_ENGINE } from "../core/review-engine.ts";
 import { assertReviewSnapshot, deviceReceipts, newCardSchedule, replayCard, ReviewError, validateReviewRequest } from "../core/review.ts";
-export interface ReviewCollection { version: 1; id: string; revision: number; cards: Flashcard[]; versions: Record<string, Flashcard>; attempts: StoredReview[] }
+export interface ReviewCollection { version: 1; id: string; revision: number; cards: Flashcard[]; versions: Record<string, Flashcard>; attempts: StoredReview[]; projects?: ReviewProject[] }
 
 const file = path.join(PATHS.data, "flashcards.json");
 
@@ -19,7 +19,7 @@ export function readReviewArchive(): ReviewCollection | null {
 	catch { throw new ReviewError("Stored flashcard data could not be read. It has not been reset.", 409); }
 	if (raw?.version !== 1) throw new ReviewError("Stored flashcards need a compatible app version. Reviews have not been reset.", 426);
 	if (!Array.isArray(raw.cards) || !Array.isArray(raw.attempts) || !raw.versions || typeof raw.versions !== "object" || Array.isArray(raw.versions)) throw new ReviewError("Stored flashcard history is invalid. It has not been reset.", 409);
-	assertReviewSnapshot({ version: 1, collectionId: raw.id, revision: raw.revision, engineId: REVIEW_ENGINE.engineId, serverAt: 0, cards: raw.cards.map(card => ({ ...card, schedule: newCardSchedule() })), receipts: {} });
+	assertReviewSnapshot({ version: 1, collectionId: raw.id, revision: raw.revision, engineId: REVIEW_ENGINE.engineId, serverAt: 0, cards: raw.cards.map(card => ({ ...card, schedule: newCardSchedule() })), receipts: {}, ...(raw.projects === undefined ? {} : {projects:raw.projects}) });
 	const ids = new Set<string>(), sequences = new Set<string>();
 	for (const attempt of raw.attempts) {
 		validateReviewRequest({ version: 1, deviceId: attempt.deviceId, attempts: [attempt] });
@@ -47,7 +47,7 @@ function persist(collection: ReviewCollection): void {
 }
 
 /** One synchronous transaction after engine initialization; no await between read/write. */
-export function syncReviewCollection(catalog: Flashcard[], rawRequest: unknown, engine: ReviewEngine, now: number): ReviewSnapshot {
+export function syncReviewCollection(catalog: Flashcard[], rawRequest: unknown, engine: ReviewEngine, now: number, projects?: ReviewProject[]): ReviewSnapshot {
 	const request = rawRequest === undefined ? undefined : validateReviewRequest(rawRequest);
 	const existing = readReviewArchive();
 	const collection: ReviewCollection = existing ?? { version: 1, id: crypto.randomUUID(), revision: 0, cards: [], versions: {}, attempts: [] };
@@ -56,11 +56,12 @@ export function syncReviewCollection(catalog: Flashcard[], rawRequest: unknown, 
 	const live = new Set(nextCards.map(card => card.id));
 	nextCards.push(...collection.cards.filter(card => !live.has(card.id)).map(card => ({ ...card, active: false })));
 	let changed = !existing || JSON.stringify(nextCards) !== JSON.stringify(collection.cards);
+	if (projects && JSON.stringify(projects) !== JSON.stringify(collection.projects)) { collection.projects = projects; changed = true; }
 	collection.cards = nextCards;
 	for (const card of nextCards) {
 		const key = `${card.id}:${card.revision}`, previous = collection.versions[key];
 		if (previous && (previous.front !== card.front || previous.back !== card.back)) throw new ReviewError("Card revision collision. No reviews were acknowledged.", 409);
-		if (!previous) { collection.versions[key] = { ...card }; changed = true; }
+		if (!previous || JSON.stringify(previous.mcq) !== JSON.stringify(card.mcq)) { collection.versions[key] = { ...card }; changed = true; }
 	}
 	const byId = new Map(collection.attempts.map(attempt => [attempt.id, attempt]));
 	const bySequence = new Map(collection.attempts.map(attempt => [`${attempt.deviceId}:${attempt.sequence}`, attempt.id]));
@@ -75,7 +76,8 @@ export function syncReviewCollection(catalog: Flashcard[], rawRequest: unknown, 
 		if (bySequence.has(sequence)) throw new ReviewError("Review sequence collision. Pending reviews were preserved.", 409);
 		const card = collection.versions[`${attempt.cardId}:${attempt.cardRevision}`];
 		if (!card) throw new ReviewError("This card revision is not on the host. Pending reviews were preserved; keep a backup before changing collections.", 409);
-		const effectiveAt = Math.min(now, Math.max(card.createdAt, attempt.clientAt));
+		if (attempt.mode === "mcq" && (!card.mcq || attempt.rating !== (attempt.selectedIndex === card.mcq.correctIndex ? 3 : 1))) throw new ReviewError("The selected answer does not match the saved question. Pending reviews were preserved.", 409);
+        const effectiveAt = Math.min(now, Math.max(card.createdAt, attempt.clientAt));
 		const stored: StoredReview = { ...attempt, receivedAt: now, effectiveAt, timeAdjusted: effectiveAt !== attempt.clientAt };
 		collection.attempts.push(stored); byId.set(stored.id, stored); bySequence.set(sequence, stored.id); changed = true;
 	}
@@ -87,5 +89,5 @@ export function syncReviewCollection(catalog: Flashcard[], rawRequest: unknown, 
 	const receipts = deviceReceipts(collection.attempts);
 	// Compute/validate before committing, and acknowledge only after the file is flushed.
 	if (changed) { collection.revision++; persist(collection); }
-	return { version: 1, collectionId: collection.id, revision: collection.revision, engineId: REVIEW_ENGINE.engineId, serverAt: now, cards, receipts };
+	return { version: 1, collectionId: collection.id, revision: collection.revision, engineId: REVIEW_ENGINE.engineId, serverAt: now, cards, receipts, ...(collection.projects ? {projects:collection.projects} : {}) };
 }

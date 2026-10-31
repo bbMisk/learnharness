@@ -181,6 +181,7 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 	}
 	return {
 		general: {
+			flashcardSources: record?.general?.flashcardSources ?? FACTORY_SETTINGS.general.flashcardSources,
 			autoUpdate: record?.general?.autoUpdate ?? FACTORY_SETTINGS.general.autoUpdate,
 			showReadingThinking: record?.general?.showReadingThinking ?? FACTORY_SETTINGS.general.showReadingThinking,
 		},

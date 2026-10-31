@@ -897,8 +897,8 @@ describe("researcher agent", () => {
  * (setTurnRunner) — the real wiring (chat-handler's handleChatRequest
  * adapter) never fires here, so no teacher model is touched.
  *
- * Timing: the pump polls at 400ms with a 1.5s grace after the gates open —
- * each happy-path test takes ~2s; waitFor tolerates it.
+ * Timing: idle delivery attempts retain the 750ms answer-flight grace.
+ * Blocked queues retry on registration/settlement instead of polling.
  */
 describe("wake pipeline (src/server/jobs.ts)", () => {
 	/** A chat with a finished job ready for delivery. */
@@ -1022,6 +1022,7 @@ describe("wake pipeline (src/server/jobs.ts)", () => {
 			} as never,
 		]);
 
+		settleSteers(chatId, []); // the answer turn's settlement event retries delivery
 		await waitFor(() => fired > 0, 8000, "wake after the quiz answer");
 		await delivery; // now it resolves — the steer was delivered
 		await waitFor(() => jobStore.getJob(jobId)!.status !== "running", 8000, "job flip after the deferred wake");
@@ -1618,7 +1619,8 @@ describe("abort (src/server/jobs.ts abortJob)", () => {
 
 	it("the usage folded so far survives the kill (money channel outlives the abort)", async () => {
 		const { jobId } = newChatWithResearchJob("abort keeps usage", "call-abort2");
-		setTurnRunner(async () => 200);
+		let abortDelivered = false;
+		setTurnRunner(async () => { abortDelivered = true; return 200; });
 		researchModelOverride.current = oneStepThenHangModel();
 		const runner = createJobRunner({ chatStore, jobStore, deliver: async () => {}, searchProvider: () => stubSearch() });
 		try {
@@ -1626,6 +1628,8 @@ describe("abort (src/server/jobs.ts abortJob)", () => {
 			await waitFor(() => (jobStore.getJob(jobId)!.usage?.steps ?? 0) === 1, 8000, "first step folded");
 			abortJob(jobId);
 			await settled;
+			// Finish this test's delivery before the next test replaces the runner.
+			await waitFor(() => abortDelivered, 8000, "abort note delivered");
 			const job = jobStore.getJob(jobId)!;
 			assert.equal(job.status, "error");
 		assert.equal(job.error, "Aborted by learner");

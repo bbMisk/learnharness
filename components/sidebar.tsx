@@ -9,7 +9,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode } from "@/src/core";
-import { ArchiveIcon, DumbbellIcon, LayersIcon, PinIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { ArchiveIcon, ArchiveRestoreIcon, DumbbellIcon, LayersIcon, PinIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
@@ -279,7 +279,7 @@ export function timeAgo(iso: string, now = new Date()): string {
  *  typography round 5): it informed no decision — clutter. messageCount
  *  still rides the API payload, so this is a one-line flip back if it's
  *  ever wanted. */
-function sessionMeta(chat: ChatListItem): string {
+export function sessionMeta(chat: ChatListItem): string {
 	if (chat.compacting) return `Compacting context · ${timeAgo(chat.updatedAt)}`;
 	if (chat.pendingQuestion) return `Waiting for input · ${timeAgo(chat.updatedAt)}`;
 	if ((chat.kind ?? "teach") === "practice" && chat.pendingProblem) {
@@ -300,6 +300,7 @@ export function SessionRow({
 	onOpen,
 	kbdSelected = false,
 	onContextMenu,
+	onArchive,
 }: {
 	chat: ChatListItem;
 	active: boolean;
@@ -309,8 +310,12 @@ export function SessionRow({
 	kbdSelected?: boolean;
 	/** Right-click opens the context menu (wave 6: Rename / Delete). */
 	onContextMenu?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+	onArchive?: () => Promise<unknown>;
 }) {
+	const [archiving, setArchiving] = useState(false);
+	const archiveLabel = chat.archived ? "Restore chat" : "Archive chat";
 	return (
+		<div className={cn("group/session relative mb-0.5 rounded-lg transition-colors hover:bg-accent", active && "bg-accent", kbdSelected && !active && "bg-accent/60 ring-1 ring-border")}>
 		<button
 			type="button"
 			onClick={onOpen}
@@ -319,9 +324,8 @@ export function SessionRow({
 			onDragStart={event => startChatDrag(event, chat.id)}
 			data-testid={kbdSelected ? "session-row-kbd" : "session-row"}
 			className={cn(
-				"relative mb-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-accent",
-				active && "bg-accent",
-				kbdSelected && !active && "bg-accent/60 ring-1 ring-border",
+				"relative flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left",
+				onArchive && "pr-10",
 			)}
 		>
 			{chat.pinned && <PinIcon className="size-3 shrink-0 text-muted-foreground" aria-label="Pinned chat" />}
@@ -342,6 +346,14 @@ export function SessionRow({
 				<DumbbellIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-label="Practice session" />
 			)}
 		</button>
+		{onArchive && <Hint label={archiveLabel} side="right">
+			<button type="button" aria-label={archiveLabel} disabled={archiving} aria-busy={archiving}
+				onClick={event => { event.stopPropagation(); if (archiving) return; setArchiving(true); void onArchive().finally(() => setArchiving(false)); }}
+				className="absolute right-1.5 top-1.5 flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-card hover:text-foreground group-hover/session:opacity-100 group-focus-within/session:opacity-100 [@media(hover:none)]:opacity-100 disabled:opacity-40">
+				{chat.archived ? <ArchiveRestoreIcon className="size-3.5"/> : <ArchiveIcon className="size-3.5"/>}
+			</button>
+		</Hint>}
+		</div>
 	);
 }
 
@@ -469,7 +481,8 @@ function SessionsSidebar() {
 		}
 	}, []);
 
-	const updateQueue = useRef(Promise.resolve());
+	const [moveStatus, setMoveStatus] = useState("");
+	const updateQueue = useRef<Promise<unknown>>(Promise.resolve());
 	const updateChat = (id: string, changes: { pinned?: boolean; archived?: boolean; projectId?: string | null }) => {
 		const apply = async () => {
 			setUpdateError(null);
@@ -479,14 +492,17 @@ function SessionsSidebar() {
 				});
 				if (!response.ok) throw new Error();
 				await refresh();
-			} catch { setUpdateError("Chat could not be updated. Try again."); }
+				return true;
+			} catch { setUpdateError("Chat could not be updated. Try again."); return false; }
 		};
 		return updateQueue.current = updateQueue.current.then(apply, apply);
 	};
 
 	const moveChat = (id: string, projectId: string | null) => {
 		const chat = chats?.find(chat => chat.id === id);
-		if (chat) void updateChat(id, { projectId });
+		if (!chat || (chat.projectId ?? null) === projectId) return;
+		setMoveStatus("Moving chat…");
+		void updateChat(id, { projectId }).then(saved => setMoveStatus(saved ? `Moved to ${projectId ? projects.find(project => project.id === projectId)?.name ?? "project" : "Chats"}.` : ""));
 	};
 	const chatDrop = useChatDrop(id => moveChat(id, null));
 
@@ -674,7 +690,7 @@ function SessionsSidebar() {
 	// buttons, so the index matches).
 	useEffect(() => {
 		if (kbdIndex === null) return;
-		listRef.current?.querySelectorAll("button")[kbdIndex]?.scrollIntoView({ block: "nearest" });
+		listRef.current?.querySelectorAll('[data-testid="session-row"], [data-testid="session-row-kbd"]')[kbdIndex]?.scrollIntoView({ block: "nearest" });
 	}, [kbdIndex]);
 
 	useEffect(() => {
@@ -688,6 +704,7 @@ function SessionsSidebar() {
 		<RenameRow key={chat.id} chat={chat} onCommit={next => void commitRename(chat.id, next)} onCancel={() => setRenamingId(null)} />
 	) : (
 		<SessionRow key={chat.id} chat={chat} active={pathname === `/chat/${chat.id}`} kbdSelected={index !== undefined && index === kbdIndex}
+			onArchive={() => updateChat(chat.id, {archived:!chat.archived})}
 			onOpen={() => { setKbdIndex(null); router.push(`/chat/${chat.id}`); }} onContextMenu={event => openContext(event, chat)} />
 	);
 
@@ -769,9 +786,9 @@ function SessionsSidebar() {
 					</a>
 				</div>
 
-				<ProjectSidebar projects={projects} chats={(chats ?? []).filter(chat => !chat.archived && (kindFilter === "all" || (chat.kind ?? "teach") === kindFilter))} refresh={refresh} moveChat={moveChat} renderChat={renderChat} showChats={!query.trim() && !showArchived} />
-				<div {...chatDrop.handlers} data-testid="unassigned-chat-drop" className={cn("mx-3 mb-2 flex items-center gap-2 rounded-md", chatDrop.over && "bg-accent ring-1 ring-border")}>
-					<span className="text-xs uppercase tracking-widest text-muted-foreground/70">{showArchived ? "Archived" : "Chats"}</span>
+
+				<div data-testid="session-search-section" className="mx-3 mb-2 flex items-center gap-2 rounded-md">
+
 					<Hint label="Search sessions" action="sessions-search" side="bottom">
 					<span className="relative flex-1">
 						<Input
@@ -858,8 +875,11 @@ function SessionsSidebar() {
 					))}
 				</div>
 
+				<ProjectSidebar projects={projects} chats={(chats ?? []).filter(chat => !chat.archived && (kindFilter === "all" || (chat.kind ?? "teach") === kindFilter))} refresh={refresh} moveChat={moveChat} renderChat={renderChat} showChats={!query.trim() && !showArchived} />
+				<div {...chatDrop.handlers} data-testid="unassigned-chat-drop" className={cn("mx-3 mt-2 flex h-8 shrink-0 items-center rounded-md px-2 text-xs text-muted-foreground", chatDrop.over && "bg-accent ring-1 ring-primary/30")}>{chatDrop.over ? "Move chat out of project" : showArchived ? "Archived" : "Chats"}</div>
+				{moveStatus && <p role="status" className="px-4 py-1 text-xs text-muted-foreground">{moveStatus}</p>}
 				{updateError && <p role="alert" className="px-4 py-2 text-xs text-destructive">{updateError}</p>}
-				<div {...chatDrop.handlers} ref={listRef} data-testid="unassigned-chat-list" className={cn("flex-1 overflow-y-auto p-2", chatDrop.over && "bg-accent/50 ring-1 ring-inset ring-border")}>
+				<div {...chatDrop.handlers} ref={listRef} data-testid="unassigned-chat-list" className={cn("flex-1 overflow-y-auto px-2 pb-2 pt-1", chatDrop.over && "bg-accent/50 ring-1 ring-inset ring-border")}>
 					{shown === null ? (
 						<div className="px-2 py-4 text-xs text-muted-foreground">Loading…</div>
 					) : shown.length === 0 ? (

@@ -48,6 +48,7 @@ export const BACKGROUND_MODEL_ROLES = [
 	"visualMaker",
 	"extractor",
 	"auditor",
+	"flashcardCurator",
 ] as const;
 
 export type BackgroundModelRole = (typeof BACKGROUND_MODEL_ROLES)[number];
@@ -319,6 +320,7 @@ export const ROLE_SLOT: Readonly<Record<ModelRole, ModelSlotName>> = {
 	demoBuilder: "cheap",
 	extractor: "cheap",
 	auditor: "cheap",
+	flashcardCurator: "cheap",
 	visualMaker: "vision",
 	pdfReader: "vision",
 };
@@ -330,6 +332,8 @@ export interface GeneralSettings {
 	autoUpdate?: boolean;
 	/** Show the optional reading-notes field beside teaching checks (default OFF). */
 	showReadingThinking?: boolean;
+	/** Flashcard source scope. Chat provenance is required by default. */
+	flashcardSources?: "chats" | "all";
 }
 
 /** One app-wide dictation preference, shared by every composer. */
@@ -338,7 +342,15 @@ export interface DictationSettings {
 }
 
 /** Agent settings — everything about the non-conversation machinery. */
+export interface FlashcardAgentSettings {
+	enabled?: boolean;
+	dailyLimit?: number;
+	/** Extra curation guidance, never the output or source-grounding contract. */
+	instructions?: string;
+}
+
 export interface AgentSettings {
+	flashcards?: FlashcardAgentSettings;
 	/** Background-role model/thinking overrides (absent role = config pin). */
 	models?: Partial<Record<BackgroundModelRole, RoleModelOverride>>;
 	/** Tool toggles keyed by tool id (absent key = enabled). User-level
@@ -504,7 +516,7 @@ export interface FactorySettings {
 
 export const FACTORY_SETTINGS: FactorySettings = {
 	version: CURRENT_SETTINGS_VERSION,
-	general: { autoUpdate: true, showReadingThinking: false },
+	general: { autoUpdate: true, showReadingThinking: false, flashcardSources: "chats" },
 	dictation: { language: "en" },
 	appearance: {
 		mode: "dark",
@@ -548,6 +560,7 @@ const boolOrDrop = (value: unknown): boolean | undefined =>
 
 function sanitizeGeneral(raw: Record<string, unknown>): GeneralSettings {
 	const out: GeneralSettings = {};
+	if (raw.flashcardSources === "chats" || raw.flashcardSources === "all") out.flashcardSources = raw.flashcardSources;
 	const autoUpdate = boolOrDrop(raw.autoUpdate);
 	if (autoUpdate !== undefined) out.autoUpdate = autoUpdate;
 	const showReadingThinking = boolOrDrop(raw.showReadingThinking);
@@ -684,6 +697,13 @@ function sanitizeBooleanMap(raw: unknown): Record<string, boolean> | undefined {
 
 function sanitizeAgent(raw: Record<string, unknown>): AgentSettings {
 	const out: AgentSettings = {};
+	if (raw.flashcards && typeof raw.flashcards === "object" && !Array.isArray(raw.flashcards)) {
+		const value = raw.flashcards as Record<string, unknown>;
+		out.flashcards = {};
+		if (typeof value.enabled === "boolean") out.flashcards.enabled = value.enabled;
+		if (typeof value.dailyLimit === "number" && Number.isFinite(value.dailyLimit)) out.flashcards.dailyLimit = Math.max(1, Math.min(100, Math.round(value.dailyLimit)));
+		if (typeof value.instructions === "string") out.flashcards.instructions = value.instructions.slice(0, 8000);
+	}
 	if (raw.models !== null && typeof raw.models === "object" && !Array.isArray(raw.models)) {
 		const models: Partial<Record<BackgroundModelRole, RoleModelOverride>> = {};
 		for (const [role, override] of Object.entries(raw.models as Record<string, unknown>)) {

@@ -147,7 +147,6 @@ export function setJobRespawn(respawn: JobRespawn): void {
 	state().respawn = respawn;
 }
 
-const POLL_MS = 400;
 /** After the gates open, wait a beat before firing — a client that just
  *  answered a question is about to send its continuation; don't 409 it.
  *
@@ -477,9 +476,17 @@ async function pump(chatId: string): Promise<void> {
 	const s = state();
 	if (s.pumping.has(chatId)) return;
 	s.pumping.add(chatId);
-	let parked = false;
 	try {
 		for (let attempt = 0; ; ) {
+			// A live turn must receive arrivals before its next steering poll.
+			const live = s.liveAgents.get(chatId);
+			if (live && isTurnRunning(chatId)) {
+				handOffEligible(chatId, live);
+				return;
+			}
+			// Re-read the registry after the answer-flight grace or conflict backoff.
+			// Busy/question gates park until registration or turn settlement.
+			await delay(attempt === 0 ? GRACE_MS : RETRY_BACKOFF_MS[Math.min(attempt - 1, RETRY_BACKOFF_MS.length - 1)]!);
 			const queue = s.queues.get(chatId);
 			if (!queue || queue.length === 0) {
 				s.queues.delete(chatId);
@@ -501,8 +508,8 @@ async function pump(chatId: string): Promise<void> {
 			// deliver raced in). Resolve and flip without re-firing anything.
 			noteSteersDurable(chatId, record.messages);
 			const stillPending = (s.queues.get(chatId) ?? []).filter((entry) => !entry.waking && !entry.deferred);
-			if (stillPending.length === 0) { parked = true; return; }
-			if (!automaticFollowUpAllowed(chatId, s.liveAgents.get(chatId))) { parked = true; return; }
+			if (stillPending.length === 0) return;
+			if (!automaticFollowUpAllowed(chatId, s.liveAgents.get(chatId))) return;
 
 			// VEHICLE 1 — THE LIVE RUN: pi's steering queue. The agent of the
 			// streaming turn takes every eligible marker; pi injects at the
@@ -510,45 +517,19 @@ async function pump(chatId: string): Promise<void> {
 			// between completed assistant+toolResult units) and continues the
 			// run. Delivery resolves at settlement (settleSteers). Nothing else
 			// to do in this loop iteration — the turn owns the delivery.
-			const live = s.liveAgents.get(chatId);
-			if (live && isTurnRunning(chatId)) {
-				handOffEligible(chatId, live);
-				const handable = stillPending.filter((e) => e.handedTo === live);
-				// probe-handoffs never ride a live run (owner ruling: the
-				// handoff must START the teacher's run) — if any remain
-				// pending, wait the run out and loop to the wake below.
-				const handoffWaits = stillPending.some(
-					(e) => e.steer.customType === "probe-handoff",
-				);
-				if (handable.length > 0 && !handoffWaits) {
-					return; // the run delivers; settleSteers re-pumps the rest
-				}
-				if (handable.length > 0) {
-					await delay(POLL_MS);
-					await waitForIdle(chatId);
-					continue;
-				}
+			if (isTurnRunning(chatId)) {
+				const live = s.liveAgents.get(chatId);
+				if (live) handOffEligible(chatId, live);
+				return;
 			}
-
-			// VEHICLE 2 — THE IDLE WAKE: one server-side turn carrying EVERY
-			// pending marker as its input appends (the handler write-ahead
-			// persists them under the wake's own turn claim).
-			await waitForIdle(chatId);
-
-			// Re-fetch AFTER the gates open — waitForIdle can wait out a quiz
-			// answer (minutes), and sending the pre-wait snapshot would clobber
-			// the client's answer + continuation in the write-ahead persist.
-			const fresh = stores.chatStore.getChat(chatId);
-			if (!fresh) {
-				continue; // the gone-chat branch rejects next iteration
-			}
+			if (danglingQuestionOf(record.messages) !== null || endsInDismissal(record.messages)) return;
+			const fresh = record;
 
 			// The runner is required — chat-handler sets it at init. If some
 			// module instance missed the wiring, fail loudly rather than hang.
 			if (!s.turnRunner) {
 				const err = new Error("wake pipeline: no turn runner wired (setTurnRunner)");
 				for (const entry of stillPending) deferOrReject(chatId, entry, err);
-				parked = true;
 				return;
 			}
 
@@ -566,7 +547,6 @@ async function pump(chatId: string): Promise<void> {
 			// settlement re-pumps and lands them right after it). The pause is
 			// derived from the tail, so any user message un-holds by construction.
 			if (endsInDismissal(fresh.messages) || !automaticFollowUpAllowed(chatId)) {
-				parked = true;
 				return;
 			}
 
@@ -587,8 +567,8 @@ async function pump(chatId: string): Promise<void> {
 			const owned = fire.filter((entry) => s.queues.get(chatId)?.includes(entry));
 			if (status === 403 || status === 409) {
 				for (const entry of owned) { entry.waking = false; entry.wakeAgent = undefined; }
-				if (status === 403) { parked = true; return; }
-				await delay(RETRY_BACKOFF_MS[Math.min(attempt++, RETRY_BACKOFF_MS.length - 1)]!);
+				if (status === 403) return;
+				attempt++;
 				continue;
 			}
 			attempt = 0;
@@ -605,12 +585,6 @@ async function pump(chatId: string): Promise<void> {
 		}
 	} finally {
 		s.pumping.delete(chatId);
-		// A steer may have arrived between the last check and the finally —
-		// restart the pump rather than strand it. Entries already handed to
-		// a live run are NOT stragglers (settleSteers owns their resurrection)
-		// — restarting for them would just park in waitForIdle forever.
-		const q = state().queues.get(chatId) ?? [];
-		if (!parked && automaticFollowUpAllowed(chatId, state().liveAgents.get(chatId)) && q.some((e) => e.handedTo === undefined && !e.waking && !e.deferred)) void pump(chatId);
 	}
 }
 
@@ -683,33 +657,6 @@ function restorePendingDeliveries(chatId: string): void {
 		if (!steer) continue;
 		if (steerDelivered(record.messages, steer.id)) finalizeSteer(steer);
 		else queueSteer(chatId, steer);
-	}
-}
-
-/**
- * Wait until the chat can take a wake turn: no turn in flight AND no
- * unanswered question call (the record's dangling question — the answer
- * arrives as its tool result, and no turn may run in the window). Poll;
- * the learner may take arbitrarily long to answer, and that is correct —
- * the steer fires right after their answer turn completes.
- */
-async function waitForIdle(chatId: string): Promise<void> {
-	for (;;) {
-		const record = stores.chatStore.getChat(chatId);
-		if (!record || !(state().queues.get(chatId) ?? []).some((entry) => !entry.waking && !entry.deferred && !entry.handedTo)) return;
-		const blocked = isTurnRunning(chatId) || danglingQuestionOf(record.messages) !== null;
-		if (!blocked) {
-			await delay(GRACE_MS);
-			const recheck = stores.chatStore.getChat(chatId);
-			if (
-				!isTurnRunning(chatId) &&
-				recheck &&
-				danglingQuestionOf(recheck.messages) === null
-			) {
-				return;
-			}
-		}
-		await delay(POLL_MS);
 	}
 }
 

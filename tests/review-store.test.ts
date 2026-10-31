@@ -85,3 +85,18 @@ it("refuses corrupt/newer collections without resetting them or acknowledging re
 		assert.equal(fs.readFileSync(file, "utf8"), content);
 	}
 });
+
+it("validates MCQ outcomes on the host and preserves history when source scope hides and restores a card", () => {
+    const withQuestion = {...card, mcq:{prompt:"Which claim?", options:[card.back,"Wrong B","Wrong C","Wrong D"], correctIndex:0, explanation:"Only the first claim follows."}};
+    const answer = {...attempt, mode:"mcq" as const, selectedIndex:0};
+    const saved = syncReviewCollection([withQuestion],request([answer]),engine,at);
+    assert.equal(saved.cards[0]!.schedule.mode,"mcq");
+    const before = fs.readFileSync(file,"utf8");
+    assert.throws(() => syncReviewCollection([withQuestion],request([{...answer,id:"33333333-3333-4333-8333-333333333333",sequence:2,selectedIndex:1}]),engine,at+1000),/selected answer/);
+    assert.equal(fs.readFileSync(file,"utf8"),before);
+    const hidden = syncReviewCollection([],undefined,engine,at+2000);
+    assert.equal(hidden.cards[0]!.active,false);
+    const restored = syncReviewCollection([withQuestion],undefined,engine,at+3000);
+    assert.equal(restored.cards[0]!.active,true);
+    assert.deepEqual(restored.cards[0]!.schedule,saved.cards[0]!.schedule);
+});

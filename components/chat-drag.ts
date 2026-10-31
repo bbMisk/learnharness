@@ -15,12 +15,17 @@ export function useChatDrop(move: (id: string) => void) {
 	useEffect(() => {
 		const reset = () => setOver(false);
 		document.addEventListener("dragend", reset);
-		return () => document.removeEventListener("dragend", reset);
+		document.addEventListener("drop", reset);
+		return () => { document.removeEventListener("dragend", reset); document.removeEventListener("drop", reset); };
 	}, []);
 	const accepts = (event: DragEvent) => Array.from(event.dataTransfer.types).includes(CHAT_DRAG_TYPE);
 	return {
 		over,
 		handlers: {
+			onDragEnter(event: DragEvent<HTMLElement>) {
+				if (!accepts(event)) return;
+				event.preventDefault(); event.stopPropagation(); setOver(true);
+			},
 			onDragOver(event: DragEvent<HTMLElement>) {
 				if (!accepts(event)) return;
 				event.preventDefault(); event.stopPropagation();

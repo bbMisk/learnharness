@@ -23,11 +23,12 @@
     <section class="heading">
       <div class="eyebrow">YOUR KNOWLEDGE, READY TO RECALL</div>
       <h1>Flashcards</h1>
-      <p class="intro">Explain it in your own words. Reveal, compare, then rate your recall.</p>
+      <p class="intro">Start with multiple choice. Build confidence, then recall the idea in your own words.</p>
     </section>
     <section class="library" aria-label="Your flashcards">
-      <label class="eyebrow" for="deck">TOPIC</label>
-      <select id="deck" aria-label="Choose a topic"><option value="">All topics</option></select>
+      <div class="eyebrow" id="projects-label">PROJECTS</div>
+      <div id="project-options" class="project-options" role="group" aria-labelledby="projects-label"><button type="button" class="project-chip" aria-pressed="true">All projects</button></div>
+      <p class="small project-hint">Choose one or more projects, or mix everything.</p>
       <div class="counts" id="counts">Connect once to download your cards.</div>
     </section>
     <p class="message" id="message" role="status" hidden></p>
@@ -35,7 +36,7 @@
     <section id="welcome" class="welcome panel">
       <div class="eyebrow">A LITTLE, OFTEN</div>
       <h2>Make it stick.</h2>
-      <p>Recall the idea before looking at the answer. A useful explanation beats a familiar-looking sentence.</p>
+      <p>New concepts begin with multiple choice and immediate feedback. Three correct scheduled reviews across at least two study days unlock active recall, using the same spaced-repetition schedule.</p>
       <button class="primary" id="start" type="button" disabled>Preparing offline review…</button>
       <p class="small" id="ready">Downloading the app and your flashcards for offline use.</p>
     </section>
@@ -43,9 +44,12 @@
       <article class="panel flashcard" id="card" aria-live="polite" aria-atomic="true">
         <div class="card-top"><span class="eyebrow" id="card-topic"></span><span class="badge" id="card-state"></span></div>
         <h2 id="front"></h2>
+        <div id="mcq" hidden><p id="mcq-status" class="small" role="status"></p><div id="mcq-options" class="mcq-options"></div><button id="mcq-retry" class="secondary" type="button" hidden>Prepare choices</button></div>
+        <div id="mcq-feedback" class="answer" hidden><strong id="mcq-verdict"></strong><div id="mcq-explanation"></div></div>
         <div id="answer" class="answer" hidden></div>
       </article>
       <div class="review-actions">
+        <button class="primary" id="mcq-continue" type="button" hidden>Continue</button>
         <button class="primary" id="reveal" type="button">Show answer <span aria-hidden="true">↓</span></button>
         <div id="ratings" class="ratings" hidden aria-label="Rate your recall">
           <button type="button" data-rating="1"><span>Again</span><small></small></button>
@@ -58,17 +62,17 @@
     </section>
     <section id="done" class="panel done" hidden>
       <div class="eyebrow">FOR NOW</div><h2>You’re caught up.</h2><p id="next-due"></p>
-      <button class="secondary" id="choose-topic" type="button">Choose another topic</button>
+      <button class="secondary" id="choose-projects" type="button">Choose projects</button>
     </section>
     <footer>
       <div class="sync-row"><span id="sync-status" role="status">Reviews are saved on this device before syncing.</span><button class="text-button" id="sync" type="button">Sync now</button></div>
       <div class="footer-links"><button class="text-button" id="backup" type="button" hidden>Back up pending reviews</button><button class="text-button" id="install" type="button">Install on iPhone</button><a href="./licenses.txt">Licenses</a></div>
-      <p class="small engine-note">FSRS · Anki’s Rust core · 90% retention · 20 new cards/day</p>
+      <p class="small engine-note">FSRS · Anki’s Rust core · 90% retention · 20 new cards per project/day</p>
     </footer>
     <dialog id="install-dialog" aria-labelledby="install-title">
       <div class="eyebrow">TAKE IT WITH YOU</div><h2 id="install-title">Add to your Home Screen</h2>
       <ol><li>Open this page in Safari while Tailscale is connected.</li><li>Tap <strong>Share → Add to Home Screen</strong>, then open as a web app.</li><li>Wait for <strong>Offline ready</strong> before your first subway review.</li></ol>
-      <p>Downloaded cards work offline. Reviews sync when this app is open and the host is reachable again.</p>
+      <p>Prepared multiple-choice cards and downloaded active-recall cards work offline. Reviews sync when this app is open and the host is reachable again.</p>
       <p class="small">Use Again when you couldn’t recall the answer. Hard means you recalled it with difficulty; Good and Easy mean successful recall.</p>
       <form method="dialog"><button class="primary" type="submit">Got it</button></form>
     </dialog>

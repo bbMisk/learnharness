@@ -80,7 +80,7 @@ import {
 	phaseTimeline,
 	teachStepIndex,
 	toolQuestionKind,
-	questionNeedsReveal,
+	isTeachingCheck,
 } from "@/src/core";
 import { ReadingThinkingField } from "@/components/reading-thinking";
 import { SideTutor } from "@/components/side-tutor";
@@ -496,20 +496,13 @@ export function Chat({
 		[send],
 	);
 
-	// Teach-phase check (W5, vision §2): a pending QUIZ that lands once a
-	// plan node is OCCUPIED (phaseAt3 "teach") starts collapsed behind a
-	// "Check your understanding" reveal button; probe- and plan-phase
-	// questions auto-open as today. Both teach quizzing tools obey the
-	// law (owner, 2026-10-09: explain checks join quiz checks behind the
-	// reveal); predictions of either mechanic and ask always arrive open.
-	// A pending question can never precede its phase's seam in the transcript (the teacher's turn
-	// ends at the question call), so the session's current phase IS the
-	// question's phase.
-	const requiresReveal = pending !== null && questionNeedsReveal(pending.tool, pending.input, phaseAt3(messages));
+	// Keep the optional reading notes for teaching checks. All validated
+	// questions now open automatically when the teacher ends at the call.
+	const teachingCheck = pending !== null && isTeachingCheck(pending.tool, pending.input, phaseAt3(messages));
 
 	/* The READING-THINKING channel (owner 2026-10-03): a draft field for
-	 * thinking while reading the teaching prose, mounted while a check waits
-	 * behind its reveal, riding the check answer (or its dismissal) as the
+	 * thinking while reading the teaching prose, mounted while a check waits,
+	 * riding the check answer (or its dismissal) as the
 	 * separate `readingThinking` field. Reset per pending question. */
 	const [showReadingThinking, setShowReadingThinking] = useState(initialShowReadingThinking);
 	const [readingThinking, setReadingThinking] = useState("");
@@ -1655,7 +1648,7 @@ export function Chat({
 					onModelChange={setSelectedModel}
 					plan={hasPlan ? <PlanMarginalia messages={messages} /> : undefined}
 					onOpenPlan={() => setPlanOpen(true)}
-					requiresReveal={requiresReveal}
+					teachingCheck={teachingCheck}
 					showReadingThinking={showReadingThinking}
 					readingThinking={readingThinking}
 					onReadingThinking={applyReadingThinking}
@@ -1846,19 +1839,15 @@ export function escAbortTarget(s: {
 	return null;
 }
 
-export function revealArrival(wasQuestion: boolean): { expanded: boolean; revealed: boolean } {
-	return wasQuestion ? { expanded: true, revealed: true } : { expanded: false, revealed: false };
-}
-
 /**
- * A PROBE question's arrival state (flicker round, 2026-09-26): open iff
+ * Every question's arrival state: open iff
  * the learner is at the bottom following along; scrolled up in history →
  * arrive as the collapsed bar (owner ruling: "it should just remain
  * closed"). Decided DURING RENDER like the teach seam above — the old
  * after-paint effect painted one stale-open frame first (the box "opened
  * and immediately closed" when scrolled up). Pure for tests.
  */
-export function probeArrivalExpanded(isAtBottom: boolean): boolean {
+export function questionArrivalExpanded(isAtBottom: boolean): boolean {
 	return isAtBottom;
 }
 
@@ -1884,7 +1873,7 @@ function DockOverlay({
 	practice,
 	compactionRunning,
 	onSubmitThinking,
-	requiresReveal,
+	teachingCheck,
 	showReadingThinking,
 	readingThinking,
 	onReadingThinking,
@@ -1917,8 +1906,8 @@ function DockOverlay({
 	practice: { toolCallId: string; input: unknown } | null;
 	/** (commit, text) — the practice dock's two submit lanes. */
 	onSubmitThinking: (text: string) => void;
-	/** Teach-phase pending question: arrives collapsed behind the reveal button (W5). */
-	requiresReveal: boolean;
+	/** Teach-phase check: retains the optional reading-notes field. */
+	teachingCheck: boolean;
 	showReadingThinking: boolean;
 	/** The reading-thinking draft (owner 2026-10-03) — owned by ChatView so
 	 *  the submit + dismissal seams (outside this overlay) can merge it. */
@@ -1963,55 +1952,34 @@ function DockOverlay({
 	// frame too late. Assigned per render like the other refs below.
 	const atBottomRef = useRef(isAtBottom);
 	atBottomRef.current = isAtBottom;
-	// Teach-phase mount (session reload with a pending check): the dock starts
-	// as the collapsed invitation too — the check must not pop open on reload.
-	const [expanded, setExpanded] = useState(!requiresReveal);
+	// Pending questions open on reload as well as on live arrival.
+	const [expanded, setExpanded] = useState(true);
 	const [readingUploading, setReadingUploading] = useState(false);
-	// Reveal state (W5): false until the learner clicks the invitation. While
-	// false, the scroll machine must NOT auto-expand at the bottom — the
-	// learner reads the teaching first and opens the check when ready. Once
-	// revealed, the normal collapse machine rules apply untouched.
-	const [revealed, setRevealed] = useState(false);
-	const revealPending = requiresReveal && !revealed;
 
 	const pendingId = pending?.key ?? null;
 	const initialPendingRef = useRef(pendingId);
 
-	// Teach-question ARRIVAL state, applied during render — BEFORE the
-	// first paint (owner, scroll-honesty round 2026-09-25). Until now the
-	// stale expanded=true left by the previous question painted one frame
-	// of the OPEN question: the dock measured itself tall, permanently
-	// reserved that height, and the collapse after the paint could never
-	// give it back (fold immunity) — so a collapsed teach question scrolled
-	// the transcript as if it had opened. Resetting here means the paint
-	// measures the bar, the reserve keeps the composer's height, and the
-	// only motion is the teaching text itself.
+	// Decide arrival before paint so reading older messages never flashes
+	// an open form or reserves its height before minimizing it.
 	const prevPendingIdRef = useRef(pendingId);
 	if (pendingId !== prevPendingIdRef.current) {
-		const wasQuestion = prevPendingIdRef.current !== null;
 		prevPendingIdRef.current = pendingId;
-		if (pendingId && requiresReveal) {
-			const arrival = revealArrival(wasQuestion);
-			setExpanded(arrival.expanded);
-			setRevealed(arrival.revealed);
-		} else if (pendingId) {
-			// Probe arrival (flicker round): open iff following at the bottom.
-			// Painted in THIS render — no stale-open frame, no after-paint flip.
-			setExpanded(probeArrivalExpanded(atBottomRef.current));
+		if (pendingId) {
+			setExpanded(questionArrivalExpanded(atBottomRef.current));
 		}
 	}
 
 	// New question MID-SESSION (flicker round): the open/closed state itself
 	// is decided DURING RENDER above; this effect only owns the reveal
-	// scroll for the at-bottom arrival — and now under the SAME fold
-	// suppression the teach reveal uses (the arrival's growth used to
+	// scroll for the at-bottom arrival under the same fold
+	// suppression as an explicit expansion (the arrival's growth used to
 	// out-run the scroll catch-up, the position machine read the lag as the
 	// learner leaving, and the dock flashed open → bar → open; reproduced
 	// frame-by-frame 2026-09-26, d peaked ~405px). On session mount the dock
 	// starts in its initial state — no scroll, no morph.
 	useEffect(() => {
 		if (!pendingId || pendingId === initialPendingRef.current) return;
-		if (!requiresReveal && atBottomRef.current) void suppressFoldDuringReveal();
+		if (atBottomRef.current) void suppressFoldDuringExpand();
 		// fire only when a NEW question lands
 	}, [pendingId]);
 
@@ -2026,10 +1994,6 @@ function DockOverlay({
 	// replaces the composer and owns the band.
 	const pendingRef = useRef(!!pending || !!practice);
 	pendingRef.current = !!pending || !!practice;
-	const requiresRevealRef = useRef(requiresReveal);
-	requiresRevealRef.current = requiresReveal;
-	const revealedRef = useRef(revealed);
-	revealedRef.current = revealed;
 
 	const blockRef = useRef<HTMLDivElement>(null);
 	const viewportRef = useRef<HTMLDivElement>(null);
@@ -2158,7 +2122,7 @@ function DockOverlay({
 	// same kind of motion".)
 	const expandIntentRef = useRef(false);
 	const intentTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-	const suppressFoldDuringReveal = () => {
+	const suppressFoldDuringExpand = () => {
 		expandIntentRef.current = true;
 		clearTimeout(intentTimerRef.current);
 		intentTimerRef.current = setTimeout(() => {
@@ -2169,16 +2133,15 @@ function DockOverlay({
 			expandIntentRef.current = false;
 		});
 	};
-	const expandAndReveal = () => {
-		setRevealed(true); // the teach-check invitation was accepted (W5)
+	const expandQuestion = () => {
 		setExpanded(true);
-		void suppressFoldDuringReveal();
+		void suppressFoldDuringExpand();
 	};
-	const expandAndRevealRef = useRef(expandAndReveal);
-	expandAndRevealRef.current = expandAndReveal;
+	const expandQuestionRef = useRef(expandQuestion);
+	expandQuestionRef.current = expandQuestion;
 	// ENTER OPENS THE WAITING CHECK (owner, keyboard round 2026-10-06):
-	// while a question waits with the dock CLOSED — behind its reveal
-	// invitation or collapsed by scroll — Enter is never dead. Any live
+	// while a question waits with the dock collapsed by scroll, Enter is
+	// never dead. Any live
 	// dictation FINISHES FIRST (the flush lands in the reading-thinking
 	// field, its live claim — the nothing-gets-lost law), then the check
 	// opens. A typing surface or a focused button owns its own Enter (the
@@ -2201,7 +2164,7 @@ function DockOverlay({
 				return;
 			e.preventDefault();
 			void finishDictation().then(() => {
-				expandAndRevealRef.current();
+				expandQuestionRef.current();
 			});
 		};
 		document.addEventListener("keydown", onKeyDown);
@@ -2229,9 +2192,6 @@ function DockOverlay({
 				// left the bottom.
 				if (d > COLLAPSE_DIST && !expandIntentRef.current && !atBottomRef.current) setExpanded(false);
 			} else if (d < EXPAND_DIST) {
-				// Teach checks stay collapsed until the learner opens them (W5): the
-				// at-bottom auto-expand would pop the form over the teaching.
-				if (requiresRevealRef.current && !revealedRef.current) return;
 				setExpanded(true);
 				void scrollToBottom();
 			}
@@ -2315,11 +2275,9 @@ function DockOverlay({
 					    rounding starts, truncated, no background, no container. A
 					    line dies when its card lands (visibleQueuedSteers). */}
 					<QueuedSteersBody steers={queuedSteers} />
-					{/* The reading-thinking field (owner 2026-10-03): mounted while a
-					    teach-phase check waits — the same cue that collapses it. It
-					    claims dictated speech until the learner reveals the check
-					    (the dock reclaims then). Rides the check answer on submit. */}
-					{pending && requiresReveal && showReadingThinking && (
+					{/* Optional reading notes still ride the check answer on submit.
+					    The open question owns dictation by default. */}
+					{pending && teachingCheck && showReadingThinking && (
 						<ReadingThinkingField
 							key={pending.toolCallId}
 							onUploadingChange={setReadingUploading}
@@ -2330,12 +2288,12 @@ function DockOverlay({
 								!expanded
 									? () => {
 											void finishDictation().then(() => {
-												expandAndRevealRef.current();
+												expandQuestionRef.current();
 											});
 										}
 									: undefined
 							}
-							claim={revealPending}
+							claim={false}
 						/>
 					)}
 					<div ref={shellRef} className="pointer-events-auto overflow-hidden rounded-2xl border bg-card shadow-lg">
@@ -2352,14 +2310,12 @@ function DockOverlay({
 									toolCallId={pending.toolCallId}
 									input={pending.input as never}
 									expanded={expanded}
-									reveal={revealPending}
 									phase={phase}
-									onExpand={expandAndReveal}
+									onExpand={expandQuestion}
 									onSubmit={onSubmitAnswer}
 									initialDraft={initialQuestionDraft}
 									onSaveDraft={onSaveQuestionDraft}
 									onEscape={dictationCancel}
-									dictationClaim={!revealPending || !showReadingThinking}
 									attachmentsUploading={readingUploading}
 									compactionRunning={compactionRunning}
 								/>
@@ -2371,7 +2327,7 @@ function DockOverlay({
 									expanded={expanded}
 									onExpand={() => {
 										setExpanded(true);
-										void suppressFoldDuringReveal();
+										void suppressFoldDuringExpand();
 									}}
 									onSubmit={onSubmitThinking}
 									onEscape={dictationCancel}
