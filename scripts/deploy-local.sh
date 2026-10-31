@@ -7,7 +7,8 @@
 # timestamped backup, restarts the launchd service, and rolls back if the
 # host does not come back healthy. Refuses uncommitted changes, so the host
 # always runs a known commit (recorded in DEPLOYED.json), and refuses to
-# restart while a reply or background job is running, or deploy a commit
+# restart while a reply or background job is running or a chat was active in
+# the last 5 minutes (LH_DEPLOY_QUIET_MINUTES), or deploy a commit
 # that is not on GitHub, unless --force.
 set -euo pipefail
 
@@ -16,6 +17,7 @@ SERVICE="${LH_HOST_SERVICE:-io.hanson.learnharness.remote}"
 PORT="${LH_HOST_PORT:-8787}"
 URL="http://127.0.0.1:$PORT"
 FORCE="${1:-}"
+QUIET_MINUTES="${LH_DEPLOY_QUIET_MINUTES:-5}"
 
 cd "$(dirname "$0")/.."
 die() { echo "deploy-local: $*" >&2; exit 1; }
@@ -34,6 +36,10 @@ assert_idle() {
 	busy="$(curl -sf "$URL/api/chats" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).chats.filter(c=>c.busy||c.compacting).length))')"
 	jobs="$(curl -sf "$URL/api/activity" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const a=JSON.parse(s);console.log(a.jobs.length+a.extractions.length+a.flashcards.length)})')"
 	[ "$busy" = 0 ] && [ "$jobs" = 0 ] || die "host is working ($busy replies, $jobs background jobs); retry later or pass --force"
+	# Someone may be mid-lesson (reading, about to submit) even when nothing runs.
+	local recent
+	recent="$(curl -sf "$URL/api/chats" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).chats.filter(c=>Date.now()-Date.parse(c.updatedAt)<'"$((QUIET_MINUTES * 60000))"').length))')"
+	[ "$recent" = 0 ] || die "a chat was active in the last $QUIET_MINUTES minutes; retry when the host is quiet or pass --force"
 }
 
 assert_idle
