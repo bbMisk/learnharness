@@ -49,7 +49,7 @@ import { persistTurn, triggerExtraction, TurnPersistenceError } from "./turn-ser
 import { hasProbeDone, hasUnresolvedQuestion } from "../core/native-messages.ts";
 import { composeInstructions } from "../agent/teacher-agent.ts";
 import { ensureCompacted, kickCompaction, effectiveThresholdTokens } from "./compaction.ts";
-import { catalogContextLimits, refreshConnectionCatalog } from "./model-catalog.ts";
+import { catalogContextLimits, prepareConnectionCatalog } from "./model-catalog.ts";
 import { emit } from "../core/events.ts";
 import { settledTurnResponse } from "./turn-runs.ts";
 import { asAgentMessages } from "../core/native-messages.ts";
@@ -247,7 +247,7 @@ export async function handleChatInput(
 	// path. The affected tier is strong — the conversation chain's own tier
 	// (a chat.model override still resolves through it).
 	if (isSubscriptionProvider(conversation.provider)) {
-		await refreshConnectionCatalog(conversation.provider);
+		await prepareConnectionCatalog(conversation.provider);
 		if (input.type === "steers" && !connectionBackgroundAllowed(conversation.provider)) {
 			return Response.json({ error: "Background use is off for this connection. Automatic follow-up remains deferred in its queue." }, { status: 403 });
 		}
