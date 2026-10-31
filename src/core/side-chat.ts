@@ -2,8 +2,15 @@ import type { LhMessage } from "./native-messages.ts";
 import { projectView } from "./view.ts";
 import type { EffectiveModelSpec } from "./settings-resolution.ts";
 
-export interface SideMessage { role: "user" | "assistant"; content: string }
-export interface SideSnapshot { context: string; truncated: boolean; model: EffectiveModelSpec }
+export interface SideMessage {
+	role: "user" | "assistant";
+	content: string;
+}
+export interface SideSnapshot {
+	context: string;
+	truncated: boolean;
+	model: EffectiveModelSpec;
+}
 export type SideFrame = { type: "delta"; text: string } | { type: "done" } | { type: "error"; error: string };
 export const SIDE_CONTEXT_LIMIT = 200_000;
 
@@ -14,7 +21,11 @@ const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v ===
 export function parseSideJSONResponse(text: string, status: number): unknown {
 	const fallback = `The side tutor returned an unreadable response (HTTP ${status}). Try again.`;
 	let body: unknown;
-	try { body = JSON.parse(text); } catch { throw new Error(fallback); }
+	try {
+		body = JSON.parse(text);
+	} catch {
+		throw new Error(fallback);
+	}
 	if (status < 200 || status >= 300) throw new Error(object(body) && typeof body.error === "string" ? body.error : fallback);
 	return body;
 }
@@ -36,7 +47,9 @@ export function sideLessonContext(messages: readonly LhMessage[], title: string)
 				if (typeof input.question === "string") blocks.push(`Question:\n${input.question}`);
 				if (typeof input.context === "string") blocks.push(input.context);
 				if (Array.isArray(input.options)) {
-					const labels = input.options.flatMap((v) => typeof v === "string" ? [v] : object(v) && typeof v.label === "string" ? [v.label] : []);
+					const labels = input.options.flatMap((v) =>
+						typeof v === "string" ? [v] : object(v) && typeof v.label === "string" ? [v.label] : [],
+					);
 					if (labels.length) blocks.push(labels.map((v) => `- ${v}`).join("\n"));
 				}
 				// Only the learner's own submitted words; no answer-key fields.
@@ -67,7 +80,14 @@ export function parseSideRequest(raw: unknown): { snapshot: SideSnapshot; messag
 	if (!Array.isArray(raw.messages) || raw.messages.length < 1 || raw.messages.length > 40) return null;
 	const messages: SideMessage[] = [];
 	for (const [i, m] of raw.messages.entries()) {
-		if (!object(m) || m.role !== (i % 2 === 0 ? "user" : "assistant") || typeof m.content !== "string" || !m.content.trim() || m.content.length > 20_000) return null;
+		if (
+			!object(m) ||
+			m.role !== (i % 2 === 0 ? "user" : "assistant") ||
+			typeof m.content !== "string" ||
+			!m.content.trim() ||
+			m.content.length > 20_000
+		)
+			return null;
 		messages.push({ role: i % 2 === 0 ? "user" : "assistant", content: m.content });
 	}
 	if (messages.at(-1)?.role !== "user") return null;

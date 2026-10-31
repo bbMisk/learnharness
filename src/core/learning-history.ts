@@ -5,7 +5,14 @@ import { QUESTION_TOOLS } from "./pending.ts";
 export interface LearningEvent {
 	version: 1;
 	id: string;
-	kind: "question-posed" | "question-answered" | "practice-posed" | "practice-thinking" | "practice-concluded" | "practice-dismissed" | "learner-message";
+	kind:
+		| "question-posed"
+		| "question-answered"
+		| "practice-posed"
+		| "practice-thinking"
+		| "practice-concluded"
+		| "practice-dismissed"
+		| "learner-message";
 	/** Original native-message time, not page exposure or active study time. */
 	at: string | null;
 	messageId: string;
@@ -21,7 +28,7 @@ export interface LearningEvent {
 }
 
 const recordOf = (v: unknown): Record<string, unknown> | undefined =>
-	v !== null && typeof v === "object" && !Array.isArray(v) ? v as Record<string, unknown> : undefined;
+	v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined;
 
 function messageTime(timestamp: number): string | null {
 	const date = new Date(timestamp);
@@ -31,9 +38,9 @@ function messageTime(timestamp: number): string | null {
 /** Idempotent capture; previously recorded facts survive compaction and replay. */
 export function mergeLearningEvents(previous: readonly LearningEvent[] | undefined, messages: readonly LhMessage[]): LearningEvent[] {
 	if (previous !== undefined && !Array.isArray(previous)) throw new Error("Invalid learning history: expected an event array");
-	const events = new Map((previous ?? []).map(event => [event.id, event]));
+	const events = new Map((previous ?? []).map((event) => [event.id, event]));
 	const calls = new Map<string, { name: string; input: Record<string, unknown> }>();
-	const results = new Map(messages.flatMap(message => message.role === "toolResult" ? [[message.toolCallId, message] as const] : []));
+	const results = new Map(messages.flatMap((message) => (message.role === "toolResult" ? [[message.toolCallId, message] as const] : [])));
 	let activeProblem: string | undefined;
 	let previousActive: string | undefined;
 	const recordedConclusions = new Set<string>();
@@ -51,18 +58,31 @@ export function mergeLearningEvents(previous: readonly LearningEvent[] | undefin
 		const target = itemId ? calls.get(itemId)?.input.target : undefined;
 		return Array.isArray(target) ? target.filter((id): id is string => typeof id === "string") : [];
 	};
-	const add = (message: LhMessage, kind: LearningEvent["kind"], payload: Record<string, unknown>, itemId?: string, tool?: string, outcome?: string) => {
+	const add = (
+		message: LhMessage,
+		kind: LearningEvent["kind"],
+		payload: Record<string, unknown>,
+		itemId?: string,
+		tool?: string,
+		outcome?: string,
+	) => {
 		const id = `${kind}:${itemId ?? message.id}`;
 		// Thinking submissions share a problem: each message is its own event.
 		const eventId = kind === "practice-thinking" ? `${kind}:${message.id}` : id;
 		if (events.has(eventId)) return;
 		const planNodeId = itemId ? calls.get(itemId)?.input.nodeId : undefined;
 		events.set(eventId, {
-			version: 1, id: eventId, kind, at: messageTime(message.timestamp), messageId: message.id,
-			...(itemId ? { itemId } : {}), ...(tool ? { tool } : {}),
+			version: 1,
+			id: eventId,
+			kind,
+			at: messageTime(message.timestamp),
+			messageId: message.id,
+			...(itemId ? { itemId } : {}),
+			...(tool ? { tool } : {}),
 			graphNodeIds: tool === "problem" || kind.startsWith("practice-") ? targets(itemId) : [],
 			...(typeof planNodeId === "string" ? { planNodeId } : {}),
-			...(outcome ? { outcome } : {}), payload: structuredClone(payload),
+			...(outcome ? { outcome } : {}),
+			payload: structuredClone(payload),
 		});
 	};
 	for (const message of messages) {
@@ -82,8 +102,16 @@ export function mergeLearningEvents(previous: readonly LearningEvent[] | undefin
 			if ((QUESTION_TOOLS as readonly string[]).includes(call.name)) {
 				const answer = recordOf(message.details);
 				if (!answer || typeof answer.kind !== "string" || typeof answer.questionText !== "string") continue;
-				const outcome = answer.dismissed === true ? "dismissed" : answer.dontKnow === true ? "dont-know" :
-					typeof answer.correct === "boolean" ? (answer.correct ? "correct" : "incorrect") : "ungraded";
+				const outcome =
+					answer.dismissed === true
+						? "dismissed"
+						: answer.dontKnow === true
+							? "dont-know"
+							: typeof answer.correct === "boolean"
+								? answer.correct
+									? "correct"
+									: "incorrect"
+								: "ungraded";
 				add(message, "question-answered", answer, message.toolCallId, call.name, outcome);
 			} else if (call.name === "problem") {
 				activeProblem = message.toolCallId;
@@ -91,7 +119,14 @@ export function mergeLearningEvents(previous: readonly LearningEvent[] | undefin
 			} else if (call.name === "conclude") {
 				const itemId = activeProblem ?? previousActive;
 				if (itemId && !recordedConclusions.has(message.id)) {
-					add(message, "practice-concluded", call.input, itemId, call.name, typeof call.input.outcome === "string" ? call.input.outcome : undefined);
+					add(
+						message,
+						"practice-concluded",
+						call.input,
+						itemId,
+						call.name,
+						typeof call.input.outcome === "string" ? call.input.outcome : undefined,
+					);
 					if (itemId === previousActive) previousActive = undefined;
 				}
 				activeProblem = undefined;
@@ -105,7 +140,13 @@ export function mergeLearningEvents(previous: readonly LearningEvent[] | undefin
 				activeProblem = undefined;
 			}
 		} else if (message.role === "user") {
-			const text = typeof message.content === "string" ? message.content : message.content.filter(block => block.type === "text").map(block => block.text).join("\n");
+			const text =
+				typeof message.content === "string"
+					? message.content
+					: message.content
+							.filter((block) => block.type === "text")
+							.map((block) => block.text)
+							.join("\n");
 			add(message, "learner-message", { text });
 		}
 	}

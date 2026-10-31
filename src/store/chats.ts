@@ -78,45 +78,77 @@ function getChat(id: string): ChatRecord | null {
 	return parsed as ChatRecord;
 }
 
+/** Projection for the session list; null when the record is absent or fails to project. */
+function summaryOf(id: string): ChatSummary | null {
+	const record = getChat(id);
+	if (!record) return null;
+	const { messages, tree, turns, extractions, learningEvents, ...summary } = record;
+	// Per-record isolation (Wave B): a record whose messages fail the
+	// projection (e.g. pre-Wave-B UIMessage-format scratch — the
+	// zero-back-compat wipe makes these "corrupt") must not blank the
+	// whole sidebar — same isolation getChat's per-file catch gives.
+	try {
+		return {
+			// turns and extractions stay out of the list payload (list =
+			// summaries; usage aggregates ride the full record, the picker
+			// never needs them).
+			...summary,
+			// Normalized kind: absent record field reads as teach.
+			kind: summary.kind ?? "teach",
+			messageCount: messages.length,
+			// Record-derived status for the session picker: phase from the
+			// transcript's explicit events (probe_done concluded / verdict
+			// accepted — docs/probe-teach-split.md §4), pending question
+			// from the native dangling-call scan. Wave D: both folds read
+			// the NATIVE record (core/phases.ts phaseAt3Lh +
+			// native-messages.ts danglingQuestionOf). Liveness (busy) is
+			// NOT record-derived — the API route merges it (ChatListItem).
+			phase: phaseAt3Lh(messages),
+			pendingQuestion: danglingQuestionOf(messages) !== null,
+			// Existing gap kept as-is: pendingProblem (activeProblemOf) is never projected.
+		} as ChatSummary;
+	} catch (err) {
+		console.error(`[chat ${summary.id}] summary projection failed:`, err);
+		return null;
+	}
+}
+
+/** Summaries keyed by file, valid while the file's stat signature holds.
+ *  App writes are atomic renames (new inode); ctime also changes on any
+ *  in-place write, even one that preserves mtime. Only successful
+ *  projections are cached, so a transient read failure retries next list. */
+const summaryCache = new Map<string, { signature: string; summary: ChatSummary }>();
+
 function listChats(): ChatSummary[] {
 	try {
 		fs.mkdirSync(PATHS.chats, { recursive: true });
-		return fs
-			.readdirSync(PATHS.chats)
-			.filter((f) => f.endsWith(".json"))
-			.map((f) => getChat(f.slice(0, -5)))
-			.filter((r): r is ChatRecord => r !== null)
-			.map(({ messages, tree, turns, extractions, learningEvents, ...summary }) => {
-				// Per-record isolation (Wave B): a record whose messages fail the
-				// projection (e.g. pre-Wave-B UIMessage-format scratch — the
-				// zero-back-compat wipe makes these "corrupt") must not blank the
-				// whole sidebar — same isolation getChat's per-file catch gives.
-				try {
-					return {
-						// turns and extractions stay out of the list payload (list =
-						// summaries; usage aggregates ride the full record, the picker
-						// never needs them).
-						...summary,
-						// Normalized kind: absent record field reads as teach.
-						kind: summary.kind ?? "teach",
-						messageCount: messages.length,
-						// Record-derived status for the session picker: phase from the
-						// transcript's explicit events (probe_done concluded / verdict
-						// accepted — docs/probe-teach-split.md §4), pending question
-						// from the native dangling-call scan. Wave D: both folds read
-						// the NATIVE record (core/phases.ts phaseAt3Lh +
-						// native-messages.ts danglingQuestionOf). Liveness (busy) is
-						// NOT record-derived — the API route merges it (ChatListItem).
-						phase: phaseAt3Lh(messages),
-						pendingQuestion: danglingQuestionOf(messages) !== null,
-					};
-				} catch (err) {
-					console.error(`[chat ${summary.id}] summary projection failed:`, err);
-					return null;
-				}
-			})
-			.filter((s): s is ChatSummary => s !== null)
-			.sort((a, b) => Number(!!b.pinned)-Number(!!a.pinned) || b.updatedAt.localeCompare(a.updatedAt));
+		const files = fs.readdirSync(PATHS.chats).filter((f) => f.endsWith(".json"));
+		const present = new Set(files);
+		for (const file of summaryCache.keys()) if (!present.has(file)) summaryCache.delete(file);
+		const summaries: ChatSummary[] = [];
+		for (const file of files) {
+			let signature: string;
+			try {
+				const stat = fs.statSync(path.join(PATHS.chats, file));
+				signature = `${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+			} catch {
+				summaryCache.delete(file);
+				continue;
+			}
+			const cached = summaryCache.get(file);
+			if (cached?.signature === signature) {
+				summaries.push({ ...cached.summary });
+				continue;
+			}
+			const summary = summaryOf(file.slice(0, -5));
+			if (!summary) {
+				summaryCache.delete(file);
+				continue;
+			}
+			summaryCache.set(file, { signature, summary });
+			summaries.push({ ...summary });
+		}
+		return summaries.sort((a, b) => Number(!!b.pinned)-Number(!!a.pinned) || b.updatedAt.localeCompare(a.updatedAt));
 	} catch {
 		return [];
 	}

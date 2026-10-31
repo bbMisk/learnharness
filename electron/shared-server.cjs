@@ -8,7 +8,14 @@ function isLoopback(url) {
 function normalizeServerURL(value) {
 	if (typeof value !== "string" || !value.trim()) throw new Error("Enter the host URL.");
 	const url = new URL(value.trim());
-	if ((url.protocol !== "https:" && !(url.protocol === "http:" && isLoopback(url.href))) || url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
+	if (
+		(url.protocol !== "https:" && !(url.protocol === "http:" && isLoopback(url.href))) ||
+		url.username ||
+		url.password ||
+		url.pathname !== "/" ||
+		url.search ||
+		url.hash
+	) {
 		throw new Error("Use an HTTPS host URL without a path, or HTTP on localhost.");
 	}
 	return url.origin;
@@ -23,14 +30,20 @@ function readConnection(userData) {
 	};
 }
 /** The existing loopback configuration remains valid; a remote host is opt-in. */
-function sharedServerURL(userData) { return readConnection(userData).url; }
+function sharedServerURL(userData) {
+	return readConnection(userData).url;
+}
 function connectionSettings(userData) {
 	const record = readConnection(userData);
 	return { mode: record.url && !isLoopback(record.url) ? "host" : "local", url: record.url || "" };
 }
 function saveConnection(userData, value) {
 	let previous = {};
-	try { previous = readConnection(userData); } catch { /* An invalid configuration must be repairable. */ }
+	try {
+		previous = readConnection(userData);
+	} catch {
+		/* An invalid configuration must be repairable. */
+	}
 	const localUrl = previous.url && isLoopback(previous.url) ? previous.url : previous.localUrl;
 	const url = value === null ? localUrl : normalizeServerURL(value);
 	const record = { ...(url ? { url } : {}), ...(localUrl ? { localUrl } : {}) };

@@ -21,7 +21,9 @@ export function registerFileDrop(target: DropTarget) {
 		if (focused === target.id) focused = null;
 	};
 }
-export function focusFileDrop(id: string) { focused = id; }
+export function focusFileDrop(id: string) {
+	focused = id;
+}
 
 function visible(target: DropTarget) {
 	const element = target.element();
@@ -41,8 +43,7 @@ function destination(event: DragEvent) {
 		if (target && visible(target)) return target;
 	}
 	const available = [...targets.values()].sort((a, b) => b.priority() - a.priority());
-	return available.find(t => t.id === focused && visible(t))
-		?? available.find(t => visible(t) || t.canReveal());
+	return available.find((t) => t.id === focused && visible(t)) ?? available.find((t) => visible(t) || t.canReveal());
 }
 
 /** A single drop owner prevents browser navigation and duplicate attachment. */
@@ -60,7 +61,10 @@ export function GlobalFileDrop() {
 			setOver(true);
 		};
 		const leave = () => {
-			if (--depth <= 0) { depth = 0; setOver(false); }
+			if (--depth <= 0) {
+				depth = 0;
+				setOver(false);
+			}
 		};
 		const drag = (event: DragEvent) => {
 			if (!files(event)) return;
@@ -76,7 +80,10 @@ export function GlobalFileDrop() {
 			setOver(false);
 			setError("");
 			const target = destination(event);
-			if (!target) { setError("Open a chat or project to add files."); return; }
+			if (!target) {
+				setError("Open a chat or project to add files.");
+				return;
+			}
 			target.activate();
 			void target.add(Array.from(event.dataTransfer?.files || [])).then(() => {
 				const element = target.element();
@@ -95,12 +102,26 @@ export function GlobalFileDrop() {
 			window.removeEventListener("drop", drop, true);
 		};
 	}, []);
-	return <>
-		{over && <div data-testid="app-file-drop-overlay" className="fixed inset-0 z-[200] flex items-center justify-center border-2 border-primary bg-background/85">
-			<div className="pointer-events-none rounded-2xl border bg-card px-8 py-6 font-prose text-lg shadow-xl">Add files to {label}</div>
-		</div>}
-		{error && <div role="alert" className="fixed bottom-5 right-5 z-[210] rounded-xl border bg-card p-4 text-sm">
-			{error}<button className="ml-4" onClick={() => setError("")} aria-label="Dismiss file drop message">×</button>
-		</div>}
-	</>;
+	return (
+		<>
+			{over && (
+				<div
+					data-testid="app-file-drop-overlay"
+					className="fixed inset-0 z-[200] flex items-center justify-center border-2 border-primary bg-background/85"
+				>
+					<div className="pointer-events-none rounded-2xl border bg-card px-8 py-6 font-prose text-lg shadow-xl">
+						Add files to {label}
+					</div>
+				</div>
+			)}
+			{error && (
+				<div role="alert" className="fixed bottom-5 right-5 z-[210] rounded-xl border bg-card p-4 text-sm">
+					{error}
+					<button className="ml-4" onClick={() => setError("")} aria-label="Dismiss file drop message">
+						×
+					</button>
+				</div>
+			)}
+		</>
+	);
 }
