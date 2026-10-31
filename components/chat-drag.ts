@@ -16,7 +16,10 @@ export function useChatDrop(move: (id: string) => void) {
 		const reset = () => setOver(false);
 		document.addEventListener("dragend", reset);
 		document.addEventListener("drop", reset);
-		return () => { document.removeEventListener("dragend", reset); document.removeEventListener("drop", reset); };
+		return () => {
+			document.removeEventListener("dragend", reset);
+			document.removeEventListener("drop", reset);
+		};
 	}, []);
 	const accepts = (event: DragEvent) => Array.from(event.dataTransfer.types).includes(CHAT_DRAG_TYPE);
 	return {
@@ -24,11 +27,14 @@ export function useChatDrop(move: (id: string) => void) {
 		handlers: {
 			onDragEnter(event: DragEvent<HTMLElement>) {
 				if (!accepts(event)) return;
-				event.preventDefault(); event.stopPropagation(); setOver(true);
+				event.preventDefault();
+				event.stopPropagation();
+				setOver(true);
 			},
 			onDragOver(event: DragEvent<HTMLElement>) {
 				if (!accepts(event)) return;
-				event.preventDefault(); event.stopPropagation();
+				event.preventDefault();
+				event.stopPropagation();
 				event.dataTransfer.dropEffect = "move";
 				setOver(true);
 			},
@@ -37,7 +43,9 @@ export function useChatDrop(move: (id: string) => void) {
 			},
 			onDrop(event: DragEvent<HTMLElement>) {
 				if (!accepts(event)) return;
-				event.preventDefault(); event.stopPropagation(); setOver(false);
+				event.preventDefault();
+				event.stopPropagation();
+				setOver(false);
 				const id = event.dataTransfer.getData(CHAT_DRAG_TYPE);
 				if (/^chat_[A-Za-z0-9_-]+$/.test(id)) move(id);
 			},

@@ -13,7 +13,11 @@ export class TypeWhisperDictationController {
 	private run: Promise<void> = Promise.resolve();
 	private stopRequested = false;
 	private disposed = false;
-	constructor(private request: Request, private changed: (phase: DictationPhase, error: string | null) => void, private pollMs = 300) {}
+	constructor(
+		private request: Request,
+		private changed: (phase: DictationPhase, error: string | null) => void,
+		private pollMs = 300,
+	) {}
 	private publish(phase: DictationPhase, error: string | null = null) {
 		this.phase = phase;
 		if (!this.disposed) this.changed(phase, error);
@@ -36,12 +40,16 @@ export class TypeWhisperDictationController {
 					}
 					const session = await this.request("session", id);
 					if (session.status === "completed") break;
-					if (session.status === "failed") throw new Error(session.message ?? "TypeWhisper could not finish dictation. Check its indicator or Recovery settings.");
+					if (session.status === "failed")
+						throw new Error(
+							session.message ?? "TypeWhisper could not finish dictation. Check its indicator or Recovery settings.",
+						);
 					const processing = this.stopRequested || session.status === "processing";
 					this.publish(processing ? "stopping" : "recording");
 					if (processing) {
 						processingSince ||= Date.now();
-						if (Date.now() - processingSince > 120_000) throw new Error("TypeWhisper is still processing. Check its menu bar indicator.");
+						if (Date.now() - processingSince > 120_000)
+							throw new Error("TypeWhisper is still processing. Check its menu bar indicator.");
 					}
 					await new Promise((resolve) => setTimeout(resolve, this.pollMs));
 				}
@@ -59,15 +67,22 @@ export class TypeWhisperDictationController {
 		}
 		return this.run;
 	}
-	toggle() { if (this.phase === "idle") this.start(); else void this.finish(); }
-	dispose() { this.disposed = true; void this.finish(); }
+	toggle() {
+		if (this.phase === "idle") this.start();
+		else void this.finish();
+	}
+	dispose() {
+		this.disposed = true;
+		void this.finish();
+	}
 }
 
 async function request(action: "start" | "stop" | "session", id?: string): Promise<Session> {
 	const url = "/api/stt/typewhisper";
-	const response = action === "session"
-		? await fetch(`${url}?id=${encodeURIComponent(id!)}`, { cache: "no-store" })
-		: await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, id }) });
+	const response =
+		action === "session"
+			? await fetch(`${url}?id=${encodeURIComponent(id!)}`, { cache: "no-store" })
+			: await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, id }) });
 	const result = await response.json();
 	if (!response.ok) throw new Error(result.message ?? "TypeWhisper request failed.");
 	return result;
@@ -76,9 +91,20 @@ async function request(action: "start" | "stop" | "session", id?: string): Promi
 function focusDictationField() {
 	const focused = document.activeElement;
 	if (focused instanceof HTMLTextAreaElement || (focused instanceof HTMLInputElement && focused.type === "text")) return;
-	for (const selector of ['[data-testid="reading-thinking-field"] textarea', '[data-testid="question-dock"] textarea', '[data-testid="practice-dock"] textarea', '[data-testid="composer"] textarea', 'textarea']) {
-		const field = [...document.querySelectorAll<HTMLTextAreaElement>(selector)].find((el) => !el.disabled && el.getClientRects().length > 0);
-		if (field) { field.focus(); return; }
+	for (const selector of [
+		'[data-testid="reading-thinking-field"] textarea',
+		'[data-testid="question-dock"] textarea',
+		'[data-testid="practice-dock"] textarea',
+		'[data-testid="composer"] textarea',
+		"textarea",
+	]) {
+		const field = [...document.querySelectorAll<HTMLTextAreaElement>(selector)].find(
+			(el) => !el.disabled && el.getClientRects().length > 0,
+		);
+		if (field) {
+			field.focus();
+			return;
+		}
 	}
 	throw new Error("Focus a lesson text field before dictating.");
 }
@@ -90,15 +116,41 @@ export function useTypeWhisperDictation(enabled: boolean): Dictation {
 	const controller = useRef<TypeWhisperDictationController | null>(null);
 	useEffect(() => {
 		if (!enabled) return;
-		const current = new TypeWhisperDictationController(request, (next, message) => { setPhase(next); setError(message); });
+		const current = new TypeWhisperDictationController(request, (next, message) => {
+			setPhase(next);
+			setError(message);
+		});
 		controller.current = current;
-		return () => { current.dispose(); if (controller.current === current) controller.current = null; };
+		return () => {
+			current.dispose();
+			if (controller.current === current) controller.current = null;
+		};
 	}, [enabled]);
 	const toggle = () => {
-		try { focusDictationField(); controller.current?.toggle(); }
-		catch (error) { setError(error instanceof Error ? error.message : "Focus a text field first."); }
+		try {
+			focusDictationField();
+			controller.current?.toggle();
+		} catch (error) {
+			setError(error instanceof Error ? error.message : "Focus a text field first.");
+		}
 	};
 	const finish = () => controller.current?.finish() ?? Promise.resolve();
-	return { phase, error, levelRef, active: phase !== "idle", backend: "typewhisper", toggle, stop: () => { focusDictationField(); void finish(); }, finish,
-		cancel: () => { focusDictationField(); void finish(); }, clearError: () => setError(null) };
+	return {
+		phase,
+		error,
+		levelRef,
+		active: phase !== "idle",
+		backend: "typewhisper",
+		toggle,
+		stop: () => {
+			focusDictationField();
+			void finish();
+		},
+		finish,
+		cancel: () => {
+			focusDictationField();
+			void finish();
+		},
+		clearError: () => setError(null),
+	};
 }

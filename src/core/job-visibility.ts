@@ -3,9 +3,12 @@ import type { JobRecord } from "./contracts/jobs.ts";
 export function jobTaskFromInput(input: unknown): string | undefined {
 	if (!input || typeof input !== "object") return undefined;
 	const value = input as Record<string, unknown>;
-	return [value.title, value.question, value.brief, value.context]
-		.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
-		.join("\n\n").slice(0, 8000) || undefined;
+	return (
+		[value.title, value.question, value.brief, value.context]
+			.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+			.join("\n\n")
+			.slice(0, 8000) || undefined
+	);
 }
 
 /** Presentation only: result generation and lesson delivery have different lifetimes. */
@@ -13,9 +16,14 @@ export function jobDisplay(job: JobRecord): { label: string; working: boolean } 
 	if (job.status === "error") return { label: "Failed", working: false };
 	if (job.status === "done" && job.delivery?.status !== "pending") return { label: "Delivered", working: false };
 	if (job.result !== undefined) {
-		const label = job.deliveryState === "waiting-answer" ? "Ready — waiting for your answer"
-			: job.deliveryState === "waiting-lesson" ? "Ready — waiting for the lesson"
-			: job.deliveryState === "delivering" ? "Ready — delivering to lesson" : "Ready";
+		const label =
+			job.deliveryState === "waiting-answer"
+				? "Ready — waiting for your answer"
+				: job.deliveryState === "waiting-lesson"
+					? "Ready — waiting for the lesson"
+					: job.deliveryState === "delivering"
+						? "Ready — delivering to lesson"
+						: "Ready";
 		return { label, working: false };
 	}
 	return { label: "Working", working: true };

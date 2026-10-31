@@ -7,17 +7,28 @@ function createQuitConfirmation(userData, showMessageBox, quit) {
 	const file = path.join(userData, "window-preferences.json");
 	let pending = null;
 	function skipped() {
-		try { return JSON.parse(fs.readFileSync(file, "utf8")).skipQuitConfirmation === true; }
-		catch { return false; }
+		try {
+			return JSON.parse(fs.readFileSync(file, "utf8")).skipQuitConfirmation === true;
+		} catch {
+			return false;
+		}
 	}
 	return function confirmQuit(window) {
 		if (pending) return pending;
 		pending = (async () => {
-			if (skipped()) { quit(); return; }
+			if (skipped()) {
+				quit();
+				return;
+			}
 			const result = await showMessageBox(window, {
-				type: "question", message: "Quit LearnHarness?",
-				buttons: ["Cancel", "Quit"], defaultId: 0, cancelId: 0,
-				checkboxLabel: "Don't show this again", checkboxChecked: false, noLink: true,
+				type: "question",
+				message: "Quit LearnHarness?",
+				buttons: ["Cancel", "Quit"],
+				defaultId: 0,
+				cancelId: 0,
+				checkboxLabel: "Don't show this again",
+				checkboxChecked: false,
+				noLink: true,
 			});
 			if (result.response !== 1) return;
 			if (result.checkboxChecked) {
@@ -27,7 +38,9 @@ function createQuitConfirmation(userData, showMessageBox, quit) {
 				fs.renameSync(temp, file);
 			}
 			quit();
-		})().finally(() => { pending = null; });
+		})().finally(() => {
+			pending = null;
+		});
 		return pending;
 	};
 }
