@@ -1,3 +1,12 @@
+/** Image types attachments can be previewed or sent as. */
+export const IMAGE_MIME: Readonly<Record<string, string>> = {
+	".png": "image/png",
+	".jpg": "image/jpeg",
+	".jpeg": "image/jpeg",
+	".webp": "image/webp",
+	".gif": "image/gif",
+};
+
 /** Paths inserted by the shared uploader. UUIDs resolve only in our upload store. */
 export function uploadedImageReferences(text: string): { id: string; path: string; url: string }[] {
 	const found = new Map<string, { id: string; path: string; url: string }>();

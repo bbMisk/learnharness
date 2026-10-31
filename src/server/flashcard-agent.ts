@@ -236,12 +236,12 @@ export async function runFlashcardCuration(force = false, deps: FlashcardAgentDe
 		emit("activity-changed", {});
 	};
 	progress("Triaging concepts");
-	updateFlashcardCuration((next) => {
-		(next.projectDays ??= {})[day] ??= projectReservations(next, day, allCandidates);
-		next.lastRunAt = deps.now();
-		delete next.lastError;
-	});
 	try {
+		updateFlashcardCuration((next) => {
+			(next.projectDays ??= {})[day] ??= projectReservations(next, day, allCandidates);
+			next.lastRunAt = deps.now();
+			delete next.lastError;
+		});
 		// One generated question is enough for every device and both study phases.
 		const seen = new Set<string>();
 		updateFlashcardCuration((next) => {
@@ -345,21 +345,25 @@ export async function runFlashcardCuration(force = false, deps: FlashcardAgentDe
 			next.lastError = signal.aborted ? "Stopped by you." : error instanceof Error ? error.message : "Flashcard preparation failed.";
 		});
 	} finally {
-		// Ready cards become durable without starting a teaching turn.
+		// A failed save must never leave the curator marked running.
 		try {
-			await deps.sync();
-		} catch (error) {
+			// Ready cards become durable without starting a teaching turn.
+			try {
+				await deps.sync();
+			} catch (error) {
+				updateFlashcardCuration((next) => {
+					next.lastError = error instanceof Error ? error.message : "Prepared cards could not be saved.";
+				});
+			}
 			updateFlashcardCuration((next) => {
-				next.lastError = error instanceof Error ? error.message : "Prepared cards could not be saved.";
+				next.lastSignature = signature;
 			});
+		} finally {
+			state.run = undefined;
+			const pending = state.pending;
+			state.pending = false;
+			emit("activity-changed", {});
+			if (pending && !signal.aborted) scheduleFlashcardCuration();
 		}
-		updateFlashcardCuration((next) => {
-			next.lastSignature = signature;
-		});
-		state.run = undefined;
-		const pending = state.pending;
-		state.pending = false;
-		emit("activity-changed", {});
-		if (pending && !signal.aborted) scheduleFlashcardCuration();
 	}
 }

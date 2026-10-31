@@ -67,10 +67,6 @@ export class TypeWhisperDictationController {
 		}
 		return this.run;
 	}
-	toggle() {
-		if (this.phase === "idle") this.start();
-		else void this.finish();
-	}
 	dispose() {
 		this.disposed = true;
 		void this.finish();
