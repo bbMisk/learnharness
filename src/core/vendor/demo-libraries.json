@@ -1,0 +1,35 @@
+{
+	"note": "Third-party browser libraries inlined into sandboxed lesson demos. Regenerate the .ts modules with scripts/vendor-demo-libraries.mjs; it checks every hash below.",
+	"libraries": [
+		{
+			"name": "@floating-ui/core",
+			"version": "1.7.3",
+			"license": "MIT",
+			"tarball": "https://registry.npmjs.org/@floating-ui/core/-/core-1.7.3.tgz",
+			"file": "dist/floating-ui.core.umd.min.js",
+			"sha256": "6985ce661153c01d97f6be9babb6a9566f923c716c2b7fbead48fbb09f419ba8",
+			"licenseFile": "floating-ui-LICENSE.txt",
+			"module": "floating-ui-v1.ts"
+		},
+		{
+			"name": "@floating-ui/dom",
+			"version": "1.7.4",
+			"license": "MIT",
+			"tarball": "https://registry.npmjs.org/@floating-ui/dom/-/dom-1.7.4.tgz",
+			"file": "dist/floating-ui.dom.umd.min.js",
+			"sha256": "b8199f76adccb9b17b3ab57124c42585dc19197127d1a5d19307d1983f80bd89",
+			"licenseFile": "floating-ui-LICENSE.txt",
+			"module": "floating-ui-v1.ts"
+		},
+		{
+			"name": "lucide",
+			"version": "1.17.0",
+			"license": "ISC (icons derived from Feather: MIT)",
+			"tarball": "https://registry.npmjs.org/lucide/-/lucide-1.17.0.tgz",
+			"file": "dist/umd/lucide.min.js",
+			"sha256": "5e943127343691a9b640d959bbfbdeb742f4a99e0ebc17a4fa77e94654e5318b",
+			"licenseFile": "lucide-LICENSE.txt",
+			"module": "lucide-v1.ts"
+		}
+	]
+}
