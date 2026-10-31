@@ -31,7 +31,7 @@ const MAX_COORD = 1e6;
  * sanitized positions actually persisted (empty object = nothing written,
  * e.g. a body with no known ids — the caller reports but never fails).
  */
-export function commitPositions(input: unknown): Record<string, Position> {
+export async function commitPositions(input: unknown): Promise<Record<string, Position>> {
 	if (typeof input !== "object" || input === null) return {};
 	const raw = input as Record<string, unknown>;
 
@@ -64,7 +64,7 @@ export function commitPositions(input: unknown): Record<string, Position> {
 	// comparison broke once args counted as persistable).
 	for (const id of known) {
 		if (!(id in positions)) {
-			settleGraphLayout(stores.graphStore);
+			await settleGraphLayout(stores.graphStore);
 			break;
 		}
 	}
