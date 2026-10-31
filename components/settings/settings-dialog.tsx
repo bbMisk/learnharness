@@ -398,6 +398,18 @@ export function SettingsDialogBody({
 											onChange={(on) => void writeGeneral({ showReadingThinking: on })}
 										/>
 									</SettingsRow>
+									<SettingsRow
+										label="Keep cursor in Your thinking"
+										hint="During a question, typing, pasting and dictation stay in Your thinking."
+										testid="row-keep-thinking-focus"
+									>
+										<Toggle
+											checked={record.general?.keepThinkingFocus ?? true}
+											label="keep cursor in your thinking"
+											disabled={savingGeneral}
+											onChange={(on) => void writeGeneral({ keepThinkingFocus: on })}
+										/>
+									</SettingsRow>
 									<SettingsRow label="Flashcard sources" hint="Choose which material appears in your flashcards. Review history is preserved." testid="row-flashcard-sources">
                                         <select aria-label="Flashcard sources" value={record.general?.flashcardSources ?? "chats"} disabled={savingGeneral} onChange={event => void writeGeneral({flashcardSources:event.target.value as "chats" | "all"})} className="max-w-56 rounded-md border bg-background p-2 text-xs">
                                             <option value="chats">Chat history only</option><option value="all">Chat history + imported knowledge</option>

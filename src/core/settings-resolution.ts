@@ -188,6 +188,7 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			flashcardSources: record?.general?.flashcardSources ?? FACTORY_SETTINGS.general.flashcardSources,
 			autoUpdate: record?.general?.autoUpdate ?? FACTORY_SETTINGS.general.autoUpdate,
 			showReadingThinking: record?.general?.showReadingThinking ?? FACTORY_SETTINGS.general.showReadingThinking,
+			keepThinkingFocus: record?.general?.keepThinkingFocus ?? FACTORY_SETTINGS.general.keepThinkingFocus,
 		},
 		dictation: {
 			language: record?.dictation?.language ?? FACTORY_SETTINGS.dictation.language,
