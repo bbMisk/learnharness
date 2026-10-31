@@ -88,22 +88,33 @@ async function request(action: "start" | "stop" | "session", id?: string): Promi
 	return result;
 }
 
-function focusDictationField() {
+/** TypeWhisper types into the focused field: a textarea, a text input, or a
+ *  lesson rich-text box (the composer and docks are contenteditable). */
+const DICTATION_FIELD = 'textarea, input[type="text"], [role="textbox"][contenteditable="true"]';
+
+function usableField(el: HTMLElement): boolean {
+	return !(el as HTMLTextAreaElement).disabled && el.getAttribute("aria-disabled") !== "true" && el.getClientRects().length > 0;
+}
+
+function focusDictationField(): HTMLElement {
 	const focused = document.activeElement;
-	if (focused instanceof HTMLTextAreaElement || (focused instanceof HTMLInputElement && focused.type === "text")) return;
-	for (const selector of [
-		'[data-testid="reading-thinking-field"] textarea',
-		'[data-testid="question-dock"] textarea',
-		'[data-testid="practice-dock"] textarea',
-		'[data-testid="composer"] textarea',
-		"textarea",
+	if (focused instanceof HTMLElement && focused.matches(DICTATION_FIELD)) return focused;
+	for (const scope of [
+		'[data-testid="reading-thinking-field"]',
+		'[data-testid="question-dock"]',
+		'[data-testid="practice-dock"]',
+		'[data-testid="composer"]',
+		"",
 	]) {
-		const field = [...document.querySelectorAll<HTMLTextAreaElement>(selector)].find(
-			(el) => !el.disabled && el.getClientRects().length > 0,
-		);
+		const selector = scope
+			? DICTATION_FIELD.split(", ")
+					.map((field) => `${scope} ${field}`)
+					.join(", ")
+			: DICTATION_FIELD;
+		const field = [...document.querySelectorAll<HTMLElement>(selector)].find(usableField);
 		if (field) {
 			field.focus();
-			return;
+			return field;
 		}
 	}
 	throw new Error("Focus a lesson text field before dictating.");
@@ -114,6 +125,7 @@ export function useTypeWhisperDictation(enabled: boolean): Dictation {
 	const [error, setError] = useState<string | null>(null);
 	const levelRef = useRef(0);
 	const controller = useRef<TypeWhisperDictationController | null>(null);
+	const target = useRef<HTMLElement | null>(null);
 	useEffect(() => {
 		if (!enabled) return;
 		const current = new TypeWhisperDictationController(request, (next, message) => {
@@ -126,15 +138,24 @@ export function useTypeWhisperDictation(enabled: boolean): Dictation {
 			if (controller.current === current) controller.current = null;
 		};
 	}, [enabled]);
+	const finish = () => {
+		// Restore the recording's field before TypeWhisper inserts its final text.
+		// A removed field must never prevent the microphone from stopping.
+		if (controller.current?.phase !== "idle" && target.current?.isConnected && usableField(target.current)) target.current.focus();
+		return controller.current?.finish() ?? Promise.resolve();
+	};
 	const toggle = () => {
+		if (controller.current && controller.current.phase !== "idle") {
+			void finish();
+			return;
+		}
 		try {
-			focusDictationField();
-			controller.current?.toggle();
+			target.current = focusDictationField();
+			controller.current?.start();
 		} catch (error) {
 			setError(error instanceof Error ? error.message : "Focus a text field first.");
 		}
 	};
-	const finish = () => controller.current?.finish() ?? Promise.resolve();
 	return {
 		phase,
 		error,
@@ -142,15 +163,9 @@ export function useTypeWhisperDictation(enabled: boolean): Dictation {
 		active: phase !== "idle",
 		backend: "typewhisper",
 		toggle,
-		stop: () => {
-			focusDictationField();
-			void finish();
-		},
+		stop: () => void finish(),
 		finish,
-		cancel: () => {
-			focusDictationField();
-			void finish();
-		},
+		cancel: () => void finish(),
 		clearError: () => setError(null),
 	};
 }

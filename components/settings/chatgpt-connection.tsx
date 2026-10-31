@@ -355,9 +355,21 @@ export function ChatGPTBackgroundAccess({ provider }: { provider: string | undef
 
 /** Account-owned Fast preference; the service can still deliver Standard. */
 export function ChatGPTSpeedIndicator({ modelId }: { modelId?: string }) {
- const ui = useContext(Context);
- if (!ui.status.activeId) return null;
- const last = ui.status.lastServiceTier;
- const served = last?.modelId === modelId ? last?.served : undefined;
- return <span className="whitespace-nowrap text-xs" data-testid="chatgpt-speed-indicator"><button type="button" className="underline underline-offset-2 disabled:opacity-50" disabled={ui.busy || (!ui.status.fastMode && !ui.status.fastModels?.includes(modelId ?? ""))} onClick={() => ui.fast(!ui.status.fastMode)} title="Fast uses more plan allowance; actual delivery may be Standard.">{ui.status.fastMode ? "Fast on" : "Fast off"}</button>{served !== undefined && ` · last: ${served === "priority" || served === "fast" ? "Fast" : served === "default" ? "Standard" : served ?? "Unknown"}${last?.requested ? " (Fast requested)" : ""}`}</span>;
+	const ui = useContext(Context);
+	// The footer pill is the one Fast control, so its failures show beside it.
+	const [asked, setAsked] = useState(false);
+	if (!ui.status.activeId) return null;
+	const enabled = ui.status.fastMode === true;
+	const supported = ui.status.fastModels?.includes(modelId ?? "");
+	const last = ui.status.lastServiceTier?.modelId === modelId ? ui.status.lastServiceTier : undefined;
+	const served = last?.served === "priority" || last?.served === "fast" ? "Fast" : last?.served === "default" ? "Standard" : "Unknown";
+	const hint = `${enabled ? "Request Fast responses" : "Use Standard responses"}. Fast uses more plan allowance and may still be served at Standard speed.${last ? ` Last response: ${served}.` : ""}${!supported && !enabled ? " Fast is unavailable for this model." : ""}`;
+	return <>
+		<button type="button" data-testid="chatgpt-speed-indicator" aria-label="Fast mode" aria-pressed={enabled}
+			disabled={ui.busy || (!enabled && !supported)} onClick={() => { setAsked(true); ui.fast(!enabled); }} title={hint}
+			className="flex h-7 shrink-0 items-center whitespace-nowrap rounded-full border bg-card/85 px-2.5 text-xs shadow-lg backdrop-blur transition-colors hover:bg-muted disabled:opacity-50">
+			Fast {enabled ? "on" : "off"}
+		</button>
+		{asked && ui.error && <span role="alert" className="text-xs text-destructive">{ui.error}</span>}
+	</>;
 }
