@@ -338,6 +338,8 @@ export interface GeneralSettings {
 	autoUpdate?: boolean;
 	/** Show the optional reading-notes field beside teaching checks (default OFF). */
 	showReadingThinking?: boolean;
+	/** Keep typing, paste and dictation in a question's "Your thinking" field (default ON). */
+	keepThinkingFocus?: boolean;
 	/** Flashcard source scope. Chat provenance is required by default. */
 	flashcardSources?: "chats" | "all";
 }
@@ -522,7 +524,7 @@ export interface FactorySettings {
 
 export const FACTORY_SETTINGS: FactorySettings = {
 	version: CURRENT_SETTINGS_VERSION,
-	general: { autoUpdate: true, showReadingThinking: false, flashcardSources: "chats" },
+	general: { autoUpdate: true, showReadingThinking: false, keepThinkingFocus: true, flashcardSources: "chats" },
 	dictation: { language: "en" },
 	appearance: {
 		mode: "dark",
@@ -571,6 +573,8 @@ function sanitizeGeneral(raw: Record<string, unknown>): GeneralSettings {
 	if (autoUpdate !== undefined) out.autoUpdate = autoUpdate;
 	const showReadingThinking = boolOrDrop(raw.showReadingThinking);
 	if (showReadingThinking !== undefined) out.showReadingThinking = showReadingThinking;
+	const keepThinkingFocus = boolOrDrop(raw.keepThinkingFocus);
+	if (keepThinkingFocus !== undefined) out.keepThinkingFocus = keepThinkingFocus;
 	return out;
 }
 

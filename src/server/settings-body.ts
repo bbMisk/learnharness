@@ -100,6 +100,12 @@ export function parseGeneralSettingsBody(body: unknown): SettingsBodyResult<Gene
 		}
 		settings.showReadingThinking = raw.showReadingThinking;
 	}
+	if (raw.keepThinkingFocus !== undefined) {
+		if (typeof raw.keepThinkingFocus !== "boolean") {
+			return { ok: false, error: "keepThinkingFocus must be a boolean" };
+		}
+		settings.keepThinkingFocus = raw.keepThinkingFocus;
+	}
 	return { ok: true, settings };
 }
 
