@@ -55,15 +55,53 @@ function createChat(title: string, kind?: "practice"): ChatRecord {
 /** THE WRITE CHOKE POINT (schema-versioning wave, owner 2026-10-10): every
  *  record persist goes through here and carries the CURRENT version stamp —
  *  lazy migration means existing files only get stamped on their next write.
- *  A future-version guard lives on the read side (getChat). */
+ *  A future-version guard lives on the read side (getChat). The record
+ *  cache keeps what was written, so the next read does not parse it. */
 function writeChat(record: ChatRecord): void {
+	const file = chatFile(record.id);
+	const stamped = { ...record, version: CURRENT_CHAT_VERSION };
+	const json = JSON.stringify(stamped, null, "\t");
+	const previous = recordCache.get(record.id)?.record;
 	forgetRecord(record.id);
-	writeFileAtomic(chatFile(record.id), JSON.stringify({ ...record, version: CURRENT_CHAT_VERSION }, null, "\t"));
+	writeFileAtomic(file, json);
+	let stat: fs.Stats;
+	try {
+		stat = fs.statSync(file);
+	} catch {
+		return; // the next getChat reads the file
+	}
+	if (stat.size > RECORD_CACHE_BYTES) return;
+	rememberRecord(record.id, signatureOf(stat), stat.size, writtenRecord(stamped, json, previous));
+}
+
+/** What a fresh parse of the file writeChat just wrote returns, without
+ *  parsing it: values the previous cached record already holds are cache-
+ *  owned and reused as they are; every other value goes through JSON, so
+ *  the cache shares nothing the caller still holds and keeps nothing JSON
+ *  drops or transforms (undefined, Dates). */
+function writtenRecord(stamped: ChatRecord, json: string, previous: ChatRecord | undefined): ChatRecord {
+	if (!previous) return JSON.parse(json) as ChatRecord;
+	const owned = new Set<unknown>();
+	for (const value of Object.values(previous)) {
+		if (Array.isArray(value)) for (const item of value) owned.add(item);
+		else owned.add(value);
+	}
+	const viaJson = (value: unknown): unknown => {
+		if (owned.has(value)) return value;
+		const text = JSON.stringify(value);
+		return text === undefined ? undefined : JSON.parse(text);
+	};
+	const record: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(stamped)) {
+		const copy = Array.isArray(value) ? Array.from(value, (item) => viaJson(item) ?? null) : viaJson(value);
+		if (copy !== undefined) record[key] = copy;
+	}
+	return record as unknown as ChatRecord;
 }
 
 /** Parsed records keyed by id, valid while the file's stat signature holds
  *  (the same signature as the summary cache below). Only successful reads
- *  are cached; least recently used records go first once the files they
+ *  and writes are cached; least recently used records go first once the files they
  *  came from pass RECORD_CACHE_BYTES. Callers get a fresh top level and
  *  fresh top-level arrays, so they can replace fields and push or splice
  *  freely; everything deeper is shared and must be copied before it is

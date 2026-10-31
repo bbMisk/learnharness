@@ -40,6 +40,7 @@ test("chat detail reads one lesson snapshot for both history and coverage", asyn
 	const record = chatStore.createChat("single snapshot fixture");
 	chatStore.saveMessages(record.id, [{ ...fauxAssistantMessage([{ type: "text", text: "A lesson paragraph." }]), id: "lesson" }]);
 	const file = path.join(scratch, "chats", `${record.id}.json`);
+	fs.writeFileSync(file, `${fs.readFileSync(file, "utf8")}\n`); // written elsewhere: the route's read goes to disk
 	const read = fs.readFileSync;
 	let reads = 0;
 	const spy = mock.method(fs, "readFileSync", (...args: Parameters<typeof read>) => {

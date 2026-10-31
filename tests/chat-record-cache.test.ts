@@ -15,7 +15,7 @@ import { after, describe, it, mock } from "node:test";
 const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-chat-record-cache-"));
 process.env.LH_DATA_DIR = TMP_DATA;
 
-const { chatStore } = await import("../src/store/chats.ts");
+const { chatStore, captureChatLearningHistory, setChatOrganization } = await import("../src/store/chats.ts");
 const { PATHS } = await import("../config.ts");
 
 let fresh = 0;
@@ -77,6 +77,58 @@ describe("getChat record cache", () => {
 		assert.equal(chatStore.deleteChat(a.id), true);
 		assert.equal(chatStore.getChat(a.id), null);
 		await assertParity(a.id);
+	});
+
+	it("keeps what every store write wrote, so the next read does not parse the file", async () => {
+		const a = chatStore.createChat("write through");
+		const file = path.join(PATHS.chats, `${a.id}.json`);
+		async function assertWrittenThrough(write: () => void) {
+			write();
+			assert.equal(chatFileReads(a.id, () => {
+				chatStore.getChat(a.id);
+				chatStore.listChats();
+			}), 0);
+			await assertParity(a.id);
+		}
+		await assertWrittenThrough(() => {});
+		// Values JSON drops or transforms must not survive in the cache.
+		await assertWrittenThrough(() => chatStore.saveMessages(a.id, [
+			{ id: "m1", role: "user", content: "hello", timestamp: 1, dropped: undefined, when: new Date(0) } as never,
+		]));
+		await assertWrittenThrough(() => chatStore.saveMessages(a.id, [
+			...chatStore.getChat(a.id)!.messages,
+			{ id: "m2", role: "user", content: "again", timestamp: 2 },
+		]));
+		await assertWrittenThrough(() => chatStore.appendTurnUsage(a.id, { id: "t1", messageId: "m1", at: "2026-01-01T00:00:00.000Z", model: "m", steps: [] }));
+		await assertWrittenThrough(() => chatStore.appendExtractionUsage(a.id, { startedAt: "2026-01-01T00:00:00.000Z", steps: [] } as never));
+		await assertWrittenThrough(() => chatStore.saveSettings(a.id, { thinkingLevel: "high", model: undefined } as never));
+		await assertWrittenThrough(() => chatStore.renameChat(a.id, "write through renamed"));
+		await assertWrittenThrough(() => chatStore.saveTree(a.id, { nodes: [{ id: "n1", title: "Node" }], edges: [], version: 1 }));
+		await assertWrittenThrough(() => setChatOrganization(a.id, { pinned: true, projectId: "p1" }));
+		await assertWrittenThrough(() => setChatOrganization(a.id, { projectId: null }));
+		const { learningEvents: _dropped, ...withoutHistory } = JSON.parse(fs.readFileSync(file, "utf-8"));
+		fs.writeFileSync(file, JSON.stringify(withoutHistory));
+		await assertWrittenThrough(() => assert.ok(captureChatLearningHistory(a.id) > 0));
+		const stamped = JSON.parse(fs.readFileSync(file, "utf-8")).version;
+		assert.equal(typeof stamped, "number");
+		assert.equal(chatStore.getChat(a.id)?.version, stamped);
+	});
+
+	it("shares nothing a writer still holds", () => {
+		const a = chatStore.createChat("writer keeps its objects");
+		const messages = [{ id: "m1", role: "user", content: "hello", timestamp: 1 }] as { id: string; role: "user"; content: string; timestamp: number }[];
+		chatStore.saveMessages(a.id, messages);
+		messages[0]!.content = "edited after the write";
+		messages.push({ id: "m2", role: "user", content: "pushed after the write", timestamp: 2 });
+		const renamed = chatStore.renameChat(a.id, "renamed");
+		renamed.title = "edited after the rename";
+		renamed.messages.splice(0);
+		const record = chatStore.getChat(a.id)!;
+		assert.equal(record.title, "renamed");
+		assert.deepEqual(record.messages.map((m) => (m as { content: string }).content), ["hello"]);
+		assert.throws(() => {
+			(record.messages[0] as { content: string }).content = "edited in place";
+		}, TypeError);
 	});
 
 	it("sees external edits, replacements and removals", async () => {
@@ -152,6 +204,8 @@ describe("getChat record cache", () => {
 
 	it("retries a chat whose read failed transiently", () => {
 		const f = chatStore.createChat("flaky read");
+		const file = path.join(PATHS.chats, `${f.id}.json`);
+		fs.writeFileSync(file, `${fs.readFileSync(file, "utf-8")}\n`); // written elsewhere: the next read goes to disk
 		const realRead = fs.readFileSync;
 		const failing = mock.method(fs, "readFileSync", ((target: fs.PathOrFileDescriptor, ...rest: unknown[]) => {
 			if (String(target).endsWith(`${f.id}.json`)) throw Object.assign(new Error("EMFILE"), { code: "EMFILE" });

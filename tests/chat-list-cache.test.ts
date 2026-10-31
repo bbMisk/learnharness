@@ -94,6 +94,8 @@ describe("listChats summary cache", () => {
 
 	it("retries a chat whose read failed transiently", () => {
 		const f = chatStore.createChat("flaky read");
+		const file = path.join(PATHS.chats, `${f.id}.json`);
+		fs.writeFileSync(file, `${fs.readFileSync(file, "utf-8")}\n`); // written elsewhere: the next read goes to disk
 		const realRead = fs.readFileSync;
 		const failing = mock.method(fs, "readFileSync", ((target: fs.PathOrFileDescriptor, ...rest: unknown[]) => {
 			if (String(target).endsWith(`${f.id}.json`)) throw Object.assign(new Error("EMFILE"), { code: "EMFILE" });
