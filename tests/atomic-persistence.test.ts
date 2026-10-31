@@ -78,9 +78,13 @@ it("an explicit mode replaces the saved mode; fsync and exclusive create are opt
 	const opens: unknown[] = [];
 	let fsyncs = 0;
 	try {
-		const open = fs.openSync, fsync = fs.fsyncSync;
+		const open = fs.openSync, fsync = fs.fsyncSync, write = fs.writeFileSync;
 		mock.method(fs, "openSync", (...args: Parameters<typeof fs.openSync>) => { opens.push(args.slice(1)); return open(...args); });
 		mock.method(fs, "fsyncSync", (fd: number) => { fsyncs++; fsync(fd); });
+		mock.method(fs, "writeFileSync", (...args: Parameters<typeof write>) => {
+			if (typeof args[0] === "string") { const { flag, mode } = args[2] as fs.WriteFileOptions & object; opens.push([flag, mode]); }
+			return write(...args);
+		});
 		writeFileAtomic(file, "new", { mode: 0o600, fsync: true, exclusive: true });
 		assert.equal(fs.statSync(file).mode & 0o777, 0o600);
 		writeFileAtomic(file, "plain");

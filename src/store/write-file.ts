@@ -16,11 +16,15 @@ export function writeFileAtomic(file: string, content: string, options: WriteFil
 	let descriptor: number | undefined;
 	try {
 		const preserved = options.mode === undefined ? fs.statSync(file, { throwIfNoEntry: false })?.mode : undefined;
-		descriptor = fs.openSync(temp, options.exclusive ? "wx" : "w", options.mode ?? preserved);
-		fs.writeFileSync(descriptor, content, "utf8");
-		if (options.fsync) fs.fsyncSync(descriptor);
-		fs.closeSync(descriptor);
-		descriptor = undefined;
+		const mode = options.mode ?? preserved;
+		const flag = options.exclusive ? "wx" : "w";
+		if (options.fsync) {
+			descriptor = fs.openSync(temp, flag, mode);
+			fs.writeFileSync(descriptor, content, "utf8");
+			fs.fsyncSync(descriptor);
+			fs.closeSync(descriptor);
+			descriptor = undefined;
+		} else fs.writeFileSync(temp, content, { encoding: "utf-8", mode, flag });
 		if (preserved !== undefined) fs.chmodSync(temp, preserved);
 		fs.renameSync(temp, file);
 	} finally {
