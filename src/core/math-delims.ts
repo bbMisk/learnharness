@@ -34,9 +34,27 @@ function replaceEscapedDollars(content: string): string {
 	return out;
 }
 
+/** Both display transforms are pure and parse Markdown, and the transcript
+ * calls them on every render: remember recent results by input text. */
+const TEXT_CACHE_LIMIT = 2000;
+function cachedText(cache: Map<string, string>, text: string, compute: () => string): string {
+	const hit = cache.get(text);
+	if (hit !== undefined) return hit;
+	const value = compute();
+	if (cache.size >= TEXT_CACHE_LIMIT) cache.delete(cache.keys().next().value!);
+	cache.set(text, value);
+	return value;
+}
+const delimiterCache = new Map<string, string>();
+const repairCache = new Map<string, string>();
+
 /** Read old \(...\)/\[...\] syntax without touching literal content or
  * reparsing native math as Markdown. Dollar authoring remains native. */
 export function transformMathDelimiters(markdown: string): string {
+	return cachedText(delimiterCache, markdown, () => transformDelimiters(markdown));
+}
+
+function transformDelimiters(markdown: string): string {
 	let offset = 0;
 	return readContentSpans(markdown).map(span => {
 		const start = offset; offset += span.raw.length;
@@ -117,5 +135,5 @@ export function healOverescapedCommands(text: string): string {
 /** Presentation-only, language-independent recovery. Shape parsing, saved
  * identities, grading and model history must use the unprojected source. */
 export function repairMathForDisplay(text: string): string {
-	return healOverescapedCommands(restoreMathEscapes(recoverDocumentLayout(text)));
+	return cachedText(repairCache, text, () => healOverescapedCommands(restoreMathEscapes(recoverDocumentLayout(text))));
 }
