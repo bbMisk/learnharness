@@ -33,6 +33,8 @@
 import type { AgentSettings, ChatSettings, ModelsSettings } from "@/src/core";
 import {
 	SETTINGS_SECTIONS,
+	scheduleFlashcardCuration,
+	abortFlashcardAgent,
 	allSegmentPaths,
 	clampChatLevel,
 	clampModelsLevels,
@@ -129,5 +131,9 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 	// along untouched (other sections, unknown keys — sanitize preserves).
 	const next = { ...record, [section]: sectionOut };
 	writeSettingsRecord(next);
+	if (section === "agent" || section === "general" || section === "models") {
+		if (next.agent?.flashcards?.enabled === false) abortFlashcardAgent();
+		else scheduleFlashcardCuration();
+	}
 	return Response.json({ settings: next });
 }

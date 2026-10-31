@@ -2,8 +2,13 @@ import type { ReviewEngine, ReviewMemory } from "./review-engine.ts";
 
 export const REVIEW_PROTOCOL = 1;
 export const NEW_CARDS_PER_DAY = 20;
+export const UNASSIGNED_REVIEW_PROJECT = "__unassigned";
+export interface ReviewProject { id: string; name: string }
 export type ReviewRating = 1 | 2 | 3 | 4;
+export type ReviewMode = "mcq" | "recall";
+export interface ReviewQuestion { prompt: string; options: string[]; correctIndex: number; explanation: string }
 export interface Flashcard {
+	mcq?: ReviewQuestion;
 	id: string;
 	sourceNodeId: string;
 	revision: string;
@@ -11,10 +16,15 @@ export interface Flashcard {
 	back: string;
 	deckId: string;
 	deckName: string;
+	/** All projects whose chats supplied this concept; absent on older snapshots. */
+	projectIds?: string[];
 	createdAt: number;
 	active: boolean;
 }
 export interface CardSchedule {
+	mode?: ReviewMode;
+	mcqStreak?: number;
+	mcqFirstDay?: number | null;
 	phase: "new" | "learning" | "review" | "relearning";
 	step: number;
 	memory: ReviewMemory | null;
@@ -26,6 +36,8 @@ export interface CardSchedule {
 	introducedDay: number | null;
 }
 export interface ReviewAttempt {
+	mode?: ReviewMode;
+	selectedIndex?: number;
 	id: string;
 	deviceId: string;
 	sequence: number;
@@ -53,6 +65,7 @@ export interface ReviewSnapshot {
 	engineId: string;
 	serverAt: number;
 	cards: Array<Flashcard & { schedule: CardSchedule }>;
+	projects?: ReviewProject[];
 	receipts: Record<string, DeviceReceipt>;
 }
 export interface ReviewRequest { version: 1; deviceId: string; attempts: ReviewAttempt[] }
@@ -122,6 +135,7 @@ export function reviewChoices(state: CardSchedule, at: number, engine: ReviewEng
 		}
 		if (phase === "learning") intervalDays = 0;
 		choices[rating] = {
+			...(state.mode ? {mode:state.mode, mcqStreak:state.mcqStreak, mcqFirstDay:state.mcqFirstDay} : {}),
 			phase, step, memory: item.memory, intervalDays,
 			dueAt: delay ? at + delay : dueOnStudyDay(at, intervalDays), lastReviewAt: at,
 			reps: state.reps + 1, lapses: state.lapses + (state.phase === "review" && rating === 1 ? 1 : 0),
@@ -129,6 +143,35 @@ export function reviewChoices(state: CardSchedule, at: number, engine: ReviewEng
 		};
 	}
 	return choices;
+}
+
+/** Legacy histories are recall histories; untouched cards begin with recognition. */
+export function reviewMode(state: CardSchedule): ReviewMode {
+    return state.mode ?? (state.reps > 0 ? "recall" : "mcq");
+}
+
+/** One FSRS memory and one history for both response formats. Recognition
+ * intervals stay short until the learner demonstrates recall without choices. */
+export function applyReview(state: CardSchedule, attempt: Pick<ReviewAttempt, "rating" | "mode">, at: number, engine: ReviewEngine): CardSchedule {
+    const next = reviewChoices(state, at, engine)[attempt.rating];
+    if (attempt.mode !== "mcq" || reviewMode(state) === "recall") return next;
+    const passed = attempt.rating === 3;
+    const scheduled = state.reps === 0 || at >= state.dueAt;
+    const streak = passed ? (state.mcqStreak ?? 0) + Number(scheduled) : 0;
+    const firstDay = passed ? state.mcqFirstDay ?? studyDay(at) : null;
+    const graduated = streak >= 3 && firstDay !== null && studyDay(at) > firstDay;
+    const dueAt = Math.min(next.dueAt, dueOnStudyDay(at, 1));
+    return {...next, mode:graduated ? "recall" : "mcq", mcqStreak:streak, mcqFirstDay:firstDay,
+        dueAt, intervalDays:Math.min(next.intervalDays, 1)};
+}
+
+export function assertReviewQuestion(value: unknown): asserts value is ReviewQuestion {
+    const q = objectOf(value);
+    if (!q || typeof q.prompt !== "string" || !q.prompt.trim() || q.prompt.length > 4000 ||
+        !Array.isArray(q.options) || q.options.length !== 4 || !q.options.every(v => typeof v === "string" && v.trim() && v.length <= 4000) ||
+        new Set(q.options.map(v => (v as string).trim().toLowerCase())).size !== 4 ||
+        !Number.isInteger(q.correctIndex) || (q.correctIndex as number) < 0 || (q.correctIndex as number) > 3 ||
+        typeof q.explanation !== "string" || !q.explanation.trim() || q.explanation.length > 8000) throw new ReviewError("The multiple-choice question is invalid. No review was saved.");
 }
 
 export function deviceReceipts(attempts: readonly Pick<ReviewAttempt, "deviceId" | "sequence">[]): Record<string, DeviceReceipt> {
@@ -155,7 +198,7 @@ export function compareReviews(a: Pick<StoredReview, "effectiveAt" | "deviceId" 
 }
 
 export function replayCard(attempts: readonly StoredReview[], engine: ReviewEngine): CardSchedule {
-	return [...attempts].sort(compareReviews).reduce((state, review) => reviewChoices(state, review.effectiveAt, engine)[review.rating], newCardSchedule());
+	return [...attempts].sort(compareReviews).reduce((state, review) => applyReview(state, review, review.effectiveAt, engine), newCardSchedule());
 }
 
 export class ReviewError extends Error {
@@ -176,12 +219,16 @@ export function validateReviewRequest(value: unknown): ReviewRequest {
 		const a = objectOf(value);
 		if (!a || typeof a.id !== "string" || !uuid.test(a.id) || typeof a.deviceId !== "string" || a.deviceId.toLowerCase() !== deviceId ||
 			!Number.isSafeInteger(a.sequence) || (a.sequence as number) < 1 || (a.sequence as number) > 1_000_000_000 ||
-			!([1, 2, 3, 4] as unknown[]).includes(a.rating) || typeof a.cardId !== "string" || !token.test(a.cardId) ||
+			(a.mode !== undefined && a.mode !== "mcq" && a.mode !== "recall") ||
+            (a.mode === "mcq" && (![1, 3].includes(a.rating as number) || !Number.isInteger(a.selectedIndex) || (a.selectedIndex as number) < 0 || (a.selectedIndex as number) > 3)) ||
+            (a.mode !== "mcq" && a.selectedIndex !== undefined) ||
+            !([1, 2, 3, 4] as unknown[]).includes(a.rating) || typeof a.cardId !== "string" || !token.test(a.cardId) ||
 			typeof a.cardRevision !== "string" || !token.test(a.cardRevision) || typeof a.engineId !== "string" || !token.test(a.engineId) ||
 			!time(a.clientAt) || !time(a.shownAt) || !time(a.revealedAt) || !time(a.foregroundMs) || a.foregroundMs > 7 * DAY ||
 			(a.deviceAt !== undefined && !time(a.deviceAt)) || (a.clockOffsetMs !== undefined && (typeof a.clockOffsetMs !== "number" || !Number.isFinite(a.clockOffsetMs)))) throw new ReviewError("Invalid review attempt. No reviews were acknowledged.");
 		return {
 			id: a.id.toLowerCase(), deviceId, sequence: a.sequence as number, cardId: a.cardId, cardRevision: a.cardRevision,
+			...(a.mode !== undefined ? {mode:a.mode as ReviewMode} : {}), ...(a.selectedIndex !== undefined ? {selectedIndex:a.selectedIndex as number} : {}),
 			rating: a.rating as ReviewRating, clientAt: a.clientAt, shownAt: a.shownAt, revealedAt: a.revealedAt, foregroundMs: a.foregroundMs,
 			engineId: a.engineId, ...(a.deviceAt !== undefined ? { deviceAt: a.deviceAt } : {}), ...(a.clockOffsetMs !== undefined ? { clockOffsetMs: a.clockOffsetMs as number } : {}),
 		};
@@ -199,19 +246,37 @@ export function localReviewCards(snapshot: ReviewSnapshot, pending: readonly Rev
 	const byId = new Map(cards.map(card => [card.id, card]));
 	for (const attempt of [...pending].filter(attempt => !isReceipted(attempt, snapshot.receipts)).sort((a, b) => a.clientAt - b.clientAt || a.sequence - b.sequence || a.id.localeCompare(b.id))) {
 		const card = byId.get(attempt.cardId);
-		if (card) card.schedule = reviewChoices(card.schedule, Math.max(card.createdAt, attempt.clientAt), engine)[attempt.rating];
+		if (card) card.schedule = applyReview(card.schedule, attempt, Math.max(card.createdAt, attempt.clientAt), engine);
 	}
 	return cards;
 }
 
-export function reviewQueue(cards: ReviewSnapshot["cards"], now: number, deckId = "") {
+export function cardProjectIds(card: Pick<Flashcard, "projectIds">): string[] {
+	return card.projectIds?.length ? [...new Set(card.projectIds)] : [UNASSIGNED_REVIEW_PROJECT];
+}
+
+export function reviewQueue(cards: ReviewSnapshot["cards"], now: number, selection: string | { projectIds?: readonly string[] } = "") {
 	const today = studyDay(now);
-	const newRemaining = Math.max(0, NEW_CARDS_PER_DAY - cards.filter(card => card.schedule.introducedDay === today).length);
-	const selected = cards.filter(card => card.active && (!deckId || card.deckId === deckId));
+	const introduced = new Map<string, number>();
+	for (const card of cards.filter(card => card.schedule.introducedDay === today)) {
+		for (const id of cardProjectIds(card)) introduced.set(id, (introduced.get(id) ?? 0) + 1);
+	}
+	const projectIds = typeof selection === "string" ? undefined : selection.projectIds;
+	const selected = cards.filter(card => card.active && (typeof selection === "string"
+		? !selection || card.deckId === selection
+		: !projectIds?.length || cardProjectIds(card).some(id => projectIds.includes(id))));
+	const groups = new Set(projectIds?.length ? projectIds : selected.flatMap(cardProjectIds));
+	const newRemaining = [...groups].reduce((sum, id) => sum + Math.max(0, NEW_CARDS_PER_DAY - (introduced.get(id) ?? 0)), 0);
 	const due = selected.filter(card => card.schedule.reps > 0 && card.schedule.dueAt <= now).sort((a, b) =>
 		Number(b.schedule.phase !== "review") - Number(a.schedule.phase !== "review") || a.schedule.dueAt - b.schedule.dueAt || a.id.localeCompare(b.id));
-	const fresh = selected.filter(card => card.schedule.reps === 0).slice(0, newRemaining);
-	return { due, fresh, queue: [...due, ...fresh], newRemaining, nextDueAt: Math.min(...selected.filter(card => card.schedule.reps > 0 && card.schedule.dueAt > now).map(card => card.schedule.dueAt)) };
+	const used = new Map(introduced), fresh: typeof selected = [];
+	for (const card of selected.filter(card => card.schedule.reps === 0)) {
+		const ids = cardProjectIds(card);
+		if (ids.some(id => (used.get(id) ?? 0) >= NEW_CARDS_PER_DAY)) continue;
+		fresh.push(card);
+		for (const id of ids) used.set(id, (used.get(id) ?? 0) + 1);
+	}
+	return { selected, due, fresh, queue: [...due, ...fresh], newRemaining, nextDueAt: Math.min(...selected.filter(card => card.schedule.reps > 0 && card.schedule.dueAt > now).map(card => card.schedule.dueAt)) };
 }
 
 export function assertReviewSnapshot(value: unknown): asserts value is ReviewSnapshot {
@@ -229,7 +294,21 @@ export function assertReviewSnapshot(value: unknown): asserts value is ReviewSna
 			!Number.isSafeInteger(state.step) || (state.step as number) < 0 || !Number.isSafeInteger(state.intervalDays) || (state.intervalDays as number) < 0 ||
 			(state.introducedDay !== null && !Number.isSafeInteger(state.introducedDay)) ||
 			(state.memory !== null && (!memory || typeof memory.stability !== "number" || !Number.isFinite(memory.stability) || memory.stability <= 0 || typeof memory.difficulty !== "number" || !Number.isFinite(memory.difficulty)))) throw new ReviewError("The host returned an invalid card. Existing local data was preserved.");
+        if (card.mcq !== undefined) assertReviewQuestion(card.mcq);
+        if (state.mode !== undefined && state.mode !== "mcq" && state.mode !== "recall") throw new ReviewError("Invalid review mode.");
+        if (state.mcqStreak !== undefined && (!Number.isSafeInteger(state.mcqStreak) || (state.mcqStreak as number) < 0)) throw new ReviewError("Invalid recognition history.");
+        if (state.mcqFirstDay !== undefined && state.mcqFirstDay !== null && !Number.isSafeInteger(state.mcqFirstDay)) throw new ReviewError("Invalid recognition day.");
 		ids.add(card.id);
+		if (card.projectIds !== undefined && (!Array.isArray(card.projectIds) || !card.projectIds.every(id => typeof id === "string" && token.test(id)) || new Set(card.projectIds).size !== card.projectIds.length)) throw new ReviewError("The host returned invalid card projects.");
+	}
+	if (snapshot.projects !== undefined) {
+		if (!Array.isArray(snapshot.projects)) throw new ReviewError("The host returned invalid projects.");
+		const projects = new Set<string>();
+		for (const value of snapshot.projects) {
+			const project = objectOf(value);
+			if (!project || typeof project.id !== "string" || !token.test(project.id) || typeof project.name !== "string" || projects.has(project.id)) throw new ReviewError("The host returned invalid projects.");
+			projects.add(project.id);
+		}
 	}
 	for (const receipt of Object.values(snapshot.receipts as Record<string, unknown>)) {
 		const r = objectOf(receipt);

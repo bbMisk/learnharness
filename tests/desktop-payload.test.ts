@@ -26,6 +26,7 @@ function withPayload(test: (fixture: {
 		write(path.join(STANDALONE, "server.js"));
 		write(path.join(".next", "static", "runtime.js"));
 		write(path.join("public", "asset.txt"));
+		for (const asset of ["jbig2.wasm", "openjpeg.wasm", "qcms_bg.wasm"]) write(path.join(STANDALONE, "node_modules", "pdfjs-dist", "wasm", asset));
 		write(path.join(STANDALONE, PROMPT));
 		write(path.join(STANDALONE, "src", "agent", "prompts", "teacher", "20-teaching.md"));
 		test({ root, write, run: () => spawnSync(process.execPath, [path.join(root, "scripts", "build-server.mjs")], {
@@ -90,7 +91,7 @@ describe("desktop standalone payload", () => {
 			fs.rmSync(path.join(root, STANDALONE, PROMPT));
 			const result = run();
 			assert.equal(result.status, 1);
-			assert.match(String(result.stderr), /prompt asset missing/);
+			assert.match(String(result.stderr), /runtime asset missing.*system-prompt/);
 		});
 	});
 });

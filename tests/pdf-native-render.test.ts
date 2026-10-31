@@ -7,6 +7,7 @@
  * this process).
  */
 import assert from "node:assert/strict";
+import { createCanvas, loadImage } from "@napi-rs/canvas";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -114,6 +115,28 @@ describe("native pdf_render (pdfjs paints, @napi-rs/canvas hosts)", () => {
 		const fonts = standardFontsDir();
 		assert.ok(fonts.endsWith("/"), "pdfjs rejects a trailing Windows backslash");
 		assert.ok(fs.statSync(fonts).isDirectory(), "the filesystem accepts the shared font path");
+	});
+
+	it("decodes monochrome scanned pages instead of silently rendering them blank", async () => {
+		const [page] = await realHeadless.renderPdfPages(path.join(import.meta.dirname, "fixtures", "scanned-ccitt.pdf"), [1], { dpi: 72 });
+		assert.ok(page);
+		const image = await loadImage(page.png);
+		const ctx = createCanvas(64, 64).getContext("2d");
+		ctx.drawImage(image, 0, 0);
+		assert.ok(ctx.getImageData(32, 32, 1, 1).data[0]! < 20, "scanned black square must be visible");
+		assert.ok(ctx.getImageData(2, 2, 1, 1).data[0]! > 240, "page margin stays white");
+	});
+
+	it("rejects a failed image decode instead of reporting a successful blank page", async () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lh-pdf-decode-test-"));
+		try {
+			const file = path.join(dir, "broken-scan.pdf");
+			const source = fs.readFileSync(path.join(import.meta.dirname, "fixtures", "scanned-ccitt.pdf"), "utf8");
+			fs.writeFileSync(file, source.replace("/CCITTFaxDecode", "/DCTDecode".padEnd("/CCITTFaxDecode".length)));
+			await assert.rejects(realHeadless.renderPdfPages(file, [1]), /PDF page 1: an image could not be decoded/);
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("renders fixture pages as canonical single-IDAT PNGs", async () => {

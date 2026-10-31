@@ -51,7 +51,7 @@ export { uploadStore, UploadError } from "../store/uploads.ts";
 
 export { learningHistory, captureLearningHistory } from "./learning-history.ts";
 
-export { reviewSnapshot, ReviewError } from "./review.ts";
+export { reviewSnapshot, reviewCatalog, ReviewError } from "./review.ts";
 export { projectStore, projectView, projectInstructions } from './projects.ts';
 export { setChatOrganization } from '../store/chats.ts';
 export { subscriptionControlsResponse, subscriptionBrowserResponse } from "./web-subscription-http.ts";
@@ -61,3 +61,7 @@ export { claudeCodeInstallationResponse } from "./claude-code.ts";
 // No import side effects; the boot sync lives in stores.ts.
 export * from "./custom-provider.ts";
 export { customProviderGet, customProviderMutation } from "./custom-provider-http.ts";
+
+export { questionFor } from "./review-questions.ts";
+
+export { flashcardAgentStatus, scheduleFlashcardCuration, abortFlashcardAgent, ensureFlashcardAgent } from "./flashcard-agent.ts";

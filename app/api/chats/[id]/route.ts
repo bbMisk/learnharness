@@ -42,9 +42,10 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
  if(!body||typeof body!=='object') return Response.json({error:'Invalid chat settings.'},{status:400});
  if(body.title!==undefined&&(typeof body.title!=='string'||!body.title.trim())) return Response.json({error:'Enter a title.'},{status:400});
  if(body.pinned!==undefined&&typeof body.pinned!=='boolean') return Response.json({error:'Invalid pin state.'},{status:400});
+ if(body.archived!==undefined&&typeof body.archived!=='boolean') return Response.json({error:'Invalid archive state.'},{status:400});
  if(body.projectId!==undefined&&body.projectId!==null&&(typeof body.projectId!=='string'||!projectStore.get(body.projectId))) return Response.json({error:'Project not found.'},{status:400});
  if(body.title!==undefined) stores.chatStore.renameChat(id,body.title.trim());
- if(body.pinned!==undefined||body.projectId!==undefined) setChatOrganization(id,{pinned:body.pinned,projectId:body.projectId});
+ if(body.pinned!==undefined||body.archived!==undefined||body.projectId!==undefined) setChatOrganization(id,{pinned:body.pinned,archived:body.archived,projectId:body.projectId});
  return Response.json({ ok: true });
 }
 

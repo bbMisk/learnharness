@@ -72,6 +72,7 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { prettyModel } from "@/components/usage-format";
 import { cn } from "@/lib/utils";
 import { SettingsGroup, SettingsRow, SettingsMenuTrigger, Toggle, CommitInput } from "./controls.tsx";
+import { FlashcardAgentSection } from "./flashcard-agent-section";
 import { ModelMenuList, ThinkingMenuList } from "./model-menu";
 import { ChatGPTBackgroundAccess } from "./chatgpt-connection";
 import { NativeSubscriptionBackgroundAccess } from "./subscription-connections";
@@ -814,6 +815,8 @@ export function AgentSection({
 					);
 				})()}
 			</SettingsGroup>
+
+			<FlashcardAgentSection agent={agent} onChange={onSectionChange}/>
 
 			<SettingsGroup label="Context" testid="group-context">
 				<SettingsRow

@@ -30,6 +30,7 @@ export type ChatKind = "teach" | "practice";
 
 export interface ChatRecord {
 	pinned?: boolean;
+	archived?: boolean;
 	projectId?: string;
 	id: string;
 	title: string;
@@ -263,6 +264,7 @@ export interface PlanBlockData {
  */
 export interface ChatSummary {
 	pinned?: boolean;
+	archived?: boolean;
 	projectId?: string;
 	id: string;
 	title: string;

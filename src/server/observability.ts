@@ -19,6 +19,7 @@
  * from the pipeline's module for the abort route to call.
  */
 
+import { ensureFlashcardAgent, flashcardAgentActivity } from "./flashcard-agent.ts";
 import { extractionStatuses, type ExtractionPhase } from "../agent/subagents/extraction.ts";
 import { chatStore } from "../store/chats.ts";
 import { graphRevision } from "./graph.ts";
@@ -67,10 +68,12 @@ export interface ActivityExtraction {
  *  refetch clusters/layout. Reads never move it; the DELETE response
  *  returns the same stamp. */
 export function activityFeed(): {
+	flashcards: ReturnType<typeof flashcardAgentActivity>;
 	jobs: ActivityJob[];
 	extractions: ActivityExtraction[];
 	graphRevision: number;
 } {
+	ensureFlashcardAgent();
 	const chats = chatStore.listChats();
 	const limits = catalogContextLimits();
 	const jobs: ActivityJob[] = [];
@@ -104,6 +107,7 @@ export function activityFeed(): {
 	jobs.sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
 	return {
 		jobs,
+		flashcards: flashcardAgentActivity(),
 		extractions: extractions.sort((a, b) => a.startedAt - b.startedAt),
 		graphRevision: graphRevision(),
 	};

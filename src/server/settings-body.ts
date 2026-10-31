@@ -83,6 +83,10 @@ export function parseGeneralSettingsBody(body: unknown): SettingsBodyResult<Gene
 	const raw = asRecord(body);
 	if (!raw) return { ok: false, error: "Invalid JSON body" };
 	const settings: GeneralSettings = {};
+	if (raw.flashcardSources !== undefined) {
+		if (raw.flashcardSources !== "chats" && raw.flashcardSources !== "all") return {ok:false, error:"flashcardSources must be chats or all"};
+		settings.flashcardSources = raw.flashcardSources;
+	}
 	if (raw.autoUpdate !== undefined) {
 		if (typeof raw.autoUpdate !== "boolean") {
 			return { ok: false, error: "autoUpdate must be a boolean" };
@@ -156,6 +160,18 @@ export function parseAgentSettingsBody(body: unknown): SettingsBodyResult<AgentS
 	const raw = asRecord(body);
 	if (!raw) return { ok: false, error: "Invalid JSON body" };
 	const settings: AgentSettings = {};
+	if (raw.flashcards !== undefined) {
+		const value = asRecord(raw.flashcards);
+		if (!value) return {ok:false,error:"flashcards must be an object"};
+		if (value.enabled !== undefined && typeof value.enabled !== "boolean") return {ok:false,error:"flashcards.enabled must be a boolean"};
+		if (value.dailyLimit !== undefined && (typeof value.dailyLimit !== "number" || !Number.isInteger(value.dailyLimit) || value.dailyLimit < 1 || value.dailyLimit > 100)) return {ok:false,error:"flashcards.dailyLimit must be an integer from 1 to 100"};
+		if (value.instructions !== undefined && (typeof value.instructions !== "string" || value.instructions.length > 8000)) return {ok:false,error:"flashcards.instructions must be at most 8000 characters"};
+		settings.flashcards = {
+			...(value.enabled !== undefined ? {enabled:value.enabled as boolean} : {}),
+			...(value.dailyLimit !== undefined ? {dailyLimit:value.dailyLimit as number} : {}),
+			...(value.instructions !== undefined ? {instructions:value.instructions as string} : {}),
+		};
+	}
 	if (raw.models !== undefined) {
 		const models = asRecord(raw.models);
 		if (!models) return { ok: false, error: "models must be an object" };

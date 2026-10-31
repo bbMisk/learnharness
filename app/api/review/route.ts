@@ -1,7 +1,7 @@
-import { reviewSnapshot, ReviewError } from "@/src/server";
+import { ensureFlashcardAgent, reviewSnapshot, ReviewError } from "@/src/server";
 
 async function respond(request?: unknown) {
-	try { return Response.json(await reviewSnapshot(request), { headers: { "Cache-Control": "no-store" } }); }
+	try { ensureFlashcardAgent(); return Response.json(await reviewSnapshot(request), { headers: { "Cache-Control": "no-store" } }); }
 	catch (error) {
 		if (error instanceof ReviewError) return Response.json({ error: error.message }, { status: error.status, headers: { "Cache-Control": "no-store" } });
 		console.error("[flashcards] sync failed", error);

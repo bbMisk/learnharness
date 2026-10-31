@@ -74,6 +74,7 @@ export interface FeedExtraction {
 export interface ActivityFeed {
 	jobs: FeedJob[];
 	extractions: FeedExtraction[];
+	flashcards?: FeedExtraction[];
 }
 
 const EMPTY_FEED: ActivityFeed = { jobs: [], extractions: [] };
@@ -113,7 +114,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
 				if (res.ok) {
 					const data = (await res.json()) as Partial<ActivityFeed>;
 					if (alive)
-						setFeed({ jobs: data.jobs ?? [], extractions: data.extractions ?? [] });
+						setFeed({ jobs: data.jobs ?? [], extractions: data.extractions ?? [], flashcards:data.flashcards ?? [] });
 				}
 			} catch {
 				// transport blip: keep the last feed, announce again next event
@@ -173,7 +174,7 @@ export interface ActivityBlob {
 	/** job.id, or the extraction job's row id (source id, or "src#i" for
 	 *  chunk jobs — unique per row, per-chunk jobs owner 2026-09-28). */
 	id: string;
-	process: "job" | "extraction";
+	process: "job" | "extraction" | "flashcards";
 	/** Sub-agent kind for jobs (extraction blobs have none). */
 	jobKind?: JobKind;
 	/** Extraction phase (extracting/auditing/merging/embedding); jobs carry none. */
@@ -258,6 +259,7 @@ export function toBlobs(feed: ActivityFeed): ActivityBlob[] {
 			activity: "",
 		});
 	}
+	for (const run of feed.flashcards ?? []) blobs.push({id:run.id,process:"flashcards",title:run.title,chatId:run.chatId,phase:run.phase,startedAt:run.startedAt,cost:null,context:null,activity:run.phase});
 	blobs.sort((a, b) => a.startedAt - b.startedAt);
 	return blobs;
 }
@@ -397,7 +399,7 @@ function ActivityBlobRow({
 }) {
 	const Icon = blob.process === "extraction" ? WaypointsIcon : (blob.jobKind && KIND_ICON[blob.jobKind]) || BotIcon;
 	const label =
-		blob.process === "extraction"
+		blob.process === "flashcards" ? "Flashcard curator" : blob.process === "extraction"
 			? `Extraction — ${blob.phase ?? "running"}`
 			: blob.jobKind === "research"
 				? "Researcher"
@@ -494,8 +496,8 @@ function ActivityBlobRow({
 							</div>
 						)}
 						{blob.job && <JobDetails job={blob.job} compact />}
-						<a href={`/chat/${blob.chatId}`} className="text-primary hover:underline">
-							Open session →
+						<a href={blob.process === "flashcards" ? "/review/index.html" : `/chat/${blob.chatId}`} className="text-primary hover:underline">
+							{blob.process === "flashcards" ? "Open flashcards →" : "Open session →"}
 						</a>
 					</div>
 					<div className="mt-2 text-muted-foreground/80">
