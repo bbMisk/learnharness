@@ -23,6 +23,7 @@ export function ProjectPage({ initial }: { initial: ProjectView }) {
 	const [allChats, setAllChats] = useState<ChatListItem[] | null>(null);
 	const chats = allChats && allChats.filter((chat) => chat.projectId === initial.id && !chat.archived);
 	const [chatsError, setChatsError] = useState("");
+	const [projectError, setProjectError] = useState("");
 	const adopt = (next: ProjectView) => setProject((prev) => (next.updatedAt >= prev.updatedAt ? next : prev));
 	const chatsRequest = useRef(0);
 	const refresh = async () => {
@@ -39,11 +40,14 @@ export function ProjectPage({ initial }: { initial: ProjectView }) {
 					if (request === chatsRequest.current) setChatsError("Could not load chats.");
 				}),
 			fetch("/api/projects/" + initial.id)
-				.then((r) => (r.ok ? r.json() : null))
+				.then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))))
 				.then((next) => {
-					if (next) adopt(next);
+					adopt(next);
+					if (request === chatsRequest.current) setProjectError("");
 				})
-				.catch(() => {}),
+				.catch(() => {
+					if (request === chatsRequest.current) setProjectError("Could not load project details.");
+				}),
 		]);
 	};
 	// Same moves as the sidebar: queued, skipped when the chat is already here.
@@ -160,6 +164,11 @@ export function ProjectPage({ initial }: { initial: ProjectView }) {
 					{moveStatus && (
 						<p role="status" className="mb-4 text-xs text-muted-foreground">
 							{moveStatus}
+						</p>
+					)}
+					{projectError && (
+						<p role="alert" className="mb-4 text-xs text-destructive">
+							{projectError}
 						</p>
 					)}
 					{updateError && (

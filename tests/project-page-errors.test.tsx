@@ -185,3 +185,41 @@ it("does not move a chat that is already in the project", async () => {
 	assert.equal(moves.length, 0);
 	assert.doesNotMatch(text, /Moving chat…|Moved to|Chat moved to/);
 });
+
+it("shows a failed project details refresh and clears it on the next success", async () => {
+	let reconnect: () => void = () => {};
+	let projectStatus = 500;
+	globalThis.fetch = (async (input: RequestInfo | URL) => {
+		if (String(input) === "/api/chats") return new Response(JSON.stringify({ chats: [] }), { status: 200 });
+		return new Response(JSON.stringify(projectStatus === 200 ? project : { error: "boom" }), { status: projectStatus });
+	}) as typeof fetch;
+	const channel = () => ({
+		close() {},
+		onOpen(cb: () => void) {
+			reconnect = cb;
+		},
+		onEvent() {},
+	});
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	await act(async () =>
+		root.render(
+			<ServerEventsProvider connect={channel}>
+				<ProjectPage initial={project} />
+			</ServerEventsProvider>,
+		),
+	);
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+	const alert = [...host.querySelectorAll('[role="alert"]')].find((node) => node.textContent === "Could not load project details.");
+	assert.ok(alert, "the failure is shown");
+	assert.equal(alert.className, "mb-4 text-xs text-destructive");
+	projectStatus = 200;
+	await act(async () => {
+		reconnect();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+	assert.doesNotMatch(host.textContent ?? "", /Could not load project details\./);
+});
