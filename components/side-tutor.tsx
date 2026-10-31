@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { XIcon, SquareIcon, ArrowUpIcon } from "lucide-react";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { Conversation, ConversationContent } from "@/components/ai-elements/conversation";
@@ -15,10 +15,47 @@ import {
 	uploadedImageReferences,
 	withoutUploadedImagePaths,
 	parseSideJSONResponse,
+	kbdEventForAction,
 	type SideFrame,
 	type SideMessage,
 	type SideSnapshot,
 } from "@/src/core";
+
+/** Open/close state for the side tutor in a lesson: the toolbar toggle,
+ * the keyboard shortcut (focus when open, open otherwise), the close event,
+ * and focus return to wherever the learner was before opening. */
+export function useSideTutor() {
+	const [sideTutor, setSideTutor] = useState<{ selectedText: string } | null>(null);
+	const sideReturnFocus = useRef<HTMLElement | null>(null);
+	const closeSideTutor = useCallback(() => {
+		setSideTutor(null);
+		requestAnimationFrame(() => sideReturnFocus.current?.focus({ preventScroll: true }));
+	}, []);
+	const toggleSideTutor = useCallback(() => {
+		if (sideTutor) {
+			closeSideTutor();
+			return;
+		}
+		sideReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+		setSideTutor({ selectedText: window.getSelection()?.toString().slice(0, 8000) ?? "" });
+	}, [sideTutor, closeSideTutor]);
+	useEffect(() => {
+		const event = kbdEventForAction("toggle-side-tutor");
+		const focusOrOpen = () => {
+			if (sideTutor) {
+				const tutor = document.querySelector<HTMLElement>('[data-testid="side-tutor"]');
+				(tutor?.querySelector<HTMLTextAreaElement>("textarea:not(:disabled)") ?? tutor)?.focus();
+			} else toggleSideTutor();
+		};
+		window.addEventListener(event, focusOrOpen);
+		return () => window.removeEventListener(event, focusOrOpen);
+	}, [toggleSideTutor, sideTutor]);
+	useEffect(() => {
+		window.addEventListener("lh:close-side-tutor", closeSideTutor);
+		return () => window.removeEventListener("lh:close-side-tutor", closeSideTutor);
+	}, [closeSideTutor]);
+	return { sideTutor, toggleSideTutor, closeSideTutor };
+}
 
 /** Mounted only while open. No storage, lesson writes, or progress callbacks;
  * closing/unmounting discards the fork and cancels only its own request. */

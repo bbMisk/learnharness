@@ -84,7 +84,7 @@ import {
 	isTeachingCheck,
 } from "@/src/core";
 import { ReadingThinkingField } from "@/components/reading-thinking";
-import { SideTutor } from "@/components/side-tutor";
+import { SideTutor, useSideTutor } from "@/components/side-tutor";
 import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/thinking-block";
 import { FACTORY_SETTINGS, slotsConfigured, type UserSettings } from "@/src/core";
 import { useSettingsSaved } from "@/components/settings-signal";
@@ -508,32 +508,7 @@ export function Chat({
 	const [showReadingThinking, setShowReadingThinking] = useState(initialShowReadingThinking);
 	const [readingThinking, setReadingThinking] = useState("");
 	const readingThinkingRef = useRef("");
-	const [sideTutor, setSideTutor] = useState<{ selectedText: string } | null>(null);
-	const sideReturnFocus = useRef<HTMLElement | null>(null);
-	const closeSideTutor = useCallback(() => {
-		setSideTutor(null);
-		requestAnimationFrame(() => sideReturnFocus.current?.focus({ preventScroll: true }));
-	}, []);
-	const toggleSideTutor = useCallback(() => {
-		if (sideTutor) { closeSideTutor(); return; }
-		sideReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-		setSideTutor({ selectedText: window.getSelection()?.toString().slice(0, 8000) ?? "" });
-	}, [sideTutor, closeSideTutor]);
-	useEffect(() => {
-		const event = kbdEventForChat("toggle-side-tutor");
-		const focusOrOpen = () => {
-			if (sideTutor) {
-				const tutor = document.querySelector<HTMLElement>('[data-testid="side-tutor"]');
-				(tutor?.querySelector<HTMLTextAreaElement>('textarea:not(:disabled)') ?? tutor)?.focus();
-			} else toggleSideTutor();
-		};
-		window.addEventListener(event, focusOrOpen);
-		return () => window.removeEventListener(event, focusOrOpen);
-	}, [toggleSideTutor, sideTutor]);
-	useEffect(() => {
-		window.addEventListener("lh:close-side-tutor", closeSideTutor);
-		return () => window.removeEventListener("lh:close-side-tutor", closeSideTutor);
-	}, [closeSideTutor]);
+	const { sideTutor, toggleSideTutor, closeSideTutor } = useSideTutor();
 
 	// ⌘T (toggle-user-thinking, owner round 2026-10-07): set EVERY user
 	// thinking row to one state — transcript rows default open, so the

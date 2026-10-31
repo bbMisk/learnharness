@@ -216,18 +216,16 @@ export async function runFlashcardCuration(force = false, deps: FlashcardAgentDe
 	try {
 		// One generated question is enough for every device and both study phases.
 		const seen = new Set<string>();
-		for (const card of candidates) {
-			const key = card.back.trim().replace(/\s+/g, " ").toLowerCase();
-			if (seen.has(key) && !card.mcq)
-				updateFlashcardCuration((next) => {
+		updateFlashcardCuration((next) => {
+			for (const card of candidates) {
+				const key = card.back.trim().replace(/\s+/g, " ").toLowerCase();
+				if (seen.has(key) && !card.mcq)
 					next.decisions[card.revision] = { keep: false, priority: 0, reason: "Duplicate source statement" };
-				});
-			else seen.add(key);
-			if (card.mcq && !readFlashcardCuration().decisions[card.revision])
-				updateFlashcardCuration((next) => {
+				else seen.add(key);
+				if (card.mcq && !next.decisions[card.revision])
 					next.decisions[card.revision] = { keep: true, priority: 50, reason: "Previously prepared card" };
-				});
-		}
+			}
+		});
 		// Bounded catch-up per project, so a large backlog in one project
 		// cannot consume another project's triage or preparation allowance.
 		const groups = [...new Set(candidates.flatMap(cardProjectIds))];
@@ -256,10 +254,9 @@ export async function runFlashcardCuration(force = false, deps: FlashcardAgentDe
 					undecided.map((card) => card.revision),
 				);
 				signal.throwIfAborted();
-				updateFlashcardCuration((next) => {
+				const selected = updateFlashcardCuration((next) => {
 					for (const { revision, ...decision } of decisions) next.decisions[revision] = decision;
 				});
-				const selected = readFlashcardCuration();
 				if (
 					candidates.filter(
 						(card) =>
@@ -271,12 +268,13 @@ export async function runFlashcardCuration(force = false, deps: FlashcardAgentDe
 				)
 					break;
 			}
-		const decisions = readFlashcardCuration().decisions;
+		const curation = readFlashcardCuration();
+		const decisions = curation.decisions;
 		const selected = candidates
 			.filter((card) => !card.mcq && decisions[card.revision]?.keep)
 			.sort((a, b) => decisions[b.revision]!.priority - decisions[a.revision]!.priority);
-		const reserved = readFlashcardCuration().days[day] ?? [];
-		const planned = structuredClone(projectReservations(readFlashcardCuration(), day, allCandidates));
+		const reserved = curation.days[day] ?? [];
+		const planned = structuredClone(projectReservations(curation, day, allCandidates));
 		const toPrepare = [
 			...selected.filter((card) => reserved.includes(card.revision)),
 			...selected.filter((card) => !reserved.includes(card.revision)),
