@@ -17,15 +17,17 @@ interface AgentStatus {
 export function FlashcardAgentSection({ agent, onChange }: { agent: AgentSettings | undefined; onChange: (next: AgentSettings) => void }) {
 	const [status, setStatus] = useState<AgentStatus | null>(null);
 	const [error, setError] = useState("");
+	const [statusError, setStatusError] = useState("");
 	const [instructions, setInstructions] = useState(agent?.flashcards?.instructions ?? "");
 	const [requesting, setRequesting] = useState(false);
 	const refresh = () => {
 		void fetch("/api/flashcard-agent")
-			.then((r) => (r.ok ? r.json() : null))
+			.then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))))
 			.then((value) => {
-				if (value) setStatus(value);
+				setStatus(value);
+				setStatusError("");
 			})
-			.catch(() => {});
+			.catch(() => setStatusError("Could not load preparation status."));
 	};
 	const { feed } = useActivity();
 	useEffect(refresh, [feed]);
@@ -120,6 +122,11 @@ export function FlashcardAgentSection({ agent, onChange }: { agent: AgentSetting
 					{status?.running ? "Stop preparation" : "Prepare now"}
 				</button>
 			</div>
+			{statusError && (
+				<p role="alert" className="text-xs text-destructive">
+					{statusError}
+				</p>
+			)}
 			{(error || status?.error) && (
 				<p role="alert" className="text-xs text-muted-foreground">
 					{error || status?.error}

@@ -4,16 +4,19 @@ import { useRef, useState } from "react";
 import { useChatDrop } from "@/components/chat-drag";
 import type { ChatListItem, ProjectSummary } from "@/src/core";
 
-/** Pin, archive and project moves for the sessions sidebar. Updates run one
- * at a time in request order; each success refreshes the list. */
+/** Pin, archive and project moves for the sessions sidebar and project pages. Updates
+ * run one at a time in request order; each success refreshes the list. A chat dropped
+ * on `chatDrop` moves to `dropProjectId` (the unassigned list when absent). */
 export function useChatOrganization({
 	chats,
 	projects,
 	refresh,
+	dropProjectId = null,
 }: {
 	chats: ChatListItem[] | null;
 	projects: ProjectSummary[];
 	refresh: () => Promise<void>;
+	dropProjectId?: string | null;
 }) {
 	const [updateError, setUpdateError] = useState<string | null>(null);
 	const [moveStatus, setMoveStatus] = useState("");
@@ -48,6 +51,6 @@ export function useChatOrganization({
 			),
 		);
 	};
-	const chatDrop = useChatDrop((id) => moveChat(id, null));
+	const chatDrop = useChatDrop((id) => moveChat(id, dropProjectId));
 	return { updateError, moveStatus, updateChat, moveChat, chatDrop };
 }
