@@ -12,7 +12,8 @@ const nextConfig: NextConfig = {
 		];
 	},
 	// Public build metadata only; no new runtime Electron version API.
-	env: { LH_VERSION: pkg.version, LH_HOMEPAGE: pkg.homepage },
+	// LH_BUILD: one id per build, baked into server and client, so open windows notice a deploy.
+	env: { LH_VERSION: pkg.version, LH_HOMEPAGE: pkg.homepage, LH_BUILD: String(Date.now()) },
 	// Leave multipart headroom above the 25 MiB file allowance. This is a
 	// proxy buffer, not a rejection gate: the import route also bounds reads,
 	// validates actual file bytes and handles incomplete multipart bodies.
