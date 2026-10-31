@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { ConfidenceRail } from "@/components/confidence-rail";
 import { GlyphMark } from "@/components/ui/glyph-mark";
 import { ThinkingBlock } from "@/components/thinking-block";
@@ -21,7 +22,7 @@ import { answerForPresentation, parseAskInput, parseQuizInput } from "@/src/core
  * the explanation, with NO verdict chips (owner ruling 2026-09-27).
  */
 export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionAnswerData; input?: unknown }) {
-	const answer = answerForPresentation(savedAnswer, input);
+	const answer = useMemo(() => answerForPresentation(savedAnswer, input), [savedAnswer, input]);
 	if (answer.dismissed) {
 		return (
 			<div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">

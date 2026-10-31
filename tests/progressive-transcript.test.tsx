@@ -65,7 +65,7 @@ it("fills in every older part after mounting", async () => {
 	const el = await mount(messages);
 	assert.equal(shown(el.innerHTML).length, 200);
 	assert.equal(shown(el.innerHTML)[0], "m0p0");
-	assert.ok(renders >= 10, `filled in batches (${renders} renders)`);
+	assert.ok(renders > 3 && renders < 12, `filled in a few growing batches (${renders} renders)`);
 });
 
 it("never hides a message with no parts", async () => {
