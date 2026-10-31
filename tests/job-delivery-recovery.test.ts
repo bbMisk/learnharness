@@ -76,7 +76,7 @@ for (const [kind, input] of Object.entries({
 	research: { question: "Saved research question", context: "Saved context" },
 	demo: { title: "Fixture", brief: "Saved demo brief" },
 	visual: { brief: "Saved figure brief" },
-	pdf: { path: "fixture.pdf", question: "Saved PDF question" },
+	pdf: { path: path.join(import.meta.dirname, "fixtures", "sample-3page.pdf"), question: "Saved PDF question" },
 })) test(`${kind}: dispatch saves input before spawn and does not overwrite it on repeated dispatch`, async () => {
 	const owner = chat();
 	let spawns = 0;
