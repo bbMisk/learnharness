@@ -31,6 +31,13 @@ export async function refreshConnectionCatalog(provider?: string): Promise<void>
 		!provider || nativeSubscriptionId(provider) ? refreshSubscriptionModels() : Promise.resolve(),
 	]);
 }
+/** Before a send: reuse the ChatGPT model list already loaded and refresh it
+ *  in the background (owner 2026-10-31: the awaited OpenAI round trip cost
+ *  ~0.5 s before every reply). Waits only when no list is loaded yet. */
+export async function prepareConnectionCatalog(provider?: string): Promise<void> {
+	if (provider !== "chatgpt" || chatGPTModels().length === 0) return refreshConnectionCatalog(provider);
+	void refreshConnectionCatalog(provider).catch(() => undefined);
+}
 function connectionModel(provider: string, id: string): Model<Api> | undefined {
 	if (provider === CLAUDE_CODE_PROVIDER && !claudeCodeAvailable()) return undefined;
 	return provider === "chatgpt" ? chatGPTModel(id) : nativeSubscriptionId(provider) ? nativeSubscriptionModel(provider, id) : piModels().getModel(provider, id);
