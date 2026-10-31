@@ -236,7 +236,9 @@ const tip=(()=>{
  return {sweep:()=>{if(current&&!current.isConnected)hide(false)}};
 })();
 
-const enhance=root=>{setupTabs(root);drawIcons(root)};
+// Tooltip targets on plain spans or SVG marks must be reachable with Tab.
+const focusTips=root=>{const all=root.querySelectorAll?[...root.querySelectorAll('[data-tooltip]')]:[];if(root.matches&&root.matches('[data-tooltip]'))all.push(root);for(const el of all)if(!el.hasAttribute('tabindex'))el.setAttribute('tabindex','0')};
+const enhance=root=>{setupTabs(root);drawIcons(root);focusTips(root)};
 enhance(doc);
 if(g.MutationObserver&&doc.body)new g.MutationObserver(records=>{
  for(const r of records)for(const n of r.addedNodes)if(n.nodeType===1&&n.isConnected)enhance(n);

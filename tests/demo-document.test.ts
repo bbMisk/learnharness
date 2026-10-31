@@ -212,3 +212,13 @@ it("opens data-tooltip popups on touch, links them for screen readers and closes
 	assert.equal(trigger.hasAttribute("aria-describedby"), false);
 	assert.deepEqual(placed, ["stopped"]);
 });
+
+it("makes data-tooltip targets keyboard-focusable, including ones inserted later", async () => {
+	const { document, context } = await demoWindow('<span id="a" data-tooltip="Mass">m</span><span id="b" data-tooltip="Skip" tabindex="-1">s</span><div id="later"></div>');
+	runInNewContext(DEMO_CONTROLS, context);
+	assert.equal(document.getElementById("a")!.getAttribute("tabindex"), "0");
+	assert.equal(document.getElementById("b")!.getAttribute("tabindex"), "-1", "an author's tabindex is kept");
+	document.getElementById("later")!.innerHTML = '<svg><circle id="c" data-tooltip="Point"></circle></svg>';
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(document.getElementById("c")!.getAttribute("tabindex"), "0");
+});
