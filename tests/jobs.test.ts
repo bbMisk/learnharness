@@ -27,7 +27,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { after, afterEach, before, describe, it } from "node:test";
+import { after, afterEach, before, describe, it, mock } from "node:test";
 import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, type AssistantMessage, type FauxResponseStep } from "@earendil-works/pi-ai";
 import {
 	accumulateJobUsage,
@@ -1758,6 +1758,36 @@ describe("stale-job recovery sweep (liveness-gated)", () => {
 		// Hermetic teardown (see above) — the respawned loop is the TEST's
 		// fake seam, nothing real runs.
 		jobStore.updateJob(jobId, { status: "done", activity: "settled (test)" });
+	});
+
+	it("reads each chat record at most once per sweep, however many orphans it has", () => {
+		const { chatId, jobId } = orphanJob();
+		const siblings = [1, 2].map((n) => {
+			const job = jobStore.createJob({ kind: "research", chatId, toolCallId: `call-sweep-sibling-${n}` });
+			trackJob(job.id);
+			return job.id;
+		});
+		const respawnedIds: string[] = [];
+		setJobRespawn((id) => {
+			respawnedIds.push(id);
+		});
+		let reads = 0;
+		const realGetChat = chatStore.getChat;
+		const counting = mock.method(chatStore, "getChat", (id: string) => {
+			if (id === chatId) reads++;
+			return realGetChat(id);
+		});
+		try {
+			resetSweepThrottle();
+			recoverStaleJobs();
+		} finally {
+			counting.mock.restore();
+		}
+		for (const id of [jobId, ...siblings]) {
+			assert.ok(respawnedIds.includes(id), "every orphan of the chat is still re-spawned");
+			jobStore.updateJob(id, { status: "done", activity: "settled (test)" });
+		}
+		assert.equal(reads, 1, "one record read serves every job of the chat");
 	});
 
 	it("does not queue the same recovered result repeatedly while a question is pending", () => {

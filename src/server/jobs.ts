@@ -703,11 +703,15 @@ export function recoverStaleJobs(): void {
 	try {
 		const groups = groupedJobs();
 		for (const chat of stores.chatStore.listChats()) {
+			// Read the record at most once per chat per sweep: nothing below
+			// removes it, and only its presence is checked here.
+			let present: boolean | undefined;
 			for (const snapshot of groups.get(chat.id) ?? []) {
 				const job = stores.jobStore.getJob(snapshot.id);
 				if (!job || job.chatId !== chat.id) continue;
 				if (isJobLive(job.id)) continue; // never re-run beside live computation
-				if (!stores.chatStore.getChat(job.chatId)) continue;
+				present ??= !!stores.chatStore.getChat(job.chatId);
+				if (!present) continue;
 				if (isTurnRunning(job.chatId)) continue;
 				const recovered = normalizeLegacyResult(job);
 				if (recovered.delivery?.status === "pending") {
