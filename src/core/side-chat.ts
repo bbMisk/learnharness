@@ -1,6 +1,7 @@
 import type { LhMessage } from "./native-messages.ts";
 import { projectView } from "./view.ts";
 import type { EffectiveModelSpec } from "./settings-resolution.ts";
+import { THINKING_LEVELS } from "./chatgpt-models.ts";
 
 export interface SideMessage {
 	role: "user" | "assistant";
@@ -75,8 +76,7 @@ export function parseSideRequest(raw: unknown): { snapshot: SideSnapshot; messag
 	const s = raw.snapshot;
 	if (typeof s.context !== "string" || s.context.length > SIDE_CONTEXT_LIMIT || !object(s.model)) return null;
 	if (typeof s.model.provider !== "string" || typeof s.model.id !== "string" || !s.model.provider || !s.model.id) return null;
-	const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
-	if (s.model.thinkingLevel !== undefined && !levels.includes(String(s.model.thinkingLevel))) return null;
+	if (s.model.thinkingLevel !== undefined && !(THINKING_LEVELS as readonly string[]).includes(String(s.model.thinkingLevel))) return null;
 	if (!Array.isArray(raw.messages) || raw.messages.length < 1 || raw.messages.length > 40) return null;
 	const messages: SideMessage[] = [];
 	for (const [i, m] of raw.messages.entries()) {
