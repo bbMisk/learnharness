@@ -5,26 +5,17 @@ import { useServerResync } from "@/components/server-events";
 
 const BUILD = process.env.LH_BUILD;
 
-/** Text a reload would throw away: any field holding unsent input. */
-export function hasUnsentText(doc: Document): boolean {
-	for (const el of doc.querySelectorAll<HTMLElement>('textarea, input[type="text"], [contenteditable="true"]')) {
-		const text = el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement ? el.value : el.textContent;
-		if (text?.trim()) return true;
-	}
-	return false;
-}
-
-/** After a deploy the events channel reconnects to a server with a new build:
- *  reload at once when nothing unsent would be lost, otherwise offer it. */
+/** After a deploy the events channel reconnects to a server with a new
+ *  build. This window still runs the old code, so offer a reload. Never
+ *  reload on its own: attachments, side-tutor conversations and edits in
+ *  progress live only in this page. */
 export function DeployReload({ build = BUILD, reload = () => window.location.reload() }: { build?: string; reload?: () => void }) {
 	const [stale, setStale] = useState(false);
 	useServerResync(() => {
 		void fetch("/api/health", { cache: "no-store" })
 			.then((response) => response.json() as Promise<{ build?: string }>)
 			.then(({ build: served }) => {
-				if (!build || !served || served === build) return;
-				if (hasUnsentText(document)) setStale(true);
-				else reload();
+				if (build && served && served !== build) setStale(true);
 			})
 			.catch(() => {});
 	});

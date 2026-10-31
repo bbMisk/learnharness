@@ -60,7 +60,7 @@ if restart; then
 	echo "deploy-local: $BRANCH @ ${COMMIT:0:7} is live on $URL"
 	[ -d "$BACKUP" ] && echo "deploy-local: previous version kept in $BACKUP"
 	# Keep the two newest backups; older ones only cost disk (each is ~370 MB).
-	ls -dt "$HOST_DIR".before-* 2>/dev/null | tail -n +3 | while IFS= read -r old; do rm -rf -- "$old"; done
+	{ ls -dt "$HOST_DIR".before-* 2>/dev/null || true; } | tail -n +3 | while IFS= read -r old; do rm -rf -- "$old"; done
 else
 	echo "deploy-local: host unhealthy after restart; rolling back" >&2
 	mv "$HOST_DIR" "$HOST_DIR.failed-$STAMP"
