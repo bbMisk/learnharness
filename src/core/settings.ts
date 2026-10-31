@@ -34,6 +34,7 @@ import type { ModelRole } from "../../config.ts";
 import type { ChatSettings } from "./contracts/chat.ts";
 import type { SearchEngineId } from "./search.ts";
 import { isDictationLanguage, type DictationLanguage } from "./dictation.ts";
+import { sanitizeFlashcardSettings } from "./flashcard-settings.ts";
 
 /** The schema version this code understands. Bump ONLY for breaking shape
  *  changes (a field renamed/meaning changed); pure additions never bump. */
@@ -697,13 +698,8 @@ function sanitizeBooleanMap(raw: unknown): Record<string, boolean> | undefined {
 
 function sanitizeAgent(raw: Record<string, unknown>): AgentSettings {
 	const out: AgentSettings = {};
-	if (raw.flashcards && typeof raw.flashcards === "object" && !Array.isArray(raw.flashcards)) {
-		const value = raw.flashcards as Record<string, unknown>;
-		out.flashcards = {};
-		if (typeof value.enabled === "boolean") out.flashcards.enabled = value.enabled;
-		if (typeof value.dailyLimit === "number" && Number.isFinite(value.dailyLimit)) out.flashcards.dailyLimit = Math.max(1, Math.min(100, Math.round(value.dailyLimit)));
-		if (typeof value.instructions === "string") out.flashcards.instructions = value.instructions.slice(0, 8000);
-	}
+	const flashcards = sanitizeFlashcardSettings(raw.flashcards);
+	if (flashcards) out.flashcards = flashcards;
 	if (raw.models !== null && typeof raw.models === "object" && !Array.isArray(raw.models)) {
 		const models: Partial<Record<BackgroundModelRole, RoleModelOverride>> = {};
 		for (const [role, override] of Object.entries(raw.models as Record<string, unknown>)) {
