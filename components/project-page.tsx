@@ -5,7 +5,8 @@ import { ArrowUpRightIcon, FileIcon, FolderIcon, MessageSquareIcon, PaperclipIco
 import { Tabs } from "radix-ui";
 import { sessionMeta } from "@/components/sidebar";
 import { TopBar } from "@/components/top-bar";
-import { startChatDrag, useChatDrop } from "@/components/chat-drag";
+import { startChatDrag } from "@/components/chat-drag";
+import { useChatOrganization } from "@/components/chat-organization";
 import { useFileDrop } from "@/components/file-drop";
 import { FileDropFeedback } from "@/components/file-drop-feedback";
 import { useServerEvent, useServerResync } from "@/components/server-events";
@@ -18,27 +19,9 @@ export function ProjectPage({ initial }: { initial: ProjectView }) {
 	const [error, setError] = useState("");
 	const [saved, setSaved] = useState(false);
 	const [saving, setSaving] = useState(false);
-	const [moveStatus, setMoveStatus] = useState("");
 	const [tab, setTab] = useState("chats");
-	const chatDrop = useChatDrop((id) => {
-		setMoveStatus("Moving chat…");
-		setError("");
-		void fetch("/api/chats/" + id, {
-			method: "PUT",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ projectId: initial.id }),
-		})
-			.then(async (response) => {
-				if (!response.ok) throw new Error("Could not move chat. Try again.");
-				await refresh();
-				setMoveStatus("Chat moved to " + project.name + ".");
-			})
-			.catch((error) => {
-				setMoveStatus("");
-				setError(error.message);
-			});
-	});
-	const [chats, setChats] = useState<ChatListItem[] | null>(null);
+	const [allChats, setAllChats] = useState<ChatListItem[] | null>(null);
+	const chats = allChats && allChats.filter((chat) => chat.projectId === initial.id && !chat.archived);
 	const [chatsError, setChatsError] = useState("");
 	const adopt = (next: ProjectView) => setProject((prev) => (next.updatedAt >= prev.updatedAt ? next : prev));
 	const chatsRequest = useRef(0);
@@ -49,7 +32,7 @@ export function ProjectPage({ initial }: { initial: ProjectView }) {
 				.then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))))
 				.then((body) => {
 					if (request !== chatsRequest.current) return;
-					setChats((body.chats || []).filter((chat: ChatListItem) => chat.projectId === initial.id && !chat.archived));
+					setAllChats(body.chats || []);
 					setChatsError("");
 				})
 				.catch(() => {
@@ -63,6 +46,13 @@ export function ProjectPage({ initial }: { initial: ProjectView }) {
 				.catch(() => {}),
 		]);
 	};
+	// Same moves as the sidebar: queued, skipped when the chat is already here.
+	const { updateError, moveStatus, chatDrop } = useChatOrganization({
+		chats: allChats,
+		projects: [project],
+		refresh,
+		dropProjectId: initial.id,
+	});
 	useEffect(() => {
 		void refresh();
 	}, [initial.id]);
@@ -170,6 +160,11 @@ export function ProjectPage({ initial }: { initial: ProjectView }) {
 					{moveStatus && (
 						<p role="status" className="mb-4 text-xs text-muted-foreground">
 							{moveStatus}
+						</p>
+					)}
+					{updateError && (
+						<p role="alert" className="mb-4 text-xs text-destructive">
+							{updateError}
 						</p>
 					)}
 					{error && (
