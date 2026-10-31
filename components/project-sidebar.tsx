@@ -52,7 +52,7 @@ export function ProjectSidebar({
 	return (
 		<section className="mx-3 mt-2 max-h-[40vh] shrink-0 overflow-y-auto" aria-label="Projects">
 			<div className="mb-1 flex h-8 items-center justify-between px-2 text-xs text-muted-foreground">
-				<span>Projects</span>
+				<span className="uppercase tracking-widest text-muted-foreground/70">Projects</span>
 				<button
 					type="button"
 					aria-label="Add project"

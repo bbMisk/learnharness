@@ -73,12 +73,12 @@ export function FlashcardAgentSection({ agent, onChange }: { agent: AgentSetting
 				/>
 			</SettingsRow>
 			<div className="space-y-2 py-3">
-				<label htmlFor="flashcard-curator-instructions" className="text-sm font-medium">
+				<label htmlFor="flashcard-curator-instructions" className="block font-prose text-(length:--lh-prose-size)">
 					Curation guidance
 				</label>
-				<p className="text-xs text-muted-foreground">
-					Prioritize ideas you want to remember. The agent skips duplicates, logistics and uncertain claims, and follows your
-					Flashcard sources setting.
+				<p className="text-xs text-muted-foreground/70">
+					Prioritize ideas you want to remember. The agent skips duplicates, logistics and uncertain claims, and uses imported
+					material only when Cards from imported knowledge is on.
 				</p>
 				<textarea
 					id="flashcard-curator-instructions"
@@ -111,7 +111,7 @@ export function FlashcardAgentSection({ agent, onChange }: { agent: AgentSetting
 							{project.name}: {project.preparedToday} prepared · {project.startedToday}/{status.dailyLimit} slots used
 						</span>
 					))}
-					{status?.model && <span className="mt-1 block">{status.model}</span>}
+					{status?.model && <span className="mt-1 block">Model: {status.model}</span>}
 				</div>
 				<button
 					type="button"

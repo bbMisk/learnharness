@@ -204,10 +204,7 @@ export function ProjectPage({ initial }: { initial: ProjectView }) {
 							</Tabs.Trigger>
 						</Tabs.List>
 						<Tabs.Content value="chats" forceMount className="data-[state=inactive]:hidden">
-							<div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-								<h2 className="text-xs uppercase tracking-widest text-muted-foreground">Project chats</h2>
-								<p className="text-xs text-muted-foreground">Drag a chat here to add it to this project.</p>
-							</div>
+							<p className="mb-4 text-xs text-muted-foreground">Drag a chat here to add it to this project.</p>
 							<div className="space-y-1">
 								{chats?.map((chat) => (
 									<Link
