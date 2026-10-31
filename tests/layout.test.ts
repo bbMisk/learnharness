@@ -242,6 +242,26 @@ describe("settleGraphLayout yields to the event loop (2026-10-31)", () => {
 		await settleGraphLayout(store, { sliceMs: 0 });
 		assert.ok("late" in store.readPositions(), "the restart laid out the node that arrived mid-settle");
 	});
+
+	it("finishes even when the inputs keep changing on every yield", async () => {
+		const store = memoryStore(reference());
+		let stop = false;
+		let k = 0;
+		const churn = (): void => {
+			if (stop) return;
+			const p = store.readPositions();
+			p.n0 = { x: k++, y: 0 };
+			store.writePositions(p);
+			setImmediate(churn);
+		};
+		setImmediate(churn);
+		const finished = await Promise.race([
+			settleGraphLayout(store, { sliceMs: 0 }).then(() => true),
+			new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000)),
+		]);
+		stop = true;
+		assert.equal(finished, true, "the settle ends after its yielding retries");
+	});
 });
 describe("imp-link half distance (rendering arc, owner 2026-09-30)", () => {
 	const settle = (from: string, to: string, linkDistance: number) => {

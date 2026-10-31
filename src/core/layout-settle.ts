@@ -44,9 +44,10 @@ export function settleGraphLayout(
 ): Promise<void> {
 	const sliceMs = options.sliceMs ?? SETTLE_SLICE_MS;
 	const run = settleQueue.then(async () => {
-		while (!(await trySettle(graphStore, sliceMs))) {
-			// Stale: the inputs moved while it yielded — settle again.
-		}
+		// Stale results (inputs moved while it yielded) settle again; after
+		// SETTLE_MAX_RETRIES the last attempt runs without yielding, so it
+		// cannot go stale and the loop always ends.
+		for (let attempt = 1; !(await trySettle(graphStore, attempt > SETTLE_MAX_RETRIES ? Infinity : sliceMs)); attempt++);
 	});
 	settleQueue = run.catch(() => undefined);
 	return run;
@@ -54,6 +55,8 @@ export function settleGraphLayout(
 
 /** The longest run of ticks between two yields to the event loop. */
 const SETTLE_SLICE_MS = 16;
+/** Yielding attempts before a settle finishes in one block regardless. */
+const SETTLE_MAX_RETRIES = 3;
 
 /** The tail of the settle queue — each settle starts after the last ends. */
 let settleQueue: Promise<void> = Promise.resolve();
