@@ -87,6 +87,7 @@ import {
 } from "@/src/core";
 import { ReadingThinkingField } from "@/components/reading-thinking";
 import { SideTutor, useSideTutor } from "@/components/side-tutor";
+import { useReadingThinkingResync } from "@/components/reading-thinking-resync";
 import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/thinking-block";
 import { FACTORY_SETTINGS, slotsConfigured } from "@/src/core";
 import { useReadingThinkingRefresh } from "@/components/reading-thinking-refresh";
@@ -511,6 +512,7 @@ export function Chat({
 	const [showReadingThinking, setShowReadingThinking] = useState(initialShowReadingThinking);
 	const [readingThinkingSeed, setReadingThinkingSeed] = useState({ questionId: null as string | null, value: "", revision: 0 });
 	const readingThinkingRef = useRef("");
+	useReadingThinkingResync(showReadingThinking, readingThinkingRef, setReadingThinkingSeed);
 	const { sideTutor, toggleSideTutor, closeSideTutor } = useSideTutor();
 
 	// ⌘T (toggle-user-thinking, owner round 2026-10-07): set EVERY user
