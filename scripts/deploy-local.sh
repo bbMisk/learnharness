@@ -26,12 +26,17 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 git fetch -q origin
 [ -n "$(git branch -r --contains "$COMMIT" 2>/dev/null)" ] || [ "$FORCE" = "--force" ] || die "commit ${COMMIT:0:7} is not on GitHub; push the branch first so local and GitHub stay the same"
 
-if [ "$FORCE" != "--force" ] && curl -sf "$URL/api/health" >/dev/null; then
-	BUSY="$(curl -sf "$URL/api/chats" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).chats.filter(c=>c.busy).length))')"
-	JOBS="$(curl -sf "$URL/api/activity" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const a=JSON.parse(s);console.log(a.jobs.length+a.extractions.length+a.flashcards.length)})')"
-	[ "$BUSY" = 0 ] && [ "$JOBS" = 0 ] || die "host is working ($BUSY replies, $JOBS background jobs); retry later or pass --force"
-fi
+# A restart kills in-flight replies, compactions and background jobs.
+assert_idle() {
+	[ "$FORCE" = "--force" ] && return 0
+	curl -sf "$URL/api/health" >/dev/null || return 0
+	local busy jobs
+	busy="$(curl -sf "$URL/api/chats" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).chats.filter(c=>c.busy||c.compacting).length))')"
+	jobs="$(curl -sf "$URL/api/activity" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const a=JSON.parse(s);console.log(a.jobs.length+a.extractions.length+a.flashcards.length)})')"
+	[ "$busy" = 0 ] && [ "$jobs" = 0 ] || die "host is working ($busy replies, $jobs background jobs); retry later or pass --force"
+}
 
+assert_idle
 npm run build
 node scripts/build-server.mjs
 
@@ -40,9 +45,11 @@ STAGE="$HOST_DIR.stage-$STAMP"
 BACKUP="$HOST_DIR.before-$STAMP"
 cp -c -R .next/standalone "$STAGE" 2>/dev/null || cp -R .next/standalone "$STAGE"
 printf '{"commit":"%s","branch":"%s","deployedAt":"%s"}\n' "$COMMIT" "$BRANCH" "$STAMP" >"$STAGE/DEPLOYED.json"
+assert_idle || { rm -rf "$STAGE"; exit 1; } # again, just before the swap: work may have started during the build
 
 restart() {
-	launchctl kickstart -k "gui/$(id -u)/$SERVICE"
+	# Without this, a failed restart leaves the old server answering health checks.
+	launchctl kickstart -k "gui/$(id -u)/$SERVICE" || return 1
 	for _ in $(seq 1 60); do curl -sf "$URL/api/health" >/dev/null && return 0; sleep 0.5; done
 	return 1
 }
