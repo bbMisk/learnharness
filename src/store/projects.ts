@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { PATHS } from "../../config.ts";
 import type { ProjectRecord } from "../core/projects.ts";
 import { emit } from "../core/events.ts";
+import { writeFileAtomic } from "./write-file.ts";
 export function createProjectStore(root: string) {
 	const file = (id: string) => {
 		if (!/^project_[a-zA-Z0-9_-]+$/.test(id)) throw new Error("Invalid project id.");
@@ -19,10 +20,7 @@ export function createProjectStore(root: string) {
 	};
 	const save = (record: ProjectRecord) => {
 		fs.mkdirSync(root, { recursive: true });
-		const target = file(record.id);
-		const temp = target + "." + randomUUID() + ".tmp";
-		fs.writeFileSync(temp, JSON.stringify(record, null, 2), { mode: 0o600 });
-		fs.renameSync(temp, target);
+		writeFileAtomic(file(record.id), JSON.stringify(record, null, 2), { mode: 0o600 });
 		emit("chats-changed", {});
 		return record;
 	};

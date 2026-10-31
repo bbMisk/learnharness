@@ -68,3 +68,25 @@ it("replacement preserves existing permissions even under a more restrictive uma
 	finally { process.umask(previous); }
 	assert.equal(fs.statSync(SETTINGS_FILE).mode & 0o777, 0o660);
 });
+
+it("an explicit mode replaces the saved mode; fsync and exclusive create are opt-in", async () => {
+	const { writeFileAtomic } = await import("../src/store/write-file.ts");
+	const file = path.join(root, "explicit-mode.json");
+	fs.writeFileSync(file, "old");
+	fs.chmodSync(file, 0o644);
+	const previous = process.umask(0o022);
+	const opens: unknown[] = [];
+	let fsyncs = 0;
+	try {
+		const open = fs.openSync, fsync = fs.fsyncSync;
+		mock.method(fs, "openSync", (...args: Parameters<typeof fs.openSync>) => { opens.push(args.slice(1)); return open(...args); });
+		mock.method(fs, "fsyncSync", (fd: number) => { fsyncs++; fsync(fd); });
+		writeFileAtomic(file, "new", { mode: 0o600, fsync: true, exclusive: true });
+		assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+		writeFileAtomic(file, "plain");
+	} finally { mock.restoreAll(); process.umask(previous); }
+	assert.deepEqual(opens, [["wx", 0o600], ["w", 0o100600]]);
+	assert.equal(fsyncs, 1);
+	assert.equal(fs.readFileSync(file, "utf8"), "plain");
+	assert.ok(!fs.readdirSync(root).some(name => name.endsWith(".tmp")));
+});
