@@ -4,11 +4,6 @@ import { useEffect, useId, useRef, useState } from "react";
 import { registerFileDrop, focusFileDrop } from "@/components/global-file-drop";
 import type { ClipboardEvent } from "react";
 
-/** Resolve native Files, never substitute a basename for an unavailable path. */
-export function droppedFilePaths(files: Iterable<File>, resolve: (file: File) => string): string[] {
-	return [...new Set(Array.from(files, resolve).filter(Boolean))];
-}
-
 /** One quoted path per line keeps spaces and unusual filenames unambiguous. */
 export function appendFilePaths(draft: string, paths: string[]): string {
 	if (!paths.length) return draft;
