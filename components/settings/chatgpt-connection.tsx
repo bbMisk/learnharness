@@ -289,6 +289,10 @@ export function ChatGPTUIProvider({ children }: { children: React.ReactNode }) {
 					}} />
 					<span>{BACKGROUND_LABEL}<span className="mt-1 block leading-relaxed text-muted-foreground">{CHATGPT_BACKGROUND_HINT}</span></span>
 				</div>
+				{dialog.kind === "manage" && managed?.connected && managed.id === status.activeId && <div className="mt-4 flex items-start gap-3 text-xs" data-testid="chatgpt-fast-setting">
+					<Toggle label="Fast mode" checked={status.fastMode === true} disabled={busy || status.pending || (!status.fastMode && !status.fastModels?.length)} onChange={context.fast}/>
+					<span>Fast mode<span className="mt-1 block leading-relaxed text-muted-foreground">Request faster responses for supported models. Uses more plan allowance; OpenAI may still serve Standard speed.</span></span>
+				</div>}
 				<div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
 					<a href="https://openai.com/policies/privacy-policy/" target="_blank" rel="noreferrer" className="underline underline-offset-2">OpenAI privacy</a>
 					<a href="https://chatgpt.com/settings/usage" target="_blank" rel="noreferrer" className="underline underline-offset-2">Manage usage</a>
@@ -355,9 +359,16 @@ export function ChatGPTBackgroundAccess({ provider }: { provider: string | undef
 
 /** Account-owned Fast preference; the service can still deliver Standard. */
 export function ChatGPTSpeedIndicator({ modelId }: { modelId?: string }) {
- const ui = useContext(Context);
- if (!ui.status.activeId) return null;
- const last = ui.status.lastServiceTier;
- const served = last?.modelId === modelId ? last?.served : undefined;
- return <span className="whitespace-nowrap text-xs" data-testid="chatgpt-speed-indicator"><button type="button" className="underline underline-offset-2 disabled:opacity-50" disabled={ui.busy || (!ui.status.fastMode && !ui.status.fastModels?.includes(modelId ?? ""))} onClick={() => ui.fast(!ui.status.fastMode)} title="Fast uses more plan allowance; actual delivery may be Standard.">{ui.status.fastMode ? "Fast on" : "Fast off"}</button>{served !== undefined && ` · last: ${served === "priority" || served === "fast" ? "Fast" : served === "default" ? "Standard" : served ?? "Unknown"}${last?.requested ? " (Fast requested)" : ""}`}</span>;
+	const ui = useContext(Context);
+	if (!ui.status.activeId) return null;
+	const enabled = ui.status.fastMode === true;
+	const supported = ui.status.fastModels?.includes(modelId ?? "");
+	const last = ui.status.lastServiceTier?.modelId === modelId ? ui.status.lastServiceTier : undefined;
+	const served = last?.served === "priority" || last?.served === "fast" ? "Fast" : last?.served === "default" ? "Standard" : "Unknown";
+	const hint = `${enabled ? "Request Fast responses" : "Use Standard responses"}. Fast uses more plan allowance and may still be served at Standard speed.${last ? ` Last response: ${served}.` : ""}${!supported && !enabled ? " Fast is unavailable for this model." : ""}`;
+	return <button type="button" data-testid="chatgpt-speed-indicator" aria-label="Fast mode" aria-pressed={enabled}
+		disabled={ui.busy || (!enabled && !supported)} onClick={() => ui.fast(!enabled)} title={hint}
+		className="flex h-7 shrink-0 items-center whitespace-nowrap rounded-full border bg-card/85 px-2.5 text-xs shadow-lg backdrop-blur transition-colors hover:bg-muted disabled:opacity-50">
+		Fast {enabled ? "on" : "off"}
+	</button>;
 }
