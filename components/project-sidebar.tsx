@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { ChevronRightIcon, FolderIcon, PlusIcon } from "lucide-react";
 import { Dialog } from "radix-ui";
 import type { ChatListItem, ProjectSummary } from "@/src/core";
+import { InlineRename, renameProject } from "@/components/inline-rename";
 type ProjectChats = {
 	chats: ChatListItem[];
 	moveChat: (id: string, projectId: string | null) => void;
@@ -67,6 +68,7 @@ export function ProjectSidebar({
 					key={project.id}
 					project={project}
 					active={pathname === "/project/" + project.id}
+					refresh={refresh}
 					chats={chats.filter((chat) => chat.projectId === project.id)}
 					moveChat={moveChat}
 					renderChat={renderChat}
@@ -122,12 +124,16 @@ export function ProjectSidebar({
 function ProjectFolder({
 	project,
 	active,
+	refresh,
 	chats,
 	moveChat,
 	renderChat,
 	showChats,
-}: { project: ProjectSummary; active: boolean } & ProjectChats) {
+}: { project: ProjectSummary; active: boolean; refresh: () => void } & ProjectChats) {
 	const [expanded, setExpanded] = useState(false);
+	// Right-click renames in place (owner, 2026-11-01).
+	const [renaming, setRenaming] = useState(false);
+	const [renameError, setRenameError] = useState("");
 	const storageKey = "lh:project-expanded:" + project.id;
 	// Restore before paint; initial rendering never overwrites a saved choice.
 	useBrowserLayoutEffect(() => {
@@ -155,7 +161,14 @@ function ProjectFolder({
 			data-project-drop={project.id}
 			className={`group min-h-11 rounded-md pb-1 transition-colors ${drop.over ? "bg-accent/70" : ""}`}
 		>
-			<div className={`flex min-h-10 items-center rounded-md transition-colors ${active ? "bg-accent" : "hover:bg-accent/60"}`}>
+			<div
+				onContextMenu={(event) => {
+					event.preventDefault();
+					setRenameError("");
+					setRenaming(true);
+				}}
+				className={`flex min-h-10 items-center rounded-md transition-colors ${active ? "bg-accent" : "hover:bg-accent/60"}`}
+			>
 				<button
 					type="button"
 					aria-label={`${expanded ? "Collapse" : "Expand"} ${project.name}`}
@@ -174,15 +187,34 @@ function ProjectFolder({
 				>
 					<FolderIcon className="size-4" />
 				</Link>
-				<button
-					type="button"
-					aria-expanded={expanded && showChats}
-					disabled={!showChats}
-					onClick={() => rememberExpanded(!expanded)}
-					className="min-w-0 flex-1 truncate py-2 pr-2 text-left font-prose text-(length:--lh-prose-size)"
-				>
-					{project.name}
-				</button>
+				{renaming ? (
+					<InlineRename
+						value={project.name}
+						ariaLabel={"Rename " + project.name}
+						className="mr-2 h-8 flex-1 font-prose text-(length:--lh-prose-size)"
+						onCommit={async (name) => {
+							try {
+								await renameProject(project.id, name, project.name);
+								refresh();
+							} catch (error) {
+								setRenameError(error instanceof Error ? error.message : "Could not rename the project.");
+								throw error;
+							}
+						}}
+						onDone={() => setRenaming(false)}
+					/>
+				) : (
+					<button
+						type="button"
+						aria-expanded={expanded && showChats}
+						disabled={!showChats}
+						onClick={() => rememberExpanded(!expanded)}
+						title="Right-click to rename"
+						className="min-w-0 flex-1 truncate py-2 pr-2 text-left font-prose text-(length:--lh-prose-size)"
+					>
+						{project.name}
+					</button>
+				)}
 				<Link
 					href={"/chat/new?project=" + project.id}
 					aria-label={"New chat in " + project.name}
@@ -191,6 +223,11 @@ function ProjectFolder({
 					<PlusIcon className="size-3.5" />
 				</Link>
 			</div>
+			{renameError && (
+				<p role="alert" className="px-2 pb-1 text-xs text-destructive">
+					{renameError}
+				</p>
+			)}
 			{drop.over && (
 				<p role="status" className="sr-only">
 					Move chat to {project.name}

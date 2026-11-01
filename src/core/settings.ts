@@ -367,6 +367,8 @@ export interface GeneralSettings {
 	hiddenModes?: SessionMode[];
 	/** Teaching checks wait for Enter or a click: in cram mode (default), always, or never. */
 	revealQuestions?: RevealQuestions;
+	/** A cram lesson's probe asks at most two quick questions (default ON); off keeps the full probe. */
+	cramShortProbe?: boolean;
 }
 
 /** One app-wide dictation preference, shared by every composer. */
@@ -549,7 +551,7 @@ export interface FactorySettings {
 
 export const FACTORY_SETTINGS: FactorySettings = {
 	version: CURRENT_SETTINGS_VERSION,
-	general: { autoUpdate: true, showReadingThinking: false, keepThinkingFocus: true, flashcardSources: "chats", hiddenModes: [], revealQuestions: "cram" },
+	general: { autoUpdate: true, showReadingThinking: false, keepThinkingFocus: true, flashcardSources: "chats", hiddenModes: [], revealQuestions: "cram", cramShortProbe: true },
 	dictation: { language: "en" },
 	appearance: {
 		mode: "dark",
@@ -611,6 +613,8 @@ function sanitizeGeneral(raw: Record<string, unknown>): GeneralSettings {
 	const hiddenModes = parseHiddenModes(raw.hiddenModes);
 	if (hiddenModes) out.hiddenModes = hiddenModes;
 	if ((REVEAL_QUESTIONS as readonly unknown[]).includes(raw.revealQuestions)) out.revealQuestions = raw.revealQuestions as RevealQuestions;
+	const cramShortProbe = boolOrDrop(raw.cramShortProbe);
+	if (cramShortProbe !== undefined) out.cramShortProbe = cramShortProbe;
 	return out;
 }
 

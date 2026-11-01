@@ -492,6 +492,25 @@ it("Wave C: markers injected mid-run (custom role, follow-up delivery) append to
 	assert.equal(again.messages.length, state.messages.length, "same id upserts, never appends a second copy");
 });
 
+it("a marker the synced record already holds is not added again by the live stream (doubled Planning divider)", () => {
+	const m = model({ fetch: () => new Promise<Response>(() => {}) });
+	const handoff = {
+		id: "steer_probe_chat_1",
+		role: "custom",
+		customType: "probe-handoff",
+		content: "Next: plan the teaching arc.",
+		display: false,
+		details: {},
+		timestamp: 2,
+	};
+	m.adoptRecord([{ id: "u1", role: "user", content: "hello", timestamp: 1 } as never, handoff as never] as never);
+	void m.send({ type: "text", text: "go" });
+	m.applyWireEvent({ type: "message_start", message: handoff } as never);
+	m.applyWireEvent({ type: "message_end", message: handoff } as never);
+	const dividers = m.getState().messages.filter((v) => v.parts.some((p) => p.type === "data-probe-handoff"));
+	assert.equal(dividers.length, 1);
+});
+
 	it("a provider error rides VERBATIM (owner ruling) — no masking anywhere", async () => {
 		globalThis.fetch = dietFetch({
 			userText: "q",

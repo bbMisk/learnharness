@@ -58,6 +58,9 @@ it("a cram lesson gets a short probe, then the cram loop; Teach and practice are
 	assert.equal(withTeachingStyle("", { style: "cram", messages: probeDone }), CRAM_INSTRUCTIONS);
 	assert.equal(withTeachingStyle(project, { messages: probeDone }), project);
 	assert.equal(withTeachingStyle(project, { style: "cram", kind: "practice", messages: [] }), project);
+	// Short probe off (Settings): the full probe, then the cram loop.
+	assert.equal(withTeachingStyle(project, { style: "cram", messages: [] }, false), project);
+	assert.equal(withTeachingStyle(project, { style: "cram", messages: probeDone }, false), `${project}\n\n${CRAM_INSTRUCTIONS}`);
 	assert.match(CRAM_PROBE_INSTRUCTIONS, /at most two quick questions/);
 	assert.match(CRAM_INSTRUCTIONS, /don't ask for approval/);
 	assert.match(CRAM_INSTRUCTIONS, /careless slip/);

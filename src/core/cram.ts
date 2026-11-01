@@ -28,9 +28,15 @@ The learner chose cram mode. The goal is simple: do well on a test on this mater
 
 **Stay on the method, not the minutiae.** Focus on how to tackle other instances of the same class and of neighbouring classes. Don't get bogged down in small details. If the learner's approach is right but they made a careless slip (a sign, an arithmetic or a copying error), point it out in one line and move on; do not re-ask the question unless the learner asks for that.`;
 
-/** The project instructions plus, for a cram lesson, the short-probe or the cram-loop instructions. */
-export function withTeachingStyle(projectContext: string, record: Pick<ChatRecord, "style" | "kind" | "messages">): string {
+/** The project instructions plus, for a cram lesson, the cram-loop instructions after
+ *  the probe and, unless the learner turned it off (Settings → General → Short probe
+ *  in cram mode), the short-probe instructions before it. */
+export function withTeachingStyle(
+	projectContext: string,
+	record: Pick<ChatRecord, "style" | "kind" | "messages">,
+	shortProbe = true,
+): string {
 	if (record.style !== "cram" || record.kind === "practice") return projectContext;
-	const cram = hasProbeDone(record.messages) ? CRAM_INSTRUCTIONS : CRAM_PROBE_INSTRUCTIONS;
+	const cram = hasProbeDone(record.messages) ? CRAM_INSTRUCTIONS : shortProbe ? CRAM_PROBE_INSTRUCTIONS : "";
 	return [projectContext, cram].filter(Boolean).join("\n\n");
 }
