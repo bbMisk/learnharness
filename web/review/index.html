@@ -16,18 +16,17 @@
 </head>
 <body>
   <header class="topbar">
+    <button class="text-button back" id="back" type="button" hidden>← Projects</button>
     <a class="brand" href="/" aria-label="Back to LearnHarness"><img src="./icon-192.png" width="32" height="32" alt=""><span>LearnHarness</span></a>
     <span class="connection" id="connection" role="status">Opening…</span>
   </header>
   <main>
     <section class="heading">
       <h1>Flashcards</h1>
-      <p class="intro">New cards start as multiple choice. After three correct reviews on at least two days, you recall the idea in your own words.</p>
     </section>
     <section class="library" aria-label="Your flashcards">
       <div class="eyebrow" id="projects-label">PROJECTS</div>
       <div id="project-options" class="project-options" role="group" aria-labelledby="projects-label"><button type="button" class="project-chip" aria-pressed="true">All projects</button></div>
-      <p class="small project-hint">Choose one or more projects, or mix everything.</p>
       <div class="counts" id="counts">Connect once to download your cards.</div>
     </section>
     <p class="message" id="message" role="status" hidden></p>
@@ -63,13 +62,14 @@
     <footer>
       <div class="sync-row"><span id="sync-status" role="status">Reviews are saved on this device before syncing.</span><button class="text-button" id="sync" type="button">Sync now</button></div>
       <div class="footer-links"><button class="text-button" id="backup" type="button" hidden>Back up pending reviews</button><button class="text-button" id="install" type="button">Install on iPhone</button><a href="./licenses.txt">Licenses</a></div>
-      <p class="small engine-note">FSRS · Anki’s Rust core · 90% retention · 20 new cards per project/day</p>
     </footer>
     <dialog id="install-dialog" aria-labelledby="install-title">
       <div class="eyebrow">TAKE IT WITH YOU</div><h2 id="install-title">Add to your Home Screen</h2>
       <ol><li>Open this page in Safari while Tailscale is connected.</li><li>Tap <strong>Share → Add to Home Screen</strong>, then open as a web app.</li><li>Wait for <strong>Offline ready</strong> before your first subway review.</li></ol>
       <p>Prepared multiple-choice cards and downloaded active-recall cards work offline. Reviews sync when this app is open and the host is reachable again.</p>
+      <p>New cards start as multiple choice. After three correct reviews on at least two days, you recall the idea in your own words.</p>
       <p class="small">Use Again when you couldn’t recall the answer. Hard means you recalled it with difficulty; Good and Easy mean successful recall.</p>
+      <p class="small">FSRS · Anki’s Rust core · 90% retention · 20 new cards per project/day</p>
       <form method="dialog"><button class="primary" type="submit">Got it</button></form>
     </dialog>
     <noscript><p class="message">JavaScript is required for offline flashcards.</p></noscript>
