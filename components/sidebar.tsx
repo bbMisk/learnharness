@@ -27,6 +27,7 @@ import type { ChatListItem, ProjectSummary } from "@/src/core";
 import { kbdEventForAction } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { DeployReload } from "@/components/deploy-reload";
+import { useVisibleModes } from "@/components/session-modes";
 
 /**
  * Toggleable sidebar — NOT a modal drawer: no backdrop, no focus theft. It
@@ -421,7 +422,11 @@ function SessionsSidebar() {
 	const [query, setQuery] = useState("");
 	const [showArchived, setShowArchived] = useState(false);
 	const [projects,setProjects]=useState<ProjectSummary[]>([]);
-	const [kindFilter, setKindFilter] = useState<SessionKindFilter>("all");
+	const [storedKindFilter, setKindFilter] = useState<SessionKindFilter>("all");
+	// Hidden modes (Settings → General): no Practice door or filter when Practice is hidden.
+	const modes = useVisibleModes();
+	const showPractice = modes.includes("practice");
+	const kindFilter: SessionKindFilter = showPractice ? storedKindFilter : "all";
 	useEffect(() => {
 		const stored = window.localStorage.getItem(KIND_FILTER_KEY);
 		if (stored === "teach" || stored === "all" || stored === "practice") setKindFilter(stored);
@@ -749,9 +754,10 @@ function SessionsSidebar() {
 						className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 					>
 						<PlusIcon className="size-3" />
-						Teaching
-						<span className="sr-only">create a new teaching session</span>
+						{modes.includes("teach") ? "Teaching" : "New session"}
+						<span className="sr-only">create a new session</span>
 					</button>
+					{showPractice && (
 					<button
 						type="button"
 						data-testid="new-session-practice"
@@ -762,6 +768,7 @@ function SessionsSidebar() {
 						Practice
 						<span className="sr-only">create a new practice session</span>
 					</button>
+					)}
 					<a href="/review/index.html" data-testid="flashcards-link" className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
 						<LayersIcon className="size-3" />
 						Flashcards
@@ -838,6 +845,7 @@ function SessionsSidebar() {
 				    Practice / All — the real modes first, "All" as the escape
 				    hatch on the right, mirroring the create-buttons above.
 				    Persisted client-side. */}
+				{showPractice && (
 				<div className="mx-3 flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="session-kind-filter">
 					{(["teach", "practice", "all"] as const).map((f) => (
 						<button
@@ -856,6 +864,7 @@ function SessionsSidebar() {
 						</button>
 					))}
 				</div>
+				)}
 
 				<ProjectSidebar projects={projects} chats={(chats ?? []).filter(chat => !chat.archived && (kindFilter === "all" || (chat.kind ?? "teach") === kindFilter))} refresh={refresh} moveChat={moveChat} renderChat={renderChat} showChats={!query.trim() && !showArchived} />
 				<div {...chatDrop.handlers} data-testid="unassigned-chat-drop" className={cn("mx-3 mt-2 flex h-8 shrink-0 items-center rounded-md px-2 text-xs uppercase tracking-widest text-muted-foreground/70", chatDrop.over && "bg-accent text-muted-foreground ring-1 ring-primary/30")}>{chatDrop.over ? "Move chat out of project" : showArchived ? "Archived" : "Chats"}</div>

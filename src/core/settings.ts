@@ -331,6 +331,17 @@ export const ROLE_SLOT: Readonly<Record<ModelRole, ModelSlotName>> = {
 	pdfReader: "vision",
 };
 
+/** The new-session modes (owner, 2026-11-01): Cram is a lesson with a short
+ *  probe and the test-focused loop (core/cram.ts). */
+export const SESSION_MODES = ["teach", "practice", "cram"] as const;
+export type SessionMode = (typeof SESSION_MODES)[number];
+
+/** The modes still offered when `hidden` are hidden; never none. */
+export function visibleModes(hidden: readonly SessionMode[] | undefined): SessionMode[] {
+	const shown = SESSION_MODES.filter((mode) => !hidden?.includes(mode));
+	return shown.length ? shown : [...SESSION_MODES];
+}
+
 /** General settings — app-level behavior. Version DISPLAY and plans login
  *  live outside the record (package.json / auth.json) by owner decision. */
 export interface GeneralSettings {
@@ -342,6 +353,8 @@ export interface GeneralSettings {
 	keepThinkingFocus?: boolean;
 	/** Flashcard source scope. Chat provenance is required by default. */
 	flashcardSources?: "chats" | "all";
+	/** Session modes not offered in the mode switch and sidebar (default none; at least one stays). */
+	hiddenModes?: SessionMode[];
 }
 
 /** One app-wide dictation preference, shared by every composer. */
@@ -524,7 +537,7 @@ export interface FactorySettings {
 
 export const FACTORY_SETTINGS: FactorySettings = {
 	version: CURRENT_SETTINGS_VERSION,
-	general: { autoUpdate: true, showReadingThinking: false, keepThinkingFocus: true, flashcardSources: "chats" },
+	general: { autoUpdate: true, showReadingThinking: false, keepThinkingFocus: true, flashcardSources: "chats", hiddenModes: [] },
 	dictation: { language: "en" },
 	appearance: {
 		mode: "dark",
@@ -563,6 +576,14 @@ function sanitizeHexOrNull(value: unknown): string | null {
 	return null;
 }
 
+/** Known, unique modes, leaving at least one visible; anything else is invalid (undefined). */
+export function parseHiddenModes(value: unknown): SessionMode[] | undefined {
+	if (!Array.isArray(value)) return undefined;
+	if (!value.every((mode) => (SESSION_MODES as readonly unknown[]).includes(mode))) return undefined;
+	const modes = [...new Set(value as SessionMode[])];
+	return modes.length < SESSION_MODES.length ? modes : undefined;
+}
+
 const boolOrDrop = (value: unknown): boolean | undefined =>
 	typeof value === "boolean" ? value : undefined;
 
@@ -575,6 +596,8 @@ function sanitizeGeneral(raw: Record<string, unknown>): GeneralSettings {
 	if (showReadingThinking !== undefined) out.showReadingThinking = showReadingThinking;
 	const keepThinkingFocus = boolOrDrop(raw.keepThinkingFocus);
 	if (keepThinkingFocus !== undefined) out.keepThinkingFocus = keepThinkingFocus;
+	const hiddenModes = parseHiddenModes(raw.hiddenModes);
+	if (hiddenModes) out.hiddenModes = hiddenModes;
 	return out;
 }
 

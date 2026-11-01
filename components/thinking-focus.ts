@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, type RefObject } from "react";
-import { FACTORY_SETTINGS, type UserSettings } from "@/src/core";
-import { useSettingsSaved } from "@/components/settings-signal";
+import { useEffect, type RefObject } from "react";
+import { FACTORY_SETTINGS } from "@/src/core";
+import { useGeneralSettings } from "@/components/general-settings";
 
 /** "Keep cursor in Your thinking" (owner, 2026-10-31): during a question,
  *  typing, pasting and dictation land in the thinking field. A question that
@@ -30,32 +30,8 @@ if (typeof document !== "undefined") {
 	);
 }
 
-let preference: boolean = FACTORY_SETTINGS.general.keepThinkingFocus;
-let loaded: Promise<void> | undefined;
-function loadPreference(): Promise<void> {
-	return fetch("/api/settings")
-		.then((r) => (r.ok ? (r.json() as Promise<{ settings?: UserSettings | null }>) : Promise.reject()))
-		.then((body) => {
-			preference = body.settings?.general?.keepThinkingFocus ?? FACTORY_SETTINGS.general.keepThinkingFocus;
-		})
-		.catch(() => undefined);
-}
-
 function useKeepThinkingFocus(): boolean {
-	const [enabled, setEnabled] = useState(preference);
-	useEffect(() => {
-		let alive = true;
-		void (loaded ??= loadPreference()).then(() => alive && setEnabled(preference));
-		return () => {
-			alive = false;
-		};
-	}, []);
-	useSettingsSaved((section) => {
-		if (section !== "general") return;
-		loaded = loadPreference();
-		void loaded.then(() => setEnabled(preference));
-	});
-	return enabled;
+	return useGeneralSettings()?.keepThinkingFocus ?? FACTORY_SETTINGS.general.keepThinkingFocus;
 }
 
 /** Focus the field and put the caret back where it was, else at the end. */

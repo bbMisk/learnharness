@@ -14,7 +14,9 @@ import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { SessionStarter } from "@/components/start-session";
-import type { ChatSettings, GraphSnapshot } from "@/src/core";
+import { ModeSwitch } from "@/components/mode-switch";
+import { useSessionMode } from "@/components/session-modes";
+import type { ChatSettings, GraphSnapshot, SessionMode } from "@/src/core";
 
 /** The draft's pick set (owner round 10): the SAME shape the home pick
  *  bar lifts — resolved nodes as the learner SAW them at pick time. */
@@ -43,7 +45,7 @@ const DOCK = "mx-auto w-full max-w-[46rem] px-4";
 export async function startDraftSession(
 	text: string,
 	fetchLike: typeof fetch,
-	mode?: "practice",
+	mode?: "practice" | "cram",
 	picks?: readonly DraftPick[],
 	starter = new SessionStarter(),
 	settingsIdentity?: string,
@@ -58,7 +60,7 @@ export async function startDraftSession(
 	return starter.start(
 		mode === "practice"
 			? { title: t, ...(projectId ? { projectId } : {}), kind: "practice", ...(picks && picks.length > 0 ? { graphContext: { propositions: picks } } : {}) }
-			: { title: t, ...(projectId ? { projectId } : {}) },
+			: { title: t, ...(projectId ? { projectId } : {}), ...(mode === "cram" ? { style: "cram" as const } : {}) },
 		fetchLike,
 		settingsIdentity,
 	);
@@ -77,6 +79,7 @@ export function DraftShell({
 	startError = false,
 	setupCta,
 	mode = "teach",
+	modeSwitch,
 	picks = [],
 	onOpenPicker,
 	onClearPicks,
@@ -90,7 +93,9 @@ export function DraftShell({
 	/** The practice draft (owner, 2026-10-04): ?mode=practice — the
 	 *  created session carries kind:"practice" and the copy changes
 	 *  (the practice agent opens; no probing). */
-	mode?: "teach" | "practice";
+	mode?: SessionMode;
+	/** The Teach | Practice | Cram switch under the composer (NewSession owns the mode). */
+	modeSwitch?: ReactNode;
 	/** The first-run CTA (fix wave chunk B): the same "Set up your models"
 	 *  affordance home carries, rendered above the draft shell — passed by
 	 *  NewSession, which owns the configured state and the SetupDialog. */
@@ -171,11 +176,13 @@ export function DraftShell({
 						<Conversation className="h-full min-w-0 flex-1" initial="instant">
 							<ConversationContent className="min-h-full gap-0 p-0">
 								<ConversationEmptyState
-									title={mode === "practice" ? "New practice session" : "New session"}
+									title={mode === "practice" ? "New practice session" : mode === "cram" ? "New cram session" : "New session"}
 									description={
 										mode === "practice"
 											? "Pick nodes from your knowledge graph, describe what you want to practice, or bring your own problem."
-											: "The teacher will open by probing what you already know."
+											: mode === "cram"
+												? "A quick check of what you know, then each problem type: the idea, a worked example, and your turn."
+												: "The teacher will open by probing what you already know."
 									}
 								/>
 							</ConversationContent>
@@ -205,12 +212,13 @@ export function DraftShell({
 										// input (owner refinement round, 2026-09-24) — no lesson has
 										// started yet, so the composer must not read like one is in
 										// flight.
-										placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
+										placeholder={mode === "practice" ? "What do you want to practice?" : mode === "cram" ? "What do you need to cram for?" : "What do you want to learn?"}
 									/>
 								</div>
 								<StatsBar
 									dictationSlot={<DictationBar dictation={dictation} />}
 									turns={[]}
+									leadingSlot={modeSwitch}
 								/>
 							</div>
 						</div>
@@ -231,9 +239,10 @@ export function DraftShell({
 }
 
 export function NewSession({ initialConfigured,
-	projectId, mode = "teach" }: { initialConfigured: boolean;
+	projectId, mode: initialMode = "teach" }: { initialConfigured: boolean;
 	projectId?: string; mode?: "teach" | "practice" }) {
 	const router = useRouter();
+	const [mode, setMode, modes] = useSessionMode(initialMode);
 	const [text, setText] = useState("");
 	/* The draft MIRROR ("nothing gets lost" round, 2026-10-01): the shell's
 	 * finish-first send calls THIS send after the dictation flush — which
@@ -308,7 +317,7 @@ export function NewSession({ initialConfigured,
 		startingRef.current = true;
 		setBusy(true);
 		setStartError(false);
-		void startDraftSession(draft, fetch, mode === "practice" ? "practice" : undefined, mode === "practice" ? picksRef.current : undefined,
+		void startDraftSession(draft, fetch, mode === "teach" ? undefined : mode, mode === "practice" ? picksRef.current : undefined,
 			starterRef.current, JSON.stringify(catalog?.slots.strong), projectId)
 			.then((target) => {
 				if (target) router.push(target);
@@ -330,6 +339,7 @@ export function NewSession({ initialConfigured,
 				onChange={applyText}
 				onSend={send}
 				mode={mode}
+				modeSwitch={<ModeSwitch mode={mode} modes={modes} onChange={setMode} testidPrefix="draft-mode" />}
 				picks={picks}
 				onOpenPicker={openPicker}
 				onClearPicks={() => applyPicks([])}

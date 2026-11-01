@@ -20,7 +20,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-	const body = (await req.json().catch(() => ({}))) as { title?: unknown; kind?: unknown; graphContext?: unknown; projectId?: unknown };
+	const body = (await req.json().catch(() => ({}))) as { title?: unknown; kind?: unknown; style?: unknown; graphContext?: unknown; projectId?: unknown };
 	const title = typeof body.title === "string" ? body.title : "";
 	// Practice sessions (owner, 2026-10-04): kind "practice" marks the
 	// record — the practice agent + its tools from turn 1, no extraction.
@@ -28,6 +28,8 @@ export async function POST(req: Request) {
 	if(body.projectId!==undefined&&(typeof body.projectId!=='string'||!projectStore.get(body.projectId))) return Response.json({error:'Project not found.'},{status:400});
 	const chat = createChat(titleFromPrompt(title || "Untitled session"), kind);
 	if(typeof body.projectId==='string') setChatOrganization(chat.id,{projectId:body.projectId});
+	// Cram mode (owner, 2026-11-01): a lesson with a short probe and the test-focused loop.
+	if(body.style==='cram'&&!kind) setChatOrganization(chat.id,{style:'cram'});
 	// PER-SESSION MODELS (owner, 2026-09-28): a session owns its model +
 	// thinking level from birth — stamped verbatim from the STRONG slot,
 	// the new-session default. From here the strong slot never reaches

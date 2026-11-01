@@ -26,7 +26,7 @@ import type {
 	ModelSlot,
 	RoleModelOverride,
 } from "../core/settings.ts";
-import { BACKGROUND_MODEL_ROLES, CACHE_RETENTIONS, COMPACTION_THRESHOLD_FLOOR, CUSTOM_MODEL_PIN_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS } from "../core/settings.ts";
+import { BACKGROUND_MODEL_ROLES, CACHE_RETENTIONS, COMPACTION_THRESHOLD_FLOOR, CUSTOM_MODEL_PIN_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS, parseHiddenModes } from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import { isDictationLanguage } from "../core/dictation.ts";
 
@@ -105,6 +105,11 @@ export function parseGeneralSettingsBody(body: unknown): SettingsBodyResult<Gene
 			return { ok: false, error: "keepThinkingFocus must be a boolean" };
 		}
 		settings.keepThinkingFocus = raw.keepThinkingFocus;
+	}
+	if (raw.hiddenModes !== undefined) {
+		const hiddenModes = parseHiddenModes(raw.hiddenModes);
+		if (!hiddenModes) return { ok: false, error: "hiddenModes must list known modes and leave at least one visible" };
+		settings.hiddenModes = hiddenModes;
 	}
 	return { ok: true, settings };
 }
