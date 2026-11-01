@@ -182,6 +182,7 @@ describe("the source-derived segment list", () => {
 				"shared/15-accuracy.md",
 				"shared/16-mental-model.md",
 				"shared/20-question-tools.md",
+				"shared/22-self-contained-questions.md",
 				"shared/25-confidence.md",
 				"shared/30-learner-files.md",
 				"shared/40-formatting.md",
@@ -208,6 +209,12 @@ describe("the source-derived segment list", () => {
 		// Tool MECHANICS are shared; question METHODOLOGY is phase-owned.
 		assert.equal(prober.some((s) => s.path.startsWith("teacher/")), false);
 		assert.equal(teacher.some((s) => s.path.startsWith("prober/")), false);
+		// Self-contained questions (owner, 2026-11-01): every agent that asks, practice included.
+		const practice = effectivePromptSegments("practice", {});
+		for (const segments of [prober, teacher, practice])
+			assert.equal(segments.some((s) => s.path === "shared/22-self-contained-questions.md"), true);
+		assert.match(teacherAgent.composeInstructions("teacher"), /Restate, never point/);
+		assert.match(teacherAgent.composeInstructions("practice"), /Restate, never point/);
 		// README and other non-numeric files never load.
 		assert.equal(allSegmentPaths().some((p) => p.includes("README")), false);
 	});
