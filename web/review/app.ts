@@ -85,8 +85,11 @@ function render() {
 	syncButton.disabled = !!syncTask || saving || !database || !engine;
 	start.disabled = !state?.snapshot || !engine || !cacheReady;
 	start.textContent = !cacheReady ? "Preparing offline review…" : queue.queue.length ? "Start review" : "View review status";
-	element("ready").textContent = cacheReady && state?.snapshot ? "Offline ready. Cards with prepared choices and active-recall cards work without a connection." : "Keep this page open online until the offline download finishes.";
+	element("ready").textContent = cacheReady && state?.snapshot ? "Offline ready" : "Keep this page open online until the offline download finishes.";
 	element("welcome").hidden = started;
+	// A review shows only the card: the home screen's heading, picker and footer hide.
+	document.body.dataset.mode = started ? "review" : "home";
+	element("back").hidden = !started;
 	if (!started || !engine) { element("review").hidden = true; element("done").hidden = true; return; }
 	if (current) {
 		const latest = all.find(card => card.id === current!.id);
@@ -147,14 +150,32 @@ function render() {
 	}
 	reveal.hidden = revealed || mcq; reveal.disabled = saving;
 	element("ratings").hidden = !revealed || mcq;
-	element("rating-hint").textContent = mcq ? "Three correct scheduled reviews across at least two study days unlock active recall. Wrong answers reset the streak." : revealed ? "Again = couldn’t recall · Hard = recalled with difficulty" : "Try recalling the idea before revealing it.";
+	element("rating-hint").textContent = mcq ? "" : revealed ? "Again = couldn’t recall · Hard = recalled with difficulty" : "Try recalling the idea before revealing it.";
 	const choices = reviewChoices(current.schedule, now(), engine);
 	for (const button of ratingButtons) {
 		const rating = Number(button.dataset.rating) as ReviewRating;
 		button.disabled = saving;
 		button.querySelector("small")!.textContent = intervalLabel(choices[rating].dueAt);
 	}
+	fitCard(`${currentToken}:${!!current.mcq}:${innerWidth}x${innerHeight}`);
 }
+
+/** Phones differ in height (Safari bars, the Dynamic Island), so each new card's
+ *  text shrinks in small steps, to 80% at most, until the card and its buttons fit
+ *  the screen. Answering does not refit: the text never jumps mid-card. */
+let fittedFor = "";
+function fitCard(key: string) {
+	if (key === fittedFor) return;
+	fittedFor = key;
+	const card = element("card");
+	let fit = 1;
+	card.style.setProperty("--fit", "1");
+	while (fit > 0.8 && document.documentElement.scrollHeight > innerHeight) {
+		fit = Math.round((fit - 0.04) * 100) / 100;
+		card.style.setProperty("--fit", String(fit));
+	}
+}
+addEventListener("resize", () => { if (started) render(); });
 
 async function prepareQuestion(card: ReviewSnapshot["cards"][number]) {
     if (!database) return;
@@ -248,10 +269,14 @@ async function prepareOffline() {
 
 element("mcq-retry").onclick = () => { if (current) void prepareQuestion(current); };
 element("mcq-continue").onclick = () => { if (current?.mcq && selectedIndex !== undefined) void rate(selectedIndex === current.mcq.correctIndex ? 3 : 1); };
-start.onclick = () => { started = true; notify(""); render(); };
+start.onclick = () => { started = true; notify(""); render(); scrollTo(0, 0); };
 reveal.onclick = () => { if (!current || saving) return; revealed = true; revealedAt = Date.now(); render(); };
 for (const button of ratingButtons) button.onclick = () => void rate(Number(button.dataset.rating) as ReviewRating);
-element("choose-projects").onclick = () => { started = false; current = undefined; render(); projectOptions.querySelector<HTMLButtonElement>("button[aria-pressed='true']")?.focus(); };
+const chooseProjects = () => { started = false; current = undefined; render(); scrollTo(0, 0); projectOptions.querySelector<HTMLButtonElement>("button[aria-pressed='true']")?.focus(); };
+element("choose-projects").onclick = chooseProjects;
+element("back").onclick = chooseProjects;
+// Installed to the Home Screen: the install instructions no longer apply.
+element("install").hidden = matchMedia("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone === true;
 syncButton.onclick = () => void sync();
 element("reload").onclick = () => location.reload();
 element("install").onclick = () => element<HTMLDialogElement>("install-dialog").showModal();
