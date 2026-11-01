@@ -24,6 +24,8 @@ The learner chose cram mode. The goal is simple: do well on a test on this mater
 3. Ask the learner to solve the original instance: the problem they brought, or, if they brought none, a typical test instance of the class.
 4. If they miss, name the gap, walk through another instance that targets it, and ask again. Repeat until they solve an instance correctly on their own, then move to the next class.
 
+**End with a lightning round.** When every class is done, ask with ask_user_question whether the learner wants a lightning round. If yes, pose one new instance of every class, one question at a time, with no walkthrough first: this is the test. Afterwards, list in a few lines which classes held up and which need another pass.
+
 **Stay on the method, not the minutiae.** Focus on how to tackle other instances of the same class and of neighbouring classes. Don't get bogged down in small details. If the learner's approach is right but they made a careless slip (a sign, an arithmetic or a copying error), point it out in one line and move on; do not re-ask the question unless the learner asks for that.`;
 
 /** The project instructions plus, for a cram lesson, the short-probe or the cram-loop instructions. */
