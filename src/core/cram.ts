@@ -10,7 +10,7 @@ import { hasProbeDone } from "./native-messages.ts";
 
 export const CRAM_PROBE_INSTRUCTIONS = `# Cram mode
 
-The learner chose cram mode: they want to do well on a test on this material, fast. Keep the probe very short: at most two quick questions, only to find which classes of problems they can already solve. Ask none if their message and material already show it. Then conclude with probe_done.`;
+The learner chose cram mode: they want to do well on a test on this material, fast. Keep the probe short: one quick question per big topic (class of problems) that deserves a check, to find which ones they can already solve. Skip a topic their message or material already shows they handle, and never ask two questions about the same topic. Then conclude with probe_done.`;
 
 export const CRAM_INSTRUCTIONS = `# Cram mode
 
@@ -20,9 +20,13 @@ The learner chose cram mode. The goal is simple: do well on a test on this mater
 
 **For each class, run this loop:**
 1. State the class of problem, the intuition behind it, and the definitions needed to solve it. Briefly.
-2. Walk through a different instance of the same class, showing how to recognise it and solve it step by step.
-3. Ask the learner to solve the original instance: the problem they brought, or, if they brought none, a typical test instance of the class.
-4. If they miss, name the gap, walk through another instance that targets it, and ask again. Repeat until they solve an instance correctly on their own, then move to the next class.
+2. Walk through one complete worked example of the whole problem in a single message: a different instance of the same class. First write out the full problem statement, then solve it step by step the way the learner should on the test, showing the reasoning for every step. Use as many steps as the solution needs; don't stop to ask questions along the way.
+3. Always ask the learner to solve an equivalent full problem before moving on: the problem they brought, or, if they brought none, a typical test instance of the class. Write out the full problem in the question. Use multiple choice (quiz) by default; use short answer (explain) when the answer is best written out: a derivation, a proof, a computed value with its working, or anything the options would give away.
+4. If their answer shows a reasoning mistake, name it and ask at most one targeted follow-up question about that mistake, then move on. Never turn one problem into a chain of sub-questions.
+
+Move to the next class only after the learner has attempted its full problem.
+
+**Few questions.** In cram mode the only questions are the full-problem attempts, at most one targeted follow-up per problem, and the lightning round. No prediction questions, no per-step checks, no warm-up questions, even where the teaching method above asks for them.
 
 **End with a lightning round.** When every class is done, ask with ask_user_question whether the learner wants a lightning round. If yes, pose one new instance of every class, one question at a time, with no walkthrough first: this is the test. Afterwards, list in a few lines which classes held up and which need another pass.
 

@@ -61,10 +61,15 @@ it("a cram lesson gets a short probe, then the cram loop; Teach and practice are
 	// Short probe off (Settings): the full probe, then the cram loop.
 	assert.equal(withTeachingStyle(project, { style: "cram", messages: [] }, false), project);
 	assert.equal(withTeachingStyle(project, { style: "cram", messages: probeDone }, false), `${project}\n\n${CRAM_INSTRUCTIONS}`);
-	assert.match(CRAM_PROBE_INSTRUCTIONS, /at most two quick questions/);
+	assert.match(CRAM_PROBE_INSTRUCTIONS, /one quick question per big topic/);
 	assert.match(CRAM_INSTRUCTIONS, /don't ask for approval/);
 	assert.match(CRAM_INSTRUCTIONS, /careless slip/);
 	assert.match(CRAM_INSTRUCTIONS, /lightning round[\s\S]*one new instance of every class/);
+	assert.match(CRAM_INSTRUCTIONS, /First write out the full problem statement, then solve it step by step/);
+	assert.match(CRAM_INSTRUCTIONS, /Always ask the learner to solve an equivalent full problem before moving on/);
+	assert.match(CRAM_INSTRUCTIONS, /multiple choice \(quiz\) by default; use short answer \(explain\)/);
+	assert.match(CRAM_INSTRUCTIONS, /at most one targeted follow-up question/);
+	assert.match(CRAM_INSTRUCTIONS, /No prediction questions, no per-step checks/);
 });
 
 it("creating a cram session flags the lesson; practice ignores it", async () => {
@@ -216,4 +221,13 @@ it("Reveal questions: cram mode by default, or always, or never", async () => {
 	assert.deepEqual(sanitizeUserSettings({ version: 1, general: { revealQuestions: "sometimes" } })?.general, {});
 	const { parseGeneralSettingsBody } = await import("../src/server/settings-body.ts");
 	assert.equal(parseGeneralSettingsBody({ revealQuestions: "sometimes" }).ok, false);
+});
+
+it("a cram teacher's tools include both question kinds; a normal teacher keeps one", async () => {
+	const { createTeacherTools } = await import("../src/agent/tools.ts");
+	const ctx = { chatId: "c", chatStore: chatStore, jobStore: {} as never, spawn: () => {} } as never;
+	const names = (tools: Record<string, unknown>) => Object.keys(tools).filter((n) => n === "quiz" || n === "explain").sort();
+	assert.deepEqual(names(createTeacherTools(ctx, undefined, true)), ["explain", "quiz"]);
+	assert.deepEqual(names(createTeacherTools(ctx)), ["quiz"]);
+	assert.deepEqual(names(createTeacherTools(ctx, { explain: true })), ["explain"]);
 });
