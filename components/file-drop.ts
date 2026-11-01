@@ -25,12 +25,25 @@ export async function resolveFilePaths(files: File[], native?: (file: File) => s
 	return [...new Set(paths)];
 }
 
-async function uploadFile(file: File): Promise<string> {
+/** How long adding a file may take: 20 s plus 1 s per MB. A paste from an
+ *  iPad's Universal Clipboard can stall while the bytes transfer, and a
+ *  stalled upload would otherwise hold every later paste in the queue. */
+export function uploadTimeoutMs(bytes: number): number {
+	return 20_000 + Math.ceil(bytes / 1_048_576) * 1_000;
+}
+
+export async function uploadFile(file: File, send: typeof fetch = fetch, timeoutMs = uploadTimeoutMs(file.size)): Promise<string> {
 	if (file.size > 50 * 1024 * 1024) throw new Error(`${file.name} exceeds the 50 MiB limit.`);
-	const response = await fetch(`/api/files?name=${encodeURIComponent(file.name)}`, { method: "POST", body: file });
-	const result = await response.json();
-	if (!response.ok || typeof result.path !== "string") throw new Error(result.error || "Upload failed.");
-	return result.path;
+	const signal = AbortSignal.timeout(timeoutMs);
+	try {
+		const response = await send(`/api/files?name=${encodeURIComponent(file.name)}`, { method: "POST", body: file, signal });
+		const result = await response.json();
+		if (!response.ok || typeof result.path !== "string") throw new Error(result.error || "Upload failed.");
+		return result.path;
+	} catch (error) {
+		if (signal.aborted) throw new Error(`${file.name || "The pasted file"} took too long to add, so it was cancelled. Try again.`);
+		throw error;
+	}
 }
 
 export interface FilePreview {

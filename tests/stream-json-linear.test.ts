@@ -11,17 +11,32 @@ const model = { id: "m", api: "openai-responses", provider: "openai", cost: { in
 
 async function run(args: string, chunk: number, onDelta?: (parsed: unknown) => void) {
 	const events: unknown[] = [
-		{ type: "response.output_item.added", output_index: 0, item: { type: "function_call", call_id: "c", id: "fc", name: "quiz", arguments: "" } },
+		{
+			type: "response.output_item.added",
+			output_index: 0,
+			item: { type: "function_call", call_id: "c", id: "fc", name: "quiz", arguments: "" },
+		},
 	];
-	for (let i = 0; i < args.length; i += chunk) events.push({ type: "response.function_call_arguments.delta", output_index: 0, delta: args.slice(i, i + chunk) });
+	for (let i = 0; i < args.length; i += chunk)
+		events.push({ type: "response.function_call_arguments.delta", output_index: 0, delta: args.slice(i, i + chunk) });
 	events.push(
 		{ type: "response.function_call_arguments.done", output_index: 0, arguments: args },
-		{ type: "response.output_item.done", output_index: 0, item: { type: "function_call", call_id: "c", id: "fc", name: "quiz", arguments: args } },
+		{
+			type: "response.output_item.done",
+			output_index: 0,
+			item: { type: "function_call", call_id: "c", id: "fc", name: "quiz", arguments: args },
+		},
 		{ type: "response.completed", response: { status: "completed", usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } } },
 	);
 	const output = { role: "assistant", content: [] as Array<{ type: string; arguments?: unknown }>, stopReason: "toolUse", usage: {} };
-	const stream = { push: (e: { type: string; partial: typeof output }) => { if (e.type === "toolcall_delta") onDelta?.(e.partial.content[0]!.arguments); } };
-	async function* source() { yield* events; }
+	const stream = {
+		push: (e: { type: string; partial: typeof output }) => {
+			if (e.type === "toolcall_delta") onDelta?.(e.partial.content[0]!.arguments);
+		},
+	};
+	async function* source() {
+		yield* events;
+	}
 	await processResponsesStream(source() as never, output as never, stream as never, model as never);
 	return output.content[0]!.arguments;
 }
