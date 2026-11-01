@@ -34,6 +34,20 @@ import {
 	type QuestionAnswerData,
 	type QuestionDraft,
 } from "../src/core";
+import { clearDrafts, readDraft, writeDraft } from "./draft-store.ts";
+
+/** A question draft as JSON (the selection's Set becomes an array). */
+type StoredQuestionDraft = Omit<QuestionDraft, "form"> & {
+	form?: Omit<NonNullable<QuestionDraft["form"]>, "selection"> & {
+		selection: Omit<NonNullable<QuestionDraft["form"]>["selection"], "selected"> & { selected: number[] };
+	};
+};
+function storableQuestionDraft(draft: QuestionDraft): StoredQuestionDraft {
+	return draft.form ? { ...draft, form: { ...draft.form, selection: { ...draft.form.selection, selected: [...draft.form.selection.selected] } } } : { ...draft, form: undefined };
+}
+function reviveQuestionDraft(stored: StoredQuestionDraft): QuestionDraft {
+	return stored.form ? { ...stored, form: { ...stored.form, selection: { ...stored.form.selection, selected: new Set(stored.form.selection.selected) } } } : { ...stored, form: undefined };
+}
 
 export type SessionStatus = "ready" | "submitted" | "streaming" | "error";
 
@@ -915,13 +929,26 @@ export class SessionModel {
 		this.setStatus("ready");
 	}
 
-	/** Submission snapshots outlive the dock, not the session mount. */
+	/** Question drafts autosave (components/draft-store.ts): they outlive the
+	 *  dock, chat switches and reloads, until the question is answered. */
+	private draftKey(questionKey: string): string {
+		return `q:${this.chatId}:${questionKey}`;
+	}
+
 	questionDraft(questionKey: string): QuestionDraft | undefined {
-		return this.questionDrafts.get(questionKey);
+		const held = this.questionDrafts.get(questionKey);
+		if (held) return held;
+		const stored = readDraft<StoredQuestionDraft>(this.draftKey(questionKey));
+		if (!stored) return undefined;
+		const draft = reviveQuestionDraft(stored);
+		this.questionDrafts.set(questionKey, draft);
+		return draft;
 	}
 
 	saveQuestionDraft(questionKey: string, draft: Partial<QuestionDraft>): void {
-		this.questionDrafts.set(questionKey, { ...this.questionDrafts.get(questionKey), ...draft });
+		const next = { ...this.questionDraft(questionKey), ...draft };
+		this.questionDrafts.set(questionKey, next);
+		writeDraft(this.draftKey(questionKey), storableQuestionDraft(next));
 	}
 
 	private forgetResolvedDrafts(record: readonly LhMessage[]): void {
@@ -929,6 +956,7 @@ export class SessionModel {
 		for (const key of this.questionDrafts.keys()) {
 			if (key !== pendingKey) this.questionDrafts.delete(key);
 		}
+		clearDrafts(`q:${this.chatId}:`, pendingKey ? this.draftKey(pendingKey) : undefined);
 		for (const [id, key] of this.unconfirmedAnswers) {
 			if (key !== pendingKey) this.unconfirmedAnswers.delete(id);
 		}

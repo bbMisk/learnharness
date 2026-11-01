@@ -12,6 +12,7 @@ import { joinDictation, useDictationTarget } from "@/components/dictation";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { PathInput } from "@/components/path-input";
 import { cn } from "@/lib/utils";
+import { clearDraft, readDraft, writeDraft } from "@/components/draft-store";
 
 /**
  * The practice dock (practice sessions, owner design 2026-10-04): an
@@ -54,12 +55,14 @@ export interface PracticeDockProps {
 }
 
 export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmit, onEscape, compactionRunning = false }: PracticeDockProps) {
-	const [thinking, setThinking] = useState("");
+	// Autosaved per problem (components/draft-store.ts): survives reloads.
+	const draftKey = `p:${problemCallId}`;
+	const [thinking, setThinking] = useState(() => readDraft<string>(draftKey) ?? "");
 	// Ref MIRRORS the field ("nothing gets lost", the question-dock
 	// discipline): a submit resuming after `await finishDictation()` reads
 	// the tail, never a stale closure.
-	const thinkingRef = useRef("");
-	const files = useFileDrop(thinking, (value) => { thinkingRef.current = value; setThinking(value); }, {hideImagePaths:true,priority:20,label:"Your thinking"});
+	const thinkingRef = useRef(thinking);
+	const files = useFileDrop(thinking, (value) => { thinkingRef.current = value; setThinking(value); writeDraft(draftKey, value); }, {hideImagePaths:true,priority:20,label:"Your thinking"});
 
 	useDictationTarget(
 		useCallback(
@@ -77,6 +80,7 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 		if (text.length === 0) return;
 		thinkingRef.current = "";
 		setThinking("");
+		clearDraft(draftKey);
 		onSubmit(text);
 	};
 
