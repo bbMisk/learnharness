@@ -16,3 +16,8 @@ footer{margin-top:28px}.sync-row{display:flex;align-items:center;justify-content
 /* A review shows only the card: the home screen's heading, picker and footer hide, and the card's actions stay on screen at the bottom. */
 body[data-mode=review] .brand,body[data-mode=review] .heading,body[data-mode=review] .library,body[data-mode=review] footer{display:none}body[data-mode=review] .topbar{padding-block:calc(6px + env(safe-area-inset-top)) 6px}body[data-mode=review] main{padding-top:12px}body[data-mode=review] .review-actions{position:sticky;bottom:0;padding:12px 0 calc(12px + env(safe-area-inset-bottom));background:var(--bg)}
 @media(max-width:420px){.mcq-options{gap:8px;margin-top:14px}.mcq-option{padding:11px 12px;line-height:1.4}.flashcard{padding-top:16px}}
+/* Phones: no rubber-band bounce on a page that fits; in a review the card uses the full width, and its text scales by --fit (set by fitCard) so it fits the screen. */
+html,body{overscroll-behavior:none}
+/* Before a multiple-choice answer the action bar has nothing to show: it takes no space. */
+.review-actions:not(:has(>:not([hidden]):not(:empty))){display:none}
+@media(max-width:420px){body[data-mode=review] main{padding-inline:max(14px,env(safe-area-inset-left)) max(14px,env(safe-area-inset-right))}body[data-mode=review] .flashcard{border:0;background:transparent;padding:4px 0 0}.flashcard h2{font-size:calc(21px * var(--fit,1))}.mcq-option{font-size:calc(16px * var(--fit,1));padding:calc(11px * var(--fit,1)) 12px}.answer{font-size:calc(16px * var(--fit,1))}}

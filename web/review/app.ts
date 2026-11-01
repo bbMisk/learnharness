@@ -157,7 +157,25 @@ function render() {
 		button.disabled = saving;
 		button.querySelector("small")!.textContent = intervalLabel(choices[rating].dueAt);
 	}
+	fitCard(`${currentToken}:${!!current.mcq}:${innerWidth}x${innerHeight}`);
 }
+
+/** Phones differ in height (Safari bars, the Dynamic Island), so each new card's
+ *  text shrinks in small steps, to 80% at most, until the card and its buttons fit
+ *  the screen. Answering does not refit: the text never jumps mid-card. */
+let fittedFor = "";
+function fitCard(key: string) {
+	if (key === fittedFor) return;
+	fittedFor = key;
+	const card = element("card");
+	let fit = 1;
+	card.style.setProperty("--fit", "1");
+	while (fit > 0.8 && document.documentElement.scrollHeight > innerHeight) {
+		fit = Math.round((fit - 0.04) * 100) / 100;
+		card.style.setProperty("--fit", String(fit));
+	}
+}
+addEventListener("resize", () => { if (started) render(); });
 
 async function prepareQuestion(card: ReviewSnapshot["cards"][number]) {
     if (!database) return;
