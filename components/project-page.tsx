@@ -11,6 +11,7 @@ import { useFileDrop } from "@/components/file-drop";
 import { FileDropFeedback } from "@/components/file-drop-feedback";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import type { ChatListItem, ProjectView } from "@/src/core";
+import { InlineRename } from "@/components/inline-rename";
 export function ProjectPage({ initial }: { initial: ProjectView }) {
 	type Field = "name" | "instructions";
 	const [project, setProject] = useState(initial);
@@ -18,6 +19,7 @@ export function ProjectPage({ initial }: { initial: ProjectView }) {
 	const [conflicts, setConflicts] = useState<Field[]>([]);
 	const [error, setError] = useState("");
 	const [saved, setSaved] = useState(false);
+	const [renaming, setRenaming] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [tab, setTab] = useState("chats");
 	const [allChats, setAllChats] = useState<ChatListItem[] | null>(null);
@@ -116,7 +118,6 @@ export function ProjectPage({ initial }: { initial: ProjectView }) {
 		setConflicts([]);
 		setError("");
 	};
-	const name = edits.name?.value ?? project.name;
 	const instructions = edits.instructions?.value ?? project.instructions;
 	const files = useFileDrop("", () => {}, {
 		uploadAll: true,
@@ -143,7 +144,9 @@ export function ProjectPage({ initial }: { initial: ProjectView }) {
 			<TopBar>
 				<span className="text-xs text-muted-foreground">Projects</span>
 				<span className="text-xs text-muted-foreground/50">/</span>
-				<span className="truncate text-sm">{project.name}</span>
+				<button type="button" onClick={() => setRenaming(true)} title="Rename project" className="lh-no-drag truncate text-sm hover:text-foreground">
+					{project.name}
+				</button>
 				<span className="flex-1" />
 				<Link href={"/chat/new?project=" + project.id} className={buttonClass}>
 					<PlusIcon className="size-3.5" />
@@ -155,7 +158,30 @@ export function ProjectPage({ initial }: { initial: ProjectView }) {
 					<header className="mb-8">
 						<div className="mb-3 flex items-center gap-3">
 							<FolderIcon className="size-6 shrink-0 text-muted-foreground" />
-							<h1 className="min-w-0 break-words font-prose text-3xl font-semibold tracking-tight">{project.name}</h1>
+							{renaming ? (
+								<InlineRename
+									value={project.name}
+									ariaLabel="Project name"
+									className="w-full py-1 font-prose text-3xl font-semibold tracking-tight"
+									onCommit={async (name) => {
+										setError("");
+										try {
+											await save({ name, expected: { name: project.name } });
+										} catch (error) {
+											setError(error instanceof Error ? error.message : "Could not rename the project.");
+											throw error;
+										}
+									}}
+									onDone={() => setRenaming(false)}
+								/>
+							) : (
+								<h1 className="min-w-0 break-words font-prose text-3xl font-semibold tracking-tight">
+									{/* Click the name to rename the project (owner, 2026-11-01). */}
+									<button type="button" onClick={() => setRenaming(true)} title="Rename project" className="text-left">
+										{project.name}
+									</button>
+								</h1>
+							)}
 						</div>
 						<p className="font-prose text-base text-muted-foreground">
 							A shared space for your conversations, reference files, and tutor instructions.
@@ -353,22 +379,9 @@ export function ProjectPage({ initial }: { initial: ProjectView }) {
 											className="lh-input mt-2 w-full resize-y rounded-lg border border-border/60 bg-card/50 p-4 font-prose text-lg text-foreground"
 										/>
 									</label>
-									<details>
-										<summary className="cursor-pointer text-xs text-muted-foreground">Rename project</summary>
-										<label className="mt-4 block text-xs text-muted-foreground">
-											Project name
-											<input
-												aria-label="Project name"
-												value={name}
-												onChange={(event) => change("name", event.target.value)}
-												maxLength={200}
-												className="lh-input mt-2 w-full rounded-lg border border-border/60 bg-card/50 p-3 font-prose text-base text-foreground"
-											/>
-										</label>
-									</details>
 									<div className="flex items-center gap-3">
 										<button
-											disabled={saving || !name.trim() || !Object.keys(edits).length}
+											disabled={saving || !Object.keys(edits).length}
 											className={buttonClass + " bg-accent text-foreground"}
 										>
 											{saving ? "Saving…" : "Save changes"}
