@@ -379,10 +379,11 @@ export const chatStore: ChatStore = {
 };
 
 /** Organization does not count as lesson activity or rewrite conversation history. */
-export function setChatOrganization(id: string, updates: { pinned?: boolean; archived?: boolean; projectId?: string | null }): ChatRecord {
+export function setChatOrganization(id: string, updates: { pinned?: boolean; archived?: boolean; projectId?: string | null; style?: "cram" | null }): ChatRecord {
  const record=getChat(id);if(!record) throw new Error('Chat not found.');
  if(updates.pinned!==undefined) record.pinned=updates.pinned;
  if(updates.archived!==undefined) record.archived=updates.archived;
  if(updates.projectId!==undefined) { if(updates.projectId===null) delete record.projectId;else record.projectId=updates.projectId; }
+ if(updates.style!==undefined) { if(updates.style===null) delete record.style;else record.style=updates.style; }
  writeChat(record);emit('chats-changed',{});return record;
 }
