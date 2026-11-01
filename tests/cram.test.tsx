@@ -61,10 +61,13 @@ it("a cram lesson gets a short probe, then the cram loop; Teach and practice are
 	// Short probe off (Settings): the full probe, then the cram loop.
 	assert.equal(withTeachingStyle(project, { style: "cram", messages: [] }, false), project);
 	assert.equal(withTeachingStyle(project, { style: "cram", messages: probeDone }, false), `${project}\n\n${CRAM_INSTRUCTIONS}`);
-	assert.match(CRAM_PROBE_INSTRUCTIONS, /at most two quick questions/);
+	assert.match(CRAM_PROBE_INSTRUCTIONS, /one quick question per big topic/);
 	assert.match(CRAM_INSTRUCTIONS, /don't ask for approval/);
 	assert.match(CRAM_INSTRUCTIONS, /careless slip/);
 	assert.match(CRAM_INSTRUCTIONS, /lightning round[\s\S]*one new instance of every class/);
+	assert.match(CRAM_INSTRUCTIONS, /complete instance of the whole problem[\s\S]*Don't break it into sub-problems/);
+	assert.match(CRAM_INSTRUCTIONS, /at most one targeted follow-up question/);
+	assert.match(CRAM_INSTRUCTIONS, /No prediction questions, no per-step checks/);
 });
 
 it("creating a cram session flags the lesson; practice ignores it", async () => {
