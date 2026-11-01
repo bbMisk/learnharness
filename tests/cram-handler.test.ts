@@ -80,7 +80,7 @@ async function systemContextFor(style: "cram" | undefined, messages: LhMessage[]
 	return seen!;
 }
 
-it("a cram session's teacher gets the cram instructions; Teach and the probe do not", async () => {
+it("a cram lesson: the prober keeps it short, the teacher runs the cram loop; Teach gets neither", async () => {
 	const cram = await systemContextFor("cram", probeDone);
 	assert.equal(cram.teaching, true);
 	assert.match(cram.projectContext ?? "", /# Cram mode/);
@@ -89,5 +89,6 @@ it("a cram session's teacher gets the cram instructions; Teach and the probe do 
 	assert.doesNotMatch(teach.projectContext ?? "", /Cram mode/);
 	const probing = await systemContextFor("cram", []);
 	assert.equal(probing.teaching, false);
-	assert.doesNotMatch(probing.projectContext ?? "", /Cram mode/);
+	assert.match(probing.projectContext ?? "", /Keep the probe very short/, "the prober keeps a cram check short");
+	assert.doesNotMatch(probing.projectContext ?? "", /For each class, run this loop/);
 });

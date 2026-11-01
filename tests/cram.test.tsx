@@ -21,9 +21,10 @@ Object.assign(globalThis, {
 	HTMLElement: dom.window.HTMLElement,
 	IS_REACT_ACT_ENVIRONMENT: true,
 });
-const { CRAM_INSTRUCTIONS, STYLE_GO_AHEAD, withTeachingStyle } = await import("../src/core/cram.ts");
+const { CRAM_INSTRUCTIONS, CRAM_PROBE_INSTRUCTIONS, withTeachingStyle } = await import("../src/core/cram.ts");
 const { chatStore, setChatOrganization } = await import("../src/store/chats.ts");
-const { CramChoice } = await import("../components/cram-choice.tsx");
+const { POST } = await import("../app/api/chats/route.ts");
+const { ModeSwitch } = await import("../components/mode-switch.tsx");
 after(() => fs.rmSync(temp, { recursive: true, force: true }));
 
 const probeDone: LhMessage[] = [
@@ -49,26 +50,43 @@ const probeDone: LhMessage[] = [
 	} as never,
 ];
 
-it("adds the cram instructions only to a cram teach session past its probe", () => {
-	const project = "Project: Physics midterm.";
+it("a cram lesson gets a short probe, then the cram loop; Teach and practice are unchanged", () => {
+	const project = "Project: Quant Methods.";
+	assert.equal(withTeachingStyle(project, { style: "cram", messages: [] }), `${project}\n\n${CRAM_PROBE_INSTRUCTIONS}`);
 	assert.equal(withTeachingStyle(project, { style: "cram", messages: probeDone }), `${project}\n\n${CRAM_INSTRUCTIONS}`);
 	assert.equal(withTeachingStyle("", { style: "cram", messages: probeDone }), CRAM_INSTRUCTIONS);
-	assert.equal(withTeachingStyle(project, { style: "cram", messages: [] }), project, "the prober never sees it");
-	assert.equal(withTeachingStyle(project, { messages: probeDone }), project, "Teach keeps the full method");
-	assert.equal(withTeachingStyle(project, { style: "cram", kind: "practice", messages: probeDone }), project);
-	assert.match(CRAM_INSTRUCTIONS, /class of problem/);
+	assert.equal(withTeachingStyle(project, { messages: probeDone }), project);
+	assert.equal(withTeachingStyle(project, { style: "cram", kind: "practice", messages: [] }), project);
+	assert.match(CRAM_PROBE_INSTRUCTIONS, /at most two quick questions/);
+	assert.match(CRAM_INSTRUCTIONS, /don't ask for approval/);
 	assert.match(CRAM_INSTRUCTIONS, /careless slip/);
 });
 
-it("stores the choice on the chat, survives a model change, and clears", () => {
+it("creating a cram session flags the lesson; practice ignores it", async () => {
+	const create = async (body: unknown) =>
+		(await (
+			await POST(
+				new Request("http://test/api/chats", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify(body),
+				}),
+			)
+		).json()) as { id: string };
+	const cram = await create({ title: "HW4 tomorrow", style: "cram" });
+	assert.equal(chatStore.getChat(cram.id)!.style, "cram");
+	const practice = await create({ title: "Drill", kind: "practice", style: "cram" });
+	assert.equal(chatStore.getChat(practice.id)!.style, undefined);
+	const teach = await create({ title: "Learn it properly" });
+	assert.equal(chatStore.getChat(teach.id)!.style, undefined);
+});
+
+it("the flag survives a model change and other organization edits", () => {
 	const chat = chatStore.createChat("Cram test");
-	assert.equal(setChatOrganization(chat.id, { style: "cram" }).style, "cram");
+	setChatOrganization(chat.id, { style: "cram" });
 	chatStore.saveSettings(chat.id, { model: { provider: "chatgpt", id: "gpt-6.1-terra" } });
-	assert.equal(chatStore.getChat(chat.id)!.style, "cram", "the model picker's save keeps the style");
 	setChatOrganization(chat.id, { pinned: true });
-	assert.equal(chatStore.getChat(chat.id)!.style, "cram", "other organization edits keep it");
-	setChatOrganization(chat.id, { style: null });
-	assert.equal(chatStore.getChat(chat.id)!.style, undefined);
+	assert.equal(chatStore.getChat(chat.id)!.style, "cram");
 });
 
 let root: Root | undefined;
@@ -76,32 +94,56 @@ afterEach(async () => {
 	await act(async () => root?.unmount());
 	document.body.replaceChildren();
 });
-async function mount(onChosen: (style: string, text: string) => void) {
+
+it("the switch offers Teach, Practice and Cram and reports the choice", async () => {
+	const chosen: string[] = [];
 	const host = document.createElement("div");
 	document.body.append(host);
 	root = createRoot(host);
-	await act(async () => root!.render(<CramChoice chatId="chat_1" onChosen={onChosen} />));
-	return host;
-}
-const button = (host: Element, label: string) => [...host.querySelectorAll("button")].find((b) => b.textContent === label)!;
+	await act(async () => root!.render(<ModeSwitch mode="teach" modes={["teach", "practice", "cram"]} onChange={(m) => chosen.push(m)} />));
+	const buttons = [...host.querySelectorAll("button")];
+	assert.deepEqual(
+		buttons.map((b) => b.textContent),
+		["Teach", "Practice", "Cram"],
+	);
+	assert.equal(buttons[0]!.getAttribute("aria-pressed"), "true");
+	await act(async () => buttons[2]!.click());
+	assert.deepEqual(chosen, ["cram"]);
+	// Hidden modes are not offered; with one mode left there is no switch.
+	await act(async () => root!.render(<ModeSwitch mode="teach" modes={["teach", "cram"]} onChange={() => {}} />));
+	assert.deepEqual(
+		[...host.querySelectorAll("button")].map((b) => b.textContent),
+		["Teach", "Cram"],
+	);
+	await act(async () => root!.render(<ModeSwitch mode="teach" modes={["teach"]} onChange={() => {}} />));
+	assert.equal(host.querySelector("button"), null);
+});
 
-it("saves the choice before sending the go-ahead, and reports a failed save", async () => {
-	const requests: Array<{ url: string; body: unknown }> = [];
-	globalThis.fetch = (async (url: string, init: RequestInit) => {
-		requests.push({ url, body: JSON.parse(String(init.body)) });
-		return Response.json({ ok: true });
-	}) as typeof fetch;
-	const chosen: Array<[string, string]> = [];
-	const host = await mount((style, text) => chosen.push([style, text]));
-	await act(async () => button(host, "Cram for a test").click());
-	assert.deepEqual(requests, [{ url: "/api/chats/chat_1", body: { style: "cram" } }]);
-	assert.deepEqual(chosen, [["cram", STYLE_GO_AHEAD.cram]]);
-	await act(async () => button(host, "Teach it").click());
-	assert.deepEqual(requests[1]!.body, { style: null });
-	assert.deepEqual(chosen[1], ["teach", STYLE_GO_AHEAD.teach]);
+it("hidden modes: known, unique, never all of them", async () => {
+	const { parseHiddenModes, visibleModes, sanitizeUserSettings } = await import("../src/core/settings.ts");
+	assert.deepEqual(parseHiddenModes(["practice", "practice"]), ["practice"]);
+	assert.equal(parseHiddenModes(["teach", "practice", "cram"]), undefined);
+	assert.equal(parseHiddenModes(["quiz"]), undefined);
+	assert.deepEqual(visibleModes(["practice"]), ["teach", "cram"]);
+	assert.deepEqual(visibleModes(undefined), ["teach", "practice", "cram"]);
+	assert.deepEqual(sanitizeUserSettings({ version: 1, general: { hiddenModes: ["practice"] } })?.general, { hiddenModes: ["practice"] });
+	const { parseGeneralSettingsBody } = await import("../src/server/settings-body.ts");
+	assert.equal(parseGeneralSettingsBody({ hiddenModes: ["teach", "practice", "cram"] }).ok, false);
+	assert.deepEqual(parseGeneralSettingsBody({ hiddenModes: ["practice"] }), { ok: true, settings: { hiddenModes: ["practice"] } });
+});
 
-	globalThis.fetch = (async () => new Response("nope", { status: 500 })) as unknown as typeof fetch;
-	await act(async () => button(host, "Cram for a test").click());
-	assert.equal(chosen.length, 2, "nothing is sent when the choice was not saved");
-	assert.match(host.textContent!, /could not be saved/);
+it("the Settings chips hide and show modes, keeping at least one", async () => {
+	const { SessionModeChips } = await import("../components/settings/session-mode-chips.tsx");
+	const changes: string[][] = [];
+	const host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	await act(async () => root!.render(<SessionModeChips hidden={["practice"]} onChange={(h) => changes.push(h)} />));
+	const chip = (m: string) => host.querySelector(`[data-testid="session-mode-${m}"]`) as HTMLButtonElement;
+	assert.equal(chip("practice").getAttribute("aria-pressed"), "false");
+	await act(async () => chip("practice").click());
+	await act(async () => chip("cram").click());
+	assert.deepEqual(changes, [[], ["practice", "cram"]]);
+	await act(async () => root!.render(<SessionModeChips hidden={["practice", "cram"]} onChange={(h) => changes.push(h)} />));
+	assert.equal(chip("teach").disabled, true, "the last mode shown cannot be hidden");
 });

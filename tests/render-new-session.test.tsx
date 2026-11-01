@@ -50,6 +50,12 @@ describe("startDraftSession — the create-on-send contract", () => {
 		assert.deepEqual(calls[0]!.body, { title: "teach me orbital mechanics" });
 	});
 
+	it("a cram draft creates a lesson flagged cram (owner, 2026-11-01)", async () => {
+		const { f, calls } = fakeFetch("c_cram");
+		assert.equal(await startDraftSession("HW4 tomorrow", f, "cram"), "/chat/c_cram");
+		assert.deepEqual(calls[0]!.body, { title: "HW4 tomorrow", style: "cram" });
+	});
+
 	it("no settings PUT on create — the server stamps the newborn (per-session models, owner 2026-09-28)", async () => {
 		const { f, calls } = fakeFetch("c_3");
 		await startDraftSession("hello", f);

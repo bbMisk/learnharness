@@ -3,6 +3,8 @@ import { clearOpeningPrompt, OPENING_PROMPT_FAILURE, stashOpeningPrompt } from "
 interface SessionCreation {
 	title: string;
 	kind?: "practice";
+	/** Cram mode (core/cram.ts): a lesson with a short probe and the test-focused loop. */
+	style?: "cram";
 	graphContext?: { propositions: readonly { id: string; name: string; statement: string }[] };
 }
 

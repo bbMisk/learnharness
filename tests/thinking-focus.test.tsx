@@ -18,6 +18,7 @@ Object.assign(globalThis, {
 	Node: dom.window.Node,
 	Element: dom.window.Element,
 	HTMLElement: dom.window.HTMLElement,
+	CustomEvent: dom.window.CustomEvent,
 	IS_REACT_ACT_ENVIRONMENT: true,
 	requestAnimationFrame: (cb: () => void) => setTimeout(cb, 0),
 });
@@ -103,8 +104,10 @@ it("the Other row keeps its own text field", async () => {
 
 it("with the setting off, nothing moves the cursor", async () => {
 	keep = false;
-	const fresh = (await import(`../components/thinking-focus.ts?off=${1}`)) as typeof import("../components/thinking-focus.ts");
-	await arriveFromComposer(fresh.useThinkingFocus);
+	// A saved General section is re-read by every reader (components/general-settings.ts).
+	const { notifySettingsSaved } = await import("../components/settings-signal.ts");
+	await act(async () => notifySettingsSaved("general"));
+	await arriveFromComposer();
 	await tick();
 	await pointer(q("option"));
 	assert.ok(document.activeElement !== q("thinking"));

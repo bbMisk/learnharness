@@ -65,7 +65,6 @@ import { TopBar } from "@/components/top-bar";
 import type { ArtifactPartProps, JobRecord, Phase3, QuestionAnswerData, QuestionFormDraft, TurnUsage, SessionPricing } from "@/src/core";
 import type { LhViewMessage } from "@/src/core";
 import { PhaseChip, PhaseDivider } from "@/components/phase-divider";
-import { CramChoice } from "@/components/cram-choice";
 import {
 	CompactionCutDivider,
 	CompactionMomentDivider,
@@ -234,7 +233,7 @@ export function Chat({
 	initialConfigured = false,
 	initialShowReadingThinking = FACTORY_SETTINGS.general.showReadingThinking,
 	kind = "teach",
-	style: initialStyle,
+	style,
 }: {
 	chatId: string;
 	title: string;
@@ -245,7 +244,7 @@ export function Chat({
 	 *  renders no phase chip (no probe→teach arc applies) and a Practice
 	 *  tag rides the header instead. */
 	kind?: "teach" | "practice";
-	/** "cram" once the learner chose cram after the probe (core/cram.ts). */
+	/** "cram" for a lesson started in cram mode (core/cram.ts). */
 	style?: "cram";
 	initialPrompt?: string;
 	/** A teacher turn is running server-side but attached to no client
@@ -750,9 +749,6 @@ export function Chat({
 	const retryable = (status === "ready" || status === "error") && !busy && !compacting && endsInFailedTurn(nativeMessages);
 	const retryFailedTurn = () => retryFailedResponse(send, draftRef);
 	const sendAllowed = !pending && !activeProblem && !compacting;
-	// Teach or cram (owner, 2026-11-01): offered while the plan awaits the go-ahead.
-	const [style, setStyle] = useState(initialStyle);
-	const offerStyleChoice = kind === "teach" && phases.at(-1) === "plan" && sendAllowed && !busy;
 
 	/* THE PRACTICE PAUSE (owner round 16): between problems — practice
 	 * kind, nothing active, nothing in flight, and at least one problem
@@ -1664,17 +1660,7 @@ export function Chat({
 					dictationCancel={dictation.cancel}
 					queuedSteers={visibleQueuedSteers(steerQueue, nativeMessages)}
 					setupCta={
-						<>
-						{offerStyleChoice && (
-							<CramChoice
-								chatId={chatId}
-								onChosen={(chosen, goAhead) => {
-									setStyle(chosen === "cram" ? "cram" : undefined);
-									void send({ type: "text", text: goAhead });
-								}}
-							/>
-						)}
-						{zeroKeys ? (
+						zeroKeys ? (
 							<ZeroKeysPill onOpen={() => setSetupOpen(true)} />
 						) : (
 							!configured && (
@@ -1689,8 +1675,7 @@ export function Chat({
 									</button>
 								</div>
 							)
-						)}
-						</>
+						)
 					}
 					composer={
 						<ChatSessionComposer

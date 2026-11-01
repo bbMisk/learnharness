@@ -51,6 +51,7 @@ import { KeysSection } from "./keys-section.tsx";
 import { Hint } from "@/components/ui/hint";
 import { AppearanceSection, GraphSection } from "./appearance-section.tsx";
 import { SettingsRow, Toggle } from "./controls";
+import { SessionModeChips } from "./session-mode-chips";
 import { ConnectionSettings } from "./connection-settings";
 import { KeyboardSection } from "./keyboard-section.tsx";
 import { ChatGPTUIProvider } from "./chatgpt-connection.tsx";
@@ -408,6 +409,17 @@ export function SettingsDialogBody({
 											label="keep cursor in your thinking"
 											disabled={savingGeneral}
 											onChange={(on) => void writeGeneral({ keepThinkingFocus: on })}
+										/>
+									</SettingsRow>
+									<SettingsRow
+										label="Session modes"
+										hint="Hide the modes you don't use. At least one stays."
+										testid="row-session-modes"
+									>
+										<SessionModeChips
+											hidden={record.general?.hiddenModes ?? []}
+											disabled={savingGeneral}
+											onChange={(hiddenModes) => void writeGeneral({ hiddenModes })}
 										/>
 									</SettingsRow>
 									<SettingsRow
