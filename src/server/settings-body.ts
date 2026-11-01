@@ -111,6 +111,10 @@ export function parseGeneralSettingsBody(body: unknown): SettingsBodyResult<Gene
 		if (!hiddenModes) return { ok: false, error: "hiddenModes must list known modes and leave at least one visible" };
 		settings.hiddenModes = hiddenModes;
 	}
+	if (raw.cramShortProbe !== undefined) {
+		if (typeof raw.cramShortProbe !== "boolean") return { ok: false, error: "cramShortProbe must be a boolean" };
+		settings.cramShortProbe = raw.cramShortProbe;
+	}
 	if (raw.revealQuestions !== undefined) {
 		if (!(REVEAL_QUESTIONS as readonly unknown[]).includes(raw.revealQuestions))
 			return { ok: false, error: `revealQuestions must be one of ${REVEAL_QUESTIONS.join(", ")}` };

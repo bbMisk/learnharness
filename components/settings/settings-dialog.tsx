@@ -412,6 +412,18 @@ export function SettingsDialogBody({
 										/>
 									</SettingsRow>
 									<SettingsRow
+										label="Short probe in cram mode"
+										hint="Before a cram lesson, ask at most two quick questions. Off keeps the full probe."
+										testid="row-cram-short-probe"
+									>
+										<Toggle
+											checked={record.general?.cramShortProbe ?? true}
+											label="short probe in cram mode"
+											disabled={savingGeneral}
+											onChange={(on) => void writeGeneral({ cramShortProbe: on })}
+										/>
+									</SettingsRow>
+									<SettingsRow
 										label="Reveal questions"
 										hint="A check waits behind Check your understanding until you press Enter or click."
 										testid="row-reveal-questions"
