@@ -65,6 +65,7 @@ import { TopBar } from "@/components/top-bar";
 import type { ArtifactPartProps, JobRecord, Phase3, QuestionAnswerData, QuestionFormDraft, TurnUsage, SessionPricing } from "@/src/core";
 import type { LhViewMessage } from "@/src/core";
 import { PhaseChip, PhaseDivider } from "@/components/phase-divider";
+import { CramToggle } from "@/components/cram-toggle";
 import {
 	CompactionCutDivider,
 	CompactionMomentDivider,
@@ -1313,6 +1314,7 @@ export function Chat({
 					{/* Practice (owner, 2026-10-04): the coverage ring hides —
 				    practice never extracts, so an ever-filling ring with no
 				    run behind it would lie. */}
+					{kind !== "practice" && <CramToggle chatId={chatId} initial={style === "cram"} />}
 					{kind !== "practice" && <CoverageRing chatId={chatId} refreshKey={coverageTick} />}
 					{/* Practice sessions: no phase arc — a quiet Practice tag
 					    instead of the phase chip. */}
@@ -1327,14 +1329,7 @@ export function Chat({
 							Practice
 						</span>
 					) : (
-						<>
-							<PhaseChip phase={phases.at(-1) ?? "probe"} />
-							{style === "cram" && (
-								<span data-testid="cram-tag" className="pointer-events-none shrink-0 select-none text-xs font-medium uppercase tracking-wide text-muted-foreground/70">
-									· Cram
-								</span>
-							)}
-						</>
+						<PhaseChip phase={phases.at(-1) ?? "probe"} />
 					)}
 				</TopBar>
 

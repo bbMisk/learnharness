@@ -24,6 +24,7 @@ Object.assign(globalThis, {
 const { CRAM_INSTRUCTIONS, CRAM_PROBE_INSTRUCTIONS, withTeachingStyle } = await import("../src/core/cram.ts");
 const { chatStore, setChatOrganization } = await import("../src/store/chats.ts");
 const { POST } = await import("../app/api/chats/route.ts");
+const { PUT } = await import("../app/api/chats/[id]/route.ts");
 const { ModeSwitch } = await import("../components/mode-switch.tsx");
 after(() => fs.rmSync(temp, { recursive: true, force: true }));
 
@@ -146,4 +147,53 @@ it("the Settings chips hide and show modes, keeping at least one", async () => {
 	assert.deepEqual(changes, [[], ["practice", "cram"]]);
 	await act(async () => root!.render(<SessionModeChips hidden={["practice", "cram"]} onChange={(h) => changes.push(h)} />));
 	assert.equal(chip("teach").disabled, true, "the last mode shown cannot be hidden");
+});
+
+it("the chat endpoint switches a lesson in and out of cram, never a practice session", async () => {
+	const put = (id: string, body: unknown) =>
+		PUT(
+			new Request(`http://test/api/chats/${id}`, {
+				method: "PUT",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(body),
+			}),
+			{
+				params: Promise.resolve({ id }),
+			},
+		);
+	const lesson = chatStore.createChat("Lesson");
+	assert.equal((await put(lesson.id, { style: "cram" })).status, 200);
+	assert.equal(chatStore.getChat(lesson.id)!.style, "cram");
+	assert.equal((await put(lesson.id, { style: null })).status, 200);
+	assert.equal(chatStore.getChat(lesson.id)!.style, undefined);
+	assert.equal((await put(lesson.id, { style: "speedrun", title: "Renamed" })).status, 400);
+	assert.equal(chatStore.getChat(lesson.id)!.title, "Lesson", "a rejected request writes nothing");
+	const practice = chatStore.createChat("Drill", "practice");
+	assert.equal((await put(practice.id, { style: "cram" })).status, 400);
+	assert.equal(chatStore.getChat(practice.id)!.style, undefined);
+});
+
+it("the header Cram chip saves the switch and reports a failed save", async () => {
+	const { CramToggle } = await import("../components/cram-toggle.tsx");
+	const bodies: unknown[] = [];
+	let ok = true;
+	globalThis.fetch = (async (_url: string, init: RequestInit) => {
+		bodies.push(JSON.parse(String(init.body)));
+		return ok ? Response.json({ ok: true }) : new Response("no", { status: 500 });
+	}) as typeof fetch;
+	const host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	await act(async () => root!.render(<CramToggle chatId="chat_1" initial={false} />));
+	const chip = () => host.querySelector('[data-testid="cram-toggle"]') as HTMLButtonElement;
+	assert.equal(chip().getAttribute("aria-pressed"), "false");
+	await act(async () => chip().click());
+	assert.equal(chip().getAttribute("aria-pressed"), "true");
+	await act(async () => chip().click());
+	assert.equal(chip().getAttribute("aria-pressed"), "false");
+	assert.deepEqual(bodies, [{ style: "cram" }, { style: null }]);
+	ok = false;
+	await act(async () => chip().click());
+	assert.equal(chip().getAttribute("aria-pressed"), "false", "unchanged when the save fails");
+	assert.match(host.textContent!, /Couldn't switch/);
 });
