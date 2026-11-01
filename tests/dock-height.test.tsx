@@ -257,3 +257,43 @@ describe("wheel routing — question, short-window content, then transcript", ()
 		assert.equal(wheel(0), false);
 	});
 });
+
+it("a check behind the reveal shows Check your understanding and opens on click", async () => {
+	const host = document.createElement("div");
+	document.body.append(host);
+	const root = createRoot(host);
+	let opened = 0;
+	try {
+		await act(async () =>
+			root.render(
+				<QuestionDock
+					toolName="quiz"
+					toolCallId="q2"
+					input={{ question: "Which way does the image flip?", options: [{ label: "Up" }, { label: "Down" }], correctAnswer: "Down", explanation: "Inverted.", type: "check" }}
+					expanded={false}
+					reveal
+					dictationClaim={false}
+					onExpand={() => opened++}
+					onSubmit={() => {}}
+				/>,
+			),
+		);
+		const bar = host.querySelector<HTMLButtonElement>('[data-testid="teach-check-reveal"]');
+		assert.ok(bar, "the reveal invitation is shown");
+		assert.match(bar.textContent!, /Check your understanding/);
+		await act(async () => bar.click());
+		assert.equal(opened, 1);
+	} finally {
+		await act(async () => root.unmount());
+		host.remove();
+	}
+});
+
+it("the collapsed teaser reads set notation and spacing as text, not LaTeX", async () => {
+	const { teaserText } = await import("../components/question-dock.tsx");
+	assert.equal(
+		teaserText("A gambler's wealth is in $\\{0,1,2,3\\}$, and play stops at $0$ and $3$."),
+		"A gambler's wealth is in {0,1,2,3}, and play stops at 0 and 3.",
+	);
+	assert.equal(teaserText("Find $\\frac{1}{2}\\,x$ when $\\alpha = 1$"), "Find 1/2 x when alpha = 1");
+});

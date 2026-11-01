@@ -342,6 +342,16 @@ export function visibleModes(hidden: readonly SessionMode[] | undefined): Sessio
 	return shown.length ? shown : [...SESSION_MODES];
 }
 
+/** When a teaching check waits behind "Check your understanding" until the
+ *  learner presses Enter or clicks (owner, 2026-11-01). */
+export const REVEAL_QUESTIONS = ["cram", "always", "never"] as const;
+export type RevealQuestions = (typeof REVEAL_QUESTIONS)[number];
+
+export function revealsQuestions(setting: RevealQuestions | undefined, cram: boolean): boolean {
+	const effective = setting ?? "cram";
+	return effective === "always" || (effective === "cram" && cram);
+}
+
 /** General settings — app-level behavior. Version DISPLAY and plans login
  *  live outside the record (package.json / auth.json) by owner decision. */
 export interface GeneralSettings {
@@ -355,6 +365,8 @@ export interface GeneralSettings {
 	flashcardSources?: "chats" | "all";
 	/** Session modes not offered in the mode switch and sidebar (default none; at least one stays). */
 	hiddenModes?: SessionMode[];
+	/** Teaching checks wait for Enter or a click: in cram mode (default), always, or never. */
+	revealQuestions?: RevealQuestions;
 }
 
 /** One app-wide dictation preference, shared by every composer. */
@@ -537,7 +549,7 @@ export interface FactorySettings {
 
 export const FACTORY_SETTINGS: FactorySettings = {
 	version: CURRENT_SETTINGS_VERSION,
-	general: { autoUpdate: true, showReadingThinking: false, keepThinkingFocus: true, flashcardSources: "chats", hiddenModes: [] },
+	general: { autoUpdate: true, showReadingThinking: false, keepThinkingFocus: true, flashcardSources: "chats", hiddenModes: [], revealQuestions: "cram" },
 	dictation: { language: "en" },
 	appearance: {
 		mode: "dark",
@@ -598,6 +610,7 @@ function sanitizeGeneral(raw: Record<string, unknown>): GeneralSettings {
 	if (keepThinkingFocus !== undefined) out.keepThinkingFocus = keepThinkingFocus;
 	const hiddenModes = parseHiddenModes(raw.hiddenModes);
 	if (hiddenModes) out.hiddenModes = hiddenModes;
+	if ((REVEAL_QUESTIONS as readonly unknown[]).includes(raw.revealQuestions)) out.revealQuestions = raw.revealQuestions as RevealQuestions;
 	return out;
 }
 

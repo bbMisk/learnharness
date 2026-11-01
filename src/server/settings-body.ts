@@ -26,7 +26,7 @@ import type {
 	ModelSlot,
 	RoleModelOverride,
 } from "../core/settings.ts";
-import { BACKGROUND_MODEL_ROLES, CACHE_RETENTIONS, COMPACTION_THRESHOLD_FLOOR, CUSTOM_MODEL_PIN_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS, parseHiddenModes } from "../core/settings.ts";
+import { BACKGROUND_MODEL_ROLES, CACHE_RETENTIONS, COMPACTION_THRESHOLD_FLOOR, CUSTOM_MODEL_PIN_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS, parseHiddenModes, REVEAL_QUESTIONS } from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import { isDictationLanguage } from "../core/dictation.ts";
 
@@ -110,6 +110,11 @@ export function parseGeneralSettingsBody(body: unknown): SettingsBodyResult<Gene
 		const hiddenModes = parseHiddenModes(raw.hiddenModes);
 		if (!hiddenModes) return { ok: false, error: "hiddenModes must list known modes and leave at least one visible" };
 		settings.hiddenModes = hiddenModes;
+	}
+	if (raw.revealQuestions !== undefined) {
+		if (!(REVEAL_QUESTIONS as readonly unknown[]).includes(raw.revealQuestions))
+			return { ok: false, error: `revealQuestions must be one of ${REVEAL_QUESTIONS.join(", ")}` };
+		settings.revealQuestions = raw.revealQuestions as GeneralSettings["revealQuestions"];
 	}
 	return { ok: true, settings };
 }

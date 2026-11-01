@@ -190,6 +190,7 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			showReadingThinking: record?.general?.showReadingThinking ?? FACTORY_SETTINGS.general.showReadingThinking,
 			keepThinkingFocus: record?.general?.keepThinkingFocus ?? FACTORY_SETTINGS.general.keepThinkingFocus,
 			hiddenModes: record?.general?.hiddenModes ?? FACTORY_SETTINGS.general.hiddenModes,
+			revealQuestions: record?.general?.revealQuestions ?? FACTORY_SETTINGS.general.revealQuestions,
 		},
 		dictation: {
 			language: record?.dictation?.language ?? FACTORY_SETTINGS.dictation.language,

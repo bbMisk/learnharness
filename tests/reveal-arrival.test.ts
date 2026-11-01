@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { questionArrivalExpanded, shouldStampGeometryMute } from "../components/chat.tsx";
+import { questionArrivalExpanded, revealArrival, shouldStampGeometryMute } from "../components/chat.tsx";
 
 /**
  * The geometry-mute's growth rule (flicker round, 2026-09-26): reserve
@@ -34,5 +34,15 @@ describe("question arrival — teaching checks and assessment questions", () => 
 
 	it("stays minimized while reading earlier messages", () => {
 		assert.equal(questionArrivalExpanded(false), false);
+	});
+});
+
+/** A check behind the reveal (Settings → Reveal questions; cram mode by default). */
+describe("revealArrival — how a check that waits for Enter or a click lands", () => {
+	it("fresh arrival after the composer: collapsed behind the reveal button", () => {
+		assert.deepEqual(revealArrival(false), { expanded: false, revealed: false });
+	});
+	it("queued behind another question: open — the reading already happened", () => {
+		assert.deepEqual(revealArrival(true), { expanded: true, revealed: true });
 	});
 });

@@ -50,7 +50,7 @@ import { notifySettingsSaved } from "@/components/settings-signal";
 import { KeysSection } from "./keys-section.tsx";
 import { Hint } from "@/components/ui/hint";
 import { AppearanceSection, GraphSection } from "./appearance-section.tsx";
-import { SettingsRow, Toggle } from "./controls";
+import { SettingsRow, ThinSelect, Toggle } from "./controls";
 import { SessionModeChips } from "./session-mode-chips";
 import { ConnectionSettings } from "./connection-settings";
 import { KeyboardSection } from "./keyboard-section.tsx";
@@ -410,6 +410,22 @@ export function SettingsDialogBody({
 											disabled={savingGeneral}
 											onChange={(on) => void writeGeneral({ keepThinkingFocus: on })}
 										/>
+									</SettingsRow>
+									<SettingsRow
+										label="Reveal questions"
+										hint="A check waits behind Check your understanding until you press Enter or click."
+										testid="row-reveal-questions"
+									>
+										<ThinSelect
+											ariaLabel="Reveal questions"
+											value={record.general?.revealQuestions ?? "cram"}
+											disabled={savingGeneral}
+											onChange={(value) => void writeGeneral({ revealQuestions: value as "cram" | "always" | "never" })}
+										>
+											<option value="cram">In cram mode</option>
+											<option value="always">Always</option>
+											<option value="never">Never</option>
+										</ThinSelect>
 									</SettingsRow>
 									<SettingsRow
 										label="Session modes"
