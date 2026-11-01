@@ -41,6 +41,9 @@ export interface ChatRecord {
 	learningEvents?: LearningEvent[];
 	/** The session's kind — absent = teach (pre-practice records). */
 	kind?: ChatKind;
+	/** Chosen after the probe (owner, 2026-11-01): "cram" runs the
+	 *  test-focused loop (core/cram.ts); absent = the full teaching method. */
+	style?: "cram";
 	/** The session's plan tree (vision §2) — written by plan tools via saveTree. */
 	tree?: PlanTree;
 	/** Append-only usage log (observability, 2026-09): one entry per model

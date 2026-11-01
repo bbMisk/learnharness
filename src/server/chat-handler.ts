@@ -47,6 +47,7 @@ import { applyParkedDismissal } from "./dismissal-park.ts";
 import { registerTurn, rememberTurnFailure, unregisterTurn } from "./turn-runs.ts";
 import { persistTurn, triggerExtraction, TurnPersistenceError } from "./turn-service.ts";
 import { hasProbeDone, hasUnresolvedQuestion } from "../core/native-messages.ts";
+import { withTeachingStyle } from "../core/cram.ts";
 import { composeInstructions } from "../agent/teacher-agent.ts";
 import { ensureCompacted, kickCompaction, effectiveThresholdTokens } from "./compaction.ts";
 import { catalogContextLimits, prepareConnectionCatalog } from "./model-catalog.ts";
@@ -456,7 +457,7 @@ export async function handleChatInput(
 		// point as the tool delta — the agent layer composes the system
 		// prompt fresh per turn, swapping in any enabled override segments.
 		promptSwitches: effective.agent.prompts,
-		projectContext,
+		projectContext: withTeachingStyle(projectContext, { ...record, messages: agentMessages }),
 	};
 	// PRACTICE BRANCH (owner design, 2026-10-04): a kind:"practice"
 	// session builds the practitioner from turn 1 — no prober→teacher
