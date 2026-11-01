@@ -2201,7 +2201,7 @@ function DockOverlay({
 	};
 	const expandAndRevealRef = useRef(expandAndReveal);
 	expandAndRevealRef.current = expandAndReveal;
-	// ENTER OPENS THE WAITING CHECK (owner, keyboard round 2026-10-06):
+	// ENTER (OR SPACE) OPENS THE WAITING CHECK (owner, keyboard round 2026-10-06):
 	// while a question waits with the dock CLOSED — behind its reveal
 	// invitation or collapsed by scroll — Enter is never dead. Any live
 	// dictation FINISHES FIRST (the flush lands in the reading-thinking
@@ -2213,8 +2213,12 @@ function DockOverlay({
 	useEffect(() => {
 		if (!pending || expanded) return;
 		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key !== "Enter" || e.altKey) return;
-			if (e.shiftKey && !e.metaKey && !e.ctrlKey) return;
+			// Space opens it too (owner, 2026-11-01); Shift+Space keeps scrolling up.
+			const enter = e.key === "Enter";
+			const space = e.key === " ";
+			if ((!enter && !space) || e.altKey) return;
+			if (enter && e.shiftKey && !e.metaKey && !e.ctrlKey) return;
+			if (space && (e.shiftKey || e.metaKey || e.ctrlKey)) return;
 			const t = e.target as HTMLElement | null;
 			if (
 				t &&
