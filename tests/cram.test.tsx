@@ -61,6 +61,7 @@ it("a cram lesson gets a short probe, then the cram loop; Teach and practice are
 	assert.match(CRAM_PROBE_INSTRUCTIONS, /at most two quick questions/);
 	assert.match(CRAM_INSTRUCTIONS, /don't ask for approval/);
 	assert.match(CRAM_INSTRUCTIONS, /careless slip/);
+	assert.match(CRAM_INSTRUCTIONS, /lightning round[\s\S]*one new instance of every class/);
 });
 
 it("creating a cram session flags the lesson; practice ignores it", async () => {
