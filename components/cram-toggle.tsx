@@ -6,8 +6,7 @@ import { Hint } from "@/components/ui/hint";
 
 /** The header's Cram chip (owner, 2026-11-01): switches a lesson in or out of
  *  cram mode (src/core/cram.ts); the tutor follows from its next reply. */
-export function CramToggle({ chatId, initial }: { chatId: string; initial: boolean }) {
-	const [on, setOn] = useState(initial);
+export function CramToggle({ chatId, on, onChange }: { chatId: string; on: boolean; onChange: (on: boolean) => void }) {
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState("");
 	const toggle = async () => {
@@ -20,7 +19,7 @@ export function CramToggle({ chatId, initial }: { chatId: string; initial: boole
 				body: JSON.stringify({ style: on ? null : "cram" }),
 			});
 			if (!response.ok) throw new Error();
-			setOn(!on);
+			onChange(!on);
 		} catch {
 			setError("Couldn't switch. Try again.");
 		} finally {

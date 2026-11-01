@@ -184,7 +184,11 @@ it("the header Cram chip saves the switch and reports a failed save", async () =
 	const host = document.createElement("div");
 	document.body.append(host);
 	root = createRoot(host);
-	await act(async () => root!.render(<CramToggle chatId="chat_1" initial={false} />));
+	function Harness() {
+		const [on, setOn] = React.useState(false);
+		return <CramToggle chatId="chat_1" on={on} onChange={setOn} />;
+	}
+	await act(async () => root!.render(<Harness />));
 	const chip = () => host.querySelector('[data-testid="cram-toggle"]') as HTMLButtonElement;
 	assert.equal(chip().getAttribute("aria-pressed"), "false");
 	await act(async () => chip().click());
@@ -196,4 +200,16 @@ it("the header Cram chip saves the switch and reports a failed save", async () =
 	await act(async () => chip().click());
 	assert.equal(chip().getAttribute("aria-pressed"), "false", "unchanged when the save fails");
 	assert.match(host.textContent!, /Couldn't switch/);
+});
+
+it("Reveal questions: cram mode by default, or always, or never", async () => {
+	const { revealsQuestions, sanitizeUserSettings } = await import("../src/core/settings.ts");
+	assert.equal(revealsQuestions(undefined, true), true);
+	assert.equal(revealsQuestions(undefined, false), false);
+	assert.equal(revealsQuestions("always", false), true);
+	assert.equal(revealsQuestions("never", true), false);
+	assert.deepEqual(sanitizeUserSettings({ version: 1, general: { revealQuestions: "always" } })?.general, { revealQuestions: "always" });
+	assert.deepEqual(sanitizeUserSettings({ version: 1, general: { revealQuestions: "sometimes" } })?.general, {});
+	const { parseGeneralSettingsBody } = await import("../src/server/settings-body.ts");
+	assert.equal(parseGeneralSettingsBody({ revealQuestions: "sometimes" }).ok, false);
 });

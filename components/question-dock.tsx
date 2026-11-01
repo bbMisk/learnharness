@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownIcon } from "lucide-react";
+import { ArrowDownIcon, ChevronRightIcon, PlayIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { finishDictation, isDictationActive, joinDictation, useDictationTarget } from "@/components/dictation";
 import { useEnterSubmits } from "@/components/enter-submits";
@@ -70,6 +70,13 @@ export interface QuestionDockProps {
 	input: QuizToolInput | AskToolInput | ExplainToolInput;
 	/** Collapse state, owned by the DockOverlay (it drives the shell's height morph). */
 	expanded: boolean;
+	/**
+	 * Teach-phase check awaiting its reveal (vision §2, W5): while collapsed,
+	 * the bar is the "Check your understanding" invitation instead of the
+	 * scroll-collapse strip. Owned by the DockOverlay; false once the learner
+	 * has revealed (afterwards the normal collapse machine rules apply).
+	 */
+	reveal?: boolean;
 	onExpand: () => void;
 	onSubmit: (output: QuestionAnswerData) => void;
 	/** Restore only this call's unconfirmed submission after recovery. */
@@ -84,7 +91,10 @@ export interface QuestionDockProps {
 	/** Session phase at the question — scales the thinking field: probing
 	 *  stays quick (one row), teaching invites dumping (three rows). */
 	phase?: Phase3;
-	/** Whether the question claims dictated speech. Default true. */
+	/** Dictation claim (owner 2026-10-03): false while a teach-phase check
+	 *  sits UNREVEALED — the reading-thinking field owns dictated speech
+	 *  during the reading; the dock reclaims on reveal. Default true (probe
+	 *  questions, predictions, old callers). */
 	dictationClaim?: boolean;
 	/** Compaction is running for this chat (owner round 14): the answer
 	 *  POST would block on the server's compaction gate — disable submit
@@ -99,6 +109,7 @@ export function QuestionDock({
 	toolCallId,
 	input,
 	expanded,
+	reveal = false,
 	onExpand,
 	onSubmit,
 	initialDraft,
@@ -137,6 +148,7 @@ export function QuestionDock({
 					toolName={canonical}
 					question={parsed.question}
 					onExpand={onExpand}
+					variant={reveal ? "reveal" : "collapsed"}
 					toolLabel={toolLabel}
 					label={
 						(canonical === "quiz" || canonical === "explain") &&
@@ -169,35 +181,68 @@ export function QuestionDock({
 }
 
 /** A plain-text teaser of a question for the collapsed bar: unwrap math, flatten common LaTeX. */
-function teaserText(q: string): string {
+export function teaserText(q: string): string {
 	return repairMathForDisplay(q)
 		.replace(/\\\(([\s\S]*?)\\\)/g, "$1") // \(...\) inline math
 		.replace(/\\\[([\s\S]*?)\\\]/g, "$1") // \[...\] display math
 		.replace(/\$\$?([^$]*)\$\$?/g, "$1") // standard $...$/$$...$$ math
 		.replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, "$1/$2")
+		// Escaped braces are set notation ({0,1,2,3}); keep them past the brace strip.
+		.replace(/\\([{}])/g, (_, brace: string) => (brace === "{" ? "\u0001" : "\u0002"))
+		.replace(/\\[,;:! ]/g, " ") // LaTeX spacing
 		.replace(/\\([a-zA-Z]+)/g, "$1")
 		.replace(/[{}]/g, "")
+		.replace(/\u0001/g, "{")
+		.replace(/\u0002/g, "}")
 		.replace(/\s+/g, " ")
 		.trim();
 }
 
-/** The scroll-minimized strip: kind chip, question teaser, and Answer ↓. */
+/** The collapsed strip. Two species (W5): "collapsed" is the scroll minimization
+ *  (kind chip + one-liner + Answer ↓); "reveal" is the teach-check invitation —
+ *  a distinct, more inviting affordance, because it asks the learner to start
+ *  something, not to resume something. */
 export function QuestionDockBar({
 	toolName,
 	question,
 	onExpand,
+	variant = "collapsed",
 	label,
 	toolLabel,
 }: {
 	toolName: "quiz" | "ask_user_question" | "explain";
 	question: string;
 	onExpand: () => void;
-	/** The kind chip's text: "Prediction" for a minimized predict-type quiz. */
+	variant?: "collapsed" | "reveal";
+	/** The kind chip's text (owner 2026-10-03): "Prediction" when a
+	 *  predict-type quiz minimizes by scroll — predictions never use the
+	 *  reveal variant, but the scroll-collapse strip can still hide them. */
 	label?: string;
 	/** The chip's TOOL display name (owner 2026-10-09): probe-phase calls
 	 *  label Probe/Recall — the phase boundary visible in the composer. */
 	toolLabel?: string;
 }) {
+	if (variant === "reveal") {
+		return (
+			<button
+				type="button"
+				data-testid="teach-check-reveal"
+				onClick={onExpand}
+				className="dock-variant flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-accent/40"
+			>
+				<span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
+					<PlayIcon className="size-3.5" />
+				</span>
+				<span className="min-w-0 flex-1">
+					<span className="block text-sm font-medium">Check your understanding</span>
+					<span className="block truncate text-xs text-muted-foreground">{teaserText(question)}</span>
+				</span>
+				<span className="flex shrink-0 items-center gap-1 text-xs font-medium text-primary">
+					Open <ChevronRightIcon className="size-3.5" />
+				</span>
+			</button>
+		);
+	}
 	return (
 		<button
 			type="button"
@@ -233,7 +278,7 @@ function QuestionDockForm({
 	dictationClaim = true,
 	compactionRunning = false,
 	attachmentsUploading = false,
-}: Omit<QuestionDockProps, "expanded" | "onExpand"> & {onReveal?: () => void}) {
+}: Omit<QuestionDockProps, "expanded" | "onExpand" | "reveal"> & {onReveal?: () => void}) {
 	const kind = toolQuestionKind(toolName);
 
 	// Canonical QuestionData, built once per question. Quiz options are
@@ -332,6 +377,8 @@ function QuestionDockForm({
 			},
 			[files],
 		),
+		// Released while a teach check sits unrevealed (owner 2026-10-03):
+		// the reading-thinking field owns dictated speech during the reading.
 		dictationClaim,
 	);
 
