@@ -89,6 +89,7 @@ import {
 } from "@/src/core";
 import { useGeneralSettings } from "@/components/general-settings";
 import { rememberRevealed, wasRevealed } from "@/components/revealed-questions";
+import { readDraft, writeDraft } from "@/components/draft-store";
 import { ReadingThinkingField } from "@/components/reading-thinking";
 import { SideTutor, useSideTutor } from "@/components/side-tutor";
 import { useReadingThinkingResync } from "@/components/reading-thinking-resync";
@@ -539,9 +540,12 @@ export function Chat({
 		window.addEventListener(kbdEventForChat("toggle-user-thinking"), onToggle);
 		return () => window.removeEventListener(kbdEventForChat("toggle-user-thinking"), onToggle);
 	}, []);
+	const pendingKeyRef = useRef<string | null>(null);
+	pendingKeyRef.current = pending?.key ?? null;
 	const applyReadingThinking = useCallback((v: string) => {
 		readingThinkingRef.current = v;
-	}, []);
+		if (pendingKeyRef.current) saveQuestionDraft(pendingKeyRef.current, { readingThinking: v });
+	}, [saveQuestionDraft]);
 	const clearReadingThinking = useCallback(() => {
 		readingThinkingRef.current = "";
 		setReadingThinkingSeed((previous) => ({ ...previous, value: "", revision: previous.revision + 1 }));
@@ -569,14 +573,25 @@ export function Chat({
 	/* The composer draft ref is synchronous, so sends and dictation flushes
 	 * read the latest text without a parent render per input event. Explicit
 	 * resets still bump a revision so the local field can sync. */
+	// The composer draft autosaves per chat (components/draft-store.ts).
 	const textRef = useRef("");
+	const composerDraftKey = `c:${chatId}`;
+	useLayoutEffect(() => {
+		const saved = readDraft<string>(composerDraftKey);
+		if (saved && !textRef.current) {
+			textRef.current = saved;
+			setComposerDraftRevision((revision) => revision + 1);
+		}
+	}, [composerDraftKey]);
 	const applyText = useCallback((v: string) => {
 		textRef.current = v;
+		writeDraft(composerDraftKey, v);
 		setComposerDraftRevision((revision) => revision + 1);
-	}, []);
+	}, [composerDraftKey]);
 	const recordComposerText = useCallback((v: string) => {
 		textRef.current = v;
-	}, []);
+		writeDraft(composerDraftKey, v);
+	}, [composerDraftKey]);
 	// Saved slot completeness is live, but the session's selected route
 	// comes from its own ordinary model control, never today's Strong pin.
 	const { catalog, configured, zeroKeys } = useModelSetup(initialConfigured);

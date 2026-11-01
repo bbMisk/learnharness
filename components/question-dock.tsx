@@ -357,6 +357,12 @@ function QuestionDockForm({
 	// between questions, so each question starts fresh at 50.
 	const [confIdx, setConfIdx] = useState<number>(initialDraft?.confidenceIndex ?? DEFAULT_CONFIDENCE_INDEX);
 	const selectMode: SelectMode = qd.mode === "multi-select" ? "multi-select" : "single-select";
+	// Autosave (owner, 2026-11-01): the open answer survives reloads and chat switches.
+	const saveDraftRef = useRef(onSaveDraft);
+	saveDraftRef.current = onSaveDraft;
+	useEffect(() => {
+		saveDraftRef.current?.({ selection: sel, thinking, other, text, confidenceIndex: confIdx });
+	}, [sel, thinking, other, text, confIdx]);
 	const otherFiles = useFileDrop(other, (value) => {
 		setOther(value);
 		if (value.trim()) setSel((prev) => prev.otherSelected ? prev : toggleOther(selectMode, prev));
