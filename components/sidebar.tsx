@@ -26,6 +26,7 @@ import { useServerEvent, useServerResync } from "@/components/server-events";
 import type { ChatListItem, ProjectSummary } from "@/src/core";
 import { kbdEventForAction } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
+import { DeployReload } from "@/components/deploy-reload";
 
 /**
  * Toggleable sidebar — NOT a modal drawer: no backdrop, no focus theft. It
@@ -686,6 +687,10 @@ function SessionsSidebar() {
 	);
 
 	return (
+		<>
+		{/* The update notice (owner, 2026-11-01): a row above Settings while the
+		    sidebar is open, a bottom-left pill while it is closed. */}
+		<DeployReload variant="floating" hidden={open} />
 		<aside
 			className={cn("sidebar-motion shrink-0 overflow-hidden duration-200", open ? "w-72" : "w-0")}
 			aria-hidden={!open}
@@ -874,6 +879,7 @@ function SessionsSidebar() {
 					    flex-1, so this pins to the bottom. Sidebar closed = the
 					    learner opted out (no ambient signal, user decision). */}
 					<ActivitySection />
+					<DeployReload variant="row" />
 
 					{/* Settings entry (settings-app wave): same row language as
 					    New session — quiet, bottom-pinned, opens the centered
@@ -973,6 +979,7 @@ function SessionsSidebar() {
 					onDeleted={onDeleted}
 				/>
 			</aside>
+		</>
 	);
 }
 

@@ -26,7 +26,7 @@ afterEach(async () => {
 	globalThis.fetch = realFetch;
 });
 
-async function reconnect(served: string, extra = "") {
+async function reconnect(served: string, extra = "", variant?: "row" | "floating") {
 	globalThis.fetch = (async () => Response.json({ app: "learnharness", status: "ok", build: served })) as typeof fetch;
 	let open: () => void = () => {};
 	const channel = () => ({
@@ -46,7 +46,7 @@ async function reconnect(served: string, extra = "") {
 	await act(async () =>
 		root!.render(
 			<ServerEventsProvider connect={channel}>
-				<DeployReload build="build-a" reload={() => reloads++} />
+				<DeployReload build="build-a" variant={variant} reload={() => reloads++} />
 			</ServerEventsProvider>,
 		),
 	);
@@ -70,4 +70,45 @@ it("offers a reload after a deploy and never reloads by itself", async () => {
 	assert.ok(pill, "the reload pill is shown");
 	pill.click();
 	assert.equal(r.reloads(), 1);
+});
+
+it("sits bottom-left: a pill by default, a row for the sidebar above Settings", async () => {
+	const floating = await reconnect("build-b");
+	assert.match((floating.pill() as HTMLElement).className, /fixed bottom-4 left-4/);
+	await act(async () => root?.unmount());
+	document.body.innerHTML = "";
+	const row = await reconnect("build-b", "", "row");
+	const button = row.pill() as HTMLButtonElement;
+	assert.doesNotMatch(button.className, /fixed/);
+	assert.match(button.textContent!, /LearnHarness updated.*Reload/);
+	button.click();
+	assert.equal(row.reloads(), 1);
+});
+
+it("a hidden pill keeps watching, so it shows at once when unhidden (sidebar closed)", async () => {
+	globalThis.fetch = (async () => Response.json({ app: "learnharness", status: "ok", build: "build-b" })) as typeof fetch;
+	let open: () => void = () => {};
+	const channel = () => ({
+		close() {},
+		onOpen(cb: () => void) {
+			open = cb;
+		},
+		onEvent() {},
+	});
+	const mount = document.createElement("div");
+	document.body.append(mount);
+	root = createRoot(mount);
+	const view = (hidden: boolean) => (
+		<ServerEventsProvider connect={channel}>
+			<DeployReload build="build-a" hidden={hidden} reload={() => {}} />
+		</ServerEventsProvider>
+	);
+	await act(async () => root!.render(view(true)));
+	await act(async () => {
+		open();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+	assert.equal(document.querySelector('[data-testid="deploy-reload"]'), null);
+	await act(async () => root!.render(view(false)));
+	assert.ok(document.querySelector('[data-testid="deploy-reload"]'), "no reconnect needed");
 });
