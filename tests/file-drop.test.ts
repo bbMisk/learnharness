@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import { it } from "node:test";
-import { appendFilePaths, resolveFilePaths } from "../components/file-drop.ts";
+import { appendFilePaths, resolveFilePaths, uploadFile, uploadTimeoutMs } from "../components/file-drop.ts";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -14,20 +14,49 @@ it("uploads a memory-backed screenshot on browser and Electron, preserving visio
 	const root = await fs.mkdtemp(path.join(os.tmpdir(), "lh-pasted-image-"));
 	try {
 		const store = createUploadStore(root);
-		const bytes = Buffer.from(new Resvg('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="red"/></svg>').render().asPng());
+		const bytes = Buffer.from(
+			new Resvg('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="red"/></svg>')
+				.render()
+				.asPng(),
+		);
 		const screenshot = new File([bytes], "image.png", { type: "image/png" });
 		const upload = async (file: File) => (await store.save(file.name, file.stream())).path;
-		for (const native of [undefined, () => "", () => { throw new Error("Not a disk File"); }]) {
+		for (const native of [
+			undefined,
+			() => "",
+			() => {
+				throw new Error("Not a disk File");
+			},
+		]) {
 			const paths = await resolveFilePaths([screenshot], native, upload);
 			const draft = appendFilePaths("My handwritten solution", paths);
 			assert.ok(draft.startsWith("My handwritten solution\n"));
 			const imagePath = JSON.parse(draft.split("\n")[1]!);
 			const result = await readTool.execute!("pasted-screenshot", { path: imagePath });
-			assert.deepEqual(result.content.find((part) => part.type === "image"), { type: "image", data: bytes.toString("base64"), mimeType: "image/png" });
+			assert.deepEqual(
+				result.content.find((part) => part.type === "image"),
+				{ type: "image", data: bytes.toString("base64"), mimeType: "image/png" },
+			);
 		}
-		assert.deepEqual(await resolveFilePaths([screenshot], () => "/local/Finder.png", () => { throw new Error("Must keep existing disk paths"); }), ["/local/Finder.png"]);
-		await assert.rejects(resolveFilePaths([screenshot], undefined, async () => { throw new Error("Offline"); }), /Offline/);
-	} finally { await fs.rm(root, { recursive: true, force: true }); }
+		assert.deepEqual(
+			await resolveFilePaths(
+				[screenshot],
+				() => "/local/Finder.png",
+				() => {
+					throw new Error("Must keep existing disk paths");
+				},
+			),
+			["/local/Finder.png"],
+		);
+		await assert.rejects(
+			resolveFilePaths([screenshot], undefined, async () => {
+				throw new Error("Offline");
+			}),
+			/Offline/,
+		);
+	} finally {
+		await fs.rm(root, { recursive: true, force: true });
+	}
 });
 
 it("keeps the draft and full paths intact, including spaces, quotes and Unicode", () => {
@@ -35,7 +64,13 @@ it("keeps the draft and full paths intact, including spaces, quotes and Unicode"
 	const draft = "Teach me from these files:";
 	const result = appendFilePaths(draft, paths);
 	assert.equal(result.split("\n")[0], draft);
-	assert.deepEqual(result.split("\n").slice(1).map((line) => JSON.parse(line)), paths);
+	assert.deepEqual(
+		result
+			.split("\n")
+			.slice(1)
+			.map((line) => JSON.parse(line)),
+		paths,
+	);
 	assert.equal(appendFilePaths("unfinished draft", []), "unfinished draft");
 	assert.equal(appendFilePaths("draft\n", ["/tmp/a.pdf"]), 'draft\n"/tmp/a.pdf"');
 });
@@ -46,15 +81,42 @@ it("the real preload delegates only dropped File objects and handles invalid val
 	runInNewContext(readFileSync(new URL("../electron/preload.cjs", import.meta.url), "utf8"), {
 		process: { platform: "darwin" },
 		require: () => ({
-			contextBridge: { exposeInMainWorld(_name: string, api: typeof bridge) { bridge = api; } },
+			contextBridge: {
+				exposeInMainWorld(_name: string, api: typeof bridge) {
+					bridge = api;
+				},
+			},
 			ipcRenderer: { on() {} },
-			webUtils: { getPathForFile(file: unknown) {
-				if (file !== nativeFile) throw new Error("not a native File");
-				return "/Users/test/Full path.pdf";
-			} },
+			webUtils: {
+				getPathForFile(file: unknown) {
+					if (file !== nativeFile) throw new Error("not a native File");
+					return "/Users/test/Full path.pdf";
+				},
+			},
 		}),
 	});
 	assert.equal(bridge!.getPathForFile(nativeFile), "/Users/test/Full path.pdf");
 	assert.throws(() => bridge!.getPathForFile("/arbitrary/path"), /not a native File/);
 	assert.throws(() => bridge!.getPathForFile(null), /not a native File/);
+});
+
+it("cancels an upload that stalls, such as an iPad clipboard paste, with a clear message", async () => {
+	const photo = new File([new Uint8Array(1024)], "IMG_0042.png", { type: "image/png" });
+	const stalled: typeof fetch = (_url, init) =>
+		new Promise((_resolve, reject) => init!.signal!.addEventListener("abort", () => reject(init!.signal!.reason)));
+	const started = Date.now();
+	await assert.rejects(uploadFile(photo, stalled, 50), /IMG_0042\.png took too long to add, so it was cancelled/);
+	assert.ok(Date.now() - started < 2_000);
+	await assert.rejects(
+		uploadFile(
+			photo,
+			async () => {
+				throw new Error("Offline");
+			},
+			5_000,
+		),
+		/^Error: Offline$/,
+	);
+	assert.equal(uploadTimeoutMs(0), 20_000);
+	assert.equal(uploadTimeoutMs(5 * 1_048_576), 25_000);
 });

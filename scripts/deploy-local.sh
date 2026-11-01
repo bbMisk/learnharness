@@ -56,7 +56,8 @@ assert_idle || { rm -rf "$STAGE"; exit 1; } # again, just before the swap: work 
 restart() {
 	# Without this, a failed restart leaves the old server answering health checks.
 	launchctl kickstart -k "gui/$(id -u)/$SERVICE" || return 1
-	for _ in $(seq 1 60); do curl -sf "$URL/api/health" >/dev/null && return 0; sleep 0.5; done
+	# Up to 2 minutes: a heavily loaded Mac can take over 30 s to serve the first request.
+	for _ in $(seq 1 240); do curl -sf -m 5 "$URL/api/health" >/dev/null && return 0; sleep 0.5; done
 	return 1
 }
 

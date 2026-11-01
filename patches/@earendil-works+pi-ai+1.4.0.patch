@@ -1,0 +1,21 @@
+diff --git a/node_modules/@earendil-works/pi-ai/dist/api/openai-responses-shared.js b/node_modules/@earendil-works/pi-ai/dist/api/openai-responses-shared.js
+index b7b27ca..2b329f2 100644
+--- a/node_modules/@earendil-works/pi-ai/dist/api/openai-responses-shared.js
++++ b/node_modules/@earendil-works/pi-ai/dist/api/openai-responses-shared.js
+@@ -613,7 +613,15 @@ export async function processResponsesStream(openaiStream, output, stream, model
+             if (!slot || slot.block.partialJson === undefined)
+                 continue;
+             slot.block.partialJson += event.delta;
+-            slot.block.arguments = parseStreamingJson(slot.block.partialJson);
++            // Re-parsing the whole buffer on every delta is quadratic: a long tool input
++            // blocks the event loop for minutes. Parse small buffers on every delta and
++            // larger ones each time they grow by a quarter; output_item.done parses the
++            // complete arguments regardless.
++            const length = slot.block.partialJson.length;
++            if (length < 4096 || length >= (slot.parsedLength ?? 0) * 1.25) {
++                slot.block.arguments = parseStreamingJson(slot.block.partialJson);
++                slot.parsedLength = length;
++            }
+             pushToolCallDelta(slot, event.delta);
+         }
+         else if (event.type === "response.function_call_arguments.done") {

@@ -13,6 +13,8 @@ This fork tracks [upstream LearnHarness](https://github.com/amosblomqvist/learnh
 
 To roll back by hand, move a `before-<time>` folder back to `~/dev/learnharness-remote`, then run `launchctl kickstart -k gui/$(id -u)/io.hanson.learnharness.remote`.
 
+The host's launchd job (`~/Library/LaunchAgents/io.hanson.learnharness.remote.plist`) must set `ProcessType` to `Interactive`. Without it, launchd throttles the job like background work, and when the Mac is busy a chat page can take 20 s or more to open.
+
 ## Staying close to upstream
 - Merge `upstream/main` every few days; small merges stay trivial.
 - Put fork features in fork-owned files. Inside upstream files, keep edits to small hooks.
