@@ -517,7 +517,9 @@ export function Chat({
 	// teacher's turn ends at the question call).
 	const teachingCheck = pending !== null && isTeachingCheck(pending.tool, pending.input, phaseAt3(messages));
 	const [cram, setCram] = useState(style === "cram");
-	const requiresReveal = teachingCheck && revealsQuestions(useGeneralSettings()?.revealQuestions, cram);
+	// Hooks run on every render: never behind && (a skipped hook crashed the page after an answer).
+	const revealSetting = useGeneralSettings()?.revealQuestions;
+	const requiresReveal = teachingCheck && revealsQuestions(revealSetting, cram);
 
 	/* The READING-THINKING channel (owner 2026-10-03): a draft field for
 	 * thinking while reading the teaching prose, mounted while a check waits
