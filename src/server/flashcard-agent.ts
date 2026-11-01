@@ -11,7 +11,10 @@ import { readQuestionCache } from "../store/review-questions.ts";
 import { readReviewArchive } from "../store/review.ts";
 import { stores } from "./stores.ts";
 import { reviewCandidates, reviewSnapshot } from "./review.ts";
-import { curatorSubmit, questionFor } from "./review-questions.ts";
+import { curatorSubmit, questionFor, refreshQuestion, wordyQuestion } from "./review-questions.ts";
+
+/** Cached long-option questions rewritten per curator run. */
+const REFRESH_PER_RUN = 10;
 
 export interface FlashcardAgentRun {
 	id: string;
@@ -180,6 +183,7 @@ export interface FlashcardAgentDeps {
 	signatureSettings: () => unknown;
 	triage: (cards: Flashcard[], instructions: string, signal: AbortSignal) => Promise<FlashcardTriage[]>;
 	prepare: (card: Flashcard, instructions: string, signal: AbortSignal) => Promise<ReviewQuestion>;
+	refresh: (card: Flashcard, instructions: string, signal: AbortSignal) => Promise<ReviewQuestion>;
 	sync: () => Promise<unknown>;
 	now: () => number;
 }
@@ -196,6 +200,7 @@ const production: FlashcardAgentDeps = {
 	}),
 	triage: triageFlashcards,
 	prepare: (card, instructions, signal) => questionFor(card, { instructions, signal }),
+	refresh: (card, instructions, signal) => refreshQuestion(card, { instructions, signal }),
 	sync: () => reviewSnapshot(),
 	now: () => Date.now(),
 };
@@ -212,7 +217,14 @@ export async function runFlashcardCuration(force = false, deps: FlashcardAgentDe
 	const day = String(studyDay(deps.now()));
 	const signature = createHash("sha256")
 		.update(
-			JSON.stringify([3, day, options, deps.signatureSettings(), candidates.map((card) => [card.revision, cardProjectIds(card)])]),
+			JSON.stringify([
+				3,
+				day,
+				options,
+				deps.signatureSettings(),
+				candidates.map((card) => [card.revision, cardProjectIds(card)]),
+				allCandidates.filter(wordyQuestion).length,
+			]),
 		)
 		.digest("hex");
 	const saved = readFlashcardCuration();
@@ -220,7 +232,7 @@ export async function runFlashcardCuration(force = false, deps: FlashcardAgentDe
 	const budget = projectReservations(saved, day, allCandidates);
 	const canPrepare = (card: Flashcard, counts: Record<string, string[]>, limit: number) =>
 		cardProjectIds(card).every((id) => counts[id]?.includes(card.revision) || (counts[id]?.length ?? 0) < limit);
-	if (!candidates.some((card) => !card.mcq && canPrepare(card, budget, options.dailyLimit))) return;
+	if (!candidates.some((card) => !card.mcq && canPrepare(card, budget, options.dailyLimit)) && !allCandidates.some(wordyQuestion)) return;
 	const run: FlashcardAgentRun = {
 		id: "flashcard-curator",
 		startedAt: deps.now(),
@@ -339,6 +351,20 @@ export async function runFlashcardCuration(force = false, deps: FlashcardAgentDe
 			progress(`Preparing ${run.prepared + 1}/${run.total}`);
 			await deps.prepare(card, options.instructions, signal);
 			run.prepared++;
+		}
+		// Questions written before long answers were condensed (owner, 2026-11-01) are
+		// rewritten a few per run, outside the daily new-card budget. A failure keeps the
+		// old question and stops the rewrites until the next run.
+		const wordy = deps.candidates().filter(wordyQuestion).slice(0, REFRESH_PER_RUN);
+		for (const [index, card] of wordy.entries()) {
+			signal.throwIfAborted();
+			progress(`Shortening answers ${index + 1}/${wordy.length}`);
+			try {
+				await deps.refresh(card, options.instructions, signal);
+			} catch (error) {
+				if (signal.aborted) throw error;
+				break;
+			}
 		}
 	} catch (error) {
 		updateFlashcardCuration((next) => {

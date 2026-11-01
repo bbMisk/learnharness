@@ -19,14 +19,15 @@ const at=Date.parse("2026-10-30T18:00:00Z");
 function card(index:number):Flashcard{return {id:"card_n_"+index,sourceNodeId:"n_"+index,revision:"rev"+index,front:"Explain "+index,back:"Concept "+index,deckId:"chat_1",deckName:"Lesson",createdAt:at,active:true};}
 function harness(count=4,limit=2){
     const records=Array.from({length:count},(_,i)=>card(i));
-    const prepared:string[]=[],triaged:string[][]=[];
+    const prepared:string[]=[],triaged:string[][]=[],refreshed:string[]=[];
     let clock=at,syncs=0,enabled=true;
     const deps:FlashcardAgentDeps={options:()=>({enabled,dailyLimit:limit,instructions:"Prioritize conceptual errors."}),candidates:()=>records,reviewed:()=>new Set(),signatureSettings:()=>"fixture",now:()=>clock,
         async triage(cards){triaged.push(cards.map(c=>c.revision));return cards.map((c,i)=>({revision:c.revision,keep:true,priority:100-i,reason:"Useful concept"}));},
         async prepare(c){prepared.push(c.revision);const question={prompt:c.front,options:[c.back,"B","C","D"],correctIndex:0,explanation:"The source supports the first statement."};saveReviewQuestion(c.revision,question);c.mcq=question;return question;},
+        async refresh(c){refreshed.push(c.revision);const question={prompt:c.front,options:["Short A","B","C","D"],correctIndex:0,explanation:c.back};saveReviewQuestion(c.revision,question);c.mcq=question;return question;},
         async sync(){syncs++;},
     };
-    return {deps,records,prepared,triaged,setClock:(value:number)=>{clock=value;},disable:()=>{enabled=false;},syncs:()=>syncs};
+    return {deps,records,prepared,triaged,refreshed,setClock:(value:number)=>{clock=value;},disable:()=>{enabled=false;},syncs:()=>syncs};
 }
 beforeEach(()=>{abortFlashcardAgent();for(const name of ["flashcard-curation.json","flashcard-questions.json"])fs.rmSync(path.join(temp,name),{force:true});});
 after(()=>fs.rmSync(temp,{recursive:true,force:true}));
@@ -135,4 +136,20 @@ it("a failed save never leaves the curator marked running",async()=>{
     try{await assert.rejects(runFlashcardCuration(false,h.deps));}
     finally{fs.chmodSync(temp,0o700);}
     assert.deepEqual(flashcardAgentActivity(),[],"no run is left behind");
+});
+it("rewrites long-option questions a few per run, outside the daily budget, keeping the old one on failure",async()=>{
+    const long="L".repeat(200);
+    const h=harness(12,1);
+    for(const c of h.records){c.back=long+c.revision;c.mcq={prompt:c.front,options:[c.back,"B".repeat(150),"C","D"],correctIndex:0,explanation:"Old"};}
+    await runFlashcardCuration(false,h.deps);
+    assert.equal(h.refreshed.length,10);assert.equal(h.prepared.length,0);
+    assert.equal(readFlashcardCuration().lastError,undefined);
+    await runFlashcardCuration(false,h.deps);
+    assert.equal(h.refreshed.length,12,"the next run picks up the rest");
+    const f=harness(2,1);let calls=0;
+    for(const c of f.records){c.back=long+c.revision;c.mcq={prompt:c.front,options:[c.back,"B","C","D"],correctIndex:0,explanation:"Old"};}
+    f.deps.refresh=async()=>{calls++;throw new Error("model unavailable");};
+    await runFlashcardCuration(false,f.deps);
+    assert.equal(calls,1,"stops at the first failure");assert.equal(f.records[0]!.mcq!.explanation,"Old");
+    assert.equal(readFlashcardCuration().lastError,undefined);
 });

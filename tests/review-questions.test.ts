@@ -18,7 +18,7 @@ process.env.LH_DATA_DIR = temp;
 process.env.LH_AUTH_FILE = path.join(temp, "auth.json");
 const { stores } = await import("../src/server/stores.ts");
 const { piModels } = await import("../src/agent/models.ts");
-const { questionFor } = await import("../src/server/review-questions.ts");
+const { questionFor, questionProblem, SHORT_ANSWER_CHARS } = await import("../src/server/review-questions.ts");
 const { triageFlashcards } = await import("../src/server/flashcard-agent.ts");
 const { bgLlmSlots } = await import("../src/agent/subagents/bg-llm-semaphore.ts");
 const { chatGPTStatus } = await import("../src/agent/chatgpt-bridge.ts");
@@ -186,4 +186,45 @@ it("refuses before any model call when the key or background access is missing",
 	}
 	assert.equal(contexts.length, 0);
 	assert.equal(faux.getPendingResponseCount(), 1);
+});
+
+const longBack =
+	"In a finite-state pattern race, the probability of a specified pattern eventually winning from a nonterminal state is the probability-weighted average of its win probabilities from the next states.";
+const longCard = (revision: string): Flashcard => ({
+	...card(revision),
+	front: "How do first-step win probabilities combine?",
+	back: longBack,
+});
+const shortQuestion = (explanation = `${longBack} The distractors drop the weighting or the terminal values.`) => ({
+	prompt: "In a finite-state pattern race, a nonterminal state's win probability is…",
+	options: [
+		"The probability-weighted average of the next states' win probabilities",
+		"The largest of the next states' win probabilities",
+		"The unweighted average of the next states' win probabilities",
+		"The smallest of the next states' win probabilities",
+	],
+	correctIndex: 0,
+	explanation,
+});
+
+it("condenses a long source answer: short options, and the explanation quotes the full answer", () => {
+	assert.ok(longBack.length > SHORT_ANSWER_CHARS);
+	assert.equal(questionProblem(longCard("long-ok"), shortQuestion()), null);
+	const wordy = { ...shortQuestion(), options: [longBack, ...shortQuestion().options.slice(1)] };
+	assert.match(questionProblem(longCard("long-wordy"), wordy)!, /Option 1 has \d+ characters/);
+	assert.match(
+		questionProblem(longCard("long-unquoted"), shortQuestion("Weighted by transition probability."))!,
+		/full source answer copied exactly/,
+	);
+	// A short answer keeps the exact-copy rule.
+	assert.equal(questionProblem(card("short-ok"), question(answer)), null);
+	assert.match(questionProblem(card("short-reworded"), question("A rate of change"))!, /source answer copied exactly/);
+});
+
+it("asks the model to condense long answers and retries until the options are short", async () => {
+	const wordy = { ...shortQuestion(), options: [longBack, ...shortQuestion().options.slice(1)] };
+	respond([submit("submit_question", wordy), submit("submit_question", shortQuestion())]);
+	assert.deepEqual(await questionFor(longCard("long-retry")), shortQuestion());
+	assert.match(JSON.stringify(contexts[0]!.messages), /condensed restatement/);
+	assert.match(feedback(1), /Keep every option under 120 characters/);
 });
