@@ -433,6 +433,7 @@ function withoutMechanics(enabled?: EnabledTools): EnabledTools | undefined {
 export function createTeacherTools(
 	ctx: TeacherToolContext,
 	enabled?: EnabledTools,
+	bothQuizzing = false,
 ): Record<string, AgentTool<any>> {
 	// Quizzing mechanics (owner 2026-09-27): free-recall swaps the teach
 	// quiz for the teach explain — one quizzing tool at a time, whichever
@@ -440,8 +441,12 @@ export function createTeacherTools(
 	const mechanics = quizMechanics(enabled);
 	// Same widening as the prober's (see above) — the conditional spread of
 	// two differently-typed literals collapses into an unusable union type.
-	const quizzing: Record<string, AgentTool<any>> =
-		mechanics === "free" ? { explain: teachExplainToolFor(ctx) } : { quiz: teachQuizToolFor(ctx) };
+	// Cram (owner, 2026-11-01): both, multiple choice by default.
+	const quizzing: Record<string, AgentTool<any>> = bothQuizzing
+		? { quiz: teachQuizToolFor(ctx), explain: teachExplainToolFor(ctx) }
+		: mechanics === "free"
+			? { explain: teachExplainToolFor(ctx) }
+			: { quiz: teachQuizToolFor(ctx) };
 	// healToolRecord — same standard as the prober's registry (above).
 	return healToolRecord(
 		filterEnabledTools(

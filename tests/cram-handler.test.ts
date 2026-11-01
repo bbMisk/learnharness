@@ -59,9 +59,9 @@ async function systemContextFor(style: "cram" | undefined, messages: LhMessage[]
 	const faux = createFauxCore({});
 	faux.setResponses([fauxAssistantMessage([fauxText("Class: thin lenses. Here is a worked example.")])]);
 	const engine: PiEngine = { model: faux.getModel(), streamFn: faux.streamSimple };
-	let seen: { teaching: boolean; projectContext?: string } | undefined;
+	let seen: { teaching: boolean; projectContext?: string; bothQuizzing?: boolean } | undefined;
 	const factory = (opts: AgentBuildOptions & { teaching: boolean }): TeachingAgent => {
-		seen = { teaching: opts.teaching, projectContext: opts.projectContext };
+		seen = { teaching: opts.teaching, projectContext: opts.projectContext, bothQuizzing: opts.bothQuizzing };
 		return opts.teaching
 			? createTeacherAgent(undefined, { ...opts, engine })
 			: createProberAgent({ chatId: chat.id, chatStore, jobStore, deliver: () => {}, spawn: () => {} }, { ...opts, engine });
@@ -84,9 +84,11 @@ it("a cram lesson: the prober keeps it short, the teacher runs the cram loop; Te
 	const cram = await systemContextFor("cram", probeDone);
 	assert.equal(cram.teaching, true);
 	assert.match(cram.projectContext ?? "", /# Cram mode/);
+	assert.equal(cram.bothQuizzing, true, "a cram teacher holds both multiple choice and short answer");
 	const teach = await systemContextFor(undefined, probeDone);
 	assert.equal(teach.teaching, true);
 	assert.doesNotMatch(teach.projectContext ?? "", /Cram mode/);
+	assert.equal(teach.bothQuizzing, false);
 	const probing = await systemContextFor("cram", []);
 	assert.equal(probing.teaching, false);
 	assert.match(probing.projectContext ?? "", /Keep the probe short/, "the prober keeps a cram check short");
