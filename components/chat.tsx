@@ -88,6 +88,7 @@ import {
 	revealsQuestions,
 } from "@/src/core";
 import { useGeneralSettings } from "@/components/general-settings";
+import { rememberRevealed, wasRevealed } from "@/components/revealed-questions";
 import { ReadingThinkingField } from "@/components/reading-thinking";
 import { SideTutor, useSideTutor } from "@/components/side-tutor";
 import { useReadingThinkingResync } from "@/components/reading-thinking-resync";
@@ -1967,14 +1968,16 @@ function DockOverlay({
 	const atBottomRef = useRef(isAtBottom);
 	atBottomRef.current = isAtBottom;
 	// Teach-phase mount (session reload with a pending check): the dock starts
-	// as the collapsed invitation too — the check must not pop open on reload.
-	const [expanded, setExpanded] = useState(!requiresReveal);
+	// as the collapsed invitation too — the check must not pop open on reload —
+	// unless the learner already opened it (switched chats and came back).
+	const openedBefore = wasRevealed(pending?.key ?? null);
+	const [expanded, setExpanded] = useState(!requiresReveal || openedBefore);
 	const [readingUploading, setReadingUploading] = useState(false);
 	// Reveal state (W5): false until the learner clicks the invitation. While
 	// false, the scroll machine must NOT auto-expand at the bottom — the
 	// learner reads the teaching first and opens the check when ready. Once
 	// revealed, the normal collapse machine rules apply untouched.
-	const [revealed, setRevealed] = useState(false);
+	const [revealed, setRevealed] = useState(openedBefore);
 	const revealPending = requiresReveal && !revealed;
 
 	const pendingId = pending?.key ?? null;
@@ -1994,7 +1997,8 @@ function DockOverlay({
 		const wasQuestion = prevPendingIdRef.current !== null;
 		prevPendingIdRef.current = pendingId;
 		if (pendingId && requiresReveal) {
-			const arrival = revealArrival(wasQuestion);
+			const arrival = wasRevealed(pendingId) ? { expanded: true, revealed: true } : revealArrival(wasQuestion);
+			if (arrival.revealed) rememberRevealed(pendingId);
 			setExpanded(arrival.expanded);
 			setRevealed(arrival.revealed);
 		} else if (pendingId) {
@@ -2174,6 +2178,7 @@ function DockOverlay({
 	};
 	const expandAndReveal = () => {
 		setRevealed(true); // the teach-check invitation was accepted (W5)
+		rememberRevealed(pendingId);
 		setExpanded(true);
 		void suppressFoldDuringReveal();
 	};
