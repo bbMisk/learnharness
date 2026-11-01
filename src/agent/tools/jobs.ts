@@ -1,6 +1,8 @@
+import fs from "node:fs";
 import { Type, type Static } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { serverExecute } from "../tool-execute.ts";
+import { invalidInputResult, serverExecute } from "../tool-execute.ts";
+import { resolveSourcePath } from "./fs-shared.ts";
 import type { JobRecord } from "../../core/contracts.ts";
 import type { JobStore } from "../../core/ports.ts";
 
@@ -120,6 +122,16 @@ const PDF_DESCRIPTION =
 	"continues; the brief arrives later as a new message. For quick looks at plain text or image files, use the read tool " +
 	"directly instead of dispatching.";
 
+/** Why `path` cannot be read as a PDF, or null when it is a file. */
+function pdfPathProblem(p: string): string | null {
+	const resolved = resolveSourcePath(p);
+	try {
+		return fs.statSync(resolved).isFile() ? null : `${resolved} is a folder, not a PDF file`;
+	} catch {
+		return `no file at ${resolved}; pass the PDF's path exactly as the attachment gives it`;
+	}
+}
+
 /**
  * Per-request job tool registry: each tool closes over the composition root's
  * context (chatId + jobStore + the spawn seam), so concurrent chats never
@@ -129,6 +141,7 @@ const PDF_DESCRIPTION =
  * existing user-toggle filtering still applies outside this registry.
  */
 export function jobTools(ctx: JobToolContext): Record<string, AgentTool<any>> {
+	const dispatchPdf = serverExecute("pdf", pdfInputSchema, (input, { toolCallId }) => dispatch(ctx, "pdf", toolCallId, PDF_ACK, input));
 	return {
 		research: {
 			name: "research",
@@ -160,7 +173,13 @@ export function jobTools(ctx: JobToolContext): Record<string, AgentTool<any>> {
 			label: "pdf",
 			description: PDF_DESCRIPTION,
 			parameters: pdfInputSchema,
-			execute: serverExecute("pdf", pdfInputSchema, (input, { toolCallId }) => dispatch(ctx, "pdf", toolCallId, PDF_ACK, input)),
+			execute: async (toolCallId, input: unknown, signal) => {
+				// A wrong path would only fail later as a "PDF failed" card in the
+				// lesson; rejecting it here lets the tutor retry with the right one.
+				const problem = ctx.jobStore.findJobByToolCallId(ctx.chatId, toolCallId) ? null : pdfPathProblem((input as PdfInput).path);
+				if (problem) return invalidInputResult("pdf", [problem]);
+				return dispatchPdf(toolCallId, input, signal);
+			},
 		},
 	};
 }
