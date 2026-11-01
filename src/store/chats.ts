@@ -192,6 +192,9 @@ function readChat(id: string): ChatRecord | null {
 function summaryOf(id: string): ChatSummary | null {
 	const record = getChat(id);
 	if (!record) return null;
+	// Archived chats are listed, not kept in memory: they are rarely opened,
+	// and a cold list would otherwise hold every one of them parsed.
+	if (record.archived) forgetRecord(id);
 	const { messages, tree, turns, extractions, learningEvents, ...summary } = record;
 	// Per-record isolation (Wave B): a record whose messages fail the
 	// projection (e.g. pre-Wave-B UIMessage-format scratch — the
@@ -385,5 +388,10 @@ export function setChatOrganization(id: string, updates: { pinned?: boolean; arc
  if(updates.archived!==undefined) record.archived=updates.archived;
  if(updates.projectId!==undefined) { if(updates.projectId===null) delete record.projectId;else record.projectId=updates.projectId; }
  if(updates.style!==undefined) { if(updates.style===null) delete record.style;else record.style=updates.style; }
- writeChat(record);emit('chats-changed',{});return record;
+ writeChat(record);if(record.archived) forgetRecord(id);emit('chats-changed',{});return record;
+}
+
+/** Whether a chat's parsed record is held in memory (tests). */
+export function isChatCached(id: string): boolean {
+	return recordCache.has(id);
 }
