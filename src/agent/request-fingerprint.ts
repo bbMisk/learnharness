@@ -49,9 +49,12 @@ export function withRequestFingerprint<T>(chatId: string, deliver: (fingerprint:
 	return state.sink.run({ chatId, deliver }, dispatch);
 }
 
-const isInstruction = (item: unknown): boolean => {
-	const role = (item as { role?: unknown } | null)?.role;
-	return role === "developer" || role === "system";
+/** Prompt material at the head of `input`: the system prompt as developer/system items and, on
+ *  models that declare tools in the input (gpt-5.5+), the opening `additional_tools` item.
+ *  Later tool updates (e.g. the shared-handoff update) sit after history and stay history. */
+const isPromptItem = (item: unknown): boolean => {
+	const { role, type } = (item as { role?: unknown; type?: unknown } | null) ?? {};
+	return role === "developer" || role === "system" || type === "additional_tools";
 };
 
 /** Fingerprint a final OpenAI Responses-shaped body (`instructions`,
@@ -60,10 +63,10 @@ const isInstruction = (item: unknown): boolean => {
 export function fingerprintResponsesPayload(chatId: string, payload: Record<string, unknown>): RequestFingerprint | undefined {
 	const input = payload.input;
 	if (!Array.isArray(input)) return undefined;
-	// The system prompt rides input as the leading developer/system item(s);
-	// it belongs to the prompt, not the history.
+	// The system prompt (and, on gpt-5.5+, the tool declarations) ride input as
+	// its leading items; they belong to the prompt, not the history.
 	let lead = 0;
-	while (lead < input.length && isInstruction(input[lead])) lead++;
+	while (lead < input.length && isPromptItem(input[lead])) lead++;
 	const promptHash = createHash("sha256")
 		.update(JSON.stringify([payload.instructions ?? null, payload.tools ?? null, input.slice(0, lead)]))
 		.digest("hex")

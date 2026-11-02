@@ -35,7 +35,7 @@ const bytes = async (response: Response) => Buffer.from(await response.arrayBuff
 
 test("Accept-Encoding negotiation honours q-values and the wildcard", () => {
 	for (const yes of ["gzip", "gzip, deflate, br", "br;q=1.0, gzip;q=0.8, *;q=0.1", "*", "deflate, x-gzip", "GZIP"]) assert.equal(acceptsGzip(yes), true, yes);
-	for (const no of [null, undefined, "", "identity", "br", "gzip;q=0", "gzip;q=0, *", "*;q=0", "br, *;q=0", "gzip;q=nonsense"]) assert.equal(acceptsGzip(no), false, String(no));
+	for (const no of [null, undefined, "", "identity", "br", "gzip;q=0", "gzip;q=0, *", "*;q=0", "br, *;q=0", "gzip;q=nonsense", "gzip ;q=0, *;q=1", "gzip; q = 0, *"]) assert.equal(acceptsGzip(no), false, String(no));
 });
 
 test("a large chat read is gzip when accepted, plain otherwise, and decodes byte for byte", async () => {

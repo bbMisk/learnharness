@@ -36,8 +36,10 @@ export function acceptsGzip(header: string | null | undefined): boolean {
 	let gzip: number | undefined;
 	let star: number | undefined;
 	for (const part of header.split(",")) {
-		const [token, ...params] = part.trim().toLowerCase().split(";");
-		const qParam = params.map((p) => p.trim()).find((p) => p.startsWith("q="));
+		const [rawToken = "", ...params] = part.toLowerCase().split(";");
+		// Whitespace is allowed around ";" and "=" ("gzip ;q=0", "q = 0").
+		const token = rawToken.trim();
+		const qParam = params.map((p) => p.replace(/\s+/g, "")).find((p) => p.startsWith("q="));
 		const q = qParam === undefined ? 1 : Number(qParam.slice(2));
 		const weight = Number.isFinite(q) ? q : 0;
 		if (token === "gzip" || token === "x-gzip") gzip = Math.max(gzip ?? 0, weight);

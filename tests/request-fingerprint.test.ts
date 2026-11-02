@@ -191,3 +191,20 @@ test("old records without the fields and new ones with them load side by side", 
 	const turns = chatStore.getChat(record.id)!.turns!;
 	assert.deepEqual(turns, [old, fresh]);
 });
+
+test("gpt-5.5+ bodies: the leading additional_tools item and instructions are prompt, not history (hunt finding)", () => {
+	resetRequestFingerprints();
+	const body = (prompt: string, tool: string, history: unknown[]) => ({
+		model: "gpt-6.1-sol",
+		input: [{ type: "additional_tools", tools: [{ name: tool }] }, { role: "developer", content: prompt }, ...history],
+	});
+	const hello = { role: "user", content: "hello" };
+	const first = fingerprintResponsesPayload("chat-tools", body("old prompt", "probe_done", [hello]))!;
+	const changedPrompt = fingerprintResponsesPayload("chat-tools", body("new prompt", "probe_done", [hello]))!;
+	assert.notEqual(changedPrompt.promptHash, first.promptHash, "instructions after the tool item count");
+	const changedTools = fingerprintResponsesPayload("chat-tools", body("new prompt", "quiz", [hello]))!;
+	assert.notEqual(changedTools.promptHash, changedPrompt.promptHash, "the tool declarations count");
+	const extended = fingerprintResponsesPayload("chat-tools", body("new prompt", "quiz", [hello, { role: "assistant", content: "hi" }]))!;
+	assert.equal(extended.promptHash, changedTools.promptHash);
+	assert.equal(extended.extendsPrevious, true);
+});

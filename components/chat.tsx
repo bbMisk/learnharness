@@ -1,5 +1,6 @@
 "use client";
 
+import { opensWaitingCheck } from "@/components/waiting-check-key";
 import { createContext, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useChatSession } from "@/components/session";
 import { visibleQueuedSteers } from "@/components/session-core";
@@ -1969,21 +1970,7 @@ function DockOverlay({
 	useEffect(() => {
 		if (!pending || expanded) return;
 		const onKeyDown = (e: KeyboardEvent) => {
-			// Space opens it too (owner, 2026-11-01); Shift+Space keeps scrolling up.
-			const enter = e.key === "Enter";
-			const space = e.key === " ";
-			if ((!enter && !space) || e.altKey) return;
-			if (enter && e.shiftKey && !e.metaKey && !e.ctrlKey) return;
-			if (space && (e.shiftKey || e.metaKey || e.ctrlKey)) return;
-			const t = e.target as HTMLElement | null;
-			if (
-				t &&
-				((t.tagName === "INPUT" && (t as HTMLInputElement).type !== "range") ||
-				t.tagName === "TEXTAREA" ||
-				t.isContentEditable ||
-				t.closest("button"))
-			)
-				return;
+			if (!opensWaitingCheck(e, e.target as Element | null)) return;
 			e.preventDefault();
 			void finishDictation().then(() => {
 				expandAndRevealRef.current();
