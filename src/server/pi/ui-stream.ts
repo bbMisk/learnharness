@@ -3,6 +3,13 @@ import { clientMessage } from "../../core/client-messages.ts";
 import { ToolCallIdUniquifier } from "./call-ids.ts";
 import type { ChatGPTRequestCycle } from "../../agent/chatgpt-request-cycle.ts";
 
+/** The SSE frame for one event. A live fan-out serializes once and hands the
+ *  same frame to every view (a second device, a reattached tab); a replay
+ *  serializes at replay time, as before, since pi updates messages in place. */
+function sseFrame(event: unknown): string {
+	return `data: ${JSON.stringify(event)}\n\n`;
+}
+
 /**
  * THE NATIVE WIRE (Wave D, owner-approved 2026-09-26): one agent turn, streamed
  * to every view as pi AgentEvents — no translation, no part assembly. The one
@@ -125,7 +132,8 @@ export interface PiTurnSpec {
 /** One view onto a running turn: push() replays/streams an event, done()
  *  terminates the view ([DONE] + close). Cheap to be a Set member. */
 export interface PiTurnSubscriber {
-	push(event: TurnWireEvent): void;
+	/** `frame`, when given, is this event's SSE frame already serialized for the fan-out. */
+	push(event: TurnWireEvent, frame?: string): void;
 	done(): void;
 }
 
@@ -184,6 +192,11 @@ export function runPiTurn(spec: PiTurnSpec): PiTurnHandle {
 	// relative order of concurrent keys stays chronological).
 	const pending = new Map<string, TurnWireEvent>();
 	const subscribers = new Set<PiTurnSubscriber>();
+	const fanOut = (event: TurnWireEvent) => {
+		if (subscribers.size === 0) return;
+		const frame = sseFrame(event);
+		for (const sub of subscribers) sub.push(event, frame);
+	};
 
 	const coalesceKey = (event: TurnWireEvent): string | null => {
 		if (event.type === "message_update") return "message";
@@ -218,7 +231,7 @@ export function runPiTurn(spec: PiTurnSpec): PiTurnHandle {
 		// this boundary event on the wire, never after it.
 		flushPending();
 		log.push(event);
-		for (const sub of subscribers) sub.push(event);
+		fanOut(event);
 	};
 
 	let flushTimer: ReturnType<typeof setTimeout> | undefined;
@@ -230,7 +243,7 @@ export function runPiTurn(spec: PiTurnSpec): PiTurnHandle {
 		if (pending.size === 0) return;
 		const batch = [...pending.values()];
 		pending.clear();
-		for (const sub of subscribers) for (const event of batch) sub.push(event);
+		for (const event of batch) fanOut(event);
 	};
 	const armFlush = () => {
 		if (flushTimer !== undefined) return;
@@ -341,10 +354,10 @@ export function runPiTurn(spec: PiTurnSpec): PiTurnHandle {
 					const encoder = new TextEncoder();
 					let closed = false;
 					sub = {
-						push(event) {
+						push(event, frame) {
 							if (closed) return;
 							try {
-								controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+								controller.enqueue(encoder.encode(frame ?? sseFrame(event)));
 							} catch {
 								/* reader cancelled — stop emitting, keep running */
 								closed = true;
