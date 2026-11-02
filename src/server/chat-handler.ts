@@ -63,7 +63,7 @@ import {
 	type TurnInput,
 } from "../core/input-events.ts";
 import { steerDelivered } from "../core/contracts.ts";
-import type {CallUsage} from "../core/contracts.ts";
+import type { RequestFingerprint, TurnStepUsage } from "../core/contracts.ts";
 
 /**
  * One chat turn over the server-owned native record. Framework-free (plain
@@ -162,6 +162,24 @@ function retentionForSlot(slot: ModelSlotName) {
 }
 
 setJobRespawn((jobId) => void jobRunner.runJob(jobId));
+
+/** One conversation step's persisted usage (the money channel), plus the
+ *  request fingerprint when the engine could observe the body it sent
+ *  (cache-miss diagnostics). Without one the fields stay ABSENT, never
+ *  undefined-valued, so old and new steps read the same way. */
+export function turnStepUsage(usage: Usage, request?: RequestFingerprint): TurnStepUsage {
+	return {
+		inputTokens: usage.input,
+		outputTokens: usage.output,
+		cacheReadTokens: usage.cacheRead,
+		cacheWriteTokens: usage.cacheWrite,
+		cacheWrite1hTokens: usage.cacheWrite1h ?? 0,
+		// Optional in pi's Usage — persisted as 0, never dropped.
+		reasoningTokens: usage.reasoning ?? 0,
+		...(request ? { promptHash: request.promptHash } : {}),
+		...(request?.extendsPrevious !== undefined ? { extendsPrevious: request.extendsPrevious } : {}),
+	};
+}
 
 /** The route-facing entry: parse {chatId, input} and run one turn. */
 export async function handleChatRequest(
@@ -393,17 +411,9 @@ export async function handleChatInput(
 	// message_end events. Every model call's usage lands in the chat record's
 	// append-only turns log at onFinish — idempotent per turn id.
 	const turnUsageId = crypto.randomUUID();
-	const steps: CallUsage[] = [];
-	const collectUsage = (usage: Usage) => {
-		steps.push({
-			inputTokens: usage.input,
-			outputTokens: usage.output,
-			cacheReadTokens: usage.cacheRead,
-			cacheWriteTokens: usage.cacheWrite,
-			cacheWrite1hTokens: usage.cacheWrite1h ?? 0,
-			// Optional in pi's Usage — persisted as 0, never dropped.
-			reasoningTokens: usage.reasoning ?? 0,
-		});
+	const steps: TurnStepUsage[] = [];
+	const collectUsage = (usage: Usage, request?: RequestFingerprint) => {
+		steps.push(turnStepUsage(usage, request));
 	};
 
 	// AGENT CONSTRUCTION BRANCH (docs/probe-teach-split.md §2): the transcript

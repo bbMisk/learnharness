@@ -5,6 +5,7 @@ import { transformMessages } from "@earendil-works/pi-ai/api/transform-messages"
 import { chatGPTAbortController, chatGPTScope, chatGPTScopeCurrent, chatGPTLease, chatGPTDenial, chatGPTRequest } from "./chatgpt-bridge.ts";
 import type { AdmissionScope, ChatGPTDispatchLifecycle } from "./chatgpt-request-cycle.ts";
 import { capturePreparedBackgroundPayload } from "./background-capture.ts";
+import { notePreparedResponsesPayload } from "./request-fingerprint.ts";
 
 const USAGE = "https://chatgpt.com/settings/usage";
 export function chatGPTStreamError(message: string): string {
@@ -107,6 +108,8 @@ export function chatGPTStream(background: () => boolean, lifecycle?: ChatGPTDisp
 						if (credentials.requestedTier) payload.service_tier = credentials.requestedTier;
 						check();
 						capturePreparedBackgroundPayload(payload, logicalModel);
+						// Cache-miss diagnostics: fingerprint exactly the body being sent.
+						notePreparedResponsesPayload(payload);
 						return payload;
 					},
 					onProviderStreamEvent: async (raw, model) => {
