@@ -31,7 +31,7 @@ it("archives and restores a chat without changing its lesson, progress, activity
 		assert.equal((await route.PUT(request({ archived: true }), context)).status, 200);
 		assert.deepEqual(chatStore.getChat(chat.id), { ...before, archived: true });
 		assert.equal(notifications, 1, "other Macs must receive the organization change");
-		const summary = (await (await listing.GET()).json()).chats.find((item: { id: string }) => item.id === chat.id);
+		const summary = (await (await listing.GET(new Request("http://test/api/chats"))).json()).chats.find((item: { id: string }) => item.id === chat.id);
 		assert.equal(summary.archived, true);
 		assert.equal(summary.pinned, true);
 		assert.equal(summary.projectId, project.id);

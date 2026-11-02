@@ -1,10 +1,10 @@
-import { deleteSources, readOrganizationAction, sourceDirectory, SourceDeletionError, SourceOrganizationInputError } from "@/src/server";
+import { deleteSources, jsonResponse, readOrganizationAction, sourceDirectory, SourceDeletionError, SourceOrganizationInputError } from "@/src/server";
 import { emit } from "@/src/core";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-	try { return Response.json(sourceDirectory.read()); }
+export async function GET(request: Request) {
+	try { return jsonResponse(request, sourceDirectory.read()); }
 	catch { return Response.json({ error: "Could not read source organization." }, { status: 500 }); }
 }
 

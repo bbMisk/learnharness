@@ -92,7 +92,7 @@ test("the model list endpoint answers from the loaded list while it refreshes", 
 	let release!: () => void;
 	hold = new Promise<void>((resolve) => (release = resolve));
 	const settled = await Promise.race([
-		modelsRoute.GET().then((response) => response.status),
+		modelsRoute.GET(new Request("http://test/api/models")).then((response) => response.status),
 		new Promise<string>((resolve) => setTimeout(() => resolve("waited"), 200)),
 	]);
 	assert.equal(settled, 200, "the picker did not wait for the OpenAI round trip");

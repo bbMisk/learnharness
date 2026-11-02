@@ -1,4 +1,4 @@
-import { modelCatalog, prepareConnectionCatalog } from "@/src/server";
+import { jsonResponse, modelCatalog, prepareConnectionCatalog } from "@/src/server";
 
 /**
  * The model picker's data (model-control wave): pi-ai's configured-provider
@@ -7,7 +7,7 @@ import { modelCatalog, prepareConnectionCatalog } from "@/src/server";
  * compatible model appears on the next read. Provider-key catalogs still
  * use Pi.
  */
-export async function GET() {
+export async function GET(request: Request) {
 	await prepareConnectionCatalog();
-	return Response.json(modelCatalog(), { headers: { "Cache-Control": "no-store" } });
+	return jsonResponse(request, modelCatalog(), { headers: { "Cache-Control": "no-store" } });
 }
