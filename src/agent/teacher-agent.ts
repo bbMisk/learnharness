@@ -24,6 +24,8 @@ import { QUESTION_TOOLS, type EnabledTools } from "../core/pending.ts";
 import { toLlmMessages, nativeInputCause, PRACTICE_PROBLEM_TOOL } from "../core/native-messages.ts";
 import type { ChatGPTRequestCycle } from "./chatgpt-request-cycle.ts";
 import { usageWasAdmitted } from "./subscription-request-cycle.ts";
+import { withRequestFingerprint } from "./request-fingerprint.ts";
+import type { RequestFingerprint } from "../core/contracts.ts";
 
 /**
  * The two teaching-side agents (docs/probe-teach-split.md): the PROBER and
@@ -96,7 +98,9 @@ const composedInstructions: Record<AgentKind, string> = {
 // Money channel (wave 4): the chat-handler passes a per-turn collector;
 // every model call's usage lands in the chat record's turns log
 // (ChatStore.appendTurnUsage). The narrow param keeps the seam honest.
-export type StepUsageCollector = (usage: Usage) => void;
+// The optional fingerprint (cache-miss diagnostics) describes the request
+// that produced this usage; absent where the engine cannot observe its body.
+export type StepUsageCollector = (usage: Usage, request?: RequestFingerprint) => void;
 
 /** Per-request construction options (the handler wires all of these). */
 export interface AgentBuildOptions {
@@ -196,6 +200,17 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	// the normal no-observer path (tests, env-off).
 	const providerEvents = opts.chatId ? providerEventObserver(opts.chatId, kind) : undefined;
 	const seenInputs = new Set((opts.messages ?? []).map((m) => (m as { id?: string }).id).filter(Boolean));
+	// Cache-miss diagnostics: the fingerprint of the call in flight, handed
+	// to onUsage with that call's usage. Calls are sequential per agent; each
+	// call clears it first so a fingerprint never outlives its own request.
+	let requestFingerprint: RequestFingerprint | undefined;
+	const chatId = opts.chatId;
+	const streamFn: typeof engine.streamFn = opts.onUsage && chatId
+		? (model, context, options) => {
+			requestFingerprint = undefined;
+			return withRequestFingerprint(chatId, (fingerprint) => { requestFingerprint = fingerprint; }, () => engine.streamFn(model, context, options));
+		}
+		: engine.streamFn;
 	const agent = new Agent({
 		identity: APP_IDENTITY,
 		sessionId: opts.chatId,
@@ -217,7 +232,7 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 			],
 			messages: opts.messages ?? [],
 		},
-		streamFn: engine.streamFn,
+		streamFn,
 		...(providerEvents ? { onProviderStreamEvent: providerEvents } : {}),
 		// 0.87.1: shouldStopAfterTurn → finishTurn. Same call point (after
 		// tool results attach, before turn_end) and `{ action: "end" }` still
@@ -262,10 +277,12 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	if (opts.onUsage) {
 		agent.subscribe((event: AgentEvent) => {
 			if (event.type === "message_end" && event.message.role === "assistant" && "usage" in event.message) {
+				const request = requestFingerprint;
+				requestFingerprint = undefined;
 				// A cancelled call is not a billed step (partial/estimated
 				// usage on an aborted message is not money spent).
 				if (event.message.stopReason === "aborted" || !usageWasAdmitted(event.message.usage) || (opts.requestCycle && !opts.requestCycle.acceptsUsage(event.message))) return;
-				opts.onUsage!(event.message.usage);
+				opts.onUsage!(event.message.usage, request);
 			}
 		});
 	}
