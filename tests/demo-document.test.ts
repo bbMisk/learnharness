@@ -2,13 +2,51 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { Script, runInNewContext } from "node:vm";
-import { buildDemoDocument, DEMO_BRIDGE_SCRIPT } from "../src/core/demo-document.ts";
+import { buildDemoDocument, DEMO_BRIDGE_SCRIPT, loadDemoRuntimes, peekDemoRuntimes, renderDemoDocument, type DemoRenderer } from "../src/core/demo-document.ts";
 import { DEMO_CONTROLS, DEMO_CSS } from "../src/core/demo-style.ts";
+import { D3_RUNTIME } from "../src/core/vendor/d3-v7.ts";
 import { FLOATING_UI_RUNTIME } from "../src/core/vendor/floating-ui-v1.ts";
 import { LUCIDE_RUNTIME } from "../src/core/vendor/lucide-v1.ts";
 
 const fragment = '<div id="plot"><button class="btn" data-tooltip="A detail">Try</button></div><script>window.exampleValue=42;</script>';
 const iconFragment = '<div id="plot"><button class="btn"><i data-lucide="play"></i>Play</button></div>';
+
+// Each test file runs in its own process, so nothing has loaded the lazy runtime chunks yet.
+const kitBeforeLoad = peekDemoRuntimes(fragment, "learnharness-v1");
+const runtimes = await loadDemoRuntimes(iconFragment, "learnharness-v1");
+const build = (html: string, renderer?: DemoRenderer) => buildDemoDocument(html, renderer, runtimes);
+
+describe("lazily loaded runtimes", () => {
+	it("load on demand: legacy demos need none, kit demos wait for the vendored chunk", async () => {
+		assert.equal(kitBeforeLoad, undefined);
+		assert.deepEqual(peekDemoRuntimes("<p>legacy</p>"), {});
+		assert.throws(() => buildDemoDocument(fragment, "learnharness-v1"), /not loaded/);
+		assert.throws(() => buildDemoDocument(iconFragment, "learnharness-v1", { d3: D3_RUNTIME, floatingUi: FLOATING_UI_RUNTIME }), /lucide runtime is not loaded/);
+		assert.equal(peekDemoRuntimes(fragment, "visualize-v1"), peekDemoRuntimes(iconFragment, "learnharness-v1"), "one stable object per need");
+		assert.equal(await loadDemoRuntimes(fragment, "learnharness-v1"), peekDemoRuntimes(fragment, "learnharness-v1"));
+	});
+	it("inline the vendored constants verbatim, identically on every path and renderer", async () => {
+		assert.deepEqual({ ...runtimes }, { d3: D3_RUNTIME, floatingUi: FLOATING_UI_RUNTIME, lucide: LUCIDE_RUNTIME });
+		const shapes = [
+			fragment,
+			iconFragment,
+			"<!doctype html><html><head><title>t</title></head><body><i data-lucide=x></i></body></html>",
+			"<html lang=en><body>$& $1 $$</body></html>",
+			"<p>no body</p>",
+			"",
+		];
+		for (const html of shapes)
+			for (const renderer of [undefined, "learnharness-v1", "visualize-v1"] as const) {
+				const doc = build(html, renderer);
+				assert.equal(await renderDemoDocument(html, renderer), doc);
+				assert.equal(buildDemoDocument(html, renderer, { d3: D3_RUNTIME, floatingUi: FLOATING_UI_RUNTIME, lucide: LUCIDE_RUNTIME }), doc);
+				if (renderer) {
+					assert.ok(doc.includes(D3_RUNTIME) && doc.includes(FLOATING_UI_RUNTIME));
+					assert.equal(doc.includes(LUCIDE_RUNTIME), /lucide/i.test(html));
+				} else assert.equal(doc, buildDemoDocument(html), "legacy documents need no runtimes");
+			}
+	});
+});
 
 describe("shared visualization renderer", () => {
 	it("keeps legacy documents on the original bridge without restyling", () => {
@@ -17,7 +55,7 @@ describe("shared visualization renderer", () => {
 	});
 	it("wraps fragments and complete documents once with a native dark kit", () => {
 		for (const html of [fragment, "<!doctype html><html><head><title>Plot</title></head><body>" + fragment + "</body></html>"]) {
-			const doc = buildDemoDocument(html, "learnharness-v1");
+			const doc = build(html, "learnharness-v1");
 			assert.equal((doc.match(/<html\b/g) || []).length, 1);
 			assert.equal((doc.match(/name="learnharness-visualize"/g) || []).length, 1);
 			assert.match(doc, /color-scheme:dark/);
@@ -28,10 +66,10 @@ describe("shared visualization renderer", () => {
 		}
 	});
 	it("renders saved visualize-v1 demos with the same kit as new ones", () => {
-		assert.equal(buildDemoDocument(fragment, "visualize-v1"), buildDemoDocument(fragment, "learnharness-v1"));
+		assert.equal(build(fragment, "visualize-v1"), build(fragment, "learnharness-v1"));
 	});
 	it("bundles runtime dependencies offline and exposes only presentation state", () => {
-		const doc = buildDemoDocument(fragment, "learnharness-v1");
+		const doc = build(fragment, "learnharness-v1");
 		assert.doesNotMatch(doc, /<script\b[^>]*\bsrc=/i);
 		assert.doesNotMatch(doc, /<link\b[^>]*\bhref=/i);
 		assert.match(doc, /d3/);
@@ -41,7 +79,7 @@ describe("shared visualization renderer", () => {
 	});
 	it("preserves valid JavaScript while embedding the bundled libraries", () => {
 		for (const html of [fragment, iconFragment]) {
-			const doc = buildDemoDocument(html, "learnharness-v1");
+			const doc = build(html, "learnharness-v1");
 			let count = 0;
 			for (const match of doc.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)) {
 				assert.doesNotThrow(() => new Script(match[1]!));
@@ -51,7 +89,7 @@ describe("shared visualization renderer", () => {
 		}
 	});
 	it("includes the theme tokens and utilities the visual agents are promised", () => {
-		const doc = buildDemoDocument(fragment, "learnharness-v1");
+		const doc = build(fragment, "learnharness-v1");
 		for (const token of ["--background", "--foreground", "--muted-foreground", "--border", "--popover", "--popover-foreground"])
 			assert.match(doc, new RegExp(token + ":"));
 		for (let i = 1; i <= 6; i++) assert.match(doc, new RegExp(`--viz-series-${i}:`));
@@ -76,8 +114,8 @@ describe("shared visualization renderer", () => {
 			assert.match(DEMO_CSS, new RegExp(`\\.${cls}[^-\\w]`), cls);
 	});
 	it("adds lucide only to demos that use icons", () => {
-		assert.doesNotMatch(buildDemoDocument(fragment, "learnharness-v1"), /@license lucide/);
-		const doc = buildDemoDocument(iconFragment, "learnharness-v1");
+		assert.doesNotMatch(build(fragment, "learnharness-v1"), /@license lucide/);
+		const doc = build(iconFragment, "learnharness-v1");
 		assert.equal((doc.match(/@license lucide v1\.17\.0/g) || []).length, 1);
 		assert.ok(doc.indexOf("@license lucide") < doc.indexOf('data-lucide="play"'), "icons load before the demo body");
 	});
@@ -96,7 +134,7 @@ describe("shared visualization renderer", () => {
 			/Agent-facing contract/,
 		];
 		for (const html of [fragment, iconFragment]) {
-			const doc = buildDemoDocument(html, "visualize-v1");
+			const doc = build(html, "visualize-v1");
 			for (const marker of markers) assert.doesNotMatch(doc, marker);
 		}
 		const manifest = readFileSync(new URL("../src/core/vendor/demo-libraries.json", import.meta.url), "utf8");
@@ -105,7 +143,7 @@ describe("shared visualization renderer", () => {
 });
 
 it("embeds full D3 permission notices in exported demo documents", () => {
-	const html = buildDemoDocument(fragment, "learnharness-v1");
+	const html = build(fragment, "learnharness-v1");
 	assert.match(html, /Permission to use, copy, modify, and\/or distribute/);
 	assert.match(html, /Copyright 2010-2023 Mike Bostock/);
 });

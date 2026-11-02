@@ -1,4 +1,4 @@
-import { buildDemoDocument } from "../../core/demo-document.ts";
+import { renderDemoDocument } from "../../core/demo-document.ts";
 import { DEMO_VISUAL_STYLE } from "./visual-style.ts";
 import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
@@ -138,7 +138,7 @@ export function createDemoBuilderTools(
 				if (reason) return `HEADLESS UNAVAILABLE: ${reason}`;
 				let result: DemoRunResult;
 				try {
-					result = await headless.runDemo(buildDemoDocument(state.html, "learnharness-v1"), probe || viewportWidth ? { ...(probe ? { probe } : {}), ...(viewportWidth ? { viewportWidth } : {}) } : undefined);
+					result = await headless.runDemo(await renderDemoDocument(state.html, "learnharness-v1"), probe || viewportWidth ? { ...(probe ? { probe } : {}), ...(viewportWidth ? { viewportWidth } : {}) } : undefined);
 				} catch (err) {
 					const msg = err instanceof Error ? err.message : String(err);
 					onActivity?.("run_demo: browser error");
@@ -246,7 +246,7 @@ export async function runDemoBuilder(input: DemoBuilderInput, opts: DemoBuilderO
 		opts.onActivity?.("final verification");
 		let verify: DemoRunResult;
 		try {
-			verify = await headless.runDemo(buildDemoDocument(state.html, "learnharness-v1"));
+			verify = await headless.runDemo(await renderDemoDocument(state.html, "learnharness-v1"));
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
 			return { title, html: "", tested: true, notes: `FAILED: final verification crashed — ${msg}` };

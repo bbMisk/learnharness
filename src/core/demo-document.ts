@@ -1,7 +1,4 @@
 import { DEMO_CSS, DEMO_CONTROLS } from "./demo-style.ts";
-import { D3_RUNTIME } from "./vendor/d3-v7.ts";
-import { FLOATING_UI_RUNTIME } from "./vendor/floating-ui-v1.ts";
-import { LUCIDE_RUNTIME } from "./vendor/lucide-v1.ts";
 
 export type DemoRenderer = "learnharness-v1" | "visualize-v1";
 
@@ -19,29 +16,104 @@ function script(source: string): string {
 	return "<script>" + source.replace(/<\/script/gi, "<\\/script") + "</script>";
 }
 
-const KIT_HEAD =
-	'<meta name="learnharness-visualize" content="1">' +
-	'<meta name="viewport" content="width=device-width, initial-scale=1">' +
-	"<style>" +
-	DEMO_CSS +
-	"</style>" +
-	LOCAL_STATE +
-	script(D3_RUNTIME) +
-	script(FLOATING_UI_RUNTIME);
+/**
+ * The vendored libraries a kit document inlines (d3 + Floating UI ~340 KB,
+ * lucide ~430 KB). They are NOT imported statically: this module rides the
+ * core barrel into every page's first-load JS, so the runtimes arrive via
+ * loadDemoRuntimes — dynamic imports the bundler splits into chunks fetched
+ * only when a demo actually renders. Documents stay self-contained: the
+ * strings are still inlined, never referenced by <script src>.
+ */
+export interface DemoRuntimes {
+	d3?: string;
+	floatingUi?: string;
+	lucide?: string;
+}
 
-/** lucide is ~400 KB, so it rides along only when the demo mentions it (data-lucide or window.lucide). */
-const ICON_HEAD = script(LUCIDE_RUNTIME);
+const NO_RUNTIMES: DemoRuntimes = Object.freeze({});
 
-/** One renderer for builder verification, lesson display, previews, and exports. */
-export function buildDemoDocument(html: string, renderer?: DemoRenderer): string {
+/** What a document needs beyond the bridge: legacy demos nothing, kit demos d3 + Floating UI, plus lucide when they mention it. */
+function runtimeNeeds(html: string, renderer?: DemoRenderer): "none" | "kit" | "icons" {
+	if (renderer !== "learnharness-v1" && renderer !== "visualize-v1") return "none";
+	// lucide is ~400 KB, so it rides along only when the demo mentions it (data-lucide or window.lucide).
+	return /lucide/i.test(html) ? "icons" : "kit";
+}
+
+// Loaded once per process/tab; a failed load is forgotten so the next render retries.
+let kitLoad: Promise<DemoRuntimes> | undefined;
+let iconsLoad: Promise<DemoRuntimes> | undefined;
+let kitLoaded: DemoRuntimes | undefined;
+let iconsLoaded: DemoRuntimes | undefined;
+
+function loadKit(): Promise<DemoRuntimes> {
+	kitLoad ??= Promise.all([import("./vendor/d3-v7.ts"), import("./vendor/floating-ui-v1.ts")]).then(
+		([d3, floating]) => (kitLoaded = Object.freeze({ d3: d3.D3_RUNTIME, floatingUi: floating.FLOATING_UI_RUNTIME })),
+		(err: unknown) => {
+			kitLoad = undefined;
+			throw err;
+		},
+	);
+	return kitLoad;
+}
+
+function loadIcons(): Promise<DemoRuntimes> {
+	iconsLoad ??= Promise.all([loadKit(), import("./vendor/lucide-v1.ts")]).then(
+		([kit, lucide]) => (iconsLoaded = Object.freeze({ ...kit, lucide: lucide.LUCIDE_RUNTIME })),
+		(err: unknown) => {
+			iconsLoad = undefined;
+			throw err;
+		},
+	);
+	return iconsLoad;
+}
+
+/** The runtimes `html` needs if they are already loaded (a stable object per need), else undefined. Legacy demos need none. */
+export function peekDemoRuntimes(html: string, renderer?: DemoRenderer): DemoRuntimes | undefined {
+	const needs = runtimeNeeds(html, renderer);
+	return needs === "none" ? NO_RUNTIMES : needs === "kit" ? (iconsLoaded ?? kitLoaded) : iconsLoaded;
+}
+
+/** Load (once) the runtimes `html` needs for buildDemoDocument. */
+export function loadDemoRuntimes(html: string, renderer?: DemoRenderer): Promise<DemoRuntimes> {
+	const ready = peekDemoRuntimes(html, renderer);
+	if (ready) return Promise.resolve(ready);
+	return runtimeNeeds(html, renderer) === "icons" ? loadIcons() : loadKit();
+}
+
+function required(source: string | undefined, name: string): string {
+	if (source === undefined) throw new Error(`buildDemoDocument: the ${name} runtime is not loaded (await loadDemoRuntimes first)`);
+	return source;
+}
+
+/**
+ * One renderer for builder verification, lesson display, previews, and
+ * exports. Kit renderers need `runtimes` from loadDemoRuntimes (or use
+ * renderDemoDocument); legacy demos only get the bridge and need none.
+ */
+export function buildDemoDocument(html: string, renderer?: DemoRenderer, runtimes: DemoRuntimes = NO_RUNTIMES): string {
 	let doc = html;
 	let tail = DEMO_BRIDGE_SCRIPT;
-	if (renderer === "learnharness-v1" || renderer === "visualize-v1") {
-		const head = /lucide/i.test(html) ? KIT_HEAD + ICON_HEAD : KIT_HEAD;
+	const needs = runtimeNeeds(html, renderer);
+	if (needs !== "none") {
+		let head =
+			'<meta name="learnharness-visualize" content="1">' +
+			'<meta name="viewport" content="width=device-width, initial-scale=1">' +
+			"<style>" +
+			DEMO_CSS +
+			"</style>" +
+			LOCAL_STATE +
+			script(required(runtimes.d3, "d3")) +
+			script(required(runtimes.floatingUi, "Floating UI"));
+		if (needs === "icons") head += script(required(runtimes.lucide, "lucide"));
 		if (/<head\b[^>]*>/i.test(doc)) doc = doc.replace(/<head\b[^>]*>/i, (tag) => tag + head);
 		else if (/<html\b[^>]*>/i.test(doc)) doc = doc.replace(/<html\b[^>]*>/i, (tag) => tag + "<head>" + head + "</head>");
 		else doc = "<!doctype html><html><head>" + head + "</head><body>" + doc + "</body></html>";
 		tail = script(DEMO_CONTROLS) + VISUALIZE_BRIDGE_SCRIPT;
 	}
 	return /<\/body>/i.test(doc) ? doc.replace(/<\/body>/i, () => tail + "</body>") : doc + tail;
+}
+
+/** buildDemoDocument after loading whatever runtimes the document needs (server verification, exports). */
+export async function renderDemoDocument(html: string, renderer?: DemoRenderer): Promise<string> {
+	return buildDemoDocument(html, renderer, await loadDemoRuntimes(html, renderer));
 }

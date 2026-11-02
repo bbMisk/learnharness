@@ -51,6 +51,7 @@ import { ToolCallCard } from "../components/artifacts/tool-call-card.tsx";
 import { JobsContext } from "../components/jobs-context.ts";
 import { demoInputSchema, jobTools, pdfInputSchema, visualInputSchema } from "../src/agent/tools/jobs.ts";
 import { runDemoBuilder } from "../src/agent/subagents/demo-builder.ts";
+import { buildDemoDocument, loadDemoRuntimes, peekDemoRuntimes, renderDemoDocument } from "../src/core/demo-document.ts";
 import { headlessOverride, type DemoRunResult, type HeadlessApi } from "../src/agent/subagents/headless.ts";
 import { createJobRunner, demoModelOverride, visualModelOverride } from "../src/agent/subagents/runner.ts";
 import { runVisualMaker } from "../src/agent/subagents/visual-maker.ts";
@@ -368,6 +369,28 @@ describe("steer card rendering (the delivered artifact)", () => {
 		assert.ok(!html.includes("do NOT wait"), "no protocol glue in the bubble");
 	});
 
+	it("a kit demo holds a placeholder until the lazy runtime chunk loads, then renders the same srcdoc", async () => {
+		const kitHtml = '<div id="plot"><i data-lucide="play"></i></div><script>window.x=1;</script>';
+		const steer = buildSubagentSteer(
+			{ id: "jk", kind: "demo", toolCallId: "ck" },
+			{ title: "Kit demo", html: kitHtml, renderer: "learnharness-v1", tested: true },
+		);
+		const render = () => renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
+		assert.equal(peekDemoRuntimes(kitHtml, "learnharness-v1"), undefined, "nothing has loaded the vendored runtimes yet");
+		const loading = render();
+		assert.match(loading, /data-testid="demo-loading"/);
+		assert.ok(!loading.includes("<iframe"), "no iframe without the runtimes");
+		assert.match(loading, /data-testid="demo-download"[^>]*disabled|disabled[^>]*data-testid="demo-download"/, "download waits for the full document");
+		const runtimes = await loadDemoRuntimes(kitHtml, "learnharness-v1");
+		const loaded = render();
+		assert.ok(!loaded.includes('data-testid="demo-loading"'));
+		const srcdoc = (markup: string) => /<iframe[^>]*\bsrcDoc="([^"]*)"/i.exec(markup)?.[1];
+		const expected = srcdoc(renderToStaticMarkup(<iframe srcDoc={buildDemoDocument(kitHtml, "learnharness-v1", runtimes)} />));
+		assert.ok(expected && expected.length > 300_000, "the expected document inlines d3 + Floating UI + lucide");
+		assert.equal(srcdoc(loaded), expected, "the card's srcdoc is the full self-contained document");
+		assert.equal(srcdoc(loaded), srcdoc(renderToStaticMarkup(<iframe srcDoc={buildDemoSrcDoc(kitHtml, "learnharness-v1", runtimes)} />)));
+	});
+
 	it("renders the demo failure note with no iframe when the build FAILED", () => {
 		const steer = buildSubagentSteer(
 			{ id: "jd", kind: "demo", toolCallId: "cd" },
@@ -642,6 +665,8 @@ describe("demo builder (fake model + fake headless)", () => {
 		assert.equal(result.html, GOOD_HTML);
 		assert.equal(result.tested, true, "tested by the final verification gate");
 		assert.equal(headless.demoRuns.length, 1, "the gate ran the demo once itself");
+		assert.equal(headless.demoRuns[0], await renderDemoDocument(GOOD_HTML, "learnharness-v1"), "verified in the full kit document, runtimes inlined");
+		assert.match(headless.demoRuns[0]!, /Copyright 2010-2023 Mike Bostock/);
 	});
 
 	it("fails (empty html + FAILED notes) when the demo never passes verification", async () => {
