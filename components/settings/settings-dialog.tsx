@@ -424,6 +424,18 @@ export function SettingsDialogBody({
 										/>
 									</SettingsRow>
 									<SettingsRow
+										label="Reuse the probe's cache when teaching"
+										hint="Experiment: the teacher picks up the probe's cached prompt, so a lesson reads fewer new tokens. Models that can't do this are unchanged."
+										testid="row-shared-handoff-prefix"
+									>
+										<Toggle
+											checked={record.general?.sharedHandoffPrefix ?? false}
+											label="reuse the probe's cache when teaching"
+											disabled={savingGeneral}
+											onChange={(on) => void writeGeneral({ sharedHandoffPrefix: on })}
+										/>
+									</SettingsRow>
+									<SettingsRow
 										label="Reveal questions"
 										hint="A check waits behind Check your understanding until you press Enter or click."
 										testid="row-reveal-questions"

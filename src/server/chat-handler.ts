@@ -7,6 +7,7 @@ import {
 	type AgentBuildOptions,
 	type TeachingAgent,
 } from "../agent/teacher-agent.ts";
+import { createProberTools, type ProberToolContext } from "../agent/tools.ts";
 import { piEngineForSpec, type PiEngine } from "../agent/models.ts";
 import { connectionBackgroundAllowed as subscriptionBackgroundAllowed, connectionScopeCurrent, isSubscriptionProvider } from "../agent/subscription-connections.ts";
 import { nativeSubscriptionError } from "../agent/subscription-stream.ts";
@@ -431,6 +432,23 @@ export async function handleChatInput(
 	// Provider-qualified stamp (model slots wave): matches the price table's
 	// provider:id keys.
 	const modelId = `${engine.model.provider}:${engine.model.id}`;
+	// The prober's tool context: the prober itself, and the shared handoff's
+	// rebuild of the prober's prefix for the teacher (same registry, same gates).
+	const proberContext = (): ProberToolContext => ({
+		chatId,
+		chatStore: stores.chatStore,
+		deliver: (steer) => void deliverJobResult(steer),
+		// Fix wave (2026-09-20): the prober carries research + pdf
+		// dispatch (owner ruling — phase-omnipresent), so its ctx
+		// needs the same job wiring as the teacher's.
+		jobStore: stores.jobStore,
+		spawn: (job, input) => void jobRunner.runJob(job.id, input),
+		searchAvailable,
+		// The map reader (wave 7): the prober reads the learner's
+		// knowledge graph through tools when the gate opens —
+		// graph master switch AND the agent.graphTools toggle.
+		...(graphToolsEnabled(effective) ? { graphStore: stores.graphStore } : {}),
+	});
 	// Tests inject a factory: the agent is stateless per turn, so each
 	// request builds a fresh one off the record — the factory mirrors that
 	// seam exactly. Wave B: the record IS the agent state (native messages;
@@ -469,6 +487,16 @@ export async function handleChatInput(
 		// prompt fresh per turn, swapping in any enabled override segments.
 		promptSwitches: effective.agent.prompts,
 		projectContext: withTeachingStyle(projectContext, { ...record, messages: agentMessages }, effective.general.cramShortProbe),
+		// SHARED HANDOFF PREFIX (opt-in experiment, Settings → General): the
+		// teacher keeps the prober's request prefix (agent/shared-handoff.ts),
+		// rebuilt from the record every run — the prober's registry and its
+		// pre-probe_done project context (cram's probe variant included).
+		...(teaching && record.kind !== "practice" && effective.general.sharedHandoffPrefix
+			? { sharedHandoff: {
+					proberTools: Object.values(createProberTools(proberContext(), effective.agent.tools)),
+					proberProjectContext: withTeachingStyle(projectContext, { ...record, messages: [] }, effective.general.cramShortProbe),
+				} }
+			: {}),
 	};
 	// PRACTICE BRANCH (owner design, 2026-10-04): a kind:"practice"
 	// session builds the practitioner from turn 1 — no prober→teacher
@@ -514,24 +542,7 @@ export async function handleChatInput(
 					},
 					agentOpts,
 				)
-			: createProberAgent(
-					{
-						chatId,
-						chatStore: stores.chatStore,
-						deliver: (steer) => void deliverJobResult(steer),
-						// Fix wave (2026-09-20): the prober carries research + pdf
-						// dispatch (owner ruling — phase-omnipresent), so its ctx
-						// needs the same job wiring as the teacher's.
-						jobStore: stores.jobStore,
-						spawn: (job, input) => void jobRunner.runJob(job.id, input),
-						searchAvailable,
-						// The map reader (wave 7): the prober reads the learner's
-						// knowledge graph through tools when the gate opens —
-						// graph master switch AND the agent.graphTools toggle.
-						...(graphToolsEnabled(effective) ? { graphStore: stores.graphStore } : {}),
-					},
-					agentOpts,
-				);
+			: createProberAgent(proberContext(), agentOpts);
 
 	// A test-injected agent gets no usage collector (tests assert the
 	// transcript, not the money channel); when it's ours, usage flows through
