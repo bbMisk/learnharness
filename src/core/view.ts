@@ -37,6 +37,7 @@ import type { LhMarkerMessage, LhMessage } from "./native-messages.ts";
 import { PRACTICE_CONCLUDE_TOOL, problemInputForConclude, SEND_TO_USER_TOOL, sendToUserText } from "./native-messages.ts";
 import { activeCompactionOf, type CompactionDetails } from "./compaction.ts";
 import { QUESTION_TOOLS } from "./pending.ts";
+import { isLessonTrackingTool } from "./lesson-tracking.ts";
 import type { SubagentArtifactData, SubagentResultMeta } from "./contracts/jobs.ts";
 import type { PlanBlockData } from "./contracts/chat.ts";
 
@@ -302,6 +303,12 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
 				if (!reasoning.length) reasoning.push({ type: "reasoning", id: `${m.id}-r0`, text: "", state: "done" });
 				if (block.thinking) reasoning[0]!.text = [reasoning[0]!.text, block.thinking].filter(Boolean).join("\n\n");
 			} else if (block.type === "toolCall") {
+				// Lesson tracking (owner, 2026-11-02): the four tracking tools
+				// never render in the transcript — no card, no live card, no
+				// retry line. The tracking card reads the record instead
+				// (core/lesson-tracking.ts); with no part, their results drop
+				// here too (applyResultTo's no-part path).
+				if (isLessonTrackingTool(block.name)) continue;
 				const part = toolPartOf(block, live, streamingMessage);
 				state.toolPartIds.add(block.id);
 				if ((QUESTION_TOOLS as readonly string[]).includes(block.name)) {

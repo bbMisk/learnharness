@@ -126,6 +126,9 @@ export interface AgentBuildOptions {
 	/** Cram lessons (core/cram.ts): the teacher holds both question tools,
 	 *  multiple choice (quiz) and short answer (explain), and picks per problem. */
 	bothQuizzing?: boolean;
+	/** Cram lessons (core/cram.ts): the teacher also tracks the problem set
+	 *  (problem_list / problem_done — core/lesson-tracking.ts). */
+	cram?: boolean;
 	/** Per-segment system-prompt override SWITCHES (the settings record's
 	 *  agent.prompts map, absent key = off — same keys the settings routes
 	 *  and effectivePromptSegments use). Provided → the prompt composes
@@ -355,7 +358,7 @@ export function createTeacherAgent(
 	ctx?: TeacherToolContext,
 	opts: AgentBuildOptions = {},
 ) {
-	const tools = opts.tools ?? (ctx ? createTeacherTools(ctx, opts.toolToggles, opts.bothQuizzing) : bareQuestionTools());
+	const tools = opts.tools ?? (ctx ? createTeacherTools(ctx, opts.toolToggles, opts.bothQuizzing, opts.cram) : bareQuestionTools());
 	return baseAgentOptions("teacher", opts, Object.values(tools));
 }
 

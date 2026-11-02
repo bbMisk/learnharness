@@ -52,6 +52,7 @@ import { TopBar } from "@/components/top-bar";
 import type { JobRecord, Phase3, QuestionAnswerData, QuestionCall, QuestionFormDraft, TurnUsage, SessionPricing } from "@/src/core";
 import { PhaseChip } from "@/components/phase-divider";
 import { CramToggle } from "@/components/cram-toggle";
+import { LessonTrackerCard, LessonTrackerChip, useLessonTrackerShown } from "@/components/lesson-tracker";
 import { CoverageRing } from "@/components/extraction-coverage";
 import { Button } from "@/components/ui/button";
 import {
@@ -66,6 +67,8 @@ import {
 	toolQuestionKind,
 	isTeachingCheck,
 	revealsQuestions,
+	deriveLessonTracking,
+	hasLessonTracking,
 } from "@/src/core";
 import { useGeneralSettings } from "@/components/general-settings";
 import { rememberRevealed, wasRevealed } from "@/components/revealed-questions";
@@ -886,6 +889,12 @@ export function Chat({
 	// The session's live plan (drives the top-bar chip; the marginalia
 	// derives its own from the same transcript).
 	const planTree = useMemo(() => latestTree(messages), [messages]);
+	// The lesson-tracking card (owner, 2026-11-02): the problem set and the
+	// mistake log, derived from the native record (the tracking tools never
+	// render in the transcript view — core/lesson-tracking.ts).
+	const tracking = useMemo(() => deriveLessonTracking(nativeMessages), [nativeMessages]);
+	const hasTracking = hasLessonTracking(tracking);
+	const trackerCard = useLessonTrackerShown();
 
 	// ── Session usage (wave-4 stats bar) ──
 	// The money channel: the record's turns log and read-time server Pi
@@ -1300,6 +1309,7 @@ export function Chat({
 						</button>
 </Hint>
 					)}
+					{hasTracking && <LessonTrackerChip shown={trackerCard.shown} onToggle={trackerCard.toggle} />}
 					{/* The extraction ring (owner-locked redesign, 2026-09-24): fills
 					    with uncovered vs the chunk threshold, pulses while a run is in
 					    flight, vanishes when the graph is off. Click → the exact
@@ -1499,6 +1509,9 @@ export function Chat({
 					}}
 				/>
 				</Conversation>
+				{/* The tracking card: top-right over the transcript, below the
+				    session-scoped focuses (z-40) and clear of the dock. */}
+				{hasTracking && trackerCard.shown && <LessonTrackerCard tracking={tracking} bottomReserve={dockReserve} />}
 
 				{/* The session-scoped focuses (chrome-melt wave, 2026-09-19): mounted
 				    INSIDE the session area — absolute inset-0 siblings of the scroller,

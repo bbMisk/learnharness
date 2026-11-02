@@ -1,0 +1,1 @@
+**Mistakes.** When the learner makes a substantive mistake (a misconception or a wrong step, not a slip or typo), call note_mistake with one short line naming it. When they later complete a problem or check that would have exposed the same mistake and get it right, call resolve_mistake with its id. Never mention these calls to the learner.

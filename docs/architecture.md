@@ -85,7 +85,7 @@ The teaching agents share one record but have different prompts and registries (
 | Agent | Main interaction | Other capabilities |
 |---|---|---|
 | Prober | `probe` (multiple choice) or `recall` (free recall), `ask_user_question`, `probe_done` | Read-only file tools, research/PDF dispatch; graph readers when enabled |
-| Teacher | `quiz` or `explain`, `ask_user_question`, `plan_init` | Read-only file tools and research/PDF/demo/visual dispatch |
+| Teacher | `quiz` or `explain`, `ask_user_question`, `plan_init` | Read-only file tools and research/PDF/demo/visual dispatch; `note_mistake`/`resolve_mistake`, plus `problem_list`/`problem_done` in cram lessons |
 | Practitioner | `problem`, `conclude` | Read-only file tools, research/PDF dispatch; graph readers when enabled |
 
 The choice/free-recall mechanic selects one graded tool per teaching phase. Tool toggles and availability gates affect the registry; the table is not a promise that every dispatch tool is always enabled. Practice side tools are composed separately, without the teaching toggle filter. Claude-family agents can also receive `send_to_user` for explicit learner-facing output. All ordinary registries pass through argument healing; semantic validation failures return error results so the model can correct the call.
@@ -97,6 +97,8 @@ Pending calls are record-derived, so reopening an unanswered question needs no n
 **Probe → plan → teach:** a matching successful `probe_done` result, not a bare call or refusal, selects the teacher on subsequent turns. The tool queues a handoff wake, which must build a fresh teacher rather than steer into the prober. If the wake cannot be delivered, the next learner turn still selects the teacher from the saved seam. Phase display (`src/core/phases.ts`) advances from probe to plan at that successful result, and to teach at the first `nodeId`-tagged `quiz`/`explain` call—not at `plan_init` or an acceptance marker.
 
 **Plan:** `plan_init` parses a restricted Mermaid graph and validates its DAG structure. It writes/replaces the whole plan; it is intentionally re-callable, not mechanically author-once. Question node IDs validate against the current tree. Current/visited/upcoming statuses derive from tagged calls, not grades or explicit “done” writes. Presenting the plan and waiting for a natural learner reply is prompt doctrine, not a separate acceptance transaction.
+
+**Lesson tracking:** the teacher logs substantive mistakes (`note_mistake` mints `m1`, `m2`… per chat; `resolve_mistake`), and a cram teacher also lists the problem set (`problem_list` replaces it; `problem_done` ticks one). There is no separate storage: `src/core/lesson-tracking.ts` derives the state from the record's successful results, both for the tools' validation and for the chat's top-right progress card. The calls never render in the transcript.
 
 ## 4. Conversational practice
 
