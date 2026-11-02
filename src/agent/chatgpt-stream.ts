@@ -1,4 +1,4 @@
-import type { Api, AssistantMessage, Model, SimpleStreamOptions, StreamFunction, TranscriptContext } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, CacheRetention, Model, SimpleStreamOptions, StreamFunction, TranscriptContext } from "@earendil-works/pi-ai";
 import { streamSimple } from "@earendil-works/pi-ai/api/openai-responses";
 import { AssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
 import { transformMessages } from "@earendil-works/pi-ai/api/transform-messages";
@@ -8,6 +8,7 @@ import { capturePreparedBackgroundPayload } from "./background-capture.ts";
 
 const USAGE = "https://chatgpt.com/settings/usage";
 export function chatGPTStreamError(message: string): string {
+	if (/prompt_cache/.test(message)) return "ChatGPT rejected the long cache setting. Set Cache back to default in Settings → Models. No API-key fallback was used.";
 	if (/subscription_sharing_usage_limit_exceeded|quota|429/.test(message)) return `ChatGPT plan usage limit reached. Manage usage at ${USAGE}. No API-key fallback was used.`;
 	if (/scope|authorization_context|permission/.test(message)) return "ChatGPT plan permission is missing. Reconnect in Providers and authorize plan use. No API-key fallback was used.";
 	if (/expired|invalid_grant|401|invalid_user/.test(message)) return "Your ChatGPT session expired. Reconnect in Providers. No API-key fallback was used.";
@@ -19,13 +20,30 @@ export function chatGPTStreamError(message: string): string {
 	return "ChatGPT request failed. Check your connection and ChatGPT usage, then retry. No API-key fallback was used.";
 }
 
+/** Long cache retention on ChatGPT (owner, 2026-11-01), per OpenAI's prompt-caching
+ *  guide: GPT-5.6 and later take `prompt_cache_options.ttl` (30m default, "12h" long,
+ *  cache writes 2.5×); GPT-5.5 and earlier take `prompt_cache_retention: "24h"` (no
+ *  write surcharge). Pi's catalog predates GPT-6, so the generation is read from the
+ *  slug here. Short, none and unset send nothing: the account default applies.
+ *  Unrecognized slugs send nothing rather than guess a field. */
+export function chatGPTCacheFields(modelId: string, retention: CacheRetention | undefined): Record<string, unknown> {
+	if (retention !== "long") return {};
+	const version = /^gpt-(\d+)(?:\.(\d+))?/.exec(modelId);
+	if (!version) return {};
+	const [major, minor] = [Number(version[1]), Number(version[2] ?? 0)];
+	if (major > 5 || (major === 5 && minor >= 6)) return { prompt_cache_options: { ttl: "12h" } };
+	return { prompt_cache_retention: "24h" };
+}
+
 /** Restrict the body at the final payload seam, even if caller samplingParams add fields. */
-export function chatGPTPayload(raw: unknown, selectedModelId: string): Record<string, unknown> {
+export function chatGPTPayload(raw: unknown, selectedModelId: string, retention?: CacheRetention): Record<string, unknown> {
 	const payload = raw as Record<string, unknown>;
 	const out: Record<string, unknown> = { model: selectedModelId, store: false, stream: true };
 	for (const key of ["instructions", "reasoning", "include", "text", "tool_choice", "parallel_tool_calls", "prompt_cache_key"]) {
 		if (payload[key] !== undefined) out[key] = payload[key];
 	}
+	// Pi's own cache fields are dropped above: its catalog maps GPT-6 to the older field.
+	if (out.prompt_cache_key !== undefined) Object.assign(out, chatGPTCacheFields(selectedModelId, retention));
 	if (!Array.isArray(payload.input)) throw new Error("ChatGPT requires stateless input history");
 	out.input = payload.input.map((item) => item?.role === "system" ? { ...item, role: "developer" } : item);
 	if (Array.isArray(payload.tools) && payload.tools.length) {
@@ -85,7 +103,7 @@ export function chatGPTStream(background: () => boolean, lifecycle?: ChatGPTDisp
 					},
 					onPayload: async (raw, model) => {
 						const replacement = await options?.onPayload?.(raw, model);
-						const payload = chatGPTPayload(replacement === undefined ? raw : replacement, logicalModel.id);
+						const payload = chatGPTPayload(replacement === undefined ? raw : replacement, logicalModel.id, options?.cacheRetention);
 						if (credentials.requestedTier) payload.service_tier = credentials.requestedTier;
 						check();
 						capturePreparedBackgroundPayload(payload, logicalModel);
