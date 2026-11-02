@@ -10,7 +10,7 @@ import { hasProbeDone } from "./native-messages.ts";
 
 export const CRAM_PROBE_INSTRUCTIONS = `# Cram mode
 
-The learner chose cram mode: they want to do well on a test on this material, fast. Keep the probe very short: at most two quick questions, only to find which classes of problems they can already solve. Ask none if their message and material already show it. Then conclude with probe_done.`;
+The learner chose cram mode: they want to do well on a test on this material, fast. Keep the probe short: one quick question per big topic (class of problems) that deserves a check, to find which ones they can already solve. Skip a topic their message or material already shows they handle, and never ask two questions about the same topic. Then conclude with probe_done.`;
 
 export const CRAM_INSTRUCTIONS = `# Cram mode
 

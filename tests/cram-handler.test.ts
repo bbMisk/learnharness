@@ -89,6 +89,6 @@ it("a cram lesson: the prober keeps it short, the teacher runs the cram loop; Te
 	assert.doesNotMatch(teach.projectContext ?? "", /Cram mode/);
 	const probing = await systemContextFor("cram", []);
 	assert.equal(probing.teaching, false);
-	assert.match(probing.projectContext ?? "", /Keep the probe very short/, "the prober keeps a cram check short");
+	assert.match(probing.projectContext ?? "", /Keep the probe short/, "the prober keeps a cram check short");
 	assert.doesNotMatch(probing.projectContext ?? "", /For each class, run this loop/);
 });

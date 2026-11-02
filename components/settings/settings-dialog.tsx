@@ -413,7 +413,7 @@ export function SettingsDialogBody({
 									</SettingsRow>
 									<SettingsRow
 										label="Short probe in cram mode"
-										hint="Before a cram lesson, ask at most two quick questions. Off keeps the full probe."
+										hint="Before a cram lesson, ask one quick question per big topic. Off keeps the full probe."
 										testid="row-cram-short-probe"
 									>
 										<Toggle
