@@ -72,6 +72,9 @@ export function createChatListRefresher(deps: ChatListRefreshDeps) {
 	let disposed = false;
 	// Work that was waiting when disposed; a resume (React dev double-mount) runs it.
 	let resumeWork = false;
+	// ...and whether that work included the projects (round-5 hunt finding).
+	let resumeProjects = false;
+	let flightProjects = false;
 	// The in-flight fetch's refresh() waiters, so dispose() can settle them at once.
 	let activeWaiters: Array<() => void> = [];
 	// What the next fetch must cover.
@@ -107,6 +110,7 @@ export function createChatListRefresher(deps: ChatListRefreshDeps) {
 		const projects = withProjects;
 		const done = waiters;
 		activeWaiters = done;
+		flightProjects = projects;
 		force = false;
 		withProjects = false;
 		settled.clear();
@@ -191,6 +195,7 @@ export function createChatListRefresher(deps: ChatListRefreshDeps) {
 			disposed = true;
 			// An in-flight result is dropped while disposed, so a resume must fetch again.
 			resumeWork = resumeWork || inFlight || timer !== undefined || pumpWhenDone || force || settled.size > 0;
+			resumeProjects = resumeProjects || withProjects || (inFlight && flightProjects);
 			if (timer) clearTimeout(timer);
 			timer = undefined;
 			pumpWhenDone = false;
@@ -207,6 +212,8 @@ export function createChatListRefresher(deps: ChatListRefreshDeps) {
 				// Whatever was dropped while disposed must be fetched again, covered or not.
 				resumeWork = false;
 				force = true;
+				if (resumeProjects) withProjects = true;
+				resumeProjects = false;
 				schedule();
 			}
 		},

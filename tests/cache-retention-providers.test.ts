@@ -9,7 +9,7 @@ import test from "node:test";
 import { normalizeContext, type CacheRetention, type Model, type Api } from "@earendil-works/pi-ai";
 
 import { chatGPTCacheFields, chatGPTPayload, chatGPTStreamError } from "../src/agent/chatgpt-stream.ts";
-import { claudeCacheEnv, createClaudeCodeStreamFunction, type RunClaude } from "../src/agent/claude-code/stream.ts";
+import { claudeCacheEnv, createClaudeCodeStreamFunction, withClaudeCacheEnv, type RunClaude } from "../src/agent/claude-code/stream.ts";
 import { CLAUDE_CODE_MODELS } from "../src/agent/claude-code/provider.ts";
 import { longRetentionNote } from "../components/settings/cache-retention-menu.tsx";
 
@@ -57,6 +57,19 @@ test("the Claude Code stream launches the CLI with the request's cache retention
 		assert.equal(env.CLAUDE_CODE_PROMPT_CACHE_TTL, retention === "long" ? "1h" : process.env.CLAUDE_CODE_PROMPT_CACHE_TTL);
 		assert.equal(env.DISABLE_PROMPT_CACHING, retention === "none" ? "1" : process.env.DISABLE_PROMPT_CACHING);
 	}
+	// Launched with caching disabled in the environment: an explicit Long still wins (round-5 hunt finding).
+	const saved = process.env.DISABLE_PROMPT_CACHING;
+	process.env.DISABLE_PROMPT_CACHING = "1";
+	try {
+		let env: NodeJS.ProcessEnv | undefined;
+		const runClaude: RunClaude = (_args, options) => { env = options.env; return null; };
+		await createClaudeCodeStreamFunction(runClaude)(model, context, { cacheRetention: "long" }).result();
+		assert.equal(env?.CLAUDE_CODE_PROMPT_CACHE_TTL, "1h");
+		assert.equal(env?.DISABLE_PROMPT_CACHING, undefined, "the inherited disable no longer overrides Long");
+	} finally {
+		if (saved === undefined) delete process.env.DISABLE_PROMPT_CACHING;
+		else process.env.DISABLE_PROMPT_CACHING = saved;
+	}
 });
 
 test("the menu says what Long means for the slot's model", () => {
@@ -66,4 +79,21 @@ test("the menu says what Long means for the slot's model", () => {
 	assert.match(longRetentionNote("chatgpt", "gpt-6.1-terra")!, /Keep the default/);
 	assert.match(longRetentionNote("chatgpt", "gpt-5.5")!, /24 hours/);
 	assert.equal(longRetentionNote("openrouter", "deepseek/v4"), undefined);
+});
+
+test("an explicit Short/Long beats inherited cache switches; unset and None leave them (round-5 hunt finding)", () => {
+	const inherited = { PATH: "/bin", DISABLE_PROMPT_CACHING: "1", DISABLE_PROMPT_CACHING_OPUS: "1", FORCE_PROMPT_CACHING_5M: "1" };
+	const long = withClaudeCacheEnv(inherited, "long");
+	assert.equal(long.CLAUDE_CODE_PROMPT_CACHE_TTL, "1h");
+	assert.equal(long.DISABLE_PROMPT_CACHING, undefined);
+	assert.equal(long.DISABLE_PROMPT_CACHING_OPUS, undefined);
+	assert.equal(long.FORCE_PROMPT_CACHING_5M, undefined);
+	assert.equal(long.PATH, "/bin");
+	const short = withClaudeCacheEnv(inherited, "short");
+	assert.equal(short.CLAUDE_CODE_PROMPT_CACHE_TTL, "5m");
+	assert.equal(short.DISABLE_PROMPT_CACHING, undefined);
+	assert.equal(short.FORCE_PROMPT_CACHING_5M, "1", "Short and the 5-minute force agree; left alone");
+	assert.deepEqual(withClaudeCacheEnv(inherited, undefined), inherited);
+	assert.equal(withClaudeCacheEnv(inherited, "none").DISABLE_PROMPT_CACHING, "1");
+	assert.deepEqual(inherited, { PATH: "/bin", DISABLE_PROMPT_CACHING: "1", DISABLE_PROMPT_CACHING_OPUS: "1", FORCE_PROMPT_CACHING_5M: "1" }, "input not mutated");
 });

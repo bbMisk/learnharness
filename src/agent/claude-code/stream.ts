@@ -637,10 +637,23 @@ export function claudeCacheEnv(retention: CacheRetention | undefined): Record<st
 	return { CLAUDE_CODE_PROMPT_CACHE_TTL: ttl, CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL: ttl };
 }
 
+/** The launch environment plus the slot's cache choice. An explicit Short or Long beats
+ *  inherited switches that would silently override it (round-5 hunt finding): every
+ *  DISABLE_PROMPT_CACHING* variable, and for Long also FORCE_PROMPT_CACHING_5M. Unset or
+ *  None leaves the inherited environment as it is. */
+export function withClaudeCacheEnv<T extends Record<string, string | undefined>>(base: T, retention: CacheRetention | undefined): T & Record<string, string | undefined> {
+	const env: Record<string, string | undefined> = { ...base, ...claudeCacheEnv(retention) };
+	if (retention === "short" || retention === "long") {
+		for (const key of Object.keys(env)) if (key.startsWith("DISABLE_PROMPT_CACHING")) delete env[key];
+		if (retention === "long") delete env.FORCE_PROMPT_CACHING_5M;
+	}
+	return env as T & Record<string, string | undefined>;
+}
+
 function toClaudeEnv(retention?: CacheRetention): NodeJS.ProcessEnv {
 	// Preserve native CLI auth/routing, including launch-environment credentials.
 	// Claude Code chooses the account and billing method, not LearnHarness.
-	return { ...externalCliEnv(), ...claudeCacheEnv(retention), MCP_TOOL_TIMEOUT: String(MCP_TOOL_TIMEOUT_MS), CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT: String(MCP_TOOL_TIMEOUT_MS) };
+	return { ...withClaudeCacheEnv(externalCliEnv(), retention), MCP_TOOL_TIMEOUT: String(MCP_TOOL_TIMEOUT_MS), CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT: String(MCP_TOOL_TIMEOUT_MS) };
 }
 
 async function startProcess(
