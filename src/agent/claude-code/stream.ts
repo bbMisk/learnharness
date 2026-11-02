@@ -10,6 +10,7 @@ import {
 	type Api,
 	type AssistantMessage,
 	type AssistantMessageEventStream,
+	type CacheRetention,
 	type Message,
 	type Model,
 	type SimpleStreamOptions,
@@ -625,10 +626,21 @@ function continueLiveProcess(turn: ClaudeTurn, owner: symbol, sessionId: string 
 	return true;
 }
 
-function toClaudeEnv(): NodeJS.ProcessEnv {
+/** The slot's cache retention, in Claude Code's own terms (owner, 2026-11-01; Claude
+ *  Code ≥ 2.1.242, docs: code.claude.com/docs/en/env-vars). Long asks for the 1-hour
+ *  TTL, short for 5 minutes, none disables prompt caching. Unset adds nothing, so
+ *  Claude Code's default holds (1 hour on a subscription's included usage). */
+export function claudeCacheEnv(retention: CacheRetention | undefined): Record<string, string> {
+	if (retention === "none") return { DISABLE_PROMPT_CACHING: "1" };
+	if (retention === undefined) return {};
+	const ttl = retention === "long" ? "1h" : "5m";
+	return { CLAUDE_CODE_PROMPT_CACHE_TTL: ttl, CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL: ttl };
+}
+
+function toClaudeEnv(retention?: CacheRetention): NodeJS.ProcessEnv {
 	// Preserve native CLI auth/routing, including launch-environment credentials.
 	// Claude Code chooses the account and billing method, not LearnHarness.
-	return { ...externalCliEnv(), MCP_TOOL_TIMEOUT: String(MCP_TOOL_TIMEOUT_MS), CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT: String(MCP_TOOL_TIMEOUT_MS) };
+	return { ...externalCliEnv(), ...claudeCacheEnv(retention), MCP_TOOL_TIMEOUT: String(MCP_TOOL_TIMEOUT_MS), CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT: String(MCP_TOOL_TIMEOUT_MS) };
 }
 
 async function startProcess(
@@ -693,7 +705,7 @@ export function createClaudeCodeStreamFunction(runClaude: RunClaude): StreamFunc
 		const stream = createAssistantMessageEventStream();
 		const turn = new ClaudeTurn(stream, model, new Set(getCurrentTools(context.messages).map((tool) => tool.name)));
 
-		const env = toClaudeEnv();
+		const env = toClaudeEnv(options?.cacheRetention);
 		// An existing child must not retain stale authentication/routing after env changes.
 		const configuration = { request: configurationForReuse(model, context, toEffort(options?.reasoning)), env };
 		if (continueLiveProcess(turn, owner, options?.sessionId, configuration, context.messages, options?.signal)) return stream;

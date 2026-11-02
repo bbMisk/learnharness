@@ -678,7 +678,7 @@ export function AgentSection({
 									testid={`slot-cache-menu-${slot}`}
 									menuClass="flex w-80 flex-col gap-0.5 rounded-xl border border-border bg-card p-2 text-xs shadow-xl"
 								>
-									<CacheRetentionMenu value={override?.cacheRetention} onPick={(value) => {
+									<CacheRetentionMenu value={override?.cacheRetention} provider={coord?.provider} modelId={coord?.id} onPick={(value) => {
 										onModelsChange(composeSlotCacheRetention(models, slot, value));
 										setOpenMenu(null);
 									}} />
