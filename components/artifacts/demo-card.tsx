@@ -1,6 +1,6 @@
 "use client";
 
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { DownloadIcon } from "lucide-react";
 import { Toggle } from "@/components/settings/controls";
 import { InvertDiscIcon } from "@/components/artifacts/invert-disc";
@@ -45,10 +45,12 @@ export function buildDemoSrcDoc(html: string, renderer?: DemoRenderer, runtimes?
 
 /** The runtimes this demo needs: synchronous when already loaded (legacy demos
  *  need none), otherwise undefined until the lazy chunk arrives. */
-function useDemoRuntimes(html: string, renderer?: DemoRenderer): { runtimes?: DemoRuntimes; failed: boolean } {
+function useDemoRuntimes(html: string, renderer?: DemoRenderer): { runtimes?: DemoRuntimes; failed: boolean; retry: () => void } {
 	const runtimes = peekDemoRuntimes(html, renderer);
 	const [, setLoaded] = useState(0);
 	const [failed, setFailed] = useState(false);
+	// Bumped by retry(): a failed load is forgotten by loadDemoRuntimes, so a new attempt really refetches.
+	const [attempt, setAttempt] = useState(0);
 	useEffect(() => {
 		if (runtimes) return;
 		let live = true;
@@ -63,8 +65,12 @@ function useDemoRuntimes(html: string, renderer?: DemoRenderer): { runtimes?: De
 		return () => {
 			live = false;
 		};
-	}, [html, renderer, runtimes]);
-	return { runtimes, failed };
+	}, [html, renderer, runtimes, attempt]);
+	const retry = useCallback(() => {
+		setFailed(false);
+		setAttempt((n) => n + 1);
+	}, []);
+	return { runtimes, failed, retry };
 }
 
 export interface DemoBridgeState {
@@ -173,7 +179,7 @@ function DemoFrame({
 			body: JSON.stringify({ input: { messageId, inverted: next } }),
 		}).catch(() => {});
 	};
-	const { runtimes, failed: runtimesFailed } = useDemoRuntimes(html, renderer);
+	const { runtimes, failed: runtimesFailed, retry: retryRuntimes } = useDemoRuntimes(html, renderer);
 	const srcDoc = useMemo(() => (runtimes ? buildDemoSrcDoc(html, renderer, runtimes) : null), [html, renderer, runtimes]);
 
 	useEffect(() => {
@@ -240,7 +246,16 @@ function DemoFrame({
 					aria-busy={!runtimesFailed}
 					data-testid="demo-loading"
 				>
-					{runtimesFailed ? "The demo's libraries could not be loaded." : <span className="animate-pulse">Loading demo…</span>}
+					{runtimesFailed ? (
+						<span className="flex items-center gap-2">
+							The demo&apos;s libraries could not be loaded.
+							<button type="button" onClick={retryRuntimes} data-testid="demo-retry" className="rounded-md border border-border px-2 py-0.5 text-foreground hover:bg-accent">
+								Try again
+							</button>
+						</span>
+					) : (
+						<span className="animate-pulse">Loading demo…</span>
+					)}
 				</div>
 			) : (
 				<iframe
