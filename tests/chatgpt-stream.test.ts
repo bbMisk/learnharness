@@ -165,6 +165,22 @@ test("native identity/session/cache/fetch and awaited caller observers survive e
 	assert(!(await failed.result()).errorMessage?.includes("private observer detail"));
 });
 
+test("the slot's long cache retention reaches the ChatGPT body; default sends no cache field", async () => {
+	for (const retention of [undefined, "long"] as const) {
+		const engine = piEngineForSpec({ provider: "chatgpt", id: model.id }, false, undefined, () => retention);
+		let payload: any;
+		responseEvents = [complete()];
+		const stream = engine.streamFn(engine.model, context(), {
+			sessionId: "cache-chat",
+			fetch: async (input, init) => { payload = JSON.parse(await new Request(input, init).text()); return new Response(`data: ${JSON.stringify(complete())}\n\n`, { headers: { "content-type": "text/event-stream" } }); },
+		});
+		for await (const _event of stream) { /* drain */ }
+		assert.equal(payload.prompt_cache_key, "cache-chat");
+		assert.equal(payload.prompt_cache_retention, retention === "long" ? "24h" : undefined, `${model.id} is GPT-5`);
+		assert.equal(payload.prompt_cache_options, undefined);
+	}
+});
+
 test("background capture matches final ChatGPT transport body without changing awaited callbacks or foreground", async (t) => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lh-chatgpt-capture-"));
 	const previousDir = backgroundCaptureDir.current, previousFlag = process.env.LH_BACKGROUND_CAPTURE;
