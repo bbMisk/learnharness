@@ -1,11 +1,11 @@
-import { learningHistory, captureLearningHistory } from "@/src/server";
+import { learningHistory, captureLearningHistory, jsonResponse } from "@/src/server";
 
 /** Portable raw history plus the flashcard review archive; model credentials are excluded. */
 export async function GET(request: Request) {
 	const url = new URL(request.url);
 	const history = learningHistory(url.searchParams.get("chatId"));
 	if (!history) return Response.json({ error: "Not found" }, { status: 404 });
-	return Response.json(history, {
+	return jsonResponse(request, history, {
 		headers: {
 			"Cache-Control": "no-store",
 			...(url.searchParams.get("download") === "1"

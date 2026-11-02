@@ -5,10 +5,10 @@
  * through Pi's catalog and public calculator. See that module's header for why /api/jobs stays
  * chat-scoped and untouched.
  */
-import { activityFeed } from "@/src/server";
+import { activityFeed, jsonResponse } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-	return Response.json(activityFeed());
+export async function GET(request: Request) {
+	return jsonResponse(request, activityFeed());
 }

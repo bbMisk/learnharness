@@ -1,4 +1,4 @@
-import { projectStore, setChatOrganization, compactionInFlight, deleteChatSession, getChat, isTurnRunning, sessionCoverage, sessionCost, stores, turnFailure, type ChatDeleteMode } from "@/src/server";
+import { projectStore, setChatOrganization, compactionInFlight, deleteChatSession, getChat, isTurnRunning, jsonResponse, sessionCoverage, sessionCost, stores, turnFailure, type ChatDeleteMode } from "@/src/server";
 import { clientMessage } from "@/src/core";
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -7,8 +7,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 	if (!chat) return Response.json({ error: "Not found" }, { status: 404 });
 	// Metadata-only reads for views that already hold the transcript.
 	const only = new URL(req.url).searchParams.get("only");
-	if (only === "stats") return Response.json({ turns: chat.turns, pricing: sessionCost(chat) });
-	if (only === "coverage") return Response.json({ coverage: sessionCoverage(chat) });
+	if (only === "stats") return jsonResponse(req, { turns: chat.turns, pricing: sessionCost(chat) });
+	if (only === "coverage") return jsonResponse(req, { coverage: sessionCoverage(chat) });
 	// turnInFlight lets a returning client re-attach to a running turn
 	// (chat-handler write-ahead + registry — see src/server/turn-liveness.ts).
 	// coverage (extraction-UX redesign, 2026-09-24): the chat view's ring
@@ -20,7 +20,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 	// (core/view.ts projectView). turnInFlight lets a returning client
 	// re-attach to a running turn; coverage is the chat view's ring meter.
 	const { learningEvents: _learningEvents, ...view } = chat;
-	return Response.json({
+	return jsonResponse(req, {
 		...view,
 		messages: chat.messages.map(clientMessage),
 		pricing: sessionCost(chat),

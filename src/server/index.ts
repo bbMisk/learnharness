@@ -6,6 +6,7 @@
 
 export * from "./chat-handler.ts";
 export * from "./events-stream.ts";
+export * from "./json-response.ts";
 export * from "./chats.ts";
 export * from "./graph.ts";
 export * from "./source-organization.ts";
