@@ -50,10 +50,21 @@ export interface ChatListRefreshDeps {
 	/** A failed fetch keeps the last snapshot. */
 	onError(): void;
 	debounceMs?: number;
+	/** A request that hangs longer than this counts as failed, so it can't hold the queue. */
+	timeoutMs?: number;
+}
+
+const FETCH_TIMEOUT_MS = 20_000;
+
+function within<T>(request: Promise<T>, ms: number): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const expired = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("list refresh timed out")), ms); });
+	return Promise.race([request, expired]).finally(() => clearTimeout(timer));
 }
 
 export function createChatListRefresher(deps: ChatListRefreshDeps) {
 	const debounceMs = deps.debounceMs ?? EVENT_REFRESH_MS;
+	const timeoutMs = deps.timeoutMs ?? FETCH_TIMEOUT_MS;
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let inFlight = false;
 	let pumpWhenDone = false;
@@ -92,11 +103,12 @@ export function createChatListRefresher(deps: ChatListRefreshDeps) {
 		flight = current;
 		void (async () => {
 			try {
-				const chats = await deps.fetchList();
+				const chats = await within(deps.fetchList(), timeoutMs);
 				if (current.trusted) snapshot = { chats, startedSince: current.startedSince };
 				deps.onList(chats);
 				if (projects) {
-					const list = await deps.fetchProjects();
+					// A failed or stalled projects request keeps the last projects; the list stands.
+					const list = await within(deps.fetchProjects(), timeoutMs).catch(() => null);
 					if (list) deps.onProjects(list);
 				}
 			} catch {

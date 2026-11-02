@@ -172,3 +172,22 @@ it("a reconnect resyncs immediately, list and projects, and absorbs pending even
 	await settle();
 	assert.deepEqual(counts, { list: 1, projects: 1 }, "projects follow the list; the pending event needs nothing more");
 });
+
+it("a stalled projects request times out instead of holding the queue; the list still lands", async () => {
+	const { createChatListRefresher } = await import("../components/chat-list-refresh.ts");
+	let listFetches = 0;
+	const lists: ChatListItem[][] = [];
+	const refresher = createChatListRefresher({
+		fetchList: async () => { listFetches++; return []; },
+		fetchProjects: () => new Promise(() => {}),
+		onList: (list) => lists.push(list),
+		onProjects: () => assert.fail("a stalled request delivers nothing"),
+		onError: () => {},
+		timeoutMs: 20,
+	});
+	await refresher.refresh();
+	assert.equal(lists.length, 1, "the chat list was delivered before the projects stall");
+	await refresher.refresh();
+	assert.equal(listFetches, 2, "the next refresh was not blocked");
+	refresher.dispose();
+});
