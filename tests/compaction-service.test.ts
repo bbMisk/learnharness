@@ -16,12 +16,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { after, describe, it } from "node:test";
+import { after, describe, it, mock } from "node:test";
 
 // ── the seam, BEFORE any config-loading import (the birth-stamp discipline) ─
 const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-compaction-"));
 process.env.LH_DATA_DIR = TMP_DATA;
 
+const { PATHS } = await import("../config.ts");
 const { chatStore } = await import("../src/store/chats.ts");
 const {
 	ensureCompacted,
@@ -36,6 +37,7 @@ import { createFauxCore, fauxAssistantMessage } from "@earendil-works/pi-ai";
 const { subscribe } = await import("../src/core/events.ts");
 const { activeCompactionOf, newCompactionMarker, newUserMessage, measuredContextTokens, toLlmMessages, COMPACTED_HISTORY_HEADER } = await import("../src/core/index.ts");
 import type { LhMessage } from "../src/core/index.ts";
+import type { ChatRecord, TurnUsage } from "../src/core/contracts.ts";
 
 after(() => {
 	fs.rmSync(TMP_DATA, { recursive: true, force: true });
@@ -72,6 +74,37 @@ const depsOf = (chatId: string, thresholdTokens: number): CompactionDeps => ({
 		};
 	},
 });
+
+const chatFile = (id: string) => path.join(PATHS.chats, `${id}.json`);
+
+/** Count completed atomic writes (the rename that lands each one) to a file. */
+function countWrites(file: string): { readonly count: number } {
+	const rename = fs.renameSync;
+	const counter = { count: 0 };
+	mock.method(fs, "renameSync", (from: fs.PathLike, to: fs.PathLike) => {
+		rename(from, to);
+		if (path.resolve(String(to)) === path.resolve(file)) counter.count++;
+	});
+	return counter;
+}
+
+/** The record minus what legitimately differs between two chats or two writes. */
+function comparable(record: ChatRecord | null): Record<string, unknown> {
+	assert.ok(record);
+	const { id: _id, title: _title, createdAt: _createdAt, updatedAt: _updatedAt, ...rest } = record;
+	return rest;
+}
+
+/** Record this chat's compaction/record events as "true" | "false" | "record". */
+function recordEvents(chatId: string): { events: string[]; off: () => void } {
+	const events: string[] = [];
+	const off = subscribe((e) => {
+		const { chatId: c, running } = e as { chatId?: string; running?: boolean };
+		if (e.type === "compaction-changed" && c === chatId) events.push(`${running}`);
+		if (e.type === "record-changed" && c === chatId) events.push("record");
+	});
+	return { events, off };
+}
 
 // ── the laws ────────────────────────────────────────────────────────────────
 
@@ -360,5 +393,89 @@ describe("the compaction service", () => {
 		await ensureCompacted(depsOf(chatId, 40_000), chatId);
 		assert.ok(activeCompactionOf(chatStore.getChat(chatId)!.messages));
 		assert.equal(summarizeCalls, before + 1);
+	});
+	it("one record write per compaction: marker and usage land together, equal to the old two-step result", async () => {
+		const prior: TurnUsage = { id: "turn_prior", messageId: "m_prior", at: "2026-10-01T00:00:00.000Z", model: "faux:test", steps: [{ inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, cacheWrite1hTokens: 0, reasoningTokens: 0 }] };
+		for (const replay of [false, true]) { // a fresh usage id, and one the log already holds (the duplicate-id guard)
+			const newWay = overThresholdChat(`compact: one write ${replay}`);
+			const oldWay = chatStore.createChat(`compact: two writes ${replay}`).id;
+			chatStore.saveMessages(oldWay, chatStore.getChat(newWay)!.messages);
+			for (const id of [newWay, oldWay]) chatStore.appendTurnUsage(id, prior);
+
+			const uuid = crypto.randomUUID;
+			if (replay) mock.method(crypto, "randomUUID", () => prior.id);
+			const writes = countWrites(chatFile(newWay));
+			const { events, off } = recordEvents(newWay);
+			try {
+				await ensureCompacted(depsOf(newWay, 40_000), newWay);
+			} finally { off(); mock.restoreAll(); }
+			assert.equal(crypto.randomUUID, uuid);
+			assert.equal(writes.count, 1, "after: one write per compaction (was two: marker, then usage)");
+			assert.deepEqual(events, ["true", "record", "false"], "same events, same order");
+
+			const compacted = chatStore.getChat(newWay)!;
+			const marker = activeCompactionOf(compacted.messages)!;
+			assert.ok(marker);
+			assert.equal(compacted.turns!.length, replay ? 1 : 2, "idempotent per usage id");
+			// The old path, replayed with the same marker and the entry the
+			// compaction built: saveMessages, then appendTurnUsage.
+			const entry: TurnUsage = {
+				id: replay ? prior.id : compacted.turns!.at(-1)!.id,
+				messageId: marker.id,
+				at: marker.details.at,
+				model: "faux:test",
+				steps: [{ inputTokens: 1_000, outputTokens: 500, cacheReadTokens: 0, cacheWriteTokens: 0, cacheWrite1hTokens: 0, reasoningTokens: 0 }],
+			};
+			const oldWrites = countWrites(chatFile(oldWay));
+			chatStore.saveMessages(oldWay, compacted.messages);
+			chatStore.appendTurnUsage(oldWay, entry);
+			mock.restoreAll();
+			assert.equal(oldWrites.count, 2, "before: two full writes per compaction");
+			assert.deepEqual(comparable(compacted), comparable(chatStore.getChat(oldWay)));
+			assert.deepEqual(
+				comparable(JSON.parse(fs.readFileSync(chatFile(newWay), "utf8"))),
+				comparable(JSON.parse(fs.readFileSync(chatFile(oldWay), "utf8"))),
+				"the bytes on disk match too, timestamps aside",
+			);
+		}
+	});
+
+	it("a usage failure still saves the marker alone, logs, and skips record-changed (as before)", async () => {
+		const quiet = mock.method(console, "error", () => {});
+		try {
+			// The entry cannot be built (no usage reported): the marker saves alone.
+			const missing = overThresholdChat("compact: usage missing");
+			const writes = countWrites(chatFile(missing));
+			const first = recordEvents(missing);
+			await ensureCompacted({
+				...depsOf(missing, 40_000),
+				summarize: async () => ({ summary: "SUMMARY: no usage reported.", usage: undefined as never }),
+			}, missing);
+			first.off();
+			assert.equal(writes.count, 1);
+			assert.deepEqual(first.events, ["true", "false"]);
+			assert.ok(activeCompactionOf(chatStore.getChat(missing)!.messages), "the marker still landed");
+			assert.equal(chatStore.getChat(missing)!.turns, undefined);
+			quiet.mock.restore();
+			mock.restoreAll();
+
+			// The combined write fails: the marker is retried alone and lands.
+			const silenced = mock.method(console, "error", () => {});
+			const combined = overThresholdChat("compact: combined write fails");
+			const failingStore = {
+				...chatStore,
+				saveMessages: (id: string, messages: LhMessage[], usage?: TurnUsage) => {
+					if (usage) throw new Error("combined write failed");
+					chatStore.saveMessages(id, messages);
+				},
+			};
+			const second = recordEvents(combined);
+			await ensureCompacted({ ...depsOf(combined, 40_000), chatStore: failingStore }, combined);
+			second.off();
+			assert.deepEqual(second.events, ["true", "false"]);
+			assert.ok(activeCompactionOf(chatStore.getChat(combined)!.messages), "the marker still landed");
+			assert.equal(chatStore.getChat(combined)!.turns, undefined);
+			assert.ok(silenced.mock.calls.some((c) => String(c.arguments[0]).includes("compaction failed")));
+		} finally { mock.restoreAll(); }
 	});
 });

@@ -46,6 +46,7 @@ import {
 } from "../core/index.ts";
 import { emit } from "../core/events.ts";
 import type { ChatStore } from "../core/ports.ts";
+import type { TurnUsage } from "../core/contracts.ts";
 import type { PiEngine } from "../agent/models.ts";
 import { runSubagent } from "../agent/subagents/pi-run.ts";
 
@@ -238,26 +239,48 @@ async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
 			at: new Date().toISOString(),
 		};
 		const marker = newCompactionMarker(trimmed, details);
-		deps.chatStore.saveMessages(chatId, [...messages, marker]);
+		const compacted = [...messages, marker];
 		// The money channel: the summary is a real model call on the
 		// session's own engine — its usage keys to the marker (provenance:
-		// the transcript shows the compaction divider at the marker).
-		deps.chatStore.appendTurnUsage(chatId, {
-			id: crypto.randomUUID(),
-			messageId: marker.id,
-			at: details.at,
-			model: deps.modelId,
-			steps: [
-				{
-					inputTokens: usage.input,
-					outputTokens: usage.output,
-					cacheReadTokens: usage.cacheRead,
-					cacheWriteTokens: usage.cacheWrite,
-					cacheWrite1hTokens: usage.cacheWrite1h ?? 0,
-					reasoningTokens: usage.reasoning ?? 0,
-				},
-			],
-		});
+		// the transcript shows the compaction divider at the marker). It
+		// rides the marker's own atomic write (one full record serialization
+		// per compaction). The marker stays the canonical save: if the entry
+		// cannot be built or the combined write fails, the marker is saved
+		// alone and the usage failure is raised after it — exactly where the
+		// separate appendTurnUsage used to fail.
+		let entry: TurnUsage | undefined;
+		let usageError: unknown;
+		try {
+			entry = {
+				id: crypto.randomUUID(),
+				messageId: marker.id,
+				at: details.at,
+				model: deps.modelId,
+				steps: [
+					{
+						inputTokens: usage.input,
+						outputTokens: usage.output,
+						cacheReadTokens: usage.cacheRead,
+						cacheWriteTokens: usage.cacheWrite,
+						cacheWrite1hTokens: usage.cacheWrite1h ?? 0,
+						reasoningTokens: usage.reasoning ?? 0,
+					},
+				],
+			};
+		} catch (err) {
+			usageError = err;
+		}
+		let saved = false;
+		if (entry) {
+			try {
+				deps.chatStore.saveMessages(chatId, compacted, entry);
+				saved = true;
+			} catch (err) {
+				usageError = err;
+			}
+		}
+		if (!saved) deps.chatStore.saveMessages(chatId, compacted);
+		if (usageError !== undefined) throw usageError;
 		// Notify-then-fetch: the record gained the marker (the client's
 		// dividers appear) and the status event ends the send gate.
 		emit("record-changed", { chatId });
