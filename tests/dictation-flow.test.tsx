@@ -6,6 +6,8 @@ import { useDictation, type Dictation } from "../components/dictation.tsx";
 import { notifySettingsSaved } from "../components/settings-signal.ts";
 import { useDictationLanguage } from "../components/dictation-preference.ts";
 import { isDictationActive, useDictationActive } from "../components/dictation-state.ts";
+import { ReadingThinkingField } from "../components/reading-thinking.tsx";
+import { readPathInput } from "../components/path-input-dom.ts";
 import type { UserSettings } from "../src/core/index.ts";
 
 function deferred<T>() {
@@ -45,7 +47,7 @@ const globals = globalThis as Record<string, unknown>;
 let restore: (() => void) | undefined;
 let dispose: (() => Promise<void>) | undefined;
 
-async function fixture(language: "pl" | "en" = "pl", delayedRead?: Promise<Response>) {
+async function fixture(language: "pl" | "en" = "pl", delayedRead?: Promise<Response>, beside?: React.ReactElement) {
 	const dom = parseHTML("<html><body><div id='root'></div></body></html>");
 	const state = {
 		record: { version: 1, dictation: { language } } as UserSettings,
@@ -105,7 +107,7 @@ async function fixture(language: "pl" | "en" = "pl", delayedRead?: Promise<Respo
 	let root = createRoot(document.getElementById("root")!);
 	let firstMount = true;
 	const mount = async () => {
-		await act(async () => { root.render(<Harness />); });
+		await act(async () => { root.render(<><Harness />{beside}</>); });
 		// Each fixture is a new server record. Explicitly invalidate a prior
 		// fixture's window-lifetime cache, but do not refetch on remounts.
 		if (firstMount && setting.language !== undefined) {
@@ -319,4 +321,30 @@ test("microphone permission resolving after unmount immediately stops the late s
 	assert.equal(f.state.stops, 1);
 	assert.equal(Socket.all.length, 0);
 	assert.equal(isDictationActive(), false);
+});
+
+test("a claimed reading field takes each flush on top of its latest typed draft, synchronously", async () => {
+	let latest = "";
+	let forwarded = 0;
+	const f = await fixture("en", undefined, <ReadingThinkingField value="" revision={0} claim onChange={(value) => { latest = value; forwarded++; }} />);
+	await f.mount();
+	const editor = document.querySelector<HTMLElement>("[data-file-path-input]")!;
+	await act(async () => {
+		editor.replaceChildren(document.createTextNode("typed thoughts"));
+		editor.dispatchEvent(new window.Event("input", { bubbles: true }));
+	});
+	assert.equal(latest, "typed thoughts");
+	for (const [spoken, expected] of [["spoken tail", "typed thoughts spoken tail"], ["second run", "typed thoughts spoken tail second run"]] as const) {
+		await act(async () => { f.dictation.toggle(); });
+		const socket = Socket.all.at(-1)!;
+		await act(async () => { socket.open(); socket.final(spoken); });
+		await act(async () => {
+			f.dictation.stop();
+			socket.end();
+			assert.equal(latest, expected, "submit after finish sees the tail before React commits");
+		});
+	}
+	assert.equal(readPathInput(editor), "typed thoughts spoken tail second run");
+	assert.deepEqual(f.state.appends, [], "the claim wins over the page's append");
+	assert.equal(forwarded, 3, "each edit forwards its synchronous snapshot exactly once");
 });
