@@ -90,12 +90,15 @@ test("the other covered reads decode to their identity bytes; small bodies stay 
 	assert.deepEqual(await missing.json(), { error: "Not found" });
 });
 
-test("no-transform and HEAD opt out; init status and headers carry through", async () => {
+test("no-transform opts out; HEAD reports GET's encoding without a body; init status and headers carry through", async () => {
 	const data = { blob: "x".repeat(10_000) };
 	const kept = jsonResponse(request("http://localhost/x", "gzip"), data, { headers: { "Cache-Control": "no-cache, no-transform" } });
 	assert.equal(kept.headers.get("content-encoding"), null);
 	const head = jsonResponse(new Request("http://localhost/x", { method: "HEAD", headers: { "Accept-Encoding": "gzip" } }), data);
-	assert.equal(head.headers.get("content-encoding"), null);
+	assert.equal(head.headers.get("content-encoding"), "gzip", "same representation headers as the GET (round-6 hunt finding)");
+	assert.equal(head.body, null);
+	const plainHead = jsonResponse(new Request("http://localhost/x", { method: "HEAD" }), data);
+	assert.equal(plainHead.headers.get("content-encoding"), null);
 	const created = jsonResponse(request("http://localhost/x", "gzip"), data, { status: 201, headers: { Vary: "Origin", "Content-Length": "5" } });
 	assert.equal(created.status, 201);
 	assert.equal(created.headers.get("vary"), "Origin, Accept-Encoding");

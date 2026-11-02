@@ -61,6 +61,15 @@ const isPromptItem = (item: unknown): boolean => {
  * `tools`, `input`) against the chat's previous one, and remember it.
  * Exported for tests; production calls arrive via notePreparedResponsesPayload. */
 export function fingerprintResponsesPayload(chatId: string, payload: Record<string, unknown>): RequestFingerprint | undefined {
+	const prepared = prepareFingerprint(chatId, payload);
+	prepared?.commit();
+	return prepared?.fingerprint;
+}
+
+/** The fingerprint of `payload`, and `commit` to make it the chat's comparison
+ *  baseline. Committing is separate so a body that is prepared but never sent
+ *  (refused at admission) does not become the baseline (round-6 hunt finding). */
+function prepareFingerprint(chatId: string, payload: Record<string, unknown>): { fingerprint: RequestFingerprint; commit: () => void } | undefined {
 	const input = payload.input;
 	if (!Array.isArray(input)) return undefined;
 	// The system prompt (and, on gpt-5.5+, the tool declarations) ride input as
@@ -82,28 +91,44 @@ export function fingerprintResponsesPayload(chatId: string, payload: Record<stri
 	}
 	const digest = history.digest("hex");
 	if (previous && items === previous.items) prefixDigest = digest;
-	// One entry per chat, most recently used last; the oldest chat goes first.
-	state.previous.delete(chatId);
-	state.previous.set(chatId, { model, promptHash, items, digest });
-	if (state.previous.size > MAX_TRACKED_CHATS) state.previous.delete(state.previous.keys().next().value!);
-	if (!previous) return { promptHash };
+	const commit = () => {
+		// One entry per chat, most recently used last; the oldest chat goes first.
+		state.previous.delete(chatId);
+		state.previous.set(chatId, { model, promptHash, items, digest });
+		if (state.previous.size > MAX_TRACKED_CHATS) state.previous.delete(state.previous.keys().next().value!);
+	};
+	if (!previous) return { fingerprint: { promptHash }, commit };
 	return {
-		promptHash,
-		extendsPrevious: previous.model === model && previous.promptHash === promptHash && prefixDigest === previous.digest,
+		fingerprint: {
+			promptHash,
+			extendsPrevious: previous.model === model && previous.promptHash === promptHash && prefixDigest === previous.digest,
+		},
+		commit,
 	};
 }
 
-/** Called by an adapter with the body it is about to send. A no-op outside
- * withRequestFingerprint (compaction, extraction, background workers) and
- * never throws: diagnostics must not fail a request. */
-export function notePreparedResponsesPayload(payload: Record<string, unknown>): void {
+/** Called by an adapter with the body it is about to send; returns the function
+ * the adapter calls once the request is actually admitted, which makes this
+ * body the chat's comparison baseline. A no-op outside withRequestFingerprint
+ * (compaction, extraction, background workers) and never throws: diagnostics
+ * must not fail a request. */
+export function notePreparedResponsesPayload(payload: Record<string, unknown>): () => void {
 	const sink = state.sink.getStore();
-	if (!sink) return;
+	if (!sink) return () => {};
 	try {
-		const fingerprint = fingerprintResponsesPayload(sink.chatId, payload);
-		if (fingerprint) sink.deliver(fingerprint);
+		const prepared = prepareFingerprint(sink.chatId, payload);
+		if (!prepared) return () => {};
+		sink.deliver(prepared.fingerprint);
+		return () => {
+			try {
+				prepared.commit();
+			} catch {
+				// Diagnostics only.
+			}
+		};
 	} catch {
 		// Diagnostics only — the step records usage without the fields.
+		return () => {};
 	}
 }
 

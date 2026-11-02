@@ -78,6 +78,10 @@ test("the menu says what Long means for the slot's model", () => {
 	assert.match(longRetentionNote("claude-code", "opus")!, /subscription/);
 	assert.match(longRetentionNote("chatgpt", "gpt-6.1-terra")!, /Keep the default/);
 	assert.match(longRetentionNote("chatgpt", "gpt-5.5")!, /24 hours/);
+	// The API-key route sends pi-ai's mapping: 30 minutes on GPT-5.6+, never 12 hours (round-6 hunt finding).
+	assert.match(longRetentionNote("openai", "gpt-6.1-sol")!, /same 30 minutes/);
+	assert.doesNotMatch(longRetentionNote("openai", "gpt-6.1-sol")!, /12 hours/);
+	assert.match(longRetentionNote("openai", "gpt-5.5")!, /24 hours/);
 	assert.equal(longRetentionNote("openrouter", "deepseek/v4"), undefined);
 });
 

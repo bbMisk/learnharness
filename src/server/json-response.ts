@@ -58,10 +58,11 @@ export function jsonResponse(request: Request, data: unknown, init: ResponseInit
 	const body = new TextEncoder().encode(JSON.stringify(data));
 	const gzip =
 		body.byteLength >= MIN_GZIP_BYTES &&
-		request.method !== "HEAD" &&
 		acceptsGzip(request.headers.get("accept-encoding")) &&
 		!/(^|[\s,])no-transform([\s,]|$)/i.test(headers.get("cache-control") ?? "");
 	if (!gzip) return new Response(body, { ...init, headers });
 	headers.set("content-encoding", "gzip");
+	// HEAD reports the same representation headers as the GET would, without compressing a body (round-6 hunt finding).
+	if (request.method === "HEAD") return new Response(null, { ...init, headers });
 	return new Response(new Blob([body]).stream().pipeThrough(new CompressionStream("gzip")), { ...init, headers });
 }

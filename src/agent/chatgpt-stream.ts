@@ -75,6 +75,7 @@ export function chatGPTStream(background: () => boolean, lifecycle?: ChatGPTDisp
 			let completed = false;
 			const startedAt = Date.now();
 			let failure = "";
+			let commitFingerprint: () => void = () => {};
 			let scope: AdmissionScope | undefined;
 			let committed = false;
 			let terminal = false;
@@ -100,6 +101,8 @@ export function chatGPTStream(background: () => boolean, lifecycle?: ChatGPTDisp
 						if (committed) throw new Error("ChatGPT does not retry admitted requests");
 						lifecycle?.beforeDispatch(scope!);
 						committed = true;
+						// Admitted: only now does this body become the fingerprint baseline.
+						commitFingerprint();
 						return delegate(input, init);
 					},
 					onPayload: async (raw, model) => {
@@ -109,7 +112,7 @@ export function chatGPTStream(background: () => boolean, lifecycle?: ChatGPTDisp
 						check();
 						capturePreparedBackgroundPayload(payload, logicalModel);
 						// Cache-miss diagnostics: fingerprint exactly the body being sent.
-						notePreparedResponsesPayload(payload);
+						commitFingerprint = notePreparedResponsesPayload(payload);
 						return payload;
 					},
 					onProviderStreamEvent: async (raw, model) => {
