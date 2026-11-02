@@ -23,6 +23,7 @@ import { QUESTION_TOOLS } from "../core/pending.ts";
 import { planBlocksFor } from "../core/plan-blocks.ts";
 import { coverageOf } from "../core/coverage.ts";
 import type { ChatStore, GraphStore } from "../core/ports.ts";
+import type { TurnUsage } from "../core/contracts.ts";
 import type { ExtractionPipeline } from "../agent/subagents/extraction.ts";
 import { ModelsNotConfiguredError, ProviderKeyMissingError } from "../core/settings.ts";
 
@@ -63,6 +64,29 @@ export function persistTurn(
 	turnMessages: readonly AgentMessage[],
 	isAborted: boolean,
 ): LhMessage[] {
+	return persistSettledTurn(chatStore, chatId, baseCount, turnMessages, isAborted).stamped;
+}
+
+/**
+ * persistTurn plus the turn's usage entry in the SAME atomic record write
+ * (one full serialization per settled reply instead of two). usageFor
+ * builds the entry from the stamped messages (undefined = nothing to log).
+ *
+ * The messages stay the canonical save: if building the entry or the
+ * combined write fails, the messages are saved alone and the usage failure
+ * comes back as usageError (never thrown here) — the caller reports it
+ * after its own post-save bookkeeping, exactly where the separate
+ * appendTurnUsage used to fail. Only a failed messages save throws
+ * TurnPersistenceError.
+ */
+export function persistSettledTurn(
+	chatStore: ChatStore,
+	chatId: string,
+	baseCount: number,
+	turnMessages: readonly AgentMessage[],
+	isAborted: boolean,
+	usageFor?: (stamped: readonly LhMessage[]) => TurnUsage | undefined,
+): { stamped: LhMessage[]; usageError?: unknown } {
 	try {
 		const record = chatStore.getChat(chatId);
 		if (!record) throw new Error(`Chat not found: ${chatId}`);
@@ -84,8 +108,24 @@ export function persistTurn(
 			...record.messages,
 			...stamped,
 		]);
-		chatStore.saveMessages(chatId, [...record.messages, ...stamped, ...blocks]);
-		return stamped;
+		const messages = [...record.messages, ...stamped, ...blocks];
+		let usage: TurnUsage | undefined;
+		let usageError: unknown;
+		try {
+			usage = usageFor?.(stamped);
+		} catch (err) {
+			usageError = err;
+		}
+		if (usage) {
+			try {
+				chatStore.saveMessages(chatId, messages, usage);
+				return { stamped };
+			} catch (err) {
+				usageError = err;
+			}
+		}
+		chatStore.saveMessages(chatId, messages);
+		return usageError === undefined ? { stamped } : { stamped, usageError };
 	} catch (err) {
 		console.error(`[chat ${chatId}] persist failed:`, err, { isAborted });
 		throw new TurnPersistenceError(err);

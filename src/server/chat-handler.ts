@@ -45,7 +45,7 @@ import { modelsNotConfigured, providerKeyMissing as providerKeyMissingEnvelope, 
 import { beginTurn, endTurn } from "./turn-liveness.ts";
 import { applyParkedDismissal } from "./dismissal-park.ts";
 import { registerTurn, rememberTurnFailure, unregisterTurn } from "./turn-runs.ts";
-import { persistTurn, triggerExtraction, TurnPersistenceError } from "./turn-service.ts";
+import { persistSettledTurn, triggerExtraction, TurnPersistenceError } from "./turn-service.ts";
 import { hasProbeDone, hasUnresolvedQuestion } from "../core/native-messages.ts";
 import { withTeachingStyle } from "../core/cram.ts";
 import { composeInstructions } from "../agent/teacher-agent.ts";
@@ -587,21 +587,21 @@ export async function handleChatInput(
 			onFinish: (turnMessages, isAborted) => {
 				// Wave B: append only messages past the temporary agent prefix.
 				// Retry's saved record still includes its earlier failed attempts.
-				const stamped = persistTurn(stores.chatStore, chatId, persistBaseCount, turnMessages, isAborted);
-				noteSteersDurable(chatId, stores.chatStore.getChat(chatId)?.messages ?? stamped);
 				// usage log append (idempotent per turn id) — the stats bar
 				// refolds this on the client after the turn settles. The
 				// provenance message is the turn's FIRST new assistant message.
-				const response = stamped.find((m) => (m as { role?: string }).role === "assistant");
-				if (response && steps.length > 0) {
-					stores.chatStore.appendTurnUsage(chatId, {
-						id: turnUsageId,
-						messageId: response.id,
-						at: new Date().toISOString(),
-						model: modelId,
-						steps,
-					});
-				}
+				// It rides the messages' own atomic write (one full record
+				// serialization per reply); a usage failure still saves the
+				// messages and surfaces below, after the steer bookkeeping —
+				// where the separate usage append used to fail.
+				const { stamped, usageError } = persistSettledTurn(stores.chatStore, chatId, persistBaseCount, turnMessages, isAborted, (saved) => {
+					const response = saved.find((m) => (m as { role?: string }).role === "assistant");
+					return response && steps.length > 0
+						? { id: turnUsageId, messageId: response.id, at: new Date().toISOString(), model: modelId, steps }
+						: undefined;
+				});
+				noteSteersDurable(chatId, stores.chatStore.getChat(chatId)?.messages ?? stamped);
+				if (usageError !== undefined) throw usageError;
 				// GRAPH GATE (settings-storage wave, 2026-09-19): the write channel —
 				// extraction, its auditor — dies with the master switch.
 				// PRACTICE (owner, 2026-10-04): practice sessions write nothing —
