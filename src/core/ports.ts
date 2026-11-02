@@ -40,8 +40,9 @@ export interface ChatStore {
 	/** All sessions, newest activity first (the sidebar's list view). */
 	listChats(): ChatSummary[];
 	/** Persist the full native message list (the record IS the agent
-	 * state — Wave B, owner-approved 2026-09-26). */
-	saveMessages(id: string, messages: LhMessage[]): void;
+	 * state — Wave B, owner-approved 2026-09-26). A usage entry, when given,
+	 * is appended exactly as appendTurnUsage would, in the same write. */
+	saveMessages(id: string, messages: LhMessage[], usage?: TurnUsage): void;
 	/** Persist the session plan tree (plan tools call this in execute). */
 	saveTree(id: string, tree: PlanTree): void;
 	/** Append one usage entry to the record's turn log (the money channel,
@@ -92,6 +93,8 @@ export interface GraphStore {
 	 *  checkpoint — "uncovered" is derived from these, never tracked. */
 	appendCoverage(entry: CoverageEntry): void;
 	readCoverage(): CoverageEntry[];
+	/** One chat's rows of readCoverage, in ledger order. */
+	readChatCoverage(chatId: string): CoverageEntry[];
 
 	/** Append one cluster-naming run's usage (graph-global money channel) —
 	 *  idempotent per startedAt. */

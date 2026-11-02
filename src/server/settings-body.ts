@@ -115,6 +115,10 @@ export function parseGeneralSettingsBody(body: unknown): SettingsBodyResult<Gene
 		if (typeof raw.cramShortProbe !== "boolean") return { ok: false, error: "cramShortProbe must be a boolean" };
 		settings.cramShortProbe = raw.cramShortProbe;
 	}
+	if (raw.sharedHandoffPrefix !== undefined) {
+		if (typeof raw.sharedHandoffPrefix !== "boolean") return { ok: false, error: "sharedHandoffPrefix must be a boolean" };
+		settings.sharedHandoffPrefix = raw.sharedHandoffPrefix;
+	}
 	if (raw.revealQuestions !== undefined) {
 		if (!(REVEAL_QUESTIONS as readonly unknown[]).includes(raw.revealQuestions))
 			return { ok: false, error: `revealQuestions must be one of ${REVEAL_QUESTIONS.join(", ")}` };

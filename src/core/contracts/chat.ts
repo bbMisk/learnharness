@@ -160,8 +160,29 @@ export interface TurnUsage {
 	 * for key-independent Pi catalog lookup at read time. */
 	model: string;
 	/** One entry per agent step (model call) in this turn. */
-	steps: CallUsage[];
+	steps: TurnStepUsage[];
 }
+
+/** Cache-miss diagnostics (2026-11-01): a compact fingerprint of the request
+ * a conversation step actually sent, so a mostly-missed prompt cache can be
+ * told apart from the saved usage alone — the REQUEST changed (our fault) or
+ * the provider missed (eviction/routing). Computed only where the final
+ * provider body is observable (today: the ChatGPT adapter's prepared
+ * payload); absent elsewhere and on records written before it existed. */
+export interface RequestFingerprint {
+	/** 12 hex of sha256 over the instructions/system prompt and the tool
+	 *  definitions as sent. */
+	promptHash: string;
+	/** True when this request's history starts with the previous request's
+	 *  full history for the same chat (same model and promptHash, earlier
+	 *  input an exact prefix); false otherwise. Absent on the chat's first
+	 *  fingerprinted call in this process. */
+	extendsPrevious?: boolean;
+}
+
+/** One conversation step: its token accounting plus, when computable, the
+ * request fingerprint. Both fields stay optional — old records load as-is. */
+export interface TurnStepUsage extends CallUsage, Partial<RequestFingerprint> {}
 
 // ─── Plan blocks (the plan lives in the chat) ────────────────────────────────
 

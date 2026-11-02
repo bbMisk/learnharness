@@ -269,14 +269,17 @@ function listChats(): ChatSummary[] {
 
 /** Persist the full native message list (the record IS the agent state —
  *  Wave B: replay is state.messages = record.messages). SILENT by the
- *  events law — see the SILENCE LAW comment at createChat. */
-function saveMessages(id: string, messages: LhMessage[]): void {
+ *  events law — see the SILENCE LAW comment at createChat. A settling turn
+ *  passes its usage entry too, so the messages and the usage log land in
+ *  ONE atomic write with exactly appendTurnUsage's result. */
+function saveMessages(id: string, messages: LhMessage[], usage?: TurnUsage): void {
 	const record = getChat(id);
 	if (!record) throw new Error(`Chat not found: ${id}`);
 	const previous = mergeLearningEvents(record.learningEvents, record.messages);
 	record.learningEvents = mergeLearningEvents(previous, messages);
 	record.messages = messages;
 	record.updatedAt = new Date().toISOString();
+	if (usage) record.turns = withTurnUsage(record.turns, usage);
 	writeChat(record);
 }
 
@@ -300,10 +303,12 @@ export function captureChatLearningHistory(id: string): number {
 function appendTurnUsage(id: string, entry: TurnUsage): void {
 	const record = getChat(id);
 	if (!record) throw new Error(`Chat not found: ${id}`);
-	record.turns = record.turns?.some((t) => t.id === entry.id)
-		? record.turns
-		: [...(record.turns ?? []), entry];
+	record.turns = withTurnUsage(record.turns, entry);
 	writeChat(record);
+}
+
+function withTurnUsage(turns: TurnUsage[] | undefined, entry: TurnUsage): TurnUsage[] {
+	return turns?.some((t) => t.id === entry.id) ? turns : [...(turns ?? []), entry];
 }
 
 /** Append one extraction-run usage entry to the record's extractions

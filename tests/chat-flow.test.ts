@@ -294,13 +294,18 @@ describe("teacher chat flow (scripted model)", () => {
 				return fauxAssistantMessage([fauxText("Recovered lesson")]);
 			}]);
 			await drainTurn(post(chat.id, { type: "continue" }), (opts) =>
-				createTeacherAgent(undefined, { engine, messages: opts.messages, onUsage: opts.onUsage }));
+				createTeacherAgent(undefined, { engine, messages: opts.messages, onUsage: opts.onUsage, chatId: opts.chatId }));
 			const saved = chatStore.getChat(chat.id)!;
 			assert.deepEqual(saved.messages.slice(0, 4), prefix, "original history including the error is unchanged");
 			assert.equal(saved.messages.length, 5);
 			assert.match(JSON.stringify(saved.messages[4]!.content), /Recovered lesson/);
 			assert.equal(requests, 1, "saved read and user answer were not replayed as actions");
 			assert.equal(saved.turns?.length, 1, "recovered response retains usage provenance");
+			// Cache-miss fingerprint: the faux engine never exposes its body, so the
+			// step keeps its usage and simply omits the fields.
+			const step = saved.turns![0]!.steps[0]!;
+			assert.equal(typeof step.inputTokens, "number");
+			assert.equal("promptHash" in step || "extendsPrevious" in step, false);
 		}
 	});
 	it("quiz tool call persists as a pending part; the answer continues the lesson", async () => {
@@ -950,8 +955,13 @@ describe("canonical persistence failures", () => {
 		const chat = createConfiguredChat("Test: post-save bookkeeping failure");
 		createdChats.push(chat.id);
 		const steer = newUserMessage("Synthetic learner steer");
-		const appendUsage = chatStore.appendTurnUsage;
-		chatStore.appendTurnUsage = () => { throw new Error("synthetic usage write failure"); };
+		// Usage rides the settlement's messages write: fail that combined
+		// write so the messages land alone and the usage failure surfaces.
+		const save = chatStore.saveMessages;
+		chatStore.saveMessages = (id, messages, usage) => {
+			if (usage) throw new Error("synthetic usage write failure");
+			save(id, messages);
+		};
 		try {
 			const body = await drainTurn(post(chat.id, { type: "text", text: "go" }), opts => {
 				const agent = createTeacherAgent(undefined, { engine, messages: opts.messages, onUsage: opts.onUsage });
@@ -967,7 +977,7 @@ describe("canonical persistence failures", () => {
 			registerLiveAgent(chat.id, next);
 			assert.deepEqual(delivered, [], "an already-saved learner steer must not reach another agent");
 		} finally {
-			chatStore.appendTurnUsage = appendUsage;
+			chatStore.saveMessages = save;
 			unregisterLiveAgent(chat.id);
 		}
 	});

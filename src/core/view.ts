@@ -123,177 +123,250 @@ function lastSuccessfulPlanInit(parts: LhViewPart[]): number {
 	return idx;
 }
 
-/** Project the native record (+ live turn working list) into the client's
- *  view messages. Pure: the same input always projects to the same list. */
-export function projectView(messages: readonly LhMessage[], live?: LiveTurnState): LhViewMessage[] {
-	const out: LhViewMessage[] = [];
-	// Output calls become text rather than tool parts, so read settled
-	// failures up front: a failed call must retain the normal error path.
+/** The active compaction marker (the cut divider's source). */
+export type ActiveCompaction = ReturnType<typeof activeCompactionOf>;
+
+/** The fold's running state. projectView owns every object it creates
+ *  (`owned` null — mutate in place). The incremental projector
+ *  (view-incremental.ts) resumes from a cached prefix whose rows it must
+ *  never mutate: `owned` then lists the objects this pass created, and
+ *  every other row/part is copied before it changes (copy-on-write). */
+export interface ViewFoldState {
+	out: LhViewMessage[];
+	owned: WeakSet<object> | null;
+	/** Every toolCallId that got a tool part (a superset is fine): a result
+	 *  for any other id has no part to land on, so it skips the scan. */
+	toolPartIds: Set<string>;
+}
+
+/** The record-wide inputs one message's projection reads. */
+export interface ViewFoldContext {
+	messages: readonly LhMessage[];
+	live?: LiveTurnState;
+	compaction: ActiveCompaction;
+	/** The settled send_to_user failure for this call id, if any. */
+	outputError(toolCallId: string): ToolResultMessage | undefined;
+}
+
+/** Settled send_to_user failures by call id (the last one wins). */
+export function outputErrorsOf(messages: readonly LhMessage[]): Map<string, ToolResultMessage> {
 	const outputErrors = new Map<string, ToolResultMessage>();
 	for (const message of messages) {
 		if (message.role === "toolResult" && message.toolName === SEND_TO_USER_TOOL && message.isError) {
 			outputErrors.set(message.toolCallId, message);
 		}
 	}
+	return outputErrors;
+}
 
-	const lastAssistant = (): LhViewMessage | undefined => {
-		const last = out[out.length - 1];
-		return last && last.role === "assistant" ? last : undefined;
-	};
-	const findToolPart = (toolCallId: string): LhViewPart | undefined => {
-		for (let i = out.length - 1; i >= 0; i--) {
-			// NEWEST-FIRST part scan within a group (the Lacan heal, 2026-10-04):
-			// a result pairs with the most RECENT call carrying its id. Unique
-			// ids (the uniquifier guarantees them for new turns) make scan order
-		// irrelevant; for legacy duplicate-id records (DeepSeek's per-response
-		// `call_0`) this routes each answer to its own call instead of letting
-		// a later result overwrite an earlier question's card.
-			const parts = out[i]!.parts;
-			for (let p = parts.length - 1; p >= 0; p--) {
-				const part = parts[p]!;
-				if (part.type.startsWith("tool-") && part.toolCallId === toolCallId) return part;
-			}
-		}
-		return undefined;
-	};
-
+/** Project the native record (+ live turn working list) into the client's
+ *  view messages. Pure: the same input always projects to the same list. */
+export function projectView(messages: readonly LhMessage[], live?: LiveTurnState): LhViewMessage[] {
+	// Output calls become text rather than tool parts, so read settled
+	// failures up front: a failed call must retain the normal error path.
+	const outputErrors = outputErrorsOf(messages);
 	// The active compaction (owner round 14): the fold emits the CUT
 	// DIVIDER — the longer, at-the-seam marker — immediately BEFORE the
 	// first kept message, so the transcript shows exactly where history
 	// was summarized away. Everything before it stays visible to the
 	// user (full history is never hidden); only the MODEL's context jumps.
-	const compaction = activeCompactionOf(messages);
+	const ctx: ViewFoldContext = {
+		messages,
+		live,
+		compaction: activeCompactionOf(messages),
+		outputError: (toolCallId) => outputErrors.get(toolCallId),
+	};
+	const state: ViewFoldState = { out: [], owned: null, toolPartIds: new Set() };
+	for (const m of messages) foldViewMessage(state, ctx, m);
+	return state.out;
+}
 
-	for (const m of messages) {
-		const role = (m as { role?: string }).role;
+/** Row `i`, safe to mutate (copied first when a cached prefix shares it). */
+function ownRow(state: ViewFoldState, i: number): LhViewMessage {
+	const row = state.out[i]!;
+	if (!state.owned || state.owned.has(row)) return row;
+	const copy = { ...row, parts: row.parts.slice() };
+	state.out[i] = copy;
+	state.owned.add(copy);
+	return copy;
+}
 
-		if (compaction && m.id === compaction.details.firstKeptMessageId) {
-			out.push({
-				id: `cut_${compaction.id}`,
-				role: "user",
-				parts: [
-					{
-						type: "data-compaction-cut",
-						id: `cc_${compaction.id}`,
-						data: { content: compaction.content, details: compaction.details },
-					},
-				],
-			});
-		}
+/** Part `p` of row `i`, safe to mutate. */
+function ownPart(state: ViewFoldState, i: number, p: number): LhViewPart {
+	const row = ownRow(state, i);
+	const part = row.parts[p]!;
+	if (!state.owned || state.owned.has(part)) return part;
+	const copy = { ...part };
+	row.parts[p] = copy;
+	state.owned.add(copy);
+	return copy;
+}
 
-		if (role === "user") {
-			const content = m.content as string | Array<{ type: string; text?: string }>;
-			const texts =
-				typeof content === "string"
-					? [content]
-					: content.filter((c) => c.type === "text").map((c) => (c as { text: string }).text);
-			out.push({ id: m.id, role: "user", parts: texts.map(textPart) });
-			continue;
-		}
+function pushRow(state: ViewFoldState, row: LhViewMessage): void {
+	state.out.push(row);
+	if (state.owned) {
+		state.owned.add(row);
+		for (const part of row.parts) state.owned.add(part);
+	}
+}
 
-		if (role === "custom") {
-			projectMarker(m as LhMarkerMessage, out);
-			continue;
-		}
-
-		if (role === "toolResult") {
-			applyResultTo(findToolPart((m as ToolResultMessage).toolCallId), m as ToolResultMessage);
-			continue;
-		}
-
-		if (role === "assistant") {
-			const assistant = m as AssistantMessage;
-			// OWNER RULING (2026-09-26): reasoning ALWAYS renders above the
-			// message it belongs to. Providers emit trailing reasoning tokens
-			// (GLM fires a final reasoning burst after the answer), which
-			// lands the thinking block AFTER the text in the persisted
-			// content — presenting arrival order verbatim put the reasoning
-			// UNDER the message. The view canon owns presentation order:
-			// stable-partition each assistant message, reasoning parts first
-			// (their own order kept), then everything else.
-			const rest: LhViewPart[] = [];
-			const reasoning: LhViewPart[] = [];
-			let textN = 0;
-			// LIVE IS POSITIVE EVIDENCE (owner, 2026-10-05): a call renders
-			// live ONLY when its own message is streaming THIS turn — session
-			// busyness alone can never resurrect a settled call (the practice
-			// bug: a thinking submission flipped the POSE turn's problem call
-			// back to a spinner mid-transcript; live cards belong at the
-			// bottom, and this gate is what puts them there by construction).
-			const streamingMessage = live?.streamingIds.has(m.id) === true;
-			for (const [contentIndex, block] of assistant.content.entries()) {
-				if (block.type === "text") {
-					rest.push({ type: "text", id: `${m.id}-t${textN++}`, text: block.text, state: "done" });
-				} else if (block.type === "thinking") {
-					// A provider can split one response into many reasoning items,
-					// including encrypted items with no display text. They are one
-					// thinking phase, not separate model requests. Native history
-					// (and its signatures) remains untouched by this projection.
-					if (!reasoning.length) reasoning.push({ type: "reasoning", id: `${m.id}-r0`, text: "", state: "done" });
-					if (block.thinking) reasoning[0]!.text = [reasoning[0]!.text, block.thinking].filter(Boolean).join("\n\n");
-				} else if (block.type === "toolCall") {
-					const part = toolPartOf(block, live, streamingMessage);
-					if ((QUESTION_TOOLS as readonly string[]).includes(block.name)) {
-						part.sourceMessageId = m.id;
-						part.sourceContentIndex = contentIndex;
-					}
-					if (block.name === SEND_TO_USER_TOOL) {
-						// Failed/aborted generations never execute their calls;
-						// the provider error/abort UI already owns that outcome.
-						if (assistant.stopReason === "error" || assistant.stopReason === "aborted") continue;
-						const error = outputErrors.get(block.id);
-						if (error) applyResult(part, error);
-						if (part.state === "output-error") {
-							rest.push(part);
-						} else {
-							const text = sendToUserText(block);
-							if (text !== undefined) {
-								rest.push({ type: "text", id: `${m.id}-t${textN++}`, text, state: "done" });
-							}
-						}
-						// No live tool card or acknowledgement: this channel is
-						// ordinary prose, including while its arguments stream.
-						continue;
-					}
-					// The conclusion's reveal join (owner round, 2026-10-05): the
-					// hero of a conclude card is the modelSolution committed at POSE
-					// time — a record fold, enriched here so the card renders pure.
-					if (block.name === PRACTICE_CONCLUDE_TOOL) {
-						const input = problemInputForConclude(messages, block.id);
-						part.reveal = typeof input?.modelSolution === "string" ? input.modelSolution : undefined;
-						part.problemInput = input;
-					}
-					rest.push(part);
-				}
-			}
-			const parts: LhViewPart[] = [...reasoning, ...rest];
-			if (parts.length === 0) {
-				// An arrived-but-silent STREAMING message (owner, optimistic
-				// round 3, 2026-10-02): the turn's first applied event can
-				// carry empty content — project ONE empty reasoning part so
-				// the message's ARRIVAL renders the thinking row (chat.tsx's
-				// Reasoning isStreamings the last part: the same spinner +
-				// shimmer as the placeholder it replaces — the handoff is
-				// seamless and the two can never double). Settled empty
-				// messages stay hidden (presentation-only).
-				if (live?.streamingIds.has(m.id)) {
-					parts.push({ type: "reasoning", id: `${m.id}-r0`, text: "", state: "done" });
-				} else {
-					continue;
-				}
-			}
-			const group = lastAssistant();
-			if (group) {
-				// Same group: the step separator renders between the steps.
-				group.parts.push({ type: "step-start" }, ...parts);
-			} else {
-				out.push({ id: m.id, role: "assistant", parts: [{ type: "step-start" }, ...parts] });
-			}
-			continue;
+/** The tool part a result pairs with, as its (row, part) location. */
+function findToolPart(state: ViewFoldState, toolCallId: string): { i: number; p: number } | undefined {
+	if (!state.toolPartIds.has(toolCallId)) return undefined;
+	const out = state.out;
+	for (let i = out.length - 1; i >= 0; i--) {
+		// NEWEST-FIRST part scan within a group (the Lacan heal, 2026-10-04):
+		// a result pairs with the most RECENT call carrying its id. Unique
+		// ids (the uniquifier guarantees them for new turns) make scan order
+		// irrelevant; for legacy duplicate-id records (DeepSeek's per-response
+		// `call_0`) this routes each answer to its own call instead of letting
+		// a later result overwrite an earlier question's card.
+		const parts = out[i]!.parts;
+		for (let p = parts.length - 1; p >= 0; p--) {
+			const part = parts[p]!;
+			if (part.type.startsWith("tool-") && part.toolCallId === toolCallId) return { i, p };
 		}
 	}
+	return undefined;
+}
 
-	return out;
+/** Fold ONE native message into the view (the body of projectView's loop). */
+export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: LhMessage): void {
+	const { out } = state;
+	const { live, compaction } = ctx;
+	const role = (m as { role?: string }).role;
+
+	if (compaction && m.id === compaction.details.firstKeptMessageId) {
+		pushRow(state, {
+			id: `cut_${compaction.id}`,
+			role: "user",
+			parts: [
+				{
+					type: "data-compaction-cut",
+					id: `cc_${compaction.id}`,
+					data: { content: compaction.content, details: compaction.details },
+				},
+			],
+		});
+	}
+
+	if (role === "user") {
+		const content = m.content as string | Array<{ type: string; text?: string }>;
+		const texts =
+			typeof content === "string"
+				? [content]
+				: content.filter((c) => c.type === "text").map((c) => (c as { text: string }).text);
+		pushRow(state, { id: m.id, role: "user", parts: texts.map(textPart) });
+		return;
+	}
+
+	if (role === "custom") {
+		projectMarker(m as LhMarkerMessage, state);
+		return;
+	}
+
+	if (role === "toolResult") {
+		const at = findToolPart(state, (m as ToolResultMessage).toolCallId);
+		applyResultTo(at && ownPart(state, at.i, at.p), m as ToolResultMessage);
+		return;
+	}
+
+	if (role === "assistant") {
+		const assistant = m as AssistantMessage;
+		// OWNER RULING (2026-09-26): reasoning ALWAYS renders above the
+		// message it belongs to. Providers emit trailing reasoning tokens
+		// (GLM fires a final reasoning burst after the answer), which
+		// lands the thinking block AFTER the text in the persisted
+		// content — presenting arrival order verbatim put the reasoning
+		// UNDER the message. The view canon owns presentation order:
+		// stable-partition each assistant message, reasoning parts first
+		// (their own order kept), then everything else.
+		const rest: LhViewPart[] = [];
+		const reasoning: LhViewPart[] = [];
+		let textN = 0;
+		// LIVE IS POSITIVE EVIDENCE (owner, 2026-10-05): a call renders
+		// live ONLY when its own message is streaming THIS turn — session
+		// busyness alone can never resurrect a settled call (the practice
+		// bug: a thinking submission flipped the POSE turn's problem call
+		// back to a spinner mid-transcript; live cards belong at the
+		// bottom, and this gate is what puts them there by construction).
+		const streamingMessage = live?.streamingIds.has(m.id) === true;
+		for (const [contentIndex, block] of assistant.content.entries()) {
+			if (block.type === "text") {
+				rest.push({ type: "text", id: `${m.id}-t${textN++}`, text: block.text, state: "done" });
+			} else if (block.type === "thinking") {
+				// A provider can split one response into many reasoning items,
+				// including encrypted items with no display text. They are one
+				// thinking phase, not separate model requests. Native history
+				// (and its signatures) remains untouched by this projection.
+				if (!reasoning.length) reasoning.push({ type: "reasoning", id: `${m.id}-r0`, text: "", state: "done" });
+				if (block.thinking) reasoning[0]!.text = [reasoning[0]!.text, block.thinking].filter(Boolean).join("\n\n");
+			} else if (block.type === "toolCall") {
+				const part = toolPartOf(block, live, streamingMessage);
+				state.toolPartIds.add(block.id);
+				if ((QUESTION_TOOLS as readonly string[]).includes(block.name)) {
+					part.sourceMessageId = m.id;
+					part.sourceContentIndex = contentIndex;
+				}
+				if (block.name === SEND_TO_USER_TOOL) {
+					// Failed/aborted generations never execute their calls;
+					// the provider error/abort UI already owns that outcome.
+					if (assistant.stopReason === "error" || assistant.stopReason === "aborted") continue;
+					const error = ctx.outputError(block.id);
+					if (error) applyResult(part, error);
+					if (part.state === "output-error") {
+						rest.push(part);
+					} else {
+						const text = sendToUserText(block);
+						if (text !== undefined) {
+							rest.push({ type: "text", id: `${m.id}-t${textN++}`, text, state: "done" });
+						}
+					}
+					// No live tool card or acknowledgement: this channel is
+					// ordinary prose, including while its arguments stream.
+					continue;
+				}
+				// The conclusion's reveal join (owner round, 2026-10-05): the
+				// hero of a conclude card is the modelSolution committed at POSE
+				// time — a record fold, enriched here so the card renders pure.
+				if (block.name === PRACTICE_CONCLUDE_TOOL) {
+					const input = problemInputForConclude(ctx.messages, block.id);
+					part.reveal = typeof input?.modelSolution === "string" ? input.modelSolution : undefined;
+					part.problemInput = input;
+				}
+				rest.push(part);
+			}
+		}
+		const parts: LhViewPart[] = [...reasoning, ...rest];
+		if (parts.length === 0) {
+			// An arrived-but-silent STREAMING message (owner, optimistic
+			// round 3, 2026-10-02): the turn's first applied event can
+			// carry empty content — project ONE empty reasoning part so
+			// the message's ARRIVAL renders the thinking row (chat.tsx's
+			// Reasoning isStreamings the last part: the same spinner +
+			// shimmer as the placeholder it replaces — the handoff is
+			// seamless and the two can never double). Settled empty
+			// messages stay hidden (presentation-only).
+			if (live?.streamingIds.has(m.id)) {
+				parts.push({ type: "reasoning", id: `${m.id}-r0`, text: "", state: "done" });
+			} else {
+				return;
+			}
+		}
+		const last = out[out.length - 1];
+		if (last && last.role === "assistant") {
+			// Same group: the step separator renders between the steps.
+			const step: LhViewPart = { type: "step-start" };
+			if (state.owned) {
+				state.owned.add(step);
+				for (const part of parts) state.owned.add(part);
+			}
+			ownRow(state, out.length - 1).parts.push(step, ...parts);
+		} else {
+			pushRow(state, { id: m.id, role: "assistant", parts: [{ type: "step-start" }, ...parts] });
+		}
+		return;
+	}
 }
 
 /** The dock-owned tools: question tools (client-owned results — the dock
@@ -380,13 +453,13 @@ function applyResultTo(part: LhViewPart | undefined, result: ToolResultMessage):
 }
 
 /** A marker's projected message (handoff/steers) or splice (plan block). */
-function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[]): void {
+function projectMarker(marker: LhMarkerMessage, state: ViewFoldState): void {
 	switch (marker.customType) {
 		case "graph-context": {
 			// The session's map context (owner, 2026-10-04): user-side —
 			// a minimal collapsible card ABOVE the first user message;
 			// never a text bubble (scaffolding, like the thinking card).
-			out.push({
+			pushRow(state, {
 				id: marker.id,
 				role: "user",
 				parts: [{ type: "data-graph-context", id: `gc_${marker.id}`, data: marker.details }],
@@ -394,7 +467,7 @@ function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[]): void {
 			return;
 		}
 		case "probe-handoff": {
-			out.push({
+			pushRow(state, {
 				id: marker.id,
 				role: "user",
 				parts: [{ type: "data-probe-handoff", id: `ph_${marker.id}`, data: marker.details }],
@@ -408,7 +481,7 @@ function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[]): void {
 				result: SubagentArtifactData["result"];
 				ui?: SubagentArtifactData["ui"];
 			};
-			out.push({
+			pushRow(state, {
 				id: marker.id,
 				role: "user",
 				metadata: { subagentResult: meta },
@@ -425,7 +498,7 @@ function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[]): void {
 		}
 		case "subagent-abort": {
 			const meta = marker.details as SubagentResultMeta & { aborted: true };
-			out.push({
+			pushRow(state, {
 				id: marker.id,
 				role: "user",
 				metadata: { subagentResult: meta },
@@ -438,7 +511,7 @@ function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[]): void {
 			// sessions): a user-side card keyed on the structured details
 			// (problemCallId, commit, text) — the register lives in the card,
 			// not re-parsed from content.
-			out.push({
+			pushRow(state, {
 				id: marker.id,
 				role: "user",
 				parts: [{ type: "data-practice-thinking", id: `pt_${marker.id}`, data: marker.details }],
@@ -450,7 +523,7 @@ function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[]): void {
 			// centered system line — the mono-caps chrome register, not prose.
 			// The model reads the marker's content; the transcript never shows
 			// it (the label is chrome, single-sourced in the renderer).
-			out.push({
+			pushRow(state, {
 				id: marker.id,
 				role: "user",
 				parts: [{ type: "data-practice-next", id: `pn_${marker.id}`, data: null }],
@@ -467,7 +540,7 @@ function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[]): void {
 			// (the marker appends at the record's tail). Clicking opens the
 			// full summary. The cut divider is emitted by the fold loop at
 			// the kept boundary (see projectView).
-			out.push({
+			pushRow(state, {
 				id: marker.id,
 				role: "user",
 				parts: [
@@ -483,12 +556,14 @@ function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[]): void {
 		case "plan-block": {
 			// No message of its own: splice into the preceding assistant
 			// group, IN FLOW after the last successful plan_init call.
-			const group = out[out.length - 1];
+			const group = state.out[state.out.length - 1];
 			if (!group || group.role !== "assistant") return;
 			const idx = lastSuccessfulPlanInit(group.parts);
 			if (idx === -1) return;
 			const { block } = marker.details as { planCallId: string; block: PlanBlockData };
-			group.parts.splice(idx + 1, 0, { type: "data-plan-block", id: marker.id, data: block });
+			const part: LhViewPart = { type: "data-plan-block", id: marker.id, data: block };
+			state.owned?.add(part);
+			ownRow(state, state.out.length - 1).parts.splice(idx + 1, 0, part);
 			return;
 		}
 	}

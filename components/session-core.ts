@@ -25,7 +25,7 @@ import {
 	newProblemDismissedMarker,
 	newThinkingMessage,
 	newUserMessage,
-	projectView,
+	createViewProjector,
 	type ChatInput,
 	type LhMarkerMessage,
 	type LhMessage,
@@ -267,6 +267,9 @@ export class SessionModel {
 	private incompleteUsageIds = new Set<string>();
 	/** The in-flight assistant message's client id (see applyWireEvent). */
 	private streamingMessageId: string | null = null;
+	/** projectView with the settled prefix cached: a streaming update
+	 *  re-projects the changing tail, not the whole history. */
+	private readonly projector = createViewProjector();
 	private statusValue: SessionStatus = "ready";
 	/** Request/loop failures are transient; provider failures derive from messages. */
 	private errorValue: { message: string } | null = null;
@@ -320,7 +323,7 @@ export class SessionModel {
 				? { message: latest.errorMessage ?? "An error occurred." }
 				: null;
 		return {
-			messages: projectView(messages, live),
+			messages: this.projector.project(messages, live),
 			nativeMessages: messages,
 			hasConfirmedConversation: this.base.some(m => m.role === "user" || m.role === "assistant"),
 			contextTokens: measuredContextTokens(messages, this.incompleteUsageIds),

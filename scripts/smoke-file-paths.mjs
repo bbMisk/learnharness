@@ -96,7 +96,8 @@ async function open(target, route) {
 	await target.goto(origin + route, { waitUntil: "domcontentloaded", timeout: 120000 });
 	await target.waitForSelector(inputSelector);
 	await target.waitForFunction(() => !document.querySelector('[data-testid="setup-cta"], [data-testid="setup-cta-keys"]'));
-	await target.waitForFunction(() => document.querySelector('[data-testid="file-path-drop-zone"]'));
+	// GlobalFileDrop (window-level) owns drops; fields register via useFileDrop.
+	await target.waitForSelector("[data-file-drop-id]");
 }
 async function read(target, selector = inputSelector) {
 	return target.$eval(selector, element => [...element.childNodes].map(node => node.nodeType === 1 ? node.getAttribute("data-file-path-source") ?? node.textContent : node.textContent).join(""));
@@ -146,8 +147,11 @@ async function clipboardCommand(target, command, key, modifiers = 4) {
 	try { await session.send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: key ?? (command === "copy" ? "c" : "v"), modifiers, commands: [command] }); }
 	finally { await session.detach(); }
 }
-async function syntheticDrop(target, paths, selector = '[data-testid="file-path-drop-zone"]') {
-	return target.$eval(selector, (zone, paths) => {
+/** Drops at the centre of `selector`. The global owner routes by the field
+ * under the pointer; dropping on the sidebar (`aside`) falls back to the
+ * focused, else highest-priority, field. */
+async function syntheticDrop(target, paths, selector = inputSelector) {
+	return target.$eval(selector, (element, paths) => {
 		const transfer = new DataTransfer();
 		window.__syntheticPaths = new WeakMap();
 		window.lh = { platform: "darwin", getPathForFile(file) { return window.__syntheticPaths.get(file) ?? ""; } };
@@ -157,8 +161,9 @@ async function syntheticDrop(target, paths, selector = '[data-testid="file-path-
 			for (const method of ["text", "arrayBuffer", "stream"]) Object.defineProperty(file, method, { value() { throw new Error("File bytes must not be read"); } });
 			transfer.items.add(file);
 		}
-		const event = new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer });
-		zone.dispatchEvent(event); return event.defaultPrevented;
+		const box = element.getBoundingClientRect();
+		const event = new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer, clientX: box.left + box.width / 2, clientY: box.top + box.height / 2 });
+		element.dispatchEvent(event); return event.defaultPrevented;
 	}, paths);
 }
 async function blur(target) { await target.evaluate(() => { document.activeElement?.blur(); }); }
@@ -220,21 +225,18 @@ try {
 	const token = "`/synthetic/course notes.pdf`";
 	for (const route of ["/", "/chat/new"]) {
 		await open(page, route);
-		// Sidebar drops prevent browser navigation but must not stage paths or
-		// activate the right-content attachment indicator.
+		// The global drop owner covers the sidebar too: a file drag anywhere
+		// prevents browser navigation and shows the shield until it leaves.
+		// No drop here: browser mode would upload the bytes.
 		assert.equal(await page.$eval("aside", sidebar => {
 			const transfer = new DataTransfer(); transfer.items.add(new File(["not uploaded"], "sidebar.pdf"));
-			const event = new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }); sidebar.dispatchEvent(event); return event.defaultPrevented;
+			sidebar.dispatchEvent(new DragEvent("dragenter", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+			const event = new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: transfer }); sidebar.dispatchEvent(event); return event.defaultPrevented;
 		}), true);
-		assert.equal(await page.$('[data-testid="file-path-drop-indicator"]'), null);
+		await page.waitForSelector('[data-testid="app-file-drop-overlay"]');
+		await page.$eval("aside", sidebar => sidebar.dispatchEvent(new DragEvent("dragleave", { bubbles: true, dataTransfer: new DataTransfer() })));
+		await page.waitForFunction(() => !document.querySelector('[data-testid="app-file-drop-overlay"]'));
 		await expectValue(page, "");
-		// Browser mode has no bridge: prevent file navigation with a clear notice.
-		const prevented = await page.$eval('[data-testid="file-path-drop-zone"]', zone => {
-			const transfer = new DataTransfer(); transfer.items.add(new File(["not uploaded"], "notes.pdf"));
-			const event = new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }); zone.dispatchEvent(event); return event.defaultPrevented;
-		});
-		assert.equal(prevented, true);
-		await page.waitForFunction(() => document.querySelector('[role="status"]')?.textContent.includes("desktop app"));
 		await fill(page, "read "); await page.keyboard.type(token + " now");
 		await expectValue(page, `read ${token} now`);
 		assert.equal(await page.$$eval('[data-file-path-input] [role="img"]', elements => elements.length), 1);
@@ -268,9 +270,10 @@ try {
 		await clipboardCommand(page, "paste");
 		await expectValue(page, 'read <img src=x onerror="alert(1)">\n中 now');
 		assert.equal(await page.$('[data-file-path-input] img'), null);
-		await fill(page, "readthis"); await caret(page, 4);
+		// useFileDrop appends one JSON-quoted full path per line.
+		await fill(page, "readthis");
 		assert.equal(await syntheticDrop(page, ["/synthetic/one.pdf", "~/two`final.pdf"]), true);
-		await expectValue(page, "read `/synthetic/one.pdf` ``~/two`final.pdf`` this");
+		await expectValue(page, 'readthis\n"/synthetic/one.pdf"\n"~/two`final.pdf"');
 		assert.equal(posts.length, 0, "typing/paste/drop must never submit");
 		await fill(page, "one visible line"); await caret(page, "one visible line".length);
 		const beforeNewline = await page.$eval(inputSelector, element => element.getBoundingClientRect().height);
@@ -290,8 +293,8 @@ try {
 		catch (error) { visualFailures.push({ route, message: error.message }); }
 		assert.equal(posts.length, 0, "Shift+Enter is a newline, never submit");
 		await fill(page, "composer fallback"); await blur(page);
-		await syntheticDrop(page, ["/synthetic/default.pdf"]);
-		await expectValue(page, "composer fallback `/synthetic/default.pdf`");
+		await syntheticDrop(page, ["/synthetic/default.pdf"], "aside");
+		await expectValue(page, 'composer fallback\n"/synthetic/default.pdf"');
 		// Small viewport: wrapped multiline content stays scrollable inside its editor.
 		await page.setViewport({ width: 900, height: 520 });
 		await fill(page, (`${token} a long synthetic line wrapping at narrow widths.\n`).repeat(24));
@@ -301,7 +304,7 @@ try {
 		assert.ok(sizing.bodyWidth <= sizing.viewport + 1, JSON.stringify(sizing));
 		const screenshot = path.join(home, `chrome-${route === "/" ? "home" : "new"}.png`); await page.screenshot({ path: screenshot }); screenshots.push({ surface: route, bytes: fs.statSync(screenshot).size, sizing });
 		await page.setViewport({ width: 1280, height: 900 });
-		checks.push(`${route}: native typing/chips/arrows/deletion/undo-redo/full-source clipboard/plaintext paste/caret drop/newlines/wrap-scroll`);
+		checks.push(`${route}: native typing/chips/arrows/deletion/undo-redo/full-source clipboard/plaintext paste/global drop/newlines/wrap-scroll`);
 	}
 	// Only an explicit Enter may initiate a send; agent endpoint is refused.
 	await fill(page, "explicit synthetic send `/synthetic/one.pdf`");
@@ -323,44 +326,43 @@ try {
 	assert.equal(await page.$eval('[data-testid="user-message"] [role="img"]', chip => chip.title), "/synthetic/transcript notes.pdf");
 	assert.equal(await page.$eval('[data-testid="user-message"] [role="img"]', chip => chip.textContent), "transcript notes.pdf");
 	checks.push("Seeded sent learner message renders a filename chip with full-path title; raw record retains quoted full path");
-	await blur(page); await syntheticDrop(page, ["/synthetic/reading.pdf"]);
-	await expectValue(page, "`/synthetic/reading.pdf`", reading);
+	// GlobalFileDrop routes to the visible field under the pointer, else the
+	// last-focused field, else the highest priority (useFileDrop `priority`).
+	await syntheticDrop(page, ["/synthetic/reading.pdf"], reading);
+	await expectValue(page, '"/synthetic/reading.pdf"', reading);
 	assert.equal(await read(page, question), "");
-	checks.push("Unrevealed teaching check: unfocused drop lands in reading-thinking via dictation registry");
+	checks.push("Unrevealed teaching check: a drop on reading-thinking lands there only");
 	await page.locator('[data-testid="teach-check-reveal"]').click();
 	await page.waitForSelector(question, { visible: true });
-	await fill(page, "AB", reading); await caret(page, 1, reading);
-	await syntheticDrop(page, ["/synthetic/focused-reading.pdf"]);
-	await expectValue(page, "A `/synthetic/focused-reading.pdf` B", reading);
-	assert.equal(await read(page, question), "", "focused reading field overrides opened question default");
-	await blur(page); await syntheticDrop(page, ["/synthetic/question.pdf"]);
-	await expectValue(page, "`/synthetic/question.pdf`", question);
-	checks.push("Opened teaching check: current reading focus wins; otherwise default routes to question-thinking");
+	await fill(page, "AB", reading);
+	await syntheticDrop(page, ["/synthetic/focused-reading.pdf"], "aside");
+	await expectValue(page, 'AB\n"/synthetic/focused-reading.pdf"', reading);
+	assert.equal(await read(page, question), "", "focused reading field receives a drop from outside any field");
+	await syntheticDrop(page, ["/synthetic/question.pdf"], question);
+	await expectValue(page, '"/synthetic/question.pdf"', question);
+	assert.equal(await read(page, reading), 'AB\n"/synthetic/focused-reading.pdf"', "the field under the pointer wins over the focused field");
+	checks.push("Opened teaching check: focused reading receives outside drops; a drop on question-thinking lands there");
 	if (await foldDock(page, '[data-testid="question-dock-bar"]')) {
-		await blur(page); await syntheticDrop(page, ["/synthetic/collapsed-question.pdf"]);
-		await expectValue(page, "`/synthetic/question.pdf` `/synthetic/collapsed-question.pdf`", question);
 		await page.locator('[data-testid="question-dock-bar"]').click();
 		await page.waitForSelector(question, { visible: true });
-		assert.equal(await read(page, question), "`/synthetic/question.pdf` `/synthetic/collapsed-question.pdf`");
-		checks.push("Collapsed revealed teaching dock keeps question-thinking claim/state through expansion");
+		assert.equal(await read(page, question), '"/synthetic/question.pdf"');
+		checks.push("Collapsed revealed teaching dock keeps the dropped question-thinking path through expansion");
 	}
 	await open(page, "/chat/path_probe"); await page.waitForSelector(question, { visible: true });
-	await blur(page); await syntheticDrop(page, ["/synthetic/probe.pdf"]);
-	await expectValue(page, "`/synthetic/probe.pdf`", question);
-	checks.push("Probe-phase pending question default routes to question-thinking");
+	await syntheticDrop(page, ["/synthetic/probe.pdf"], question);
+	await expectValue(page, '"/synthetic/probe.pdf"', question);
+	checks.push("Probe-phase pending question: a drop on question-thinking lands there");
 	await open(page, "/chat/path_practice"); await page.waitForSelector(practice, { visible: true });
-	await blur(page); await syntheticDrop(page, ["/synthetic/practice.pdf"]);
-	await expectValue(page, "`/synthetic/practice.pdf`", practice);
-	checks.push("Expanded practice thinking is the unfocused drop default");
+	await syntheticDrop(page, ["/synthetic/practice.pdf"], practice);
+	await expectValue(page, '"/synthetic/practice.pdf"', practice);
+	checks.push("Expanded practice thinking: a drop on it lands there");
 	if (await foldDock(page, '[data-testid="practice-dock-bar"]')) {
-		await blur(page); await syntheticDrop(page, ["/synthetic/collapsed-practice.pdf"]);
 		// Practice keeps the owning hook/state mounted, but hides its field
 		// by returning the bar. Inspect the controlled text after expansion.
-		assert.equal(await page.$('[role="status"]'), null, "successful attachment has no confirmation bubble");
 		await page.locator('[data-testid="practice-dock-bar"]').click();
 		await page.waitForSelector(practice, { visible: true });
-		await expectValue(page, "`/synthetic/practice.pdf` `/synthetic/collapsed-practice.pdf`", practice);
-		checks.push("Collapsed practice thinking keeps its claim/state through expansion without submission");
+		await expectValue(page, '"/synthetic/practice.pdf"', practice);
+		checks.push("Collapsed practice thinking keeps the dropped path through expansion without submission");
 	}
 	assert.equal(posts.length, 1, "all claim/drop cases stage text only");
 
@@ -392,23 +394,22 @@ try {
 		return { count: input.files.length, actual: window.lh.getPathForFile(input.files[0]), virtual: window.lh.getPathForFile(new File(["virtual"], "/not/a/backing/path.pdf")) };
 	});
 	assert.equal(resolved.count, 1); assert.equal(resolved.actual, fixturePath); assert.equal(resolved.virtual, "");
-	await fill(desktopPage, "readthis"); await caret(desktopPage, 4);
+	await fill(desktopPage, "readthis");
 	const beforeDesktopDrop = posts.length;
-	assert.equal(await desktopPage.evaluate(() => {
+	assert.equal(await desktopPage.$eval(inputSelector, field => {
 		const file = document.querySelector("#os-backed-fixture").files[0];
 		for (const method of ["text", "arrayBuffer", "stream"]) Object.defineProperty(file, method, { value() { throw new Error("No file content read"); } });
 		const transfer = new DataTransfer(); transfer.items.add(file);
-		const event = new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer });
-		document.querySelector('[data-testid="file-path-drop-zone"]').dispatchEvent(event); return event.defaultPrevented;
+		const box = field.getBoundingClientRect();
+		const event = new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer, clientX: box.left + box.width / 2, clientY: box.top + box.height / 2 });
+		field.dispatchEvent(event); return event.defaultPrevented;
 	}), true);
-	const expectedQuoted = "``" + fixturePath + "``";
-	await expectValue(desktopPage, `read ${expectedQuoted} this`);
-	assert.equal(await desktopPage.$eval('[data-file-path-input] [role="img"]', chip => chip.title), fixturePath);
+	await expectValue(desktopPage, `readthis\n${JSON.stringify(fixturePath)}`);
 	assert.equal(posts.length, beforeDesktopDrop, "actual OS-backed desktop drop must stage only");
 	assert.equal(await desktopPage.$('[role="status"]'), null, "successful desktop attachment has no confirmation bubble");
 	assert.ok(fs.existsSync(fixturePath));
 	assert.deepEqual(fs.readdirSync(path.join(home, "data")).filter(name => /upload|attachment/i.test(name)), []);
-	checks.push("Actual Electron production preload: Puppeteer-selected OS-backed File resolves exact Unicode/backtick full path; virtual File returns empty; real DataTransfer drop inserts at caret without submit or file reads");
+	checks.push("Actual Electron production preload: Puppeteer-selected OS-backed File resolves exact Unicode/backtick full path; virtual File returns empty; real DataTransfer drop appends the quoted full path without submit, upload or file reads");
 	assert.deepEqual(errors, []);
 	console.log(JSON.stringify({ checks, visualFailures, coverageFailures, screenshots, desktopLaunch, postsIntercepted: posts.length, blockedExternalRequests: blocked, isolation: "temporary HOME/data/auth/browser+Electron profiles; synthetic catalog; agent POSTs refused; no providers", origin }, null, 2));
 	assert.deepEqual(visualFailures, [], "Visible trailing-newline/caret projection must pass");

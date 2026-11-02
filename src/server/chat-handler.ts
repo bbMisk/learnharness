@@ -7,6 +7,7 @@ import {
 	type AgentBuildOptions,
 	type TeachingAgent,
 } from "../agent/teacher-agent.ts";
+import { createProberTools, type ProberToolContext } from "../agent/tools.ts";
 import { piEngineForSpec, type PiEngine } from "../agent/models.ts";
 import { connectionBackgroundAllowed as subscriptionBackgroundAllowed, connectionScopeCurrent, isSubscriptionProvider } from "../agent/subscription-connections.ts";
 import { nativeSubscriptionError } from "../agent/subscription-stream.ts";
@@ -45,7 +46,7 @@ import { modelsNotConfigured, providerKeyMissing as providerKeyMissingEnvelope, 
 import { beginTurn, endTurn } from "./turn-liveness.ts";
 import { applyParkedDismissal } from "./dismissal-park.ts";
 import { registerTurn, rememberTurnFailure, unregisterTurn } from "./turn-runs.ts";
-import { persistTurn, triggerExtraction, TurnPersistenceError } from "./turn-service.ts";
+import { persistSettledTurn, triggerExtraction, TurnPersistenceError } from "./turn-service.ts";
 import { hasProbeDone, hasUnresolvedQuestion } from "../core/native-messages.ts";
 import { withTeachingStyle } from "../core/cram.ts";
 import { composeInstructions } from "../agent/teacher-agent.ts";
@@ -63,7 +64,7 @@ import {
 	type TurnInput,
 } from "../core/input-events.ts";
 import { steerDelivered } from "../core/contracts.ts";
-import type {CallUsage} from "../core/contracts.ts";
+import type { RequestFingerprint, TurnStepUsage } from "../core/contracts.ts";
 
 /**
  * One chat turn over the server-owned native record. Framework-free (plain
@@ -162,6 +163,24 @@ function retentionForSlot(slot: ModelSlotName) {
 }
 
 setJobRespawn((jobId) => void jobRunner.runJob(jobId));
+
+/** One conversation step's persisted usage (the money channel), plus the
+ *  request fingerprint when the engine could observe the body it sent
+ *  (cache-miss diagnostics). Without one the fields stay ABSENT, never
+ *  undefined-valued, so old and new steps read the same way. */
+export function turnStepUsage(usage: Usage, request?: RequestFingerprint): TurnStepUsage {
+	return {
+		inputTokens: usage.input,
+		outputTokens: usage.output,
+		cacheReadTokens: usage.cacheRead,
+		cacheWriteTokens: usage.cacheWrite,
+		cacheWrite1hTokens: usage.cacheWrite1h ?? 0,
+		// Optional in pi's Usage — persisted as 0, never dropped.
+		reasoningTokens: usage.reasoning ?? 0,
+		...(request ? { promptHash: request.promptHash } : {}),
+		...(request?.extendsPrevious !== undefined ? { extendsPrevious: request.extendsPrevious } : {}),
+	};
+}
 
 /** The route-facing entry: parse {chatId, input} and run one turn. */
 export async function handleChatRequest(
@@ -393,17 +412,9 @@ export async function handleChatInput(
 	// message_end events. Every model call's usage lands in the chat record's
 	// append-only turns log at onFinish — idempotent per turn id.
 	const turnUsageId = crypto.randomUUID();
-	const steps: CallUsage[] = [];
-	const collectUsage = (usage: Usage) => {
-		steps.push({
-			inputTokens: usage.input,
-			outputTokens: usage.output,
-			cacheReadTokens: usage.cacheRead,
-			cacheWriteTokens: usage.cacheWrite,
-			cacheWrite1hTokens: usage.cacheWrite1h ?? 0,
-			// Optional in pi's Usage — persisted as 0, never dropped.
-			reasoningTokens: usage.reasoning ?? 0,
-		});
+	const steps: TurnStepUsage[] = [];
+	const collectUsage = (usage: Usage, request?: RequestFingerprint) => {
+		steps.push(turnStepUsage(usage, request));
 	};
 
 	// AGENT CONSTRUCTION BRANCH (docs/probe-teach-split.md §2): the transcript
@@ -421,6 +432,23 @@ export async function handleChatInput(
 	// Provider-qualified stamp (model slots wave): matches the price table's
 	// provider:id keys.
 	const modelId = `${engine.model.provider}:${engine.model.id}`;
+	// The prober's tool context: the prober itself, and the shared handoff's
+	// rebuild of the prober's prefix for the teacher (same registry, same gates).
+	const proberContext = (): ProberToolContext => ({
+		chatId,
+		chatStore: stores.chatStore,
+		deliver: (steer) => void deliverJobResult(steer),
+		// Fix wave (2026-09-20): the prober carries research + pdf
+		// dispatch (owner ruling — phase-omnipresent), so its ctx
+		// needs the same job wiring as the teacher's.
+		jobStore: stores.jobStore,
+		spawn: (job, input) => void jobRunner.runJob(job.id, input),
+		searchAvailable,
+		// The map reader (wave 7): the prober reads the learner's
+		// knowledge graph through tools when the gate opens —
+		// graph master switch AND the agent.graphTools toggle.
+		...(graphToolsEnabled(effective) ? { graphStore: stores.graphStore } : {}),
+	});
 	// Tests inject a factory: the agent is stateless per turn, so each
 	// request builds a fresh one off the record — the factory mirrors that
 	// seam exactly. Wave B: the record IS the agent state (native messages;
@@ -459,6 +487,16 @@ export async function handleChatInput(
 		// prompt fresh per turn, swapping in any enabled override segments.
 		promptSwitches: effective.agent.prompts,
 		projectContext: withTeachingStyle(projectContext, { ...record, messages: agentMessages }, effective.general.cramShortProbe),
+		// SHARED HANDOFF PREFIX (opt-in experiment, Settings → General): the
+		// teacher keeps the prober's request prefix (agent/shared-handoff.ts),
+		// rebuilt from the record every run — the prober's registry and its
+		// pre-probe_done project context (cram's probe variant included).
+		...(teaching && record.kind !== "practice" && effective.general.sharedHandoffPrefix
+			? { sharedHandoff: {
+					proberTools: Object.values(createProberTools(proberContext(), effective.agent.tools)),
+					proberProjectContext: withTeachingStyle(projectContext, { ...record, messages: [] }, effective.general.cramShortProbe),
+				} }
+			: {}),
 	};
 	// PRACTICE BRANCH (owner design, 2026-10-04): a kind:"practice"
 	// session builds the practitioner from turn 1 — no prober→teacher
@@ -504,24 +542,7 @@ export async function handleChatInput(
 					},
 					agentOpts,
 				)
-			: createProberAgent(
-					{
-						chatId,
-						chatStore: stores.chatStore,
-						deliver: (steer) => void deliverJobResult(steer),
-						// Fix wave (2026-09-20): the prober carries research + pdf
-						// dispatch (owner ruling — phase-omnipresent), so its ctx
-						// needs the same job wiring as the teacher's.
-						jobStore: stores.jobStore,
-						spawn: (job, input) => void jobRunner.runJob(job.id, input),
-						searchAvailable,
-						// The map reader (wave 7): the prober reads the learner's
-						// knowledge graph through tools when the gate opens —
-						// graph master switch AND the agent.graphTools toggle.
-						...(graphToolsEnabled(effective) ? { graphStore: stores.graphStore } : {}),
-					},
-					agentOpts,
-				);
+			: createProberAgent(proberContext(), agentOpts);
 
 	// A test-injected agent gets no usage collector (tests assert the
 	// transcript, not the money channel); when it's ours, usage flows through
@@ -587,21 +608,21 @@ export async function handleChatInput(
 			onFinish: (turnMessages, isAborted) => {
 				// Wave B: append only messages past the temporary agent prefix.
 				// Retry's saved record still includes its earlier failed attempts.
-				const stamped = persistTurn(stores.chatStore, chatId, persistBaseCount, turnMessages, isAborted);
-				noteSteersDurable(chatId, stores.chatStore.getChat(chatId)?.messages ?? stamped);
 				// usage log append (idempotent per turn id) — the stats bar
 				// refolds this on the client after the turn settles. The
 				// provenance message is the turn's FIRST new assistant message.
-				const response = stamped.find((m) => (m as { role?: string }).role === "assistant");
-				if (response && steps.length > 0) {
-					stores.chatStore.appendTurnUsage(chatId, {
-						id: turnUsageId,
-						messageId: response.id,
-						at: new Date().toISOString(),
-						model: modelId,
-						steps,
-					});
-				}
+				// It rides the messages' own atomic write (one full record
+				// serialization per reply); a usage failure still saves the
+				// messages and surfaces below, after the steer bookkeeping —
+				// where the separate usage append used to fail.
+				const { stamped, usageError } = persistSettledTurn(stores.chatStore, chatId, persistBaseCount, turnMessages, isAborted, (saved) => {
+					const response = saved.find((m) => (m as { role?: string }).role === "assistant");
+					return response && steps.length > 0
+						? { id: turnUsageId, messageId: response.id, at: new Date().toISOString(), model: modelId, steps }
+						: undefined;
+				});
+				noteSteersDurable(chatId, stores.chatStore.getChat(chatId)?.messages ?? stamped);
+				if (usageError !== undefined) throw usageError;
 				// GRAPH GATE (settings-storage wave, 2026-09-19): the write channel —
 				// extraction, its auditor — dies with the master switch.
 				// PRACTICE (owner, 2026-10-04): practice sessions write nothing —

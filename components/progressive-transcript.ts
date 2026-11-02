@@ -44,5 +44,8 @@ export function useProgressiveTranscript(messages: readonly { parts: readonly un
 		hidesMessage: (mi: number) => starts[mi]! < renderFrom && starts[mi + 1]! <= renderFrom,
 		/** Part `pi` of message `mi` is still waiting to render. */
 		hidesPart: (mi: number, pi: number) => starts[mi]! + pi < renderFrom,
+		/** How many leading parts of message `mi` are still waiting (a
+		 *  primitive per row, so memoized rows compare it cheaply). */
+		hiddenParts: (mi: number) => Math.min(Math.max(0, renderFrom - starts[mi]!), starts[mi + 1]! - starts[mi]!),
 	};
 }

@@ -63,6 +63,10 @@ function readRawLines(file: string): unknown[] {
 	} catch {
 		return []; // no ledger yet — nothing has ever been emitted
 	}
+	return parseLines(raw);
+}
+
+function parseLines(raw: string): unknown[] {
 	const out: unknown[] = [];
 	for (const line of raw.split("\n")) {
 		const trimmed = line.trim();
@@ -126,6 +130,53 @@ const isCheckpoint = (v: unknown): v is SessionCheckpoint =>
 const isCoverageEntry = (v: unknown): v is CoverageEntry =>
 	isRecord(v) && isString(v.chatId) && isString(v.fp) && typeof v.tokens === "number" && isString(v.foldedAt);
 
+// ─── the coverage ledger cache ───────────────────────────────────────────────
+
+/** coverage.jsonl parsed and indexed by chat, valid while the file's stat
+ *  signature holds — the signature src/store/chats.ts trusts for its record
+ *  cache. Every app write changes it: appendLine grows the size, and
+ *  rewriteLedgers renames a new inode over the file; an external in-place
+ *  edit moves ctime even when it keeps size and mtime. The stat comes
+ *  BEFORE the read, so a write racing the read leaves the parse keyed to
+ *  the older signature and the next read parses again. A missing or
+ *  unreadable file is not cached: it reads as empty, as before. Callers
+ *  get fresh copies of the entries; tests freeze the cached ones. */
+interface CoverageLedger {
+	signature: string;
+	entries: CoverageEntry[];
+	byChat: Map<string, CoverageEntry[]>;
+}
+
+const EMPTY_COVERAGE: CoverageLedger = { signature: "", entries: [], byChat: new Map() };
+const FREEZE_CACHED_COVERAGE = process.env.NODE_ENV === "test";
+let coverageCache: CoverageLedger | null = null;
+
+function coverageLedger(): CoverageLedger {
+	assertGraphFormat(); // honest refusal on a newer-stamped data dir
+	const file = LEDGER_FILES.coverage;
+	let signature: string;
+	let raw: string;
+	try {
+		const stat = fs.statSync(file);
+		signature = `${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+		if (coverageCache?.signature === signature) return coverageCache;
+		raw = fs.readFileSync(file, "utf-8");
+	} catch {
+		coverageCache = null;
+		return EMPTY_COVERAGE; // no ledger yet — nothing has ever been emitted
+	}
+	const entries = parseLines(raw).filter(isCoverageEntry);
+	const byChat = new Map<string, CoverageEntry[]>();
+	for (const entry of entries) {
+		if (FREEZE_CACHED_COVERAGE) Object.freeze(entry);
+		const rows = byChat.get(entry.chatId);
+		if (rows) rows.push(entry);
+		else byChat.set(entry.chatId, [entry]);
+	}
+	coverageCache = { signature, entries, byChat };
+	return coverageCache;
+}
+
 // ─── the port implementation ────────────────────────────────────────────────
 
 export const graphStore: GraphStore = {
@@ -159,7 +210,10 @@ export const graphStore: GraphStore = {
 		appendLine(LEDGER_FILES.coverage, entry);
 	},
 	readCoverage(): CoverageEntry[] {
-		return readValid(LEDGER_FILES.coverage, isCoverageEntry);
+		return coverageLedger().entries.map((entry) => ({ ...entry }));
+	},
+	readChatCoverage(chatId: string): CoverageEntry[] {
+		return (coverageLedger().byChat.get(chatId) ?? []).map((entry) => ({ ...entry }));
 	},
 
 	// ── imported-notes bookkeeping (config.SOURCES_FILE — a JSON map) ──
