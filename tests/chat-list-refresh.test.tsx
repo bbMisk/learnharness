@@ -191,3 +191,32 @@ it("a stalled projects request times out instead of holding the queue; the list 
 	assert.equal(listFetches, 2, "the next refresh was not blocked");
 	refresher.dispose();
 });
+
+it("after dispose no queued fetch starts and every refresh() settles; resume re-enables it (hunt finding)", async () => {
+	const { createChatListRefresher } = await import("../components/chat-list-refresh.ts");
+	let calls = 0;
+	let lists = 0;
+	const refresher = createChatListRefresher({
+		fetchList: () => {
+			calls++;
+			return calls === 1 ? new Promise<ChatListItem[]>(() => {}) : Promise.resolve([]);
+		},
+		fetchProjects: async () => [],
+		onList: () => lists++,
+		onProjects: () => {},
+		onError: () => {},
+		timeoutMs: 20,
+	});
+	const first = refresher.refresh({ projects: false });
+	const queued = refresher.refresh({ projects: false });
+	refresher.dispose();
+	await Promise.all([first, queued]);
+	await new Promise((resolve) => setTimeout(resolve, 40));
+	assert.equal(calls, 1, "the queued refresh never fetched after dispose");
+	assert.equal(lists, 0, "no callbacks after dispose");
+	refresher.resume();
+	await refresher.refresh({ projects: false });
+	assert.equal(calls, 2, "a resumed refresher fetches again (React dev double-mount)");
+	assert.equal(lists, 1);
+	refresher.dispose();
+});
