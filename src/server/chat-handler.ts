@@ -450,6 +450,7 @@ export async function handleChatInput(
 		messages: asAgentMessages(agentMessages),
 		onUsage: collectUsage,
 		toolToggles: effective.agent.tools,
+		bothQuizzing: record.style === "cram" && record.kind !== "practice",
 		// Debug (owner, 2026-10-04): teacher/prober raw provider events under
 		// LH_PROVIDER_EVENTS=1 (provider-events.ts); no-op otherwise.
 		chatId,

@@ -118,6 +118,9 @@ export interface AgentBuildOptions {
 	 *  THE DEFINITIVE toggleable set is TOGGLEABLE_TOOLS (job tools only);
 	 *  the filtering is generic, but writes validate against the list). */
 	toolToggles?: EnabledTools;
+	/** Cram lessons (core/cram.ts): the teacher holds both question tools,
+	 *  multiple choice (quiz) and short answer (explain), and picks per problem. */
+	bothQuizzing?: boolean;
 	/** Per-segment system-prompt override SWITCHES (the settings record's
 	 *  agent.prompts map, absent key = off — same keys the settings routes
 	 *  and effectivePromptSegments use). Provided → the prompt composes
@@ -294,7 +297,7 @@ export function createTeacherAgent(
 	ctx?: TeacherToolContext,
 	opts: AgentBuildOptions = {},
 ) {
-	const tools = opts.tools ?? (ctx ? createTeacherTools(ctx, opts.toolToggles) : bareQuestionTools());
+	const tools = opts.tools ?? (ctx ? createTeacherTools(ctx, opts.toolToggles, opts.bothQuizzing) : bareQuestionTools());
 	return baseAgentOptions("teacher", opts, Object.values(tools));
 }
 
