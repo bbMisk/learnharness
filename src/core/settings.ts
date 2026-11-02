@@ -369,6 +369,11 @@ export interface GeneralSettings {
 	revealQuestions?: RevealQuestions;
 	/** A cram lesson's probe asks at most two quick questions (default ON); off keeps the full probe. */
 	cramShortProbe?: boolean;
+	/** Experiment (default OFF): after the probe, the teacher keeps the prober's request
+	 *  prefix and gets its own instructions and tools as a mid-conversation update, so the
+	 *  probe stays cached (agent/shared-handoff.ts). Models that cannot take that update
+	 *  keep today's teacher request. */
+	sharedHandoffPrefix?: boolean;
 }
 
 /** One app-wide dictation preference, shared by every composer. */
@@ -551,7 +556,7 @@ export interface FactorySettings {
 
 export const FACTORY_SETTINGS: FactorySettings = {
 	version: CURRENT_SETTINGS_VERSION,
-	general: { autoUpdate: true, showReadingThinking: false, keepThinkingFocus: true, flashcardSources: "chats", hiddenModes: [], revealQuestions: "cram", cramShortProbe: true },
+	general: { autoUpdate: true, showReadingThinking: false, keepThinkingFocus: true, flashcardSources: "chats", hiddenModes: [], revealQuestions: "cram", cramShortProbe: true, sharedHandoffPrefix: false },
 	dictation: { language: "en" },
 	appearance: {
 		mode: "dark",
@@ -615,6 +620,8 @@ function sanitizeGeneral(raw: Record<string, unknown>): GeneralSettings {
 	if ((REVEAL_QUESTIONS as readonly unknown[]).includes(raw.revealQuestions)) out.revealQuestions = raw.revealQuestions as RevealQuestions;
 	const cramShortProbe = boolOrDrop(raw.cramShortProbe);
 	if (cramShortProbe !== undefined) out.cramShortProbe = cramShortProbe;
+	const sharedHandoffPrefix = boolOrDrop(raw.sharedHandoffPrefix);
+	if (sharedHandoffPrefix !== undefined) out.sharedHandoffPrefix = sharedHandoffPrefix;
 	return out;
 }
 

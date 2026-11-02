@@ -24,6 +24,7 @@ import { QUESTION_TOOLS, type EnabledTools } from "../core/pending.ts";
 import { toLlmMessages, nativeInputCause, PRACTICE_PROBLEM_TOOL } from "../core/native-messages.ts";
 import type { ChatGPTRequestCycle } from "./chatgpt-request-cycle.ts";
 import { usageWasAdmitted } from "./subscription-request-cycle.ts";
+import { sharedHandoffMessages, sharedHandoffSupported, type AgentLoadout } from "./shared-handoff.ts";
 
 /**
  * The two teaching-side agents (docs/probe-teach-split.md): the PROBER and
@@ -134,6 +135,15 @@ export interface AgentBuildOptions {
 	 *  <chatId>.jsonl via providerEventObserver — the GLM-truncation /
 	 *  DeepSeek-id incident layer. Absent or env-off → no observer. */
 	chatId?: string;
+	/** SHARED HANDOFF PREFIX (opt-in, Settings → General; shared-handoff.ts): the
+	 *  teacher keeps the prober's request prefix, so it needs the prober's loadout —
+	 *  its tool registry and the project context its prompt was composed with. Only
+	 *  the teacher reads it, and only on a model that takes mid-conversation system
+	 *  messages and tool changes; absent, the teacher's request is today's. */
+	sharedHandoff?: {
+		proberTools: AgentTool<any>[];
+		proberProjectContext?: string;
+	};
 }
 
 /**
@@ -180,6 +190,36 @@ function makeQuestionStopper(kind: AgentKind) {
 	};
 }
 
+/** An agent's model-facing loadout: the composed system prompt and the tool
+ *  registry as the model sees it. One function for both the agent's own request
+ *  and the shared handoff's rebuild of the prober's prefix, so they cannot drift. */
+function agentLoadout(
+	kind: AgentKind,
+	opts: AgentBuildOptions,
+	tools: readonly AgentTool<any, any>[],
+	model: PiEngine["model"],
+	projectContext: string | undefined,
+): AgentLoadout & { tools: AgentTool<any>[] } {
+	const basePrompt = opts.promptSwitches
+		? composeInstructions(kind, opts.promptSwitches)
+		: composedInstructions[kind]!;
+	return {
+		systemPrompt: [basePrompt, projectContext].filter(Boolean).join("\n\n"),
+		// Conditional registry inclusion, like the graph-tool gates: when
+		// closed, neither the tool nor its usage instructions reach the model.
+		// Match Claude across providers (including OpenRouter), not the API
+		// transport. Explicit test registries remain caller-owned.
+		tools: [
+			...tools.map((tool) => tool.name === "read" && tool.execute === readTool.execute
+				? { ...tool, execute: createReadTool(model).execute as AgentTool<any>["execute"] }
+				: tool),
+			...(opts.tools === undefined && (model.provider === CLAUDE_CODE_PROVIDER || model.id.toLowerCase().includes("claude"))
+				? [withArgumentHeal(sendToUserTool)]
+				: []),
+		],
+	};
+}
+
 function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: AgentTool<any, any>[]) {
 	// Practice never reaches the role fallback (the handler ALWAYS injects
 	// the session's conversation engine — practice rides the same
@@ -187,10 +227,18 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	// ("practice" is not a ModelRole) honest about that.
 	const engine = opts.engine ?? piEngineFor(kind as "prober" | "teacher");
 	const stopper = makeQuestionStopper(kind);
-	const basePrompt = opts.promptSwitches
-		? composeInstructions(kind, opts.promptSwitches)
-		: composedInstructions[kind]!;
-	const systemPrompt = [basePrompt, opts.projectContext].filter(Boolean).join("\n\n");
+	const loadout = agentLoadout(kind, opts, tools, engine.model, opts.projectContext);
+	// SHARED HANDOFF PREFIX (opt-in): the teacher's history leads with the
+	// prober's system message and carries its own as a mid-conversation
+	// update; null (unsupported model, no concluded probe, compacted past the
+	// handoff) keeps today's request exactly.
+	const handoff = kind === "teacher" && opts.sharedHandoff && sharedHandoffSupported(engine.model)
+		? sharedHandoffMessages(
+				opts.messages ?? [],
+				agentLoadout("prober", opts, opts.sharedHandoff.proberTools, engine.model, opts.sharedHandoff.proberProjectContext),
+				loadout,
+			)
+		: null;
 	// Debug recorder (owner, 2026-10-04): raw provider events when
 	// LH_PROVIDER_EVENTS=1 and the caller handed a chatId; undefined is
 	// the normal no-observer path (tests, env-off).
@@ -200,22 +248,15 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 		identity: APP_IDENTITY,
 		sessionId: opts.chatId,
 		initialState: {
-			systemPrompt,
+			// With a shared handoff the history already leads with the prober's
+			// system message, so pi seeds none from this prompt (it still
+			// executes exactly the teacher's tools; their declarations ride the
+			// update, so pi's own tool-change check finds nothing to add).
+			systemPrompt: loadout.systemPrompt,
 			model: engine.model,
 			thinkingLevel: engine.level,
-			// Conditional registry inclusion, like the graph-tool gates: when
-			// closed, neither the tool nor its usage instructions reach the model.
-			// Match Claude across providers (including OpenRouter), not the API
-			// transport. Explicit test registries remain caller-owned.
-			tools: [
-				...tools.map((tool) => tool.name === "read" && tool.execute === readTool.execute
-					? { ...tool, execute: createReadTool(engine.model).execute as AgentTool<any>["execute"] }
-					: tool),
-				...(opts.tools === undefined && (engine.model.provider === CLAUDE_CODE_PROVIDER || engine.model.id.toLowerCase().includes("claude"))
-					? [withArgumentHeal(sendToUserTool)]
-					: []),
-			],
-			messages: opts.messages ?? [],
+			tools: loadout.tools,
+			messages: handoff ?? opts.messages ?? [],
 		},
 		streamFn: engine.streamFn,
 		...(providerEvents ? { onProviderStreamEvent: providerEvents } : {}),

@@ -192,6 +192,7 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			hiddenModes: record?.general?.hiddenModes ?? FACTORY_SETTINGS.general.hiddenModes,
 			revealQuestions: record?.general?.revealQuestions ?? FACTORY_SETTINGS.general.revealQuestions,
 			cramShortProbe: record?.general?.cramShortProbe ?? FACTORY_SETTINGS.general.cramShortProbe,
+			sharedHandoffPrefix: record?.general?.sharedHandoffPrefix ?? FACTORY_SETTINGS.general.sharedHandoffPrefix,
 		},
 		dictation: {
 			language: record?.dictation?.language ?? FACTORY_SETTINGS.dictation.language,
