@@ -1,0 +1,31 @@
+/** Lazy demo runtimes under failure (round-3 Codex hunt; failure injected with a module resolve hook). */
+import React, {act} from 'react';
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {parseHTML} from 'linkedom';
+import {registerHooks} from 'node:module';
+const dom=parseHTML('<html><body></body></html>');
+Object.assign(globalThis,{React,window:dom.window,document:dom.document,Node:dom.window.Node,Element:dom.window.Element,HTMLElement:dom.window.HTMLElement,Event:dom.window.Event,CustomEvent:dom.window.CustomEvent,IS_REACT_ACT_ENVIRONMENT:true,self:globalThis});
+let fail=true;
+const hooks=registerHooks({resolve(specifier,context,next){if(fail && specifier.endsWith('/vendor/d3-v7.ts')) {fail=false; throw Error('synthetic chunk load failure')} return next(specifier,context)}});
+const {createRoot}=await import('react-dom/client');
+const {DemoOutputCard}=await import('../components/artifacts/demo-card.tsx');
+const sleep=(n:number)=>new Promise(r=>setTimeout(r,n));
+const demo=(title:string,html:string,renderer?:string)=>({title,html,renderer});
+test('lazy demo runtimes: a shared load failure, one retry recovers both cards, prop changes and unmount',async()=>{
+ const host=document.createElement('div');document.body.append(host);const root=createRoot(host);
+ await act(async()=>{root.render(<><DemoOutputCard output={demo('A','<p>A</p>','learnharness-v1')}/><DemoOutputCard output={demo('B','<p>B</p>','learnharness-v1')}/></>);});
+ for(let i=0;i<20&&!host.querySelector('[data-testid=demo-retry]');i++) await act(async()=>sleep(10));
+ assert.equal(host.querySelectorAll('[data-testid=demo-retry]').length,2,'both cards report shared load failure');
+ assert.ok([...host.querySelectorAll('[data-testid=demo-download]')].every((x:any)=>x.disabled));
+ await act(async()=>{(host.querySelector('[data-testid=demo-retry]') as HTMLElement).click()});
+ for(let i=0;i<40&&host.querySelectorAll('[data-testid=demo-iframe]').length<2;i++) await act(async()=>sleep(10));
+ assert.equal(host.querySelectorAll('[data-testid=demo-iframe]').length,2,'one retry recovers every card sharing the failed load');
+ const siblingStillFailed=host.querySelectorAll('[data-testid=demo-retry]').length;
+ await act(async()=>{root.render(<><DemoOutputCard output={demo('A2','<p>A2</p>','learnharness-v1')}/><DemoOutputCard output={demo('legacy','<p>legacy</p>')}/></>)});
+ assert.equal(host.querySelectorAll('[data-testid=demo-iframe]').length,2);
+ assert.ok([...host.querySelectorAll('[data-testid=demo-download]')].every((x:any)=>!x.disabled));
+ assert.ok(host.querySelector('[title=A2]'));
+ await act(async()=>root.unmount()); host.remove();hooks.deregister();
+ assert.equal(siblingStillFailed,0,"a shared successful load should recover both cards");
+});

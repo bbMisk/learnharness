@@ -220,3 +220,24 @@ it("after dispose no queued fetch starts and every refresh() settles; resume re-
 	assert.equal(lists, 1);
 	refresher.dispose();
 });
+
+it("a refresh scheduled before a dispose/resume pair still runs (round-3 hunt finding)", async () => {
+	const { createChatListRefresher } = await import("../components/chat-list-refresh.ts");
+	let server = "old";
+	const seen: string[] = [];
+	const refresher = createChatListRefresher({
+		fetchList: async () => [{ id: server } as unknown as ChatListItem],
+		fetchProjects: async () => [],
+		onList: (list) => seen.push(list[0]!.id),
+		onProjects: () => {},
+		onError: () => {},
+		debounceMs: 10,
+	});
+	server = "new";
+	refresher.event({ type: "chats-changed" });
+	refresher.dispose();
+	refresher.resume();
+	await new Promise((resolve) => setTimeout(resolve, 60));
+	assert.deepEqual(seen, ["new"], "the pending refresh ran after resume");
+	refresher.dispose();
+});

@@ -45,6 +45,10 @@ export function buildDemoSrcDoc(html: string, renderer?: DemoRenderer, runtimes?
 
 /** The runtimes this demo needs: synchronous when already loaded (legacy demos
  *  need none), otherwise undefined until the lazy chunk arrives. */
+/** Cards waiting on (or failed by) the shared lazy runtimes. Any successful load wakes them
+ *  all, so one card's "Try again" recovers every card on the page (round-3 hunt finding). */
+const runtimeWaiters = new Set<() => void>();
+
 function useDemoRuntimes(html: string, renderer?: DemoRenderer): { runtimes?: DemoRuntimes; failed: boolean; retry: () => void } {
 	const runtimes = peekDemoRuntimes(html, renderer);
 	const [, setLoaded] = useState(0);
@@ -54,9 +58,15 @@ function useDemoRuntimes(html: string, renderer?: DemoRenderer): { runtimes?: De
 	useEffect(() => {
 		if (runtimes) return;
 		let live = true;
+		const wake = () => {
+			if (!live) return;
+			setFailed(false);
+			setLoaded((n) => n + 1);
+		};
+		runtimeWaiters.add(wake);
 		loadDemoRuntimes(html, renderer).then(
 			() => {
-				if (live) setLoaded((n) => n + 1);
+				for (const waiter of [...runtimeWaiters]) waiter();
 			},
 			() => {
 				if (live) setFailed(true);
@@ -64,13 +74,14 @@ function useDemoRuntimes(html: string, renderer?: DemoRenderer): { runtimes?: De
 		);
 		return () => {
 			live = false;
+			runtimeWaiters.delete(wake);
 		};
 	}, [html, renderer, runtimes, attempt]);
 	const retry = useCallback(() => {
 		setFailed(false);
 		setAttempt((n) => n + 1);
 	}, []);
-	return { runtimes, failed, retry };
+	return { runtimes, failed: failed && !runtimes, retry };
 }
 
 export interface DemoBridgeState {

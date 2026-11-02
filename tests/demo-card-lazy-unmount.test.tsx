@@ -1,0 +1,21 @@
+import React,{act} from 'react';
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {parseHTML} from 'linkedom';
+import {registerHooks} from 'node:module';
+const dom=parseHTML('<!doctype html><html><body></body></html>');
+Object.assign(globalThis,{React,window:dom.window,document:dom.document,Node:dom.window.Node,Element:dom.window.Element,HTMLElement:dom.window.HTMLElement,Event:dom.window.Event,CustomEvent:dom.window.CustomEvent,IS_REACT_ACT_ENVIRONMENT:true,self:globalThis});
+let release!:()=>void; (globalThis as any).__probeGate=new Promise<void>(r=>release=r);
+const hooks=registerHooks({resolve(specifier,context,next){ if(specifier.endsWith('/vendor/d3-v7.ts'))return {url:'data:text/javascript,'+encodeURIComponent('await globalThis.__probeGate; export const D3_RUNTIME="stub";'),shortCircuit:true}; return next(specifier,context)}});
+const {createRoot}=await import('react-dom/client'); const {DemoOutputCard}=await import('../components/artifacts/demo-card.tsx');
+test('unmount and prop change while shared runtime is pending',async()=>{
+ const h=document.createElement('div'); document.body.append(h);const root=createRoot(h);
+ const out=(title:string,html:string,renderer?:string)=>({title,html,renderer});
+ await act(async()=>root.render(<><DemoOutputCard output={out('gone','<p>one</p>','learnharness-v1')}/><DemoOutputCard output={out('changing','<p>two</p>','learnharness-v1')}/></>));
+ assert.equal(h.querySelectorAll('[data-testid=demo-loading]').length,2); assert.ok([...h.querySelectorAll('[data-testid=demo-download]')].every((x:any)=>x.disabled));
+ await act(async()=>root.render(<DemoOutputCard output={out('legacy','<p>old</p>')}/>));
+ assert.equal(h.querySelectorAll('[data-testid=demo-iframe]').length,1); assert.equal((h.querySelector('[data-testid=demo-download]') as any).disabled,false);
+ await act(async()=>{release();await new Promise(r=>setTimeout(r,30))});
+ assert.equal(h.querySelectorAll('[data-testid=demo-iframe]').length,1);assert.ok(h.querySelector('[title=legacy]'));
+ await act(async()=>root.unmount());h.remove();hooks.deregister();
+});

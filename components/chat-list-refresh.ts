@@ -70,6 +70,8 @@ export function createChatListRefresher(deps: ChatListRefreshDeps) {
 	let pumpWhenDone = false;
 	// Unmounted (hunt finding): no new fetches, no callbacks, pending refresh() promises settle.
 	let disposed = false;
+	// Work that was waiting when disposed; a resume (React dev double-mount) runs it.
+	let resumeWork = false;
 	// What the next fetch must cover.
 	let force = false;
 	let withProjects = false;
@@ -184,6 +186,7 @@ export function createChatListRefresher(deps: ChatListRefreshDeps) {
 		/** Unmount: stop fetching and settle every pending refresh() promise. */
 		dispose(): void {
 			disposed = true;
+			resumeWork = resumeWork || timer !== undefined || pumpWhenDone || force || settled.size > 0;
 			if (timer) clearTimeout(timer);
 			timer = undefined;
 			pumpWhenDone = false;
@@ -193,7 +196,12 @@ export function createChatListRefresher(deps: ChatListRefreshDeps) {
 		},
 		/** Mount (again): React's development double-mount disposes once before the real mount. */
 		resume(): void {
+			if (!disposed) return;
 			disposed = false;
+			if (resumeWork) {
+				resumeWork = false;
+				schedule();
+			}
 		},
 	};
 }
