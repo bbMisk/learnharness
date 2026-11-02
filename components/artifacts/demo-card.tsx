@@ -59,7 +59,9 @@ function useDemoRuntimes(html: string, renderer?: DemoRenderer): { runtimes?: De
 		if (runtimes) return;
 		let live = true;
 		const wake = () => {
-			if (!live) return;
+			// Another card's load may have brought a different subset (d3 but not lucide):
+			// recover only when this card's own runtimes are now available.
+			if (!live || !peekDemoRuntimes(html, renderer)) return;
 			setFailed(false);
 			setLoaded((n) => n + 1);
 		};
