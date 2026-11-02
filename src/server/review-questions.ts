@@ -48,10 +48,10 @@ export async function curatorSubmit<T>(opts: {
 				validate: opts.validate,
 				systemPrompt: opts.systemPrompt,
 				prompt: JSON.stringify(opts.content),
-				engine: {
-					...engine,
-					streamFn: (model, context, options) => engine.streamFn(model, context, { ...options, maxTokens: 6000 }),
-				},
+				// No output cap (owner, 2026-11-02: quality always trumps price): reasoning
+				// counts toward it, so a cap could truncate a question mid-thought. The
+				// request timeout above still bounds a runaway.
+				engine,
 				signal: requestSignal,
 				onStep: () => {},
 				neverSubmitted: opts.neverSubmitted,

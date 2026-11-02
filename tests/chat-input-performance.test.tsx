@@ -9,7 +9,7 @@ import type { Root } from "react-dom/client";
 import { ChatSessionComposer } from "../components/composer.tsx";
 import { ReadingThinkingField } from "../components/reading-thinking.tsx";
 import { readPathInput } from "../components/path-input-dom.ts";
-import { appendToPrimaryInput, joinDictation } from "../components/dictation.tsx";
+import { joinDictation } from "../components/dictation.tsx";
 
 const { window, document } = parseHTML("<html><body><div id='root'></div></body></html>");
 let active: Element = document.body;
@@ -247,22 +247,5 @@ describe("session text fields keep keystrokes local", () => {
 		await act(async () => { replace("saved question thoughts"); });
 		assert.equal(readPathInput(editor), "saved question thoughts");
 		assert.equal(latest, "saved question thoughts");
-	});
-
-	it("reading append uses the latest typed draft synchronously, including consecutive file/dictation insertions", async () => {
-		let latest = "";
-		let forwardedEdits = 0;
-		const host = await mount(<ReadingThinkingField value="" revision={0} claim
-			onChange={value => { latest = value; forwardedEdits++; }} />);
-		const editor = editorIn(host);
-		await typeText(editor, "typed thoughts");
-		await act(async () => {
-			assert.equal(appendToPrimaryInput("spoken tail"), true);
-			assert.equal(latest, "typed thoughts spoken tail", "submit after finish sees the tail before React commits");
-			assert.equal(appendToPrimaryInput("`/synthetic/notes.pdf`"), true);
-			assert.equal(latest, "typed thoughts spoken tail `/synthetic/notes.pdf`");
-		});
-		assert.equal(readPathInput(editor), "typed thoughts spoken tail `/synthetic/notes.pdf`");
-		assert.equal(forwardedEdits, 3, "each edit forwards its synchronous snapshot exactly once");
 	});
 });

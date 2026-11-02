@@ -1,9 +1,9 @@
-import { ensureFlashcardAgent, reviewSnapshot, ReviewError } from "@/src/server";
+import { ensureFlashcardAgent, jsonResponse, reviewSnapshot, ReviewError } from "@/src/server";
 
-async function respond(request?: unknown) {
+async function respond(request: Request, batch?: unknown) {
 	try {
 		ensureFlashcardAgent();
-		return Response.json(await reviewSnapshot(request), { headers: { "Cache-Control": "no-store" } });
+		return jsonResponse(request, await reviewSnapshot(batch), { headers: { "Cache-Control": "no-store" } });
 	} catch (error) {
 		if (error instanceof ReviewError)
 			return Response.json({ error: error.message }, { status: error.status, headers: { "Cache-Control": "no-store" } });
@@ -15,15 +15,15 @@ async function respond(request?: unknown) {
 	}
 }
 
-export async function GET() {
-	return respond();
+export async function GET(request: Request) {
+	return respond(request);
 }
 
 export async function POST(request: Request) {
 	const text = await request.text();
 	if (text.length > 1_000_000) return Response.json({ error: "Review batch is too large." }, { status: 413 });
 	try {
-		return respond(JSON.parse(text));
+		return respond(request, JSON.parse(text));
 	} catch {
 		return Response.json({ error: "Invalid review JSON. No reviews were acknowledged." }, { status: 400 });
 	}

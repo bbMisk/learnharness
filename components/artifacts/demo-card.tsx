@@ -1,13 +1,21 @@
 "use client";
 
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { DownloadIcon } from "lucide-react";
 import { Toggle } from "@/components/settings/controls";
 import { InvertDiscIcon } from "@/components/artifacts/invert-disc";
 import { ChatActionsContext } from "@/components/chat";
 import { downloadFile, slugFilename } from "@/components/artifacts/download";
 import { DispatchCard } from "@/components/artifacts/dispatch-card";
-import { buildDemoDocument, type ArtifactPartProps, type DemoResult, type DemoRenderer } from "@/src/core";
+import {
+	buildDemoDocument,
+	loadDemoRuntimes,
+	peekDemoRuntimes,
+	type ArtifactPartProps,
+	type DemoResult,
+	type DemoRenderer,
+	type DemoRuntimes,
+} from "@/src/core";
 export { DEMO_BRIDGE_SCRIPT } from "@/src/core";
 
 /**
@@ -29,9 +37,53 @@ export { DEMO_BRIDGE_SCRIPT } from "@/src/core";
 
 // ─── bridge injection + message handling (pure, testable) ───────────────────
 
-/** Legacy demos keep their original renderer; new demos opt into the shared kit. */
-export function buildDemoSrcDoc(html: string, renderer?: DemoRenderer): string {
-	return buildDemoDocument(html, renderer);
+/** Legacy demos keep their original renderer; new demos opt into the shared kit
+ *  (whose vendored runtimes come from loadDemoRuntimes — a lazily fetched chunk). */
+export function buildDemoSrcDoc(html: string, renderer?: DemoRenderer, runtimes?: DemoRuntimes): string {
+	return buildDemoDocument(html, renderer, runtimes);
+}
+
+/** The runtimes this demo needs: synchronous when already loaded (legacy demos
+ *  need none), otherwise undefined until the lazy chunk arrives. */
+/** Cards waiting on (or failed by) the shared lazy runtimes. Any successful load wakes them
+ *  all, so one card's "Try again" recovers every card on the page (round-3 hunt finding). */
+const runtimeWaiters = new Set<() => void>();
+
+function useDemoRuntimes(html: string, renderer?: DemoRenderer): { runtimes?: DemoRuntimes; failed: boolean; retry: () => void } {
+	const runtimes = peekDemoRuntimes(html, renderer);
+	const [, setLoaded] = useState(0);
+	const [failed, setFailed] = useState(false);
+	// Bumped by retry(): a failed load is forgotten by loadDemoRuntimes, so a new attempt really refetches.
+	const [attempt, setAttempt] = useState(0);
+	useEffect(() => {
+		if (runtimes) return;
+		let live = true;
+		const wake = () => {
+			// Another card's load may have brought a different subset (d3 but not lucide):
+			// recover only when this card's own runtimes are now available.
+			if (!live || !peekDemoRuntimes(html, renderer)) return;
+			setFailed(false);
+			setLoaded((n) => n + 1);
+		};
+		runtimeWaiters.add(wake);
+		loadDemoRuntimes(html, renderer).then(
+			() => {
+				for (const waiter of [...runtimeWaiters]) waiter();
+			},
+			() => {
+				if (live) setFailed(true);
+			},
+		);
+		return () => {
+			live = false;
+			runtimeWaiters.delete(wake);
+		};
+	}, [html, renderer, runtimes, attempt]);
+	const retry = useCallback(() => {
+		setFailed(false);
+		setAttempt((n) => n + 1);
+	}, []);
+	return { runtimes, failed: failed && !runtimes, retry };
 }
 
 export interface DemoBridgeState {
@@ -140,7 +192,8 @@ function DemoFrame({
 			body: JSON.stringify({ input: { messageId, inverted: next } }),
 		}).catch(() => {});
 	};
-	const srcDoc = useMemo(() => buildDemoSrcDoc(html, renderer), [html, renderer]);
+	const { runtimes, failed: runtimesFailed, retry: retryRuntimes } = useDemoRuntimes(html, renderer);
+	const srcDoc = useMemo(() => (runtimes ? buildDemoSrcDoc(html, renderer, runtimes) : null), [html, renderer, runtimes]);
 
 	useEffect(() => {
 		const onMessage = (event: MessageEvent) => {
@@ -177,7 +230,11 @@ function DemoFrame({
 						type="button"
 						aria-label="Download demo as HTML"
 						title="Download as HTML"
-						onClick={() => downloadFile(`${slugFilename(title)}.html`, renderer ? srcDoc : html, "text/html")}
+						disabled={renderer !== undefined && srcDoc === null}
+						onClick={() => {
+							if (!renderer) downloadFile(`${slugFilename(title)}.html`, html, "text/html");
+							else if (srcDoc !== null) downloadFile(`${slugFilename(title)}.html`, srcDoc, "text/html");
+						}}
 						data-testid="demo-download"
 						className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 					>
@@ -192,30 +249,53 @@ function DemoFrame({
 					onSend={actions ? () => actions.sendText(`The demo "${title}" threw an error: ${state.error}`) : undefined}
 				/>
 			)}
-			<iframe
-				ref={iframeRef}
-				title={title}
-				// allow-scripts ONLY — no allow-same-origin: the demo can run code
-				// but never touch the app's storage, cookies, or DOM.
-				sandbox="allow-scripts"
-				srcDoc={srcDoc}
-				// scrolling OFF (owner, 2026-10-07): the bridge auto-sizes the
-				// iframe to its content, so an internal scrollbar can only appear
-				// before the first resize lands — and a scrollable iframe TRAPS
-				// the wheel (session scrolling stalls over the demo). With
-				// scrolling disabled the wheel chains straight to the session.
-				scrolling="no"
-				className={renderer ? "mt-2 w-full bg-transparent" : "mt-2 w-full rounded-lg border bg-white"}
-				// content-box: the bridge reports the CONTENT height — with the
-				// preflight's border-box the 2px border would eat into it and clip
-				// the bottom of the demo (smoke finding, 2026-10-07).
-				style={{
-					height: state.height ?? 360,
-					boxSizing: "content-box",
-					filter: inverted ? "invert(1) hue-rotate(180deg)" : undefined,
-				}}
-				data-testid="demo-iframe"
-			/>
+			{srcDoc === null ? (
+				// The kit's vendored libraries are still loading (first demo in
+				// this tab): hold the iframe's default footprint so the card
+				// does not jump when the document lands.
+				<div
+					className="mt-2 flex w-full items-center justify-center rounded-lg bg-muted/40 text-xs text-muted-foreground"
+					style={{ height: 360 }}
+					aria-busy={!runtimesFailed}
+					data-testid="demo-loading"
+				>
+					{runtimesFailed ? (
+						<span className="flex items-center gap-2">
+							The demo&apos;s libraries could not be loaded.
+							<button type="button" onClick={retryRuntimes} data-testid="demo-retry" className="rounded-md border border-border px-2 py-0.5 text-foreground hover:bg-accent">
+								Try again
+							</button>
+						</span>
+					) : (
+						<span className="animate-pulse">Loading demo…</span>
+					)}
+				</div>
+			) : (
+				<iframe
+					ref={iframeRef}
+					title={title}
+					// allow-scripts ONLY — no allow-same-origin: the demo can run code
+					// but never touch the app's storage, cookies, or DOM.
+					sandbox="allow-scripts"
+					srcDoc={srcDoc}
+					// scrolling OFF (owner, 2026-10-07): the bridge auto-sizes the
+					// iframe to its content, so an internal scrollbar can only appear
+					// before the first resize lands — and a scrollable iframe TRAPS
+					// the wheel (session scrolling stalls over the demo). With
+					// scrolling disabled the wheel chains straight to the session.
+					scrolling="no"
+					className={renderer ? "mt-2 w-full bg-transparent" : "mt-2 w-full rounded-lg border bg-white"}
+					// content-box: the bridge reports the CONTENT height — with the
+					// preflight's border-box the 2px border would eat into it and clip
+					// the bottom of the demo (smoke finding, 2026-10-07).
+					style={{
+						height: state.height ?? 360,
+						boxSizing: "content-box",
+						filter: inverted ? "invert(1) hue-rotate(180deg)" : undefined,
+					}}
+					data-testid="demo-iframe"
+				/>
+			)}
 		</div>
 	);
 }

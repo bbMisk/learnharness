@@ -68,6 +68,15 @@ export function createChatListRefresher(deps: ChatListRefreshDeps) {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let inFlight = false;
 	let pumpWhenDone = false;
+	// Unmounted (hunt finding): no new fetches, no callbacks, pending refresh() promises settle.
+	let disposed = false;
+	// Work that was waiting when disposed; a resume (React dev double-mount) runs it.
+	let resumeWork = false;
+	// ...and whether that work included the projects (round-5 hunt finding).
+	let resumeProjects = false;
+	let flightProjects = false;
+	// The in-flight fetch's refresh() waiters, so dispose() can settle them at once.
+	let activeWaiters: Array<() => void> = [];
 	// What the next fetch must cover.
 	let force = false;
 	let withProjects = false;
@@ -82,6 +91,12 @@ export function createChatListRefresher(deps: ChatListRefreshDeps) {
 		!!snapshot && !snapshot.startedSince.has(id) && snapshot.chats.some((c) => c.id === id && !c.busy);
 
 	function pump(): void {
+		if (disposed) {
+			const done = waiters;
+			waiters = [];
+			for (const resolve of done) resolve();
+			return;
+		}
 		if (inFlight) {
 			pumpWhenDone = true;
 			return;
@@ -94,6 +109,8 @@ export function createChatListRefresher(deps: ChatListRefreshDeps) {
 		}
 		const projects = withProjects;
 		const done = waiters;
+		activeWaiters = done;
+		flightProjects = projects;
 		force = false;
 		withProjects = false;
 		settled.clear();
@@ -105,14 +122,14 @@ export function createChatListRefresher(deps: ChatListRefreshDeps) {
 			try {
 				const chats = await within(deps.fetchList(), timeoutMs);
 				if (current.trusted) snapshot = { chats, startedSince: current.startedSince };
-				deps.onList(chats);
-				if (projects) {
+				if (!disposed) deps.onList(chats);
+				if (projects && !disposed) {
 					// A failed or stalled projects request keeps the last projects; the list stands.
 					const list = await within(deps.fetchProjects(), timeoutMs).catch(() => null);
-					if (list) deps.onProjects(list);
+					if (list && !disposed) deps.onProjects(list);
 				}
 			} catch {
-				deps.onError();
+				if (!disposed) deps.onError();
 			} finally {
 				inFlight = false;
 				flight = null;
@@ -126,6 +143,7 @@ export function createChatListRefresher(deps: ChatListRefreshDeps) {
 	}
 
 	function schedule(): void {
+		if (disposed) return;
 		if (timer) clearTimeout(timer);
 		timer = setTimeout(() => {
 			timer = undefined;
@@ -172,9 +190,32 @@ export function createChatListRefresher(deps: ChatListRefreshDeps) {
 			if (flight) flight.trusted = false;
 			return refresh();
 		},
+		/** Unmount: stop fetching and settle every pending refresh() promise. */
 		dispose(): void {
+			disposed = true;
+			// An in-flight result is dropped while disposed, so a resume must fetch again.
+			resumeWork = resumeWork || inFlight || timer !== undefined || pumpWhenDone || force || settled.size > 0;
+			resumeProjects = resumeProjects || withProjects || (inFlight && flightProjects);
 			if (timer) clearTimeout(timer);
 			timer = undefined;
+			pumpWhenDone = false;
+			const done = [...activeWaiters, ...waiters];
+			activeWaiters = [];
+			waiters = [];
+			for (const resolve of done) resolve();
+		},
+		/** Mount (again): React's development double-mount disposes once before the real mount. */
+		resume(): void {
+			if (!disposed) return;
+			disposed = false;
+			if (resumeWork) {
+				// Whatever was dropped while disposed must be fetched again, covered or not.
+				resumeWork = false;
+				force = true;
+				if (resumeProjects) withProjects = true;
+				resumeProjects = false;
+				schedule();
+			}
 		},
 	};
 }
@@ -206,7 +247,10 @@ export function useChatListRefresh({
 		onError: () => setChats((prev) => prev ?? []),
 	});
 	const refresher = refresherRef.current;
-	useEffect(() => () => refresher.dispose(), [refresher]);
+	useEffect(() => {
+		refresher.resume();
+		return () => refresher.dispose();
+	}, [refresher]);
 	useServerEvent("chats-changed", () => refresher.event({ type: "chats-changed" }));
 	useServerEvent("turn-started", ({ chatId }) => refresher.event({ type: "turn-started", chatId }));
 	useServerEvent("turn-settled", ({ chatId }) => refresher.event({ type: "turn-settled", chatId }));

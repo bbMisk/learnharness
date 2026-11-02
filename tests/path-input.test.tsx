@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { parseHTML } from "linkedom";
 import { renderToStaticMarkup } from "react-dom/server";
-import { PathInput, INSERT_FILE_PATHS_EVENT } from "../components/path-input.tsx";
+import { PathInput } from "../components/path-input.tsx";
 import {
 	PATH_CARET_ATTRIBUTE, PATH_SOURCE_ATTRIBUTE, PathInputHistory, adjacentPathRange, atomicPathRange,
-	insertFilePaths, normalizePathEdit, normalizePathInputValue, pathInputOffset, pathInputPoint, pathInputStaticRange, readPathInput,
+	normalizePathEdit, normalizePathInputValue, pathInputOffset, pathInputPoint, pathInputStaticRange, readPathInput,
 	readPathSelection, renderPathInput, replacePathSelection, restorePathSelection,
 } from "../components/path-input-dom.ts";
 import { quoteFilePath } from "../src/core/file-paths.ts";
@@ -96,14 +96,6 @@ test("range replacement/deletion is atomic and leaves neighboring whitespace unt
 	assert.equal(adjacentPathRange(value, { anchor: 1, focus: 1 }, "forward"), null);
 });
 
-test("file insertion uses full quoted sources at saved ranges with separating spaces", () => {
-	const next = insertFilePaths("readthis", { anchor: 4, focus: 4 }, ["/a b.pdf", "C:\\a\\x.txt"]);
-	assert.equal(next.value, "read `/a b.pdf` `C:\\a\\x.txt` this");
-	assert.equal(next.selection.anchor, next.value.length - 4);
-	assert.equal(insertFilePaths("a\n", { anchor: 2, focus: 2 }, ["~/x"]).value, "a\n`~/x`");
-	assert.throws(() => insertFilePaths("", { anchor: 0, focus: 0 }, ["relative.txt"]), TypeError);
-});
-
 test("owned history restores values and directional selections; a new edit discards redo", () => {
 	const history = new PathInputHistory();
 	const a = { value: "a", selection: { anchor: 1, focus: 0 } };
@@ -151,7 +143,7 @@ afterEach(async () => { await cleanup?.(); cleanup = undefined; });
 /** linkedom has no Selection/default editing actions. The shim tests our offset
  * contract, NOT browser caret navigation or the native IME implementation. */
 async function fixture(initial: string, singleLine = false) {
-	const { window: win, document: doc } = parseHTML("<html><body><div id='root'></div><button id='elsewhere'></button></body></html>");
+	const { window: win, document: doc } = parseHTML("<html><body><div id='root'></div></body></html>");
 	let active: Element = doc.body;
 	Object.defineProperty(doc, "activeElement", { get: () => active });
 	const selection = {
@@ -213,7 +205,7 @@ test("native typing, token insertion/deletion and undo/redo share one history", 
 	const f = await fixture("a");
 	f.select(1);
 	await f.nativeText("ab");
-	await f.event(INSERT_FILE_PATHS_EVENT, { detail: ["/notes.pdf"] });
+	await f.external("ab `/notes.pdf`"); // a controlled append (dictation, file drop)
 	assert.equal(f.value, "ab `/notes.pdf`");
 	assert.match(f.root.textContent!, /notes.pdf/);
 	await f.event("keydown", { key: "Backspace" });
@@ -386,14 +378,8 @@ test("immutable SSR fallback never stomps native edits, controlled updates, chip
 	assert.equal(f.root.dataset.empty, "true");
 });
 
-test("external dictation append/reset and drop at an unfocused saved selection", async () => {
-	const f = await fixture("one two");
-	f.select(3);
-	f.doc.getElementById("elsewhere")!.focus();
-	await f.event(INSERT_FILE_PATHS_EVENT, { detail: ["/notes one.pdf"] });
-	assert.equal(f.value, "one `/notes one.pdf` two");
-	assert.equal(f.doc.activeElement, f.root);
-	assert.equal(f.keys, 0, "staging must not submit");
+test("external dictation append/reset", async () => {
+	const f = await fixture("one `/notes one.pdf` two");
 	f.select(f.value.length);
 	await f.external(`${f.value}\nspoken words`);
 	assert.equal(readPathInput(f.root), f.value);
@@ -605,8 +591,6 @@ test("single-line Enter reaches its consumer but cannot insert a newline", async
 	assert.equal(lineBreak.defaultPrevented, true);
 	assert.equal(f.value, "answer");
 	assert.deepEqual(f.writes, []);
-	await f.event(INSERT_FILE_PATHS_EVENT, { detail: ["/course/notes.pdf"] });
-	assert.equal(f.value, "answer `/course/notes.pdf`");
 });
 
 test("single-line IME sanitizes after completion, and queued external assignments do not synthesize changes", async () => {

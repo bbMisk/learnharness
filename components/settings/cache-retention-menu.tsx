@@ -17,9 +17,16 @@ export function longRetentionNote(provider: string | undefined, modelId: string 
 	if (provider === "anthropic" || id.includes("claude")) return "Claude: Long keeps the cache 1 hour instead of 5 minutes. Writes cost 2× instead of 1.25×, but lessons with 5–60 minute pauses usually come out cheaper. Recommended.";
 	const version = /^gpt-(\d+)(?:\.(\d+))?/.exec(id);
 	if (provider === "chatgpt" || provider === "openai") {
-		if (!version) return "ChatGPT: Long is sent only for GPT models; this model keeps the default.";
+		const who = provider === "chatgpt" ? "ChatGPT" : "OpenAI API";
+		if (!version) return `${who}: Long is sent only for GPT models; this model keeps the default.`;
 		const [major, minor] = [Number(version[1]), Number(version[2] ?? 0)];
-		if (major > 5 || (major === 5 && minor >= 6)) return "GPT-5.6 and later: the default already keeps 30 minutes. Long asks for 12 hours, with writes at 2.5×; for typical lessons that costs more than it saves. Keep the default.";
+		if (major > 5 || (major === 5 && minor >= 6)) {
+			// The API-key route goes through pi-ai, which maps Long to OpenAI's 30-minute
+			// default on these models; only the ChatGPT route asks for 12 hours (round-6 hunt finding).
+			return provider === "chatgpt"
+				? "GPT-5.6 and later: the default already keeps 30 minutes. Long asks for 12 hours, with writes at 2.5×; for typical lessons that costs more than it saves. Keep the default."
+				: "OpenAI API, GPT-5.6 and later: the default already keeps 30 minutes, and Long keeps that same 30 minutes. Keep the default.";
+		}
 		return "GPT-5.5 and earlier: Long keeps the cache 24 hours at no extra write cost.";
 	}
 	return undefined;

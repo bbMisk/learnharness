@@ -18,7 +18,7 @@ fs.writeFileSync(process.env.LH_AUTH_FILE, "{}");
 const { piModels, piEngineForSpec } = await import("../src/agent/models.ts");
 const { refreshChatGPTModels } = await import("../src/agent/chatgpt-bridge.ts");
 const { createTeacherAgent } = await import("../src/agent/teacher-agent.ts");
-const { fingerprintResponsesPayload, resetRequestFingerprints } = await import("../src/agent/request-fingerprint.ts");
+const { fingerprintResponsesPayload, notePreparedResponsesPayload, resetRequestFingerprints, withRequestFingerprint } = await import("../src/agent/request-fingerprint.ts");
 const { turnStepUsage } = await import("../src/server/chat-handler.ts");
 const { chatStore } = await import("../src/store/chats.ts");
 import type { RequestFingerprint, TurnUsage } from "../src/core/contracts.ts";
@@ -190,4 +190,38 @@ test("old records without the fields and new ones with them load side by side", 
 	chatStore.appendTurnUsage(record.id, fresh);
 	const turns = chatStore.getChat(record.id)!.turns!;
 	assert.deepEqual(turns, [old, fresh]);
+});
+
+test("gpt-5.5+ bodies: the leading additional_tools item and instructions are prompt, not history (hunt finding)", () => {
+	resetRequestFingerprints();
+	const body = (prompt: string, tool: string, history: unknown[]) => ({
+		model: "gpt-6.1-sol",
+		input: [{ type: "additional_tools", tools: [{ name: tool }] }, { role: "developer", content: prompt }, ...history],
+	});
+	const hello = { role: "user", content: "hello" };
+	const first = fingerprintResponsesPayload("chat-tools", body("old prompt", "probe_done", [hello]))!;
+	const changedPrompt = fingerprintResponsesPayload("chat-tools", body("new prompt", "probe_done", [hello]))!;
+	assert.notEqual(changedPrompt.promptHash, first.promptHash, "instructions after the tool item count");
+	const changedTools = fingerprintResponsesPayload("chat-tools", body("new prompt", "quiz", [hello]))!;
+	assert.notEqual(changedTools.promptHash, changedPrompt.promptHash, "the tool declarations count");
+	const extended = fingerprintResponsesPayload("chat-tools", body("new prompt", "quiz", [hello, { role: "assistant", content: "hi" }]))!;
+	assert.equal(extended.promptHash, changedTools.promptHash);
+	assert.equal(extended.extendsPrevious, true);
+});
+
+test("a body prepared but never admitted does not become the comparison baseline (round-6 hunt finding)", () => {
+	resetRequestFingerprints();
+	const body = (input: unknown[]) => ({ model: "gpt-6.1-sol", input });
+	const first = { role: "user", content: "first" };
+	fingerprintResponsesPayload("chat-denied", body([first]));
+	// Prepared (fingerprint delivered) but refused before dispatch: commit is never called.
+	let delivered = 0;
+	withRequestFingerprint("chat-denied", () => delivered++, () => notePreparedResponsesPayload(body([first, { role: "user", content: "background" }])));
+	assert.equal(delivered, 1);
+	const next = fingerprintResponsesPayload("chat-denied", body([first, { role: "user", content: "foreground" }]));
+	assert.equal(next?.extendsPrevious, true, "compared with the last request actually sent");
+	// Once admitted (commit called), it does become the baseline.
+	const commit = withRequestFingerprint("chat-denied", () => {}, () => notePreparedResponsesPayload(body([{ role: "user", content: "other" }])));
+	commit();
+	assert.equal(fingerprintResponsesPayload("chat-denied", body([first]))?.extendsPrevious, false);
 });

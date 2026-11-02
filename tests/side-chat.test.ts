@@ -60,7 +60,7 @@ describe("temporary side response isolation", () => {
 	const req = (messages: unknown[] = [{ role: "user", content: "What is a difference?" }]) => new Request("http://localhost/api/chats/lesson/side", { method: "POST", body: JSON.stringify({ snapshot, messages }) });
 	it("inherits the lesson model without creating another saved lesson", async () => {
 		const before = JSON.stringify(chat);
-		const response = await sideChatSnapshot("lesson", deps());
+		const response = await sideChatSnapshot(new Request("http://test/api/chats/lesson/side"), "lesson", deps());
 		assert.equal(response.status, 200); assert.deepEqual((await response.json()).model, spec);
 		assert.equal(JSON.stringify(chat), before);
 	});
