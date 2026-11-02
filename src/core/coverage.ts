@@ -98,6 +98,47 @@ export function coverageSlots(messages: ReadonlyArray<LhMessage>): CoverageSlot[
 	}));
 }
 
+/**
+ * coverageSlots for a record read from the chat store, memoized per
+ * message OBJECT. A stored record's messages are immutable (the record
+ * cache shares them across reads and tests deep-freeze them —
+ * src/store/chats.ts), and a write keeps only the objects of messages the
+ * caller passed back unchanged: every other message lands as a new object.
+ * So a message object's identity outlives exactly as much as its content
+ * does. The one input from outside the message — which of its tool calls
+ * the transcript marks as failed output (failedOutputCallIds) — is
+ * recomputed every call and part of the memo key. Never pass messages
+ * that will be changed in place.
+ */
+export function storedCoverageSlots(messages: ReadonlyArray<LhMessage>): CoverageSlot[] {
+	const failedOutputCalls = failedOutputCallIds(messages);
+	return messages.map((message) => {
+		const failedKey = failedCallKey(message, failedOutputCalls);
+		const memo = slotMemo.get(message);
+		if (memo?.failedKey === failedKey) return { message, fp: memo.fp, tokens: memo.tokens };
+		const fp = messageFingerprint(message, failedOutputCalls);
+		const tokens = viewTokens(messageViewLines(message, message.id, failedOutputCalls));
+		slotMemo.set(message, { failedKey, fp, tokens });
+		return { message, fp, tokens };
+	});
+}
+
+const slotMemo = new WeakMap<LhMessage, { failedKey: string; fp: string; tokens: number }>();
+
+/** Positions of the message's tool calls that userFacingTextOf skips as
+ *  failed output — the only part of a message's view decided outside it. */
+function failedCallKey(message: LhMessage, failedOutputCalls: ReadonlySet<string>): string {
+	if ((message as { role?: string }).role !== "assistant") return "";
+	const content = (message as { content: unknown }).content;
+	if (!Array.isArray(content)) return "";
+	let key = "";
+	for (let i = 0; i < content.length; i++) {
+		const block = content[i] as { type?: unknown; id?: unknown } | null;
+		if (block && typeof block === "object" && block.type === "toolCall" && failedOutputCalls.has(block.id as string)) key += `${i},`;
+	}
+	return key;
+}
+
 /** The covered-fingerprint set for one chat, from the ledger. */
 export function coveredSet(entries: ReadonlyArray<CoverageEntry>, chatId: string): Set<string> {
 	const out = new Set<string>();
@@ -116,6 +157,7 @@ export function coverageOf(
 	messages: ReadonlyArray<LhMessage>,
 	entries: ReadonlyArray<CoverageEntry>,
 	chatId: string,
+	slotsOf: (messages: ReadonlyArray<LhMessage>) => CoverageSlot[] = coverageSlots,
 ): {
 	slots: CoverageSlot[];
 	uncovered: number[];
@@ -125,7 +167,7 @@ export function coverageOf(
 	uncoveredCount: number;
 } {
 	const covered = coveredSet(entries, chatId);
-	const slots = coverageSlots(messages);
+	const slots = slotsOf(messages);
 	const uncovered: number[] = [];
 	let coveredTokens = 0;
 	let uncoveredTokens = 0;
