@@ -5,13 +5,12 @@ import { createPortal } from "react-dom";
 import { FilePathChip } from "./file-path-chip";
 import { cn } from "../lib/utils";
 import {
-	adjacentPathRange, atomicPathRange, clampPathSelection, insertFilePaths,
+	adjacentPathRange, atomicPathRange, clampPathSelection,
 	normalizePathEdit, normalizePathInputValue, pathInputStaticRange, PathInputHistory, readPathInput, readPathSelection, renderPathInput,
 	replacePathSelection, restorePathSelection,
 	type PathEditSnapshot, type TextSelection,
 } from "./path-input-dom";
 
-export const INSERT_FILE_PATHS_EVENT = "lh:insert-file-paths";
 export type PathInputProps = Omit<React.HTMLAttributes<HTMLDivElement>, "children" | "dangerouslySetInnerHTML" | "defaultValue" | "onChange"> & {
 	value: string;
 	onValueChange: (value: string) => void;
@@ -57,7 +56,6 @@ export const PathInput = React.forwardRef<HTMLDivElement, PathInputProps>(functi
 		let beforeEdit: PathEditSnapshot | null = null;
 		let compositionStart: PathEditSnapshot | null = null;
 		let pendingExternal: string | null = null;
-		let pendingPaths: string[] = [];
 		let pendingPaste: string[] = [];
 		let mounted = true;
 		const history = new PathInputHistory();
@@ -91,21 +89,6 @@ export const PathInput = React.forwardRef<HTMLDivElement, PathInputProps>(functi
 			remember();
 			const next = history[direction](snapshot());
 			if (next) change(next, false);
-		}
-		function stage(paths: string[]) {
-			if (composing.current) { pendingPaths.push(...paths); return; }
-			remember();
-			// Global drop may have moved focus: saved selection is still authoritative.
-			let next: PathEditSnapshot;
-			try { next = insertFilePaths(current, saved, paths); }
-			catch { return; } // Invalid event payloads never mutate learner text.
-			change(next);
-			root.focus();
-			restorePathSelection(root, saved);
-		}
-		function insertEvent(event: Event) {
-			const paths: unknown = (event as CustomEvent<unknown>).detail;
-			if (Array.isArray(paths) && paths.every((path) => typeof path === "string")) stage(paths);
 		}
 		function beforeInput(event: InputEvent) {
 			if (composing.current || event.isComposing) return;
@@ -219,7 +202,6 @@ export const PathInput = React.forwardRef<HTMLDivElement, PathInputProps>(functi
 				if (reset) history.reset();
 				change({ value: nextValue, selection }, !reset, previous, notify);
 				if (pendingPaste.length) { const text = pendingPaste.join(""); pendingPaste = []; replace(text); }
-				if (pendingPaths.length) { const paths = pendingPaths; pendingPaths = []; stage(paths); }
 			});
 		}
 		controllerRef.current = {
@@ -241,7 +223,6 @@ export const PathInput = React.forwardRef<HTMLDivElement, PathInputProps>(functi
 		};
 		paint(saved, false);
 		if (initial.current.autoFocus) { root.focus(); restorePathSelection(root, saved); }
-		root.addEventListener(INSERT_FILE_PATHS_EVENT, insertEvent);
 		root.addEventListener("beforeinput", beforeInput);
 		root.addEventListener("input", input);
 		root.addEventListener("keydown", keyDown);
@@ -255,7 +236,6 @@ export const PathInput = React.forwardRef<HTMLDivElement, PathInputProps>(functi
 			mounted = false;
 			composing.current = false;
 			controllerRef.current = null;
-			root.removeEventListener(INSERT_FILE_PATHS_EVENT, insertEvent);
 			root.removeEventListener("beforeinput", beforeInput);
 			root.removeEventListener("input", input);
 			root.removeEventListener("keydown", keyDown);

@@ -1,4 +1,4 @@
-import { parseFilePaths, quoteFilePath } from "@/src/core";
+import { parseFilePaths } from "@/src/core";
 
 /** Tokens store their complete source, not their abbreviated visual label. */
 export const PATH_SOURCE_ATTRIBUTE = "data-file-path-source";
@@ -192,15 +192,6 @@ export function atomicPathRange(value: string, selection: TextSelection): { star
 export function replacePathSelection(value: string, selection: TextSelection, text: string) {
 	const { start, end } = atomicPathRange(value, selection);
 	return { value: value.slice(0, start) + text + value.slice(end), selection: { anchor: start + text.length, focus: start + text.length } };
-}
-
-export function insertFilePaths(value: string, selection: TextSelection, paths: string[]) {
-	const { start, end } = atomicPathRange(value, selection);
-	const text = paths.map(quoteFilePath).join(" ");
-	if (!text) return { value, selection };
-	const before = start > 0 && !/\s/.test(value[start - 1]!) ? " " : "";
-	const after = end < value.length && !/\s/.test(value[end]!) ? " " : "";
-	return replacePathSelection(value, selection, before + text + after);
 }
 
 export function adjacentPathRange(value: string, selection: TextSelection, direction: "backward" | "forward"): TextSelection | null {
