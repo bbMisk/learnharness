@@ -589,6 +589,8 @@ Include only useful matches to existing records you have seen. Omitted findings 
 when none match. Do not restate findings, invent relations, or justify verdicts in the output. The merger retains the
 existing record's name and statement and adds the incoming wording as an alias with its provenance.`;
 
+export const AUDITOR_MAX_TOKENS = 16_000;
+
 /** The auditor — one shape for both front doors now (the notes schema was
  *  identical once attribution died). An agentic loop: graph-exploration
  *  tools plus the one submit call. */
@@ -610,7 +612,10 @@ function runAuditor(
 		fill: fillAudit,
 		systemPrompt: AUDITOR_INSTRUCTIONS,
 		prompt,
-		engine,
+		// Output cap (owner, 2026-11-01): a review is a short links list (largest real
+		// step: 281 tokens, reasoning included), but one runaway step once wrote the
+		// model's full 128k. Same seam as review-questions' cap.
+		engine: engine && { ...engine, streamFn: (model, context, options) => engine.streamFn(model, context, { ...options, maxTokens: AUDITOR_MAX_TOKENS }) },
 		signal,
 		onStep,
 		neverSubmitted: "the auditor never submitted a review",
