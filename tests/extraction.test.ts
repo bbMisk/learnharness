@@ -97,6 +97,7 @@ function memoryLedgers() {
 		// the chat pipeline checkpoints one entry per covered message.
 		appendCoverage: (e) => void coverage.push({ ...e }),
 		readCoverage: () => coverage.map((e) => ({ ...e })),
+		readChatCoverage: (chatId) => coverage.filter((e) => e.chatId === chatId).map((e) => ({ ...e })),
 		upsertSource: (s: NotesSource) => {
 			// Mirrors the real store: an upsert KEEPS the existing usage log.
 			const prev = sources.get(s.id);

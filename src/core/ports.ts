@@ -92,6 +92,8 @@ export interface GraphStore {
 	 *  checkpoint — "uncovered" is derived from these, never tracked. */
 	appendCoverage(entry: CoverageEntry): void;
 	readCoverage(): CoverageEntry[];
+	/** One chat's rows of readCoverage, in ledger order. */
+	readChatCoverage(chatId: string): CoverageEntry[];
 
 	/** Append one cluster-naming run's usage (graph-global money channel) —
 	 *  idempotent per startedAt. */

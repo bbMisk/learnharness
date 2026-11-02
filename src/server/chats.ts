@@ -1,6 +1,6 @@
 import { abortExtraction, extractionStatuses } from "../agent/subagents/extraction.ts";
 import { isJobLive } from "../agent/subagents/aborts.ts";
-import { coverageOf } from "../core/coverage.ts";
+import { coverageOf, storedCoverageSlots } from "../core/coverage.ts";
 import { deleteChatTraces, type ChatDeleteMode, type ChatDeletionStats } from "../core/graph-deletion.ts";
 import { titleFromPrompt, type ChatRecord } from "../core/contracts.ts";
 import { graphRevision } from "./graph.ts";
@@ -183,10 +183,11 @@ export interface SessionCoverage {
 export function sessionCoverage(record: ChatRecord | null): SessionCoverage | null {
 	if (!record) return null;
 	const chatId = record.id;
-	const entries = stores.graphStore.readCoverage();
+	const entries = stores.graphStore.readChatCoverage(chatId);
 	// Wave B: the record is native history — coverage reads through the
-	// projection (same view the extraction pipeline folds).
-	const cov = coverageOf(record.messages, entries, chatId);
+	// projection (same view the extraction pipeline folds). The record
+	// comes from the chat store, so its message fingerprints memoize.
+	const cov = coverageOf(record.messages, entries, chatId, storedCoverageSlots);
 	let lastFoldedAt: string | null = null;
 	for (const entry of entries) {
 		if (entry.chatId !== chatId) continue;
