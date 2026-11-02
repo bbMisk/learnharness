@@ -55,7 +55,6 @@ import {
 	NOTES_PREAMBLE,
 	EXTRACTOR_INSTRUCTIONS,
 	NOTES_EXTRACTOR_INSTRUCTIONS,
-	AUDITOR_MAX_TOKENS,
 } from "../src/agent/subagents/extraction.ts";
 import { getGraph, simplifyChains } from "../src/core/graph.ts";
 import { ModelsNotConfiguredError, ProviderKeyMissingError, providerKeyMissing, type ModelSlotName } from "../src/core/settings.ts";
@@ -425,7 +424,7 @@ describe("the extraction pipeline (extractor → auditor → merger)", () => {
 		off();
 	});
 
-	it("caps the auditor's output (one runaway step once wrote the model's full 128k); the extractor stays uncapped", async () => {
+	it("no stage caps its output: quality over price (owner, 2026-11-02)", async () => {
 		const { chatId } = fixtureChat();
 		const seen: Record<string, number | undefined> = {};
 		const capture = (role: string, engine: PiEngine): PiEngine => ({ ...engine, streamFn: (model, context, options) => { seen[role] = options?.maxTokens; return engine.streamFn(model, context, options); } });
@@ -436,8 +435,7 @@ describe("the extraction pipeline (extractor → auditor → merger)", () => {
 			auditor: capture("auditor", submitModel("submit_review", { links: [] })),
 		});
 		await pipeline.runExtraction(chatId);
-		assert.equal(seen.auditor, AUDITOR_MAX_TOKENS);
-		assert.equal(seen.extractor, undefined);
+		assert.deepEqual(seen, { extractor: undefined, auditor: undefined });
 	});
 
 	it("stringified-payload heal (owner, 2026-09-28): propositions arriving as ONE JSON string still validate and merge", async () => {
