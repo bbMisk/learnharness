@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { Chat } from "@/components/chat";
-import { clientMessage, resolveSettings, slotsConfigured } from "@/src/core";
+import { clientMessage, resolveSettings, sanitizeQuestionType, slotsConfigured } from "@/src/core";
 import { compactionInFlight, getChat, isTurnRunning, readSettingsRecord, turnFailure } from "@/src/server";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +26,10 @@ export default async function ChatPage({
 			title={chat.title}
 			kind={chat.kind ?? "teach"}
 			style={chat.style}
+			// The lesson's question type (owner, 2026-11-03): the stored choice
+			// and the app-wide mechanic an unset one falls back to.
+			questionType={sanitizeQuestionType(chat.settings?.questionType)}
+			agentTools={resolveSettings(record ?? null).agent.tools}
 			// Wave D: the record IS native agent history — the client view is
 				// derived app-side (core/view.ts projectView; GET serves the same
 				// display messages).

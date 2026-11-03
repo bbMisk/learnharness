@@ -13,7 +13,8 @@ import {
 	quizInputProblems,
 } from "../core/question-core.ts";
 import { filterEnabledTools, type EnabledTools } from "../core/pending.ts";
-import type { JobRecord } from "../core/contracts.ts";
+import type { JobRecord, QuestionType } from "../core/contracts.ts";
+import { appQuestionType } from "../core/question-type.ts";
 import type { JobStore } from "../core/ports.ts";
 import { jobTools, type DemoInput, type PdfInput, type ResearchInput, type VisualInput } from "./tools/jobs.ts";
 import { planTools, type PlanToolContext } from "./tools/plan.ts";
@@ -437,19 +438,20 @@ function withoutMechanics(enabled?: EnabledTools): EnabledTools | undefined {
 export function createTeacherTools(
 	ctx: TeacherToolContext,
 	enabled?: EnabledTools,
-	bothQuizzing = false,
+	questionType?: QuestionType,
 	cram = false,
 ): Record<string, AgentTool<any>> {
-	// Quizzing mechanics (owner 2026-09-27): free-recall swaps the teach
-	// quiz for the teach explain — one quizzing tool at a time, whichever
-	// the settings arm. ask stays always-on.
-	const mechanics = quizMechanics(enabled);
+	// The lesson's question type (owner, 2026-11-03; the handler resolves it
+	// per run — core/question-type.ts): MCQ = quiz, SAQ = explain, Mixed =
+	// both. Unset falls back to the app-wide quizzing mechanics (owner
+	// 2026-09-27): free recall arms explain, anything else quiz. ask stays
+	// always-on.
+	const type = questionType ?? appQuestionType(enabled);
 	// Same widening as the prober's (see above) — the conditional spread of
 	// two differently-typed literals collapses into an unusable union type.
-	// Cram (owner, 2026-11-01): both, multiple choice by default.
-	const quizzing: Record<string, AgentTool<any>> = bothQuizzing
+	const quizzing: Record<string, AgentTool<any>> = type === "mixed"
 		? { quiz: teachQuizToolFor(ctx), explain: teachExplainToolFor(ctx) }
-		: mechanics === "free"
+		: type === "saq"
 			? { explain: teachExplainToolFor(ctx) }
 			: { quiz: teachQuizToolFor(ctx) };
 	// healToolRecord — same standard as the prober's registry (above).

@@ -239,9 +239,9 @@ describe("lesson-tracking scope", () => {
 	it("problem tools for a cram teacher only; mistake tools for every teacher; never the prober or practice", () => {
 		const chatId = newChat();
 		assert.deepEqual(tracking(createTeacherTools(ctx(chatId))), ["note_mistake", "resolve_mistake"]);
-		assert.deepEqual(tracking(createTeacherTools(ctx(chatId), undefined, true)), ["note_mistake", "resolve_mistake"], "bothQuizzing alone does not add the problem tools");
-		assert.deepEqual(tracking(createTeacherTools(ctx(chatId), { explain: true }, false, false)), ["note_mistake", "resolve_mistake"]);
-		assert.deepEqual(tracking(createTeacherTools(ctx(chatId), undefined, true, true)), ["note_mistake", "problem_done", "problem_list", "resolve_mistake"]);
+		assert.deepEqual(tracking(createTeacherTools(ctx(chatId), undefined, "mixed")), ["note_mistake", "resolve_mistake"], "Mixed alone does not add the problem tools");
+		assert.deepEqual(tracking(createTeacherTools(ctx(chatId), { explain: true }, undefined, false)), ["note_mistake", "resolve_mistake"]);
+		assert.deepEqual(tracking(createTeacherTools(ctx(chatId), undefined, "mixed", true)), ["note_mistake", "problem_done", "problem_list", "resolve_mistake"]);
 		assert.deepEqual(tracking(createProberTools({ ...ctx(chatId), deliver: () => {} })), []);
 		assert.deepEqual(tracking(practiceTools({ chatId, chatStore })), []);
 	});

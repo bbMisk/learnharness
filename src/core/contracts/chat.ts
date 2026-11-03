@@ -87,7 +87,17 @@ export interface ChatSettings {
 	/** pi thinking level — must be in the chosen model's supported list
 	 *  (getSupportedThinkingLevels; enforced by the settings route). */
 	thinkingLevel?: ThinkingLevel;
+	/** The lesson's question type (owner, 2026-11-03): the teacher's
+	 *  quizzing tools — "mcq" multiple choice (quiz), "saq" short answer
+	 *  (explain), "mixed" both. Written by the header's Qs chip; absent =
+	 *  cram lessons Mixed, other lessons the app-wide Settings → Agent
+	 *  mechanic (core/question-type.ts effectiveQuestionType). Teacher only:
+	 *  the prober and practice sessions never read it. */
+	questionType?: QuestionType;
 }
+
+/** The per-lesson question types (owner, 2026-11-03). */
+export type QuestionType = "mcq" | "saq" | "mixed";
 
 
 // ─── Background-extraction usage (the money channel, extraction side) ────────

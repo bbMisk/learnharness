@@ -227,7 +227,7 @@ it("a cram teacher's tools include both question kinds; a normal teacher keeps o
 	const { createTeacherTools } = await import("../src/agent/tools.ts");
 	const ctx = { chatId: "c", chatStore: chatStore, jobStore: {} as never, spawn: () => {} } as never;
 	const names = (tools: Record<string, unknown>) => Object.keys(tools).filter((n) => n === "quiz" || n === "explain").sort();
-	assert.deepEqual(names(createTeacherTools(ctx, undefined, true)), ["explain", "quiz"]);
+	assert.deepEqual(names(createTeacherTools(ctx, undefined, "mixed")), ["explain", "quiz"]);
 	assert.deepEqual(names(createTeacherTools(ctx)), ["quiz"]);
 	assert.deepEqual(names(createTeacherTools(ctx, { explain: true })), ["explain"]);
 });

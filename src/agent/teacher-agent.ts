@@ -25,7 +25,7 @@ import { toLlmMessages, nativeInputCause, PRACTICE_PROBLEM_TOOL } from "../core/
 import type { ChatGPTRequestCycle } from "./chatgpt-request-cycle.ts";
 import { usageWasAdmitted } from "./subscription-request-cycle.ts";
 import { withRequestFingerprint } from "./request-fingerprint.ts";
-import type { RequestFingerprint } from "../core/contracts.ts";
+import type { QuestionType, RequestFingerprint } from "../core/contracts.ts";
 import { sharedHandoffMessages, sharedHandoffSupported, type AgentLoadout } from "./shared-handoff.ts";
 
 /**
@@ -123,9 +123,11 @@ export interface AgentBuildOptions {
 	 *  THE DEFINITIVE toggleable set is TOGGLEABLE_TOOLS (job tools only);
 	 *  the filtering is generic, but writes validate against the list). */
 	toolToggles?: EnabledTools;
-	/** Cram lessons (core/cram.ts): the teacher holds both question tools,
-	 *  multiple choice (quiz) and short answer (explain), and picks per problem. */
-	bothQuizzing?: boolean;
+	/** The lesson's effective question type (owner, 2026-11-03 —
+	 *  core/question-type.ts): the TEACHER's quizzing tools — "mcq" quiz,
+	 *  "saq" explain, "mixed" both. Absent = the toolToggles mechanic. The
+	 *  prober and the practitioner never read it. */
+	questionType?: QuestionType;
 	/** Cram lessons (core/cram.ts): the teacher also tracks the problem set
 	 *  (problem_list / problem_done — core/lesson-tracking.ts). */
 	cram?: boolean;
@@ -358,7 +360,7 @@ export function createTeacherAgent(
 	ctx?: TeacherToolContext,
 	opts: AgentBuildOptions = {},
 ) {
-	const tools = opts.tools ?? (ctx ? createTeacherTools(ctx, opts.toolToggles, opts.bothQuizzing, opts.cram) : bareQuestionTools());
+	const tools = opts.tools ?? (ctx ? createTeacherTools(ctx, opts.toolToggles, opts.questionType, opts.cram) : bareQuestionTools());
 	return baseAgentOptions("teacher", opts, Object.values(tools));
 }
 

@@ -6,7 +6,7 @@ import {
 	stores,
 	validateChatSettings,
 } from "@/src/server";
-import type { ChatSettings } from "@/src/core";
+import { sanitizeQuestionType, type ChatSettings } from "@/src/core";
 
 /**
  * The per-chat model control (model-control wave): replace-whole settings —
@@ -21,6 +21,9 @@ import type { ChatSettings } from "@/src/core";
  * nearest supported and the clamped value is stored. Effective next turn
  * by construction (agents are stateless per turn).
  *
+ * One exception to replace-whole: `questionType` (the lesson's question
+ * type, owner 2026-11-03) is kept when a body omits it — see PUT.
+ *
  * The body parsing itself is shared with the draft route
  * (src/server/settings-body.ts, default-settings wave 2026-09-18).
  */
@@ -33,13 +36,21 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
 	const { id } = await params;
-	if (!getChat(id)) return Response.json({ error: "Not found" }, { status: 404 });
+	const chat = getChat(id);
+	if (!chat) return Response.json({ error: "Not found" }, { status: 404 });
 
 	const body = await req.json().catch(() => null);
 	const parsed = parseSettingsBody(body);
 	if (!parsed.ok) return Response.json({ error: parsed.error }, { status: 400 });
 
-	const verdict = validateChatSettings(parsed.settings);
+	// The catalog gate checks a model the write introduces, never the saved
+	// one re-sent unchanged (validateModelsSettings' discipline): the Qs
+	// chip re-sends the session's model, which must not block its save while
+	// that model's provider is disconnected.
+	const saved = chat.settings?.model;
+	const unchanged = parsed.settings.model !== undefined && saved !== undefined &&
+		parsed.settings.model.provider === saved.provider && parsed.settings.model.id === saved.id;
+	const verdict = unchanged ? ({ ok: true } as const) : validateChatSettings(parsed.settings);
 	if (!verdict.ok) {
 		return Response.json({ error: verdict.error, supported: verdict.supported }, { status: 400 });
 	}
@@ -49,7 +60,13 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 	// Clamp-on-write (owner, interlude 2026-09-22): a pinned thinking
 	// level never rejects — it clamps to the named model's nearest
 	// supported (body model, else the record's strong slot).
-	const settings = clampChatLevel(parsed.settings, effectiveSettings().models.strong);
+	const clamped = clampChatLevel(parsed.settings, effectiveSettings().models.strong);
+	// The lesson's question type (owner, 2026-11-03) is not a model control:
+	// the model picker's writes never name it, so a body without it keeps the
+	// stored choice. The header's Qs chip sends it with the model fields it
+	// just read (replace-whole for those, as ever).
+	const kept = sanitizeQuestionType(chat.settings?.questionType);
+	const settings: ChatSettings = clamped.questionType === undefined && kept ? { ...clamped, questionType: kept } : clamped;
 	stores.chatStore.saveSettings(id, settings);
 	return Response.json({ settings });
 }

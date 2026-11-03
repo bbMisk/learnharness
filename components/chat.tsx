@@ -35,7 +35,9 @@ import {
 	kbdEventForAction as kbdEventForChat,
 	type ChatInput,
 	type ChatSettings,
+	type EnabledTools,
 	type LhMessage,
+	type QuestionType,
 	type ModelSlotName,
 } from "@/src/core";
 import { PlanPopup, latestTree } from "@/components/plan-block";
@@ -52,6 +54,7 @@ import { TopBar } from "@/components/top-bar";
 import type { JobRecord, Phase3, QuestionAnswerData, QuestionCall, QuestionFormDraft, TurnUsage, SessionPricing } from "@/src/core";
 import { PhaseChip } from "@/components/phase-divider";
 import { CramToggle } from "@/components/cram-toggle";
+import { QuestionTypeChip, showsQuestionTypeChip } from "@/components/question-type-chip";
 import { LessonTrackerCard, LessonTrackerChip, lessonTrackerRoom, useLessonTrackerShown } from "@/components/lesson-tracker";
 import { CoverageRing } from "@/components/extraction-coverage";
 import { Button } from "@/components/ui/button";
@@ -68,6 +71,7 @@ import {
 	isTeachingCheck,
 	revealsQuestions,
 	hasLessonTracking,
+	sanitizeQuestionType,
 } from "@/src/core";
 import { useGeneralSettings } from "@/components/general-settings";
 import { rememberRevealed, wasRevealed } from "@/components/revealed-questions";
@@ -201,6 +205,8 @@ export function Chat({
 	initialShowReadingThinking = FACTORY_SETTINGS.general.showReadingThinking,
 	kind = "teach",
 	style,
+	questionType: initialQuestionType,
+	agentTools,
 }: {
 	chatId: string;
 	title: string;
@@ -213,6 +219,10 @@ export function Chat({
 	kind?: "teach" | "practice";
 	/** "cram" for a lesson started in cram mode (core/cram.ts). */
 	style?: "cram";
+	/** The chat's stored question type (core/question-type.ts; absent = unset). */
+	questionType?: QuestionType;
+	/** Settings → Agent's tool map — an unset question type's app default. */
+	agentTools?: EnabledTools;
 	initialPrompt?: string;
 	/** A teacher turn is running server-side but attached to no client
 	 * (navigated away mid-turn, returned while in flight). */
@@ -479,6 +489,9 @@ export function Chat({
 	// teacher's turn ends at the question call).
 	const teachingCheck = pending !== null && isTeachingCheck(pending.tool, pending.input, phaseAt3(messages));
 	const [cram, setCram] = useState(style === "cram");
+	// The lesson's stored question type (owner, 2026-11-03): the Qs chip
+	// writes it; every record sync re-reads it (another device's pick).
+	const [questionType, setQuestionType] = useState(initialQuestionType);
 	// Hooks run on every render: never behind && (a skipped hook crashed the page after an answer).
 	const revealSetting = useGeneralSettings()?.revealQuestions;
 	const requiresReveal = teachingCheck && revealsQuestions(revealSetting, cram);
@@ -775,8 +788,9 @@ export function Chat({
 		try {
 			const res = await fetch(`/api/chats/${chatId}`);
 			if (!res.ok) return false;
-			const record = (await res.json()) as { messages?: LhMessage[]; turns?: TurnUsage[]; pricing?: SessionPricing; turnError?: string };
+			const record = (await res.json()) as { messages?: LhMessage[]; turns?: TurnUsage[]; pricing?: SessionPricing; turnError?: string; settings?: ChatSettings };
 			if (Array.isArray(record.turns)) setTurns(record.turns);
+			setQuestionType(sanitizeQuestionType(record.settings?.questionType));
 			setPricing(record.pricing);
 			if (!Array.isArray(record.messages)) return false;
 			setMessages(record.messages, record.turnError);
@@ -1320,6 +1334,11 @@ export function Chat({
 				    practice never extracts, so an ever-filling ring with no
 				    run behind it would lie. */}
 					{kind !== "practice" && <CramToggle chatId={chatId} on={cram} onChange={setCram} />}
+					{/* The lesson's question type (owner, 2026-11-03): the teacher's
+					    tools, so never for practice and not while the prober runs. */}
+					{showsQuestionTypeChip(kind, phases.at(-1) ?? "probe") && (
+						<QuestionTypeChip chatId={chatId} stored={questionType} cram={cram} initialAgentTools={agentTools} onSaved={setQuestionType} />
+					)}
 					{kind !== "practice" && <CoverageRing chatId={chatId} refreshKey={coverageTick} />}
 					{/* Practice sessions: no phase arc — a quiet Practice tag
 					    instead of the phase chip. */}
