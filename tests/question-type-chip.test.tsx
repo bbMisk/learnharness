@@ -68,9 +68,11 @@ async function mount(element: React.ReactNode) {
 	return host;
 }
 
-/** A fake chat settings API: GET the record's settings, PUT replaces them. */
-function fakeApi(initial: Record<string, unknown>) {
-	const state = { settings: initial, calls: [] as Array<{ url: string; method: string; body?: unknown }>, failPut: false, agent: {} as Record<string, unknown> };
+/** A fake chat settings API: GET the record's settings, PUT merges the
+ *  named fields (the route's field-level write); /api/settings serves the
+ *  Agent section. */
+function fakeApi(initial: Record<string, unknown>, agent: Record<string, unknown> = {}) {
+	const state = { settings: initial, calls: [] as Array<{ url: string; method: string; body?: unknown }>, failPut: false, agent };
 	globalThis.fetch = (async (url: string, init?: RequestInit) => {
 		const method = init?.method ?? "GET";
 		const body = init?.body ? JSON.parse(String(init.body)) : undefined;
@@ -79,8 +81,8 @@ function fakeApi(initial: Record<string, unknown>) {
 		assert.equal(url, "/api/chats/chat_1/settings");
 		if (method === "GET") return Response.json({ settings: state.settings });
 		if (state.failPut) return Response.json({ error: "no" }, { status: 500 });
-		state.settings = body;
-		return Response.json({ settings: body });
+		state.settings = { ...state.settings, ...body };
+		return Response.json({ settings: state.settings });
 	}) as typeof fetch;
 	return state;
 }
@@ -97,6 +99,7 @@ it("labels: the stored type, else cram Mixed, else the app-wide mechanic", async
 	assert.equal(chip().textContent, "Qs: Mixed", "unset cram lesson");
 	await act(async () => root!.render(<Harness key="teach" />));
 	assert.equal(chip().textContent, "Qs: MCQ", "unset lesson, multiple choice app-wide");
+	fakeApi({}, { tools: { explain: true } });
 	await act(async () => root!.render(<Harness key="free" agentTools={{ explain: true }} />));
 	assert.equal(chip().textContent, "Qs: SAQ", "unset lesson, free recall app-wide");
 	assert.ok(host.contains(chip()));
@@ -110,6 +113,31 @@ it("follows a Settings → Agent change for an unset lesson", async () => {
 	await act(async () => notifySettingsSaved("agent"));
 	await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 	assert.equal(chip().textContent, "Qs: SAQ");
+});
+
+it("re-reads the app-wide mechanic on mount: a change made while it was hidden shows", async () => {
+	fakeApi({}, { tools: { explain: true } });
+	await mount(<Harness agentTools={{}} />);
+	await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+	assert.equal(chip().textContent, "Qs: SAQ", "the page's served value was stale");
+});
+
+it("only the latest Agent read lands: a slower, older response never restores the label", async () => {
+	const held: Array<(response: Response) => void> = [];
+	globalThis.fetch = (async (url: string) => {
+		assert.equal(url, "/api/settings");
+		return new Promise<Response>((resolve) => held.push(resolve));
+	}) as typeof fetch;
+	const agent = (explain: boolean) => Response.json({ settings: { version: 1, agent: { tools: { explain } } } });
+	await mount(<Harness agentTools={{}} />);
+	for (const resolve of held.splice(0)) await act(async () => resolve(agent(false)));
+	await act(async () => notifySettingsSaved("agent"));
+	await act(async () => notifySettingsSaved("agent"));
+	assert.equal(held.length, 2, "one read per save");
+	await act(async () => held[1]!(agent(true)));
+	assert.equal(chip().textContent, "Qs: SAQ");
+	await act(async () => held[0]!(agent(false)));
+	assert.equal(chip().textContent, "Qs: SAQ", "the superseded read is discarded");
 });
 
 it("opens a three-option menu with the current type checked", async () => {
@@ -132,27 +160,28 @@ it("opens a three-option menu with the current type checked", async () => {
 	assert.equal(menu(), null, "the chip toggles it closed");
 });
 
-it("a pick saves through the chat settings API, keeping the model fields, and updates at once", async () => {
+it("a pick saves only { questionType } through the chat settings API and updates at once", async () => {
 	const api = fakeApi({ model: MODEL, thinkingLevel: "low" });
 	await mount(<Harness />);
+	const chatCalls = () => api.calls.filter((c) => c.url !== "/api/settings");
 	await click(chip());
 	await click(option("saq"));
 	assert.equal(chip().textContent, "Qs: SAQ");
 	assert.equal(menu(), null, "the menu closes on a saved pick");
-	assert.deepEqual(api.calls, [
-		{ url: "/api/chats/chat_1/settings", method: "GET" },
-		{ url: "/api/chats/chat_1/settings", method: "PUT", body: { model: MODEL, thinkingLevel: "low", questionType: "saq" } },
-	]);
+	assert.deepEqual(chatCalls(), [{ url: "/api/chats/chat_1/settings", method: "PUT", body: { questionType: "saq" } }], "no read-then-write of the model fields");
 	assert.deepEqual(api.settings, { model: MODEL, thinkingLevel: "low", questionType: "saq" });
 	await click(chip());
 	await click(option("mixed"));
 	assert.equal(chip().textContent, "Qs: Mixed");
-	assert.deepEqual(api.calls.at(-1), { url: "/api/chats/chat_1/settings", method: "PUT", body: { model: MODEL, thinkingLevel: "low", questionType: "mixed" } });
-	// Re-picking the stored type writes nothing.
-	const before = api.calls.length;
+	assert.deepEqual(chatCalls().at(-1), { url: "/api/chats/chat_1/settings", method: "PUT", body: { questionType: "mixed" } });
+	// Re-picking the type this view shows still writes: another device may
+	// have changed the stored value meanwhile.
+	api.settings = { ...api.settings, questionType: "mcq" };
 	await click(chip());
 	await click(option("mixed"));
-	assert.equal(api.calls.length, before);
+	assert.deepEqual(chatCalls().at(-1), { url: "/api/chats/chat_1/settings", method: "PUT", body: { questionType: "mixed" } });
+	assert.equal(chatCalls().length, 3);
+	assert.equal(api.settings.questionType, "mixed");
 	assert.equal(menu(), null);
 });
 

@@ -2,27 +2,34 @@ import {
 	clampChatLevel,
 	effectiveSettings,
 	getChat,
+	mergeChatSettings,
 	parseSettingsBody,
 	stores,
 	validateChatSettings,
 } from "@/src/server";
-import { sanitizeQuestionType, type ChatSettings } from "@/src/core";
+import { emit, type ChatSettings } from "@/src/core";
 
 /**
- * The per-chat model control (model-control wave): replace-whole settings —
- * the picker sends the complete desired object ({} clears all overrides).
+ * The per-chat model control (model-control wave) and the lesson's question
+ * type (owner, 2026-11-03). FIELD-LEVEL writes (fix, 2026-11-03): a body
+ * names the fields it changes and the write merges them into the CURRENT
+ * record (mergeChatSettings) — the model pair {model, thinkingLevel} is one
+ * field group (naming either replaces both, so the picker's {model} still
+ * clears a stale level), `questionType` another. The model picker sends
+ * only the model pair, the Qs chip only `questionType`, so neither can
+ * restore the other's older value; a full object still replaces every group
+ * it names. Unknown keys are dropped; `{}` changes nothing.
  * PER-SESSION MODELS (owner, 2026-09-28): this route is THE in-session
  * writer — the composer's control binds the session's own record; the
  * strong slot is only the birth default and never reaches an existing
  * session again.
- * Validation is the catalog gate (src/server/model-catalog.ts): unknown
- * provider/model is a 400. Thinking levels never reject (owner,
+ * Validation is the catalog gate (src/server/model-catalog.ts): a model the
+ * write CHANGES must be in the catalog (unknown provider/model is a 400);
+ * the saved model re-sent unchanged is never re-checked
+ * (validateModelsSettings' discipline). Thinking levels never reject (owner,
  * interlude 2026-09-22): a pinned level clamps to the named model's
  * nearest supported and the clamped value is stored. Effective next turn
  * by construction (agents are stateless per turn).
- *
- * One exception to replace-whole: `questionType` (the lesson's question
- * type, owner 2026-11-03) is kept when a body omits it — see PUT.
  *
  * The body parsing itself is shared with the draft route
  * (src/server/settings-body.ts, default-settings wave 2026-09-18).
@@ -36,37 +43,35 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
 	const { id } = await params;
-	const chat = getChat(id);
-	if (!chat) return Response.json({ error: "Not found" }, { status: 404 });
+	if (!getChat(id)) return Response.json({ error: "Not found" }, { status: 404 });
 
 	const body = await req.json().catch(() => null);
 	const parsed = parseSettingsBody(body);
 	if (!parsed.ok) return Response.json({ error: parsed.error }, { status: 400 });
 
-	// The catalog gate checks a model the write introduces, never the saved
-	// one re-sent unchanged (validateModelsSettings' discipline): the Qs
-	// chip re-sends the session's model, which must not block its save while
-	// that model's provider is disconnected.
-	const saved = chat.settings?.model;
-	const unchanged = parsed.settings.model !== undefined && saved !== undefined &&
-		parsed.settings.model.provider === saved.provider && parsed.settings.model.id === saved.id;
-	const verdict = unchanged ? ({ ok: true } as const) : validateChatSettings(parsed.settings);
-	if (!verdict.ok) {
-		return Response.json({ error: verdict.error, supported: verdict.supported }, { status: 400 });
+	// THE WRITE BOUNDARY: everything below is synchronous — no await between
+	// reading the current record and saving the merge, so a write that
+	// landed while this body was still arriving is the base, never lost and
+	// never compared against a stale snapshot.
+	const chat = getChat(id);
+	if (!chat) return Response.json({ error: "Not found" }, { status: 404 });
+	const merged = mergeChatSettings(chat.settings, body, parsed.settings);
+	if (!sameModel(merged.model, chat.settings?.model)) {
+		const verdict = validateChatSettings(merged);
+		if (!verdict.ok) {
+			return Response.json({ error: verdict.error, supported: verdict.supported }, { status: 400 });
+		}
 	}
-
-	// Replace-whole persists the validated, level-clamped object — no
-	// merges, so a stale client can never resurrect a cleared override.
 	// Clamp-on-write (owner, interlude 2026-09-22): a pinned thinking
 	// level never rejects — it clamps to the named model's nearest
-	// supported (body model, else the record's strong slot).
-	const clamped = clampChatLevel(parsed.settings, effectiveSettings().models.strong);
-	// The lesson's question type (owner, 2026-11-03) is not a model control:
-	// the model picker's writes never name it, so a body without it keeps the
-	// stored choice. The header's Qs chip sends it with the model fields it
-	// just read (replace-whole for those, as ever).
-	const kept = sanitizeQuestionType(chat.settings?.questionType);
-	const settings: ChatSettings = clamped.questionType === undefined && kept ? { ...clamped, questionType: kept } : clamped;
+	// supported (the merged model, else the record's strong slot).
+	const settings = clampChatLevel(merged, effectiveSettings().models.strong);
 	stores.chatStore.saveSettings(id, settings);
+	// Open views of this chat (other tabs, other devices) refetch the record.
+	emit("record-changed", { chatId: id });
 	return Response.json({ settings });
+}
+
+function sameModel(a: ChatSettings["model"], b: ChatSettings["model"]): boolean {
+	return a?.provider === b?.provider && a?.id === b?.id;
 }

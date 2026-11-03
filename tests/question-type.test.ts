@@ -37,6 +37,7 @@ const { writeSettings } = await import("../src/store/settings.ts");
 const { CRAM_INSTRUCTIONS, cramInstructions, withTeachingStyle } = await import("../src/core/cram.ts");
 const { MIXED_QUESTION_RULE, QUESTION_TYPE_LABEL, appQuestionType, effectiveQuestionType, sanitizeQuestionType } = await import("../src/core/question-type.ts");
 const settingsRoute = await import("../app/api/chats/[id]/settings/route.ts");
+const { subscribe } = await import("../src/core/events.ts");
 after(() => fs.rmSync(scratch, { recursive: true, force: true }));
 
 const MIXED =
@@ -123,6 +124,35 @@ describe("the settings route", () => {
 		assert.equal(chatStore.getChat(chat.id)!.settings!.questionType, "mixed");
 	});
 
+	it("field-level: a { questionType } write keeps the model pair; a model write keeps the type; {} changes nothing", async () => {
+		const chat = chatStore.createChat("Field level");
+		chatStore.saveSettings(chat.id, { model: MODEL, thinkingLevel: "low" });
+		assert.equal((await put(chat.id, { questionType: "mixed" })).status, 200);
+		assert.deepEqual(chatStore.getChat(chat.id)!.settings, { model: MODEL, thinkingLevel: "low", questionType: "mixed" });
+		// The picker's {model} replaces the model pair — a stale level clears, as before.
+		assert.equal((await put(chat.id, { model: MODEL })).status, 200);
+		assert.deepEqual(chatStore.getChat(chat.id)!.settings, { model: MODEL, questionType: "mixed" });
+		assert.equal((await put(chat.id, {})).status, 200);
+		assert.deepEqual(chatStore.getChat(chat.id)!.settings, { model: MODEL, questionType: "mixed" });
+		// A full object still replaces every group it names.
+		assert.equal((await put(chat.id, { model: MODEL, thinkingLevel: "low", questionType: "saq" })).status, 200);
+		assert.deepEqual(chatStore.getChat(chat.id)!.settings, { model: MODEL, thinkingLevel: "low", questionType: "saq" });
+	});
+
+	it("a saved write tells open views of the chat to refetch", async () => {
+		const chat = chatStore.createChat("Event");
+		chatStore.saveSettings(chat.id, { model: MODEL });
+		const seen: unknown[] = [];
+		const off = subscribe((event) => seen.push(event));
+		try {
+			assert.equal((await put(chat.id, { questionType: "saq" })).status, 200);
+			assert.equal((await put(chat.id, { questionType: "essay" })).status, 400);
+		} finally {
+			off();
+		}
+		assert.deepEqual(seen.filter((e) => (e as { type: string }).type === "record-changed"), [{ type: "record-changed", chatId: chat.id }], "once, for the saved write only");
+	});
+
 	it("rejects an unknown type and writes nothing", async () => {
 		const chat = chatStore.createChat("Route reject");
 		chatStore.saveSettings(chat.id, { model: MODEL, questionType: "mcq" });
@@ -141,6 +171,48 @@ describe("the settings route", () => {
 		const other = chatStore.createChat("Route new model");
 		chatStore.saveSettings(other.id, { model: MODEL });
 		assert.equal((await put(other.id, { model: gone })).status, 400);
+	});
+
+	/** A PUT whose body is still arriving: the route has started (and could
+	 *  have read the record) before `release` sends the body. */
+	const slowPut = (id: string, body: unknown) => {
+		let release!: () => void;
+		const stream = new ReadableStream<Uint8Array>({
+			start(controller) {
+				release = () => {
+					controller.enqueue(new TextEncoder().encode(JSON.stringify(body)));
+					controller.close();
+				};
+			},
+		});
+		const request = new Request(`http://test/api/chats/${id}/settings`, { method: "PUT", headers: { "content-type": "application/json" }, body: stream, duplex: "half" } as RequestInit);
+		const response = settingsRoute.PUT(request, { params: Promise.resolve({ id }) });
+		return { release, response: response.then(async (r) => ({ status: r.status, body: (await r.json()) as { settings?: ChatSettings; error?: string } })) };
+	};
+	const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+
+	it("a write that started while a disconnected model was saved is checked against the CURRENT model", async () => {
+		const gone = { provider: "nowhere", id: "retired-model" };
+		const chat = chatStore.createChat("Race: validation");
+		chatStore.saveSettings(chat.id, { model: gone });
+		const stale = slowPut(chat.id, { model: gone, questionType: "saq" });
+		await tick();
+		assert.equal((await put(chat.id, { model: MODEL })).status, 200, "another view moves to a connected model");
+		stale.release();
+		const result = await stale.response;
+		assert.equal(result.status, 400, "re-introducing the disconnected model is a catalog change now");
+		assert.deepEqual(chatStore.getChat(chat.id)!.settings, { model: MODEL });
+	});
+
+	it("a model write still arriving never restores an older question type", async () => {
+		const chat = chatStore.createChat("Race: question type");
+		chatStore.saveSettings(chat.id, { model: MODEL, questionType: "mcq" });
+		const model = slowPut(chat.id, { model: MODEL, thinkingLevel: "low" });
+		await tick();
+		assert.equal((await put(chat.id, { questionType: "mixed" })).status, 200);
+		model.release();
+		assert.equal((await model.response).status, 200);
+		assert.deepEqual(chatStore.getChat(chat.id)!.settings, { model: MODEL, thinkingLevel: "low", questionType: "mixed" });
 	});
 });
 
@@ -293,11 +365,10 @@ const toolNames = (context: Context) => {
 };
 const quizTools = (context: Context) => toolNames(context).filter((n) => ["quiz", "explain", "probe", "recall"].includes(n));
 
-/** The chip's write: the current settings re-sent with the new type. */
+/** The chip's write: only the question type. */
 async function choose(chatId: string, questionType: QuestionType) {
-	const current = chatStore.getChat(chatId)!.settings ?? {};
 	const response = await settingsRoute.PUT(
-		new Request(`http://test/api/chats/${chatId}/settings`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...current, questionType }) }),
+		new Request(`http://test/api/chats/${chatId}/settings`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ questionType }) }),
 		{ params: Promise.resolve({ id: chatId }) },
 	);
 	assert.equal(response.status, 200);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CircleHelpIcon } from "lucide-react";
 import { MenuShell } from "@/components/menu-shell";
 import { Hint } from "@/components/ui/hint";
@@ -26,11 +26,12 @@ export function showsQuestionTypeChip(kind: "teach" | "practice", phase: Phase3)
 /** The header's question-type chip (owner, 2026-11-03): shows the lesson's
  *  effective question type — "Qs: MCQ", "Qs: SAQ" or "Qs: Mixed" — and opens
  *  a three-option menu. A pick saves to the chat's settings
- *  (PUT /api/chats/:id/settings, the model fields re-sent as just read, so
- *  the replace-whole write keeps them); the tutor follows from its next
- *  request. Unset resolves like the server (core/question-type.ts): cram
- *  Mixed, else the app-wide Settings → Agent mechanic, re-read whenever the
- *  Agent section saves. */
+ *  (PUT /api/chats/:id/settings with only { questionType } — a field-level
+ *  write, so it can never restore an older model); the tutor follows from
+ *  its next request. Unset resolves like the server (core/question-type.ts):
+ *  cram Mixed, else the app-wide Settings → Agent mechanic, read on mount
+ *  (a change made while the chip was hidden) and whenever the Agent section
+ *  saves. */
 export function QuestionTypeChip({
 	chatId,
 	stored,
@@ -54,14 +55,29 @@ export function QuestionTypeChip({
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const effective = effectiveQuestionType(stored, cram, agentTools);
 
-	useSettingsSaved((section) => {
-		if (section !== "agent") return;
+	// The app-wide mechanic: read on mount and on every Agent save. Only the
+	// latest read may land — a slower, older response never restores a
+	// superseded label.
+	const agentRead = useRef(0);
+	const readAgentTools = useCallback(() => {
+		const read = ++agentRead.current;
 		fetch("/api/settings")
 			.then((r) => (r.ok ? (r.json() as Promise<{ settings?: UserSettings | null }>) : Promise.reject()))
-			.then((body) => setAgentTools(body.settings?.agent?.tools))
+			.then((body) => {
+				if (read === agentRead.current) setAgentTools(body.settings?.agent?.tools);
+			})
 			.catch(() => {
 				/* keep the last known mechanic */
 			});
+	}, []);
+	useEffect(() => {
+		readAgentTools();
+		return () => {
+			agentRead.current++;
+		};
+	}, [readAgentTools]);
+	useSettingsSaved((section) => {
+		if (section === "agent") readAgentTools();
 	});
 
 	// The dropdown contract (model-picker's): a click outside the menu or Esc
@@ -88,20 +104,15 @@ export function QuestionTypeChip({
 
 	const pick = async (next: QuestionType) => {
 		if (saving) return;
-		if (next === stored) {
-			setOpen(false);
-			return;
-		}
+		// Always sent, even for the type this view shows: another device may
+		// have changed the stored value, and the field-level write is idempotent.
 		setSaving(true);
 		setError("");
 		try {
-			const read = await fetch(`/api/chats/${chatId}/settings`, { cache: "no-store" });
-			if (!read.ok) throw new Error();
-			const current = ((await read.json()) as { settings?: ChatSettings }).settings ?? {};
 			const response = await fetch(`/api/chats/${chatId}/settings`, {
 				method: "PUT",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ ...current, questionType: next }),
+				body: JSON.stringify({ questionType: next }),
 			});
 			if (!response.ok) throw new Error();
 			const saved = ((await response.json().catch(() => null)) as { settings?: ChatSettings } | null)?.settings;
