@@ -350,7 +350,10 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
 				rest.push(part);
 			}
 		}
-		const parts: LhViewPart[] = [...reasoning, ...rest];
+		// A hidden tracking step with only empty (e.g. encrypted) reasoning shows
+		// nothing: an empty thinking row alone would be a phantom (round-5 hunt).
+		const parts: LhViewPart[] =
+			hiddenTracking && rest.length === 0 && reasoning.every((r) => !r.text) ? [] : [...reasoning, ...rest];
 		if (parts.length === 0) {
 			// An arrived-but-silent STREAMING message (owner, optimistic
 			// round 3, 2026-10-02): the turn's first applied event can
