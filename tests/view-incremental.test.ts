@@ -2,8 +2,8 @@
  * THE INCREMENTAL PROJECTOR (src/core/view-incremental.ts): at every step of
  * a scripted turn — streaming text, a tool call then its result, a question
  * and its answer, an answer that lands on a quiz turns back, a plan block,
- * a send_to_user failure, the practice pose/conclude pair, compaction, a
- * record swap — the cached projection deep-equals the full projectView.
+ * a send_to_user failure, the practice pose/conclude pair, the hidden
+ * lesson-tracking calls, compaction, a record swap — the cached projection deep-equals the full projectView.
  * It must also never mutate a list it returned earlier (React holds those),
  * and a streaming update must leave every settled row the SAME object.
  */
@@ -56,6 +56,17 @@ function history(groups: number): LhMessage[] {
 			out.push(marker(`pb${g}`, "plan-block", { planCallId: `pi${g}`, block: { nodes: [g] } }));
 		}
 		if (g % 10 === 5) out.push(marker(`st${g}`, "subagent-steer", { kind: "research", result: { g } }, `steer ${g}`));
+		if (g % 10 === 4) {
+			// Lesson tracking (hidden from the transcript): a message mixing
+			// prose with tracking calls, and one carrying ONLY tracking calls
+			// (one refused).
+			out.push(assistant(`lt${g}`, [text(`set ${g}`), call(`pl${g}`, "problem_list", { problems: [{ id: "q1", label: "Q1" }] }), call(`nm${g}`, "note_mistake", { text: `m ${g}` })]));
+			out.push(result(`plr${g}`, `pl${g}`, "problem_list", { ok: true, problems: [{ id: "q1", label: "Q1" }] }));
+			out.push(result(`nmr${g}`, `nm${g}`, "note_mistake", { ok: true, id: "m1", text: `m ${g}` }));
+			out.push(assistant(`lu${g}`, [call(`pd${g}`, "problem_done", { id: "q1" }), call(`rm${g}`, "resolve_mistake", { id: "m9" })]));
+			out.push(result(`pdr${g}`, `pd${g}`, "problem_done", { ok: true, id: "q1" }));
+			out.push(result(`rmr${g}`, `rm${g}`, "resolve_mistake", { ok: false, error: "No mistake" }, true));
+		}
 		if (g % 10 === 7) {
 			out.push(assistant(`pp${g}`, [call(`pose${g}`, "problem", { statement: `s${g}`, modelSolution: `sol${g}` })]));
 			out.push(result(`ppr${g}`, `pose${g}`, "problem", null));
@@ -167,6 +178,17 @@ describe("incremental projection equals projectView", () => {
 		h.step(record(), live(["s3"], [["pin", { isError: false, output: { ok: true } }]]), "plan_init ok");
 		tail = [...tail, marker("pb_live", "plan-block", { planCallId: "pin", block: { nodes: ["live"] } })];
 		h.step(record(), live(["s3"], [["pin", { isError: false, output: { ok: true } }]]), "plan block marker");
+
+		// 4b. Lesson tracking: hidden calls stream, execute, and settle.
+		const pinEx: [string, LiveExecution] = ["pin", { isError: false, output: { ok: true } }];
+		tail = [...tail, assistant("s3t", [])];
+		h.step(record(), live(["s3", "s3t"], [pinEx]), "tracking step start");
+		tail = tail.with(-1, assistant("s3t", [text("noted"), call("nm_live", "note_mistake", { text: "sl" })]));
+		h.step(record(), live(["s3", "s3t"], [pinEx]), "note_mistake streaming");
+		const nmEx: [string, LiveExecution] = ["nm_live", { isError: false, output: { ok: true, id: "m1", text: "slip" } }];
+		h.step(record(), live(["s3", "s3t"], [pinEx, nmEx]), "note_mistake executed");
+		tail = [...tail, result("c_nm", "nm_live", "note_mistake", { ok: true, id: "m1", text: "slip" })];
+		h.step(record(), live(["s3", "s3t"], [pinEx, nmEx]), "note_mistake result");
 
 		// 5. A send_to_user failure arriving for an output call in the prefix.
 		tail = [...tail, assistant("s4", [call("out1", "send_to_user", { message: "hello" })])];

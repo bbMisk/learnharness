@@ -452,6 +452,51 @@ describe("send (one input event, verbatim consumption)", () => {
 		await done;
 	});
 
+it("lesson tracking: a tracking execution shows before turn_end, and its result never counts twice", async () => {
+	// A tracking call in the same step as a slow tool: its results land only
+	// at turn_end, after the slow one — the card must not wait for that.
+	const enc = new TextEncoder();
+	let push: (e: unknown) => void = () => {};
+	const body = new ReadableStream<Uint8Array>({
+		start(controller) {
+			push = (e) => controller.enqueue(enc.encode(e === "[DONE]" ? "data: [DONE]\n\n" : `data: ${JSON.stringify(e)}\n\n`));
+		},
+	});
+	globalThis.fetch = dietFetch({ userText: "q", stream: () => new Response(body, { status: 200 }) });
+	const m = model();
+	const done = m.send({ type: "text", text: "q" });
+	const settle = () => new Promise((r) => setTimeout(r, 0));
+	const step = {
+		role: "assistant",
+		content: [
+			{ type: "toolCall", id: "nm1", name: "note_mistake", arguments: { text: "Sign slip in the score" } },
+			{ type: "toolCall", id: "slow1", name: "research", arguments: { question: "?" } },
+		],
+		stopReason: "toolUse",
+	};
+	push({ type: "message_start", message: step });
+	push({ type: "message_end", message: step });
+	await settle();
+	assert.deepEqual(m.getState().lessonTracking.mistakes, []);
+	push({ type: "tool_execution_end", toolCallId: "nm1", toolName: "note_mistake", isError: false, result: { content: [{ type: "text", text: '{"ok":true,"id":"m1"}' }], details: { ok: true, id: "m1", text: "Sign slip in the score" } } });
+	await settle();
+	assert.deepEqual(m.getState().lessonTracking.mistakes, [{ id: "m1", text: "Sign slip in the score", resolved: false }], "shown while the slow tool still runs");
+	push({ type: "tool_execution_end", toolCallId: "slow1", toolName: "research", isError: false, result: { content: [{ type: "text", text: "ack" }], details: {} } });
+	push({
+		type: "turn_end",
+		message: step,
+		toolResults: [
+			{ role: "toolResult", toolCallId: "nm1", toolName: "note_mistake", content: [{ type: "text", text: '{"ok":true,"id":"m1"}' }], details: { ok: true, id: "m1", text: "Sign slip in the score" }, isError: false },
+			{ role: "toolResult", toolCallId: "slow1", toolName: "research", content: [{ type: "text", text: "ack" }], details: {}, isError: false },
+		],
+	});
+	await settle();
+	assert.equal(m.getState().lessonTracking.mistakes.length, 1, "the native result replaces the live one — never both");
+	push({ type: "agent_end", messages: [] });
+	push("[DONE]");
+	await done;
+});
+
 it("Wave C: markers injected mid-run (custom role, follow-up delivery) append to the tail by id", () => {
 	// A never-settling fetch: the send only needs to flip the model into its
 	// streaming status synchronously — its POST floats (never rejects) while

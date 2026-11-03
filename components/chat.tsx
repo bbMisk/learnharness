@@ -52,6 +52,7 @@ import { TopBar } from "@/components/top-bar";
 import type { JobRecord, Phase3, QuestionAnswerData, QuestionCall, QuestionFormDraft, TurnUsage, SessionPricing } from "@/src/core";
 import { PhaseChip } from "@/components/phase-divider";
 import { CramToggle } from "@/components/cram-toggle";
+import { LessonTrackerCard, LessonTrackerChip, lessonTrackerRoom, useLessonTrackerShown } from "@/components/lesson-tracker";
 import { CoverageRing } from "@/components/extraction-coverage";
 import { Button } from "@/components/ui/button";
 import {
@@ -66,6 +67,7 @@ import {
 	toolQuestionKind,
 	isTeachingCheck,
 	revealsQuestions,
+	hasLessonTracking,
 } from "@/src/core";
 import { useGeneralSettings } from "@/components/general-settings";
 import { rememberRevealed, wasRevealed } from "@/components/revealed-questions";
@@ -237,7 +239,7 @@ export function Chat({
 	// (core/view.ts projectView); sends are ONE explicit input event each
 	// ({chatId, input} — the stash indirection died with the SDK), and the
 	// turn stream is the VERBATIM AgentEvent passthrough the server emits.
-	const { messages, nativeMessages, hasConfirmedConversation, contextTokens, send, continueIfOwed, steer, steerQueue, submitAnswer, dismissQuestion, dismissProblem, questionDraft, saveQuestionDraft, setMessages, adoptRecord, status, error, abortTurn, clearError, resumeStream, setReattachSettled } =
+	const { messages, nativeMessages, hasConfirmedConversation, contextTokens, lessonTracking: tracking, send, continueIfOwed, steer, steerQueue, submitAnswer, dismissQuestion, dismissProblem, questionDraft, saveQuestionDraft, setMessages, adoptRecord, status, error, abortTurn, clearError, resumeStream, setReattachSettled } =
 		useChatSession({ chatId, initialMessages, initialError, initiallyInFlight });
 
 	const sessionFindScopeRef = useRef<HTMLDivElement | null>(null);
@@ -886,6 +888,15 @@ export function Chat({
 	// The session's live plan (drives the top-bar chip; the marginalia
 	// derives its own from the same transcript).
 	const planTree = useMemo(() => latestTree(messages), [messages]);
+	// The lesson-tracking card (owner, 2026-11-02): the problem set and the
+	// mistake log, derived by the session model from the native record and
+	// the live executions (the tracking tools never render in the
+	// transcript view — core/lesson-tracking.ts).
+	const hasTracking = hasLessonTracking(tracking);
+	const trackerCard = useLessonTrackerShown();
+	// Room for the card (owner, "make room"): while it shows on a session
+	// area wide enough for both, the transcript column keeps clear of it.
+	const trackerRoom = lessonTrackerRoom(hasTracking && trackerCard.shown);
 
 	// ── Session usage (wave-4 stats bar) ──
 	// The money channel: the record's turns log and read-time server Pi
@@ -1300,6 +1311,7 @@ export function Chat({
 						</button>
 </Hint>
 					)}
+					{hasTracking && <LessonTrackerChip shown={trackerCard.shown} onToggle={trackerCard.toggle} />}
 					{/* The extraction ring (owner-locked redesign, 2026-09-24): fills
 					    with uncovered vs the chunk threshold, pulses while a run is in
 					    flight, vanishes when the graph is off. Click → the exact
@@ -1327,11 +1339,11 @@ export function Chat({
 				</TopBar>
 
 				<SessionFind scopeRef={sessionFindScopeRef} scrollContextRef={scrollContextRef} />
-				<div ref={sessionFindScopeRef} className="relative flex min-h-0 flex-1">
+				<div ref={sessionFindScopeRef} className={`relative flex min-h-0 flex-1 ${trackerRoom.area}`}>
 				<Conversation className="h-full min-w-0 flex-1" initial="instant" contextRef={scrollContextRef}>
 					<SessionMessageNavigation />
 					<ConversationContent className="min-h-full gap-0 p-0">
-						<div data-session-find-root="" className={`${COLUMN} flex flex-1 flex-col gap-4 pt-4`}>
+						<div data-session-find-root="" className={`${COLUMN} flex flex-1 flex-col gap-4 pt-4 ${trackerRoom.column}`}>
 							{messages.length === 0 && !busy && (
 								<ConversationEmptyState
 									title="New session"
@@ -1344,6 +1356,7 @@ export function Chat({
 								phases={phases}
 								transcript={transcript}
 								streaming={status === "streaming"}
+								activeMessageId={status === "streaming" ? nativeMessages.at(-1)?.id : undefined}
 								malformedQuestions={malformedQuestions}
 								busy={busy}
 								questionPending={!!pending}
@@ -1499,6 +1512,9 @@ export function Chat({
 					}}
 				/>
 				</Conversation>
+				{/* The tracking card: top-right over the transcript, below the
+				    session-scoped focuses (z-40) and clear of the dock. */}
+				{hasTracking && trackerCard.shown && <LessonTrackerCard tracking={tracking} bottomReserve={dockReserve} />}
 
 				{/* The session-scoped focuses (chrome-melt wave, 2026-09-19): mounted
 				    INSIDE the session area — absolute inset-0 siblings of the scroller,

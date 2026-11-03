@@ -37,6 +37,7 @@ import type { LhMarkerMessage, LhMessage } from "./native-messages.ts";
 import { PRACTICE_CONCLUDE_TOOL, problemInputForConclude, SEND_TO_USER_TOOL, sendToUserText } from "./native-messages.ts";
 import { activeCompactionOf, type CompactionDetails } from "./compaction.ts";
 import { QUESTION_TOOLS } from "./pending.ts";
+import { isLessonTrackingTool } from "./lesson-tracking.ts";
 import type { SubagentArtifactData, SubagentResultMeta } from "./contracts/jobs.ts";
 import type { PlanBlockData } from "./contracts/chat.ts";
 
@@ -283,6 +284,9 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
 		// (their own order kept), then everything else.
 		const rest: LhViewPart[] = [];
 		const reasoning: LhViewPart[] = [];
+		// A message whose only content is hidden tracking calls is not "silent":
+		// it must not get the arrival placeholder below (round-3 hunt).
+		let hiddenTracking = false;
 		let textN = 0;
 		// LIVE IS POSITIVE EVIDENCE (owner, 2026-10-05): a call renders
 		// live ONLY when its own message is streaming THIS turn — session
@@ -302,6 +306,15 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
 				if (!reasoning.length) reasoning.push({ type: "reasoning", id: `${m.id}-r0`, text: "", state: "done" });
 				if (block.thinking) reasoning[0]!.text = [reasoning[0]!.text, block.thinking].filter(Boolean).join("\n\n");
 			} else if (block.type === "toolCall") {
+				// Lesson tracking (owner, 2026-11-02): the four tracking tools
+				// never render in the transcript — no card, no live card, no
+				// retry line. The tracking card reads the record instead
+				// (core/lesson-tracking.ts); with no part, their results drop
+				// here too (applyResultTo's no-part path).
+				if (isLessonTrackingTool(block.name)) {
+					hiddenTracking = true;
+					continue;
+				}
 				const part = toolPartOf(block, live, streamingMessage);
 				state.toolPartIds.add(block.id);
 				if ((QUESTION_TOOLS as readonly string[]).includes(block.name)) {
@@ -337,7 +350,10 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
 				rest.push(part);
 			}
 		}
-		const parts: LhViewPart[] = [...reasoning, ...rest];
+		// A hidden tracking step with only empty (e.g. encrypted) reasoning shows
+		// nothing: an empty thinking row alone would be a phantom (round-5 hunt).
+		const parts: LhViewPart[] =
+			hiddenTracking && rest.length === 0 && reasoning.every((r) => !r.text) ? [] : [...reasoning, ...rest];
 		if (parts.length === 0) {
 			// An arrived-but-silent STREAMING message (owner, optimistic
 			// round 3, 2026-10-02): the turn's first applied event can
@@ -347,7 +363,7 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
 			// shimmer as the placeholder it replaces — the handoff is
 			// seamless and the two can never double). Settled empty
 			// messages stay hidden (presentation-only).
-			if (live?.streamingIds.has(m.id)) {
+			if (live?.streamingIds.has(m.id) && !hiddenTracking) {
 				parts.push({ type: "reasoning", id: `${m.id}-r0`, text: "", state: "done" });
 			} else {
 				return;

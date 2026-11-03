@@ -17,6 +17,7 @@ import type { JobRecord } from "../core/contracts.ts";
 import type { JobStore } from "../core/ports.ts";
 import { jobTools, type DemoInput, type PdfInput, type ResearchInput, type VisualInput } from "./tools/jobs.ts";
 import { planTools, type PlanToolContext } from "./tools/plan.ts";
+import { lessonTrackingTools } from "./tools/lesson-tracking.ts";
 import { probeDoneTool, type ProbeDoneContext } from "./tools/probe.ts";
 import { proberGraphTools } from "./tools/graph.ts";
 import { readTool } from "./tools/read.ts";
@@ -54,6 +55,9 @@ export type { ProbeDoneContext } from "./tools/probe.ts";
  *   plan_init. Teacher only.
  * - jobTools (src/agent/tools/jobs.ts): SERVER-EXECUTED dispatch. Teacher
  *   only.
+ * - lessonTrackingTools (src/agent/tools/lesson-tracking.ts): SERVER-SIDE —
+ *   note_mistake / resolve_mistake for every teacher, problem_list /
+ *   problem_done for a cram teacher only. Never the prober or practice.
  */
 
 /** GLM wobble guard (owner-approved, 2026-09-26): models sometimes emit
@@ -434,6 +438,7 @@ export function createTeacherTools(
 	ctx: TeacherToolContext,
 	enabled?: EnabledTools,
 	bothQuizzing = false,
+	cram = false,
 ): Record<string, AgentTool<any>> {
 	// Quizzing mechanics (owner 2026-09-27): free-recall swaps the teach
 	// quiz for the teach explain — one quizzing tool at a time, whichever
@@ -462,6 +467,9 @@ export function createTeacherTools(
 			find: findTool,
 			grep: grepTool,
 			...planTools(ctx),
+			// Lesson tracking (owner, 2026-11-02): the mistake log for every
+			// teacher; the problem set for a cram teacher only.
+			...lessonTrackingTools(ctx, { problems: cram }),
 			...jobTools({ chatId: ctx.chatId, jobStore: ctx.jobStore, spawn: ctx.spawn, searchAvailable: ctx.searchAvailable }),
 		},
 		withoutMechanics(enabled),

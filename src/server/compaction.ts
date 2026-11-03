@@ -34,6 +34,8 @@ import {
 	buildCompactionPrompt,
 	compactionCutIndex,
 	COMPACTION_RESERVE_TOKENS,
+	deriveLessonTracking,
+	lessonTrackingLine,
 	estimateContextTokens,
 	estimateTokens,
 	newCompactionMarker,
@@ -238,7 +240,12 @@ async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
 			model: deps.modelId,
 			at: new Date().toISOString(),
 		};
-		const marker = newCompactionMarker(trimmed, details);
+		// Lesson tracking (owner, 2026-11-02): the problem/mistake ids can
+		// fall before the cut, so the marker — what the tutor sees in place
+		// of the condensed history — ends with the state as ONE pure-data
+		// line, derived from the full record at this moment.
+		const tracking = lessonTrackingLine(deriveLessonTracking(messages));
+		const marker = newCompactionMarker(tracking ? `${trimmed}\n\n${tracking}` : trimmed, details);
 		const compacted = [...messages, marker];
 		// The money channel: the summary is a real model call on the
 		// session's own engine — its usage keys to the marker (provenance:

@@ -26,8 +26,10 @@ import {
 	newThinkingMessage,
 	newUserMessage,
 	createViewProjector,
+	deriveLessonTracking,
 	type ChatInput,
 	type LhMarkerMessage,
+	type LessonTracking,
 	type LhMessage,
 	type LhViewMessage,
 	type LiveExecution,
@@ -198,6 +200,10 @@ export interface SessionState {
 	hasConfirmedConversation: boolean;
 	/** Completed conversation usage; null after compaction or before first usage. */
 	contextTokens: number | null;
+	/** The lesson-tracking card's state (core/lesson-tracking.ts): the
+	 *  record's results plus, mid-turn, the tracking executions that ended
+	 *  before their results land at turn_end. */
+	lessonTracking: LessonTracking;
 	status: SessionStatus;
 	error: { message: string } | null;
 	/** Steers sent but not yet drained (composer steering, 2026-10-03):
@@ -327,6 +333,7 @@ export class SessionModel {
 			nativeMessages: messages,
 			hasConfirmedConversation: this.base.some(m => m.role === "user" || m.role === "assistant"),
 			contextTokens: measuredContextTokens(messages, this.incompleteUsageIds),
+			lessonTracking: deriveLessonTracking(messages, live?.executions),
 			status: this.statusValue,
 			error: this.errorValue ?? providerError,
 			steerQueue: this.steerQueueValue,

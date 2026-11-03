@@ -30,6 +30,7 @@ import {
 	userFacingTextOf,
 } from "./native-messages.ts";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
+import { isLessonTrackingTool } from "./lesson-tracking.ts";
 
 /** The practice join context (owner-approved, 2026-10-06 export round):
  *  practice tool RESULTS are acks — the statement, outcome, and verdict
@@ -176,6 +177,8 @@ export function messageMarkdown(
 	} else if (role === "toolResult") {
 		const result = message as ToolResultMessage;
 		if (result.isError || result.toolName === SEND_TO_USER_TOOL) return null; // retry context or output ack, not learning evidence
+		// Lesson tracking is bookkeeping the transcript never shows (view.ts).
+		if (isLessonTrackingTool(result.toolName)) return null;
 		const { heading, body } = toolResultBody(result, ctx);
 		parts.push(`### ${heading}${anchor}\n\n${body.join("\n\n")}`);
 	}
