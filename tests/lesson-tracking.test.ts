@@ -309,6 +309,8 @@ describe("lesson-tracking calls are hidden from the transcript", () => {
 		const view = projectView(record.slice(0, 6), live);
 		const types = view.flatMap((m) => m.parts.map((p) => p.type));
 		assert.ok(!types.some((t) => t === "tool-problem_done" || t === "tool-resolve_mistake"));
+		// a2 is tracking-only and streaming: no phantom "thinking" row for it (round-3 hunt).
+		assert.ok(!view.flatMap((m) => m.parts).some((p) => p.id === "a2-r0"), "no empty reasoning placeholder for a tracking-only step");
 		const projector = createViewProjector();
 		for (let n = 1; n <= record.length; n++) {
 			assert.deepStrictEqual(projector.project(record.slice(0, n), live), projectView(record.slice(0, n), live));
@@ -490,6 +492,11 @@ describe("the compaction line", () => {
 		assert.equal(
 			lessonTrackingLine(tracking(null, [["m1", "a", true], ["m2", "b", false], ["m3", "c", false]])),
 			'Lesson tracking: open mistakes m2 "b", m3 "c"',
+		);
+		assert.equal(
+			lessonTrackingLine(tracking(null, [["m1", 'first", m2 "second', false]])),
+			'Lesson tracking: open mistakes m1 "first\\", m2 \\"second"',
+			"a quote inside a mistake stays inside its entry (round-3 hunt)",
 		);
 		assert.equal(lessonTrackingLine(tracking(null, [["m1", "a", true]])), null);
 		assert.equal(lessonTrackingLine(tracking(null, [])), null);

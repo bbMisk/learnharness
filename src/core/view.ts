@@ -284,6 +284,9 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
 		// (their own order kept), then everything else.
 		const rest: LhViewPart[] = [];
 		const reasoning: LhViewPart[] = [];
+		// A message whose only content is hidden tracking calls is not "silent":
+		// it must not get the arrival placeholder below (round-3 hunt).
+		let hiddenTracking = false;
 		let textN = 0;
 		// LIVE IS POSITIVE EVIDENCE (owner, 2026-10-05): a call renders
 		// live ONLY when its own message is streaming THIS turn — session
@@ -308,7 +311,10 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
 				// retry line. The tracking card reads the record instead
 				// (core/lesson-tracking.ts); with no part, their results drop
 				// here too (applyResultTo's no-part path).
-				if (isLessonTrackingTool(block.name)) continue;
+				if (isLessonTrackingTool(block.name)) {
+					hiddenTracking = true;
+					continue;
+				}
 				const part = toolPartOf(block, live, streamingMessage);
 				state.toolPartIds.add(block.id);
 				if ((QUESTION_TOOLS as readonly string[]).includes(block.name)) {
@@ -354,7 +360,7 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
 			// shimmer as the placeholder it replaces — the handoff is
 			// seamless and the two can never double). Settled empty
 			// messages stay hidden (presentation-only).
-			if (live?.streamingIds.has(m.id)) {
+			if (live?.streamingIds.has(m.id) && !hiddenTracking) {
 				parts.push({ type: "reasoning", id: `${m.id}-r0`, text: "", state: "done" });
 			} else {
 				return;

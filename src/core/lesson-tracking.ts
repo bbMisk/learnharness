@@ -201,7 +201,8 @@ export function lessonTrackingLine(tracking: LessonTracking): string | null {
 		parts.push(`problems ${tracking.problems.map((p) => `${p.id} ${JSON.stringify(p.label)} ${p.done ? "✓" : "open"}`).join(", ")}`);
 	}
 	const open = tracking.mistakes.filter((m) => !m.resolved);
-	if (open.length > 0) parts.push(`open mistakes ${open.map((m) => `${m.id} "${m.text}"`).join(", ")}`);
+	// Quoted as JSON so a quote inside a mistake can't read as a second entry (round-3 hunt).
+	if (open.length > 0) parts.push(`open mistakes ${open.map((m) => `${m.id} ${JSON.stringify(m.text)}`).join(", ")}`);
 	return parts.length > 0 ? `Lesson tracking: ${parts.join("; ")}` : null;
 }
 
