@@ -12,7 +12,7 @@
  */
 
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { isHexColor, type ChatSettings } from "../core";
+import { isHexColor, QUESTION_TYPES, sanitizeQuestionType, type ChatSettings } from "../core";
 import type {
 	AgentSettings,
 	AppearanceSettings,
@@ -42,6 +42,7 @@ export function parseSettingsBody(body: unknown): SettingsBodyResult<ChatSetting
 	const raw = body as {
 		model?: { provider?: unknown; id?: unknown };
 		thinkingLevel?: unknown;
+		questionType?: unknown;
 	};
 	const settings: ChatSettings = {};
 	if (raw.model !== undefined) {
@@ -61,11 +62,48 @@ export function parseSettingsBody(body: unknown): SettingsBodyResult<ChatSetting
 		}
 		settings.thinkingLevel = raw.thinkingLevel as ThinkingLevel;
 	}
+	// The lesson's question type (owner, 2026-11-03): one of the known types.
+	if (raw.questionType !== undefined) {
+		const questionType = sanitizeQuestionType(raw.questionType);
+		if (!questionType) return { ok: false, error: `questionType must be one of ${QUESTION_TYPES.join(", ")}` };
+		settings.questionType = questionType;
+	}
 	// Wave 7 killed the graph-context injection (owner: zero configuration
 	// beyond chat models — the prober reads its map through tools now); its
 	// budget dial is gone with it. A stale client sending the old key has
 	// it silently dropped here (forward-compatible, like any unknown key).
 	return { ok: true, settings };
+}
+
+/** Does a per-chat settings body name the model pair ({model, thinkingLevel})? */
+export function namesModelPair(body: unknown): boolean {
+	const raw = asRecord(body);
+	return raw !== null && ("model" in raw || "thinkingLevel" in raw);
+}
+
+/** The per-chat settings write's FIELD-LEVEL merge (fix, 2026-11-03): the
+ *  parsed body's fields applied onto the CURRENT record's settings, each
+ *  group only when the body names it:
+ *  - `model` named → the pair comes from the body (an absent level is
+ *    cleared — the picker's {model} still drops a stale level);
+ *  - only `thinkingLevel` named → the level changes on the CURRENT saved
+ *    model, so a window holding an older model can never write it back;
+ *  - `questionType`.
+ *  Anything else the record holds rides through. Pure. */
+export function mergeChatSettings(current: ChatSettings | undefined, body: unknown, parsed: ChatSettings): ChatSettings {
+	const raw = asRecord(body) ?? {};
+	const out: ChatSettings = { ...current };
+	if ("model" in raw) {
+		delete out.model;
+		delete out.thinkingLevel;
+		if (parsed.model) out.model = parsed.model;
+		if (parsed.thinkingLevel !== undefined) out.thinkingLevel = parsed.thinkingLevel;
+	} else if ("thinkingLevel" in raw) {
+		delete out.thinkingLevel;
+		if (parsed.thinkingLevel !== undefined) out.thinkingLevel = parsed.thinkingLevel;
+	}
+	if (parsed.questionType !== undefined) out.questionType = parsed.questionType;
+	return out;
 }
 
 // ─── Section parsers (settings-storage wave, 2026-09-19) ────────────────────

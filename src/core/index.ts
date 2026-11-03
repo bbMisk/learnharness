@@ -36,6 +36,7 @@ export * from "./events.ts";
 export * from "./layout.ts";
 export * from "./plan-tree.ts";
 export * from "./lesson-tracking.ts";
+export * from "./question-type.ts";
 export * from "./phases.ts";
 export * from "./pending.ts";
 export * from "./prompt-segments.ts";

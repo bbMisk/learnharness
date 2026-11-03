@@ -35,7 +35,9 @@ import {
 	kbdEventForAction as kbdEventForChat,
 	type ChatInput,
 	type ChatSettings,
+	type EnabledTools,
 	type LhMessage,
+	type QuestionType,
 	type ModelSlotName,
 } from "@/src/core";
 import { PlanPopup, latestTree } from "@/components/plan-block";
@@ -51,7 +53,9 @@ import { PracticeDock } from "@/components/practice-dock";
 import { TopBar } from "@/components/top-bar";
 import type { JobRecord, Phase3, QuestionAnswerData, QuestionCall, QuestionFormDraft, TurnUsage, SessionPricing } from "@/src/core";
 import { PhaseChip } from "@/components/phase-divider";
-import { CramToggle } from "@/components/cram-toggle";
+import { CramToggle, useLessonCram } from "@/components/cram-toggle";
+import { recordSyncVerdict } from "@/components/record-sync";
+import { QuestionTypeChip, showsQuestionTypeChip, useLessonQuestionType } from "@/components/question-type-chip";
 import { LessonTrackerCard, LessonTrackerChip, lessonTrackerRoom, useLessonTrackerShown } from "@/components/lesson-tracker";
 import { CoverageRing } from "@/components/extraction-coverage";
 import { Button } from "@/components/ui/button";
@@ -201,6 +205,8 @@ export function Chat({
 	initialShowReadingThinking = FACTORY_SETTINGS.general.showReadingThinking,
 	kind = "teach",
 	style,
+	questionType: initialQuestionType,
+	agentTools,
 }: {
 	chatId: string;
 	title: string;
@@ -213,6 +219,10 @@ export function Chat({
 	kind?: "teach" | "practice";
 	/** "cram" for a lesson started in cram mode (core/cram.ts). */
 	style?: "cram";
+	/** The chat's stored question type (core/question-type.ts; absent = unset). */
+	questionType?: QuestionType;
+	/** Settings → Agent's tool map — an unset question type's app default. */
+	agentTools?: EnabledTools;
 	initialPrompt?: string;
 	/** A teacher turn is running server-side but attached to no client
 	 * (navigated away mid-turn, returned while in flight). */
@@ -433,6 +443,9 @@ export function Chat({
 	const busy = localStream || turnInFlight;
 	const busyRef = useRef(busy);
 	busyRef.current = busy;
+	// The full record refresh's freshness snapshot (record-sync.ts).
+	const nativeMessagesRef = useRef(nativeMessages);
+	nativeMessagesRef.current = nativeMessages;
 	// The attach handoff (stream-reattach wave): the moment a resumed
 	// stream takes over the rendering — the SDK left "ready", so
 	// submitted/streaming means chunks are flowing — localStream covers
@@ -478,7 +491,13 @@ export function Chat({
 	// session's current phase IS the pending question's phase (the
 	// teacher's turn ends at the question call).
 	const teachingCheck = pending !== null && isTeachingCheck(pending.tool, pending.input, phaseAt3(messages));
-	const [cram, setCram] = useState(style === "cram");
+	// Cram is chat metadata another window can switch: re-read on
+	// chats-changed and reconnects, newest confirmed value first.
+	const { cram, begin: beginCramSave } = useLessonCram(chatId, style === "cram");
+	// The lesson's stored question type (owner, 2026-11-03): the Qs chip
+	// writes it; record-changed and reconnects re-read it (another device's
+	// pick), newest confirmed value first.
+	const lessonQuestionType = useLessonQuestionType(chatId, initialQuestionType);
 	// Hooks run on every render: never behind && (a skipped hook crashed the page after an answer).
 	const revealSetting = useGeneralSettings()?.revealQuestions;
 	const requiresReveal = teachingCheck && revealsQuestions(revealSetting, cram);
@@ -771,11 +790,18 @@ export function Chat({
 	 * when nothing is active; the two never overlap). */
 	useEnterSubmits(sendNext);
 
-	const syncFromServer = useCallback(async () => {
+	const syncFromServer = useCallback(async (retries = 1): Promise<boolean> => {
 		try {
+			// Freshness gate (record-sync.ts): the snapshot must not wipe a
+			// send (or any local advance) that happened while it was in flight.
+			const moment = () => ({ busy: busyRef.current, messages: nativeMessagesRef.current });
+			const start = moment();
 			const res = await fetch(`/api/chats/${chatId}`);
 			if (!res.ok) return false;
 			const record = (await res.json()) as { messages?: LhMessage[]; turns?: TurnUsage[]; pricing?: SessionPricing; turnError?: string };
+			const verdict = recordSyncVerdict(start, moment());
+			if (verdict === "skip") return false;
+			if (verdict === "retry") return retries > 0 ? syncFromServer(retries - 1) : false;
 			if (Array.isArray(record.turns)) setTurns(record.turns);
 			setPricing(record.pricing);
 			if (!Array.isArray(record.messages)) return false;
@@ -1319,7 +1345,12 @@ export function Chat({
 					{/* Practice (owner, 2026-10-04): the coverage ring hides —
 				    practice never extracts, so an ever-filling ring with no
 				    run behind it would lie. */}
-					{kind !== "practice" && <CramToggle chatId={chatId} on={cram} onChange={setCram} />}
+					{kind !== "practice" && <CramToggle chatId={chatId} on={cram} beginSave={beginCramSave} />}
+					{/* The lesson's question type (owner, 2026-11-03): the teacher's
+					    tools, so never for practice and not while the prober runs. */}
+					{showsQuestionTypeChip(kind, phases.at(-1) ?? "probe") && (
+						<QuestionTypeChip chatId={chatId} stored={lessonQuestionType.questionType} cram={cram} initialAgentTools={agentTools} beginSave={lessonQuestionType.begin} />
+					)}
 					{kind !== "practice" && <CoverageRing chatId={chatId} refreshKey={coverageTick} />}
 					{/* Practice sessions: no phase arc — a quiet Practice tag
 					    instead of the phase chip. */}

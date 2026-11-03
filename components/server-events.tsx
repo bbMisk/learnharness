@@ -142,6 +142,36 @@ export function useServerEvent<K extends ServerEventType>(type: K, cb: (payload:
 	}, [hub, type]);
 }
 
+/** useServerEvent for surfaces that also mount outside the provider (the
+ *  model control renders in isolated test harnesses and draft surfaces): a
+ *  no-op without a hub, the same subscription with one. */
+export function useOptionalServerEvent<K extends ServerEventType>(type: K, cb: (payload: ServerEvents[K]) => void): void {
+	const hub = useContext(EventsContext);
+	const cbRef = useRef(cb);
+	cbRef.current = cb;
+	useEffect(() => {
+		if (!hub) return;
+		const off = hub.subscribe(type, (payload) => cbRef.current(payload));
+		return () => {
+			off();
+		};
+	}, [hub, type]);
+}
+
+/** useServerResync's optional twin (see useOptionalServerEvent). */
+export function useOptionalServerResync(cb: () => void): void {
+	const hub = useContext(EventsContext);
+	const cbRef = useRef(cb);
+	cbRef.current = cb;
+	useEffect(() => {
+		if (!hub) return;
+		const off = hub.onResync(() => cbRef.current());
+		return () => {
+			off();
+		};
+	}, [hub]);
+}
+
 /** Refetch truth on every (re)connect of the window's channel — the
  *  self-heal seam for EventSource reconnects and dev-server restarts. */
 export function useServerResync(cb: () => void): void {

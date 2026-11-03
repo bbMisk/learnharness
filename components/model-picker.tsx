@@ -9,6 +9,8 @@ import { composeSlotModel } from "@/components/settings/agent-section";
 import { MenuShell } from "@/components/menu-shell";
 import { Hint } from "@/components/ui/hint";
 import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-signal";
+import { useNewestWins } from "@/components/newest-wins";
+import { useOptionalServerEvent, useOptionalServerResync } from "@/components/server-events";
 import { ChatGPTSpeedIndicator } from "@/components/settings/chatgpt-connection";
 import { useModelCatalog } from "@/components/model-catalog";
 export { useModelCatalog } from "@/components/model-catalog";
@@ -43,7 +45,18 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 	const [models, setModels] = useState<ModelsSettings | undefined>();
 	// A successful read with no settings is a legacy session; undefined
 	// means no session record is known yet, not permission to inherit Strong.
-	const [session, setSession] = useState<{ settings?: ChatSettings }>();
+	// The session's settings race between this view's reads and saves and
+	// other windows' writes: newest-wins (components/newest-wins.ts), with a
+	// reconcile read after every confirmed save.
+	const readSession = useCallback(async (): Promise<{ settings?: ChatSettings }> => {
+		const r = await fetch(`/api/chats/${chatId}/settings`);
+		if (!r.ok) throw new Error(`session read failed: ${r.status}`);
+		return { settings: ((await r.json()) as { settings?: ChatSettings }).settings };
+	}, [chatId]);
+	const { value: session, refresh: refreshSession, beginSave: beginSessionSave } =
+		useNewestWins<{ settings?: ChatSettings } | undefined>(undefined, readSession);
+	const sessionRef = useRef(session);
+	sessionRef.current = session;
 	const [open, setOpen] = useState<"model" | "thinking" | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -62,14 +75,9 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 	// reads the models section alone.
 	const readRecord = useCallback(() => {
 		const revision = ++recordRevision.current;
-		if (chatId) {
-			fetch(`/api/chats/${chatId}/settings`)
-				.then((r) => { if (!r.ok) throw new Error(`session read failed: ${r.status}`); return r.json() as Promise<{ settings?: ChatSettings }>; })
-				.then((body) => { if (revision === recordRevision.current) setSession({ settings: body.settings }); })
-				.catch(() => {
-					/* same read-only posture as a models-section failure */
-				});
-		}
+		// A failed session read keeps the read-only posture (same as a
+		// models-section failure).
+		if (chatId) void refreshSession();
 		fetch("/api/settings")
 			.then((r) => { if (!r.ok) throw new Error(`settings read failed: ${r.status}`); return r.json() as Promise<{ settings: { models?: ModelsSettings } | null }>; })
 			.then((body) => { if (revision === recordRevision.current) setModels(body.settings?.models ?? undefined); })
@@ -78,7 +86,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 				   ("—" triggers, closed menus) — same posture as a
 				   catalog failure */
 			});
-	}, [chatId]);
+	}, [chatId, refreshSession]);
 
 	useEffect(() => {
 		readRecord();
@@ -88,6 +96,13 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 	useSettingsSaved((section) => {
 		if (section === "models") readRecord();
 	});
+	// Another window changed THIS session's model or level: re-read it (the
+	// stale pill would otherwise write its old model back). A reconnect
+	// re-reads everything it may have missed.
+	useOptionalServerEvent("chat-settings-changed", (p) => {
+		if (chatId && p.chatId === chatId) void refreshSession();
+	});
+	useOptionalServerResync(readRecord);
 
 	// Dual-bound truth: chat mode displays the session's own record,
 	// falling back to Strong only for a successfully read legacy unstamped
@@ -195,6 +210,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 		(next: ChatSettings) => enqueueWrite(async () => {
 			recordRevision.current++;
 			setError(null);
+			const apply = beginSessionSave();
 			try {
 				const res = await fetch(`/api/chats/${chatId}/settings`, {
 					method: "PUT",
@@ -208,13 +224,13 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 				}
 				const stored = (await res.json().catch(() => null)) as { settings?: ChatSettings } | null;
 				recordRevision.current++;
-				setSession({ settings: stored?.settings ?? next });
+				apply({ settings: stored?.settings ?? { ...sessionRef.current?.settings, ...next } });
 				setOpen(null);
 			} catch {
 				setError("Could not reach the server — try again.");
 			}
 		}),
-		[chatId, enqueueWrite],
+		[chatId, enqueueWrite, beginSessionSave],
 	);
 
 	// One apply seam over both write paths: a pick names provider + id +
@@ -231,6 +247,18 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 			}
 		},
 		[chatId, models, save, saveChat],
+	);
+
+	// A level change alone: chat mode sends ONLY { thinkingLevel } — the
+	// route applies it to the session's CURRENT model, so a pill showing an
+	// older model can never write that model back; draft mode composes the
+	// strong slot as before.
+	const applyLevel = useCallback(
+		(level: ThinkingLevel) => {
+			if (chatId) void saveChat({ thinkingLevel: level });
+			else apply(effectiveProvider ?? "", effectiveId ?? "", level);
+		},
+		[chatId, saveChat, apply, effectiveProvider, effectiveId],
 	);
 
 	// Shortcut seams (keyboard wave A): ⌘K opens the model menu (the
@@ -253,11 +281,11 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 			const idx = effectiveLevel === undefined ? -1 : levels.indexOf(effectiveLevel);
 			const next = levels[(idx + 1) % levels.length];
 			if (next === undefined) return;
-			apply(effectiveProvider ?? "", effectiveId ?? "", next);
+			applyLevel(next);
 		};
 		window.addEventListener("lh:kbd-cycle-thinking", onCycleThinking);
 		return () => window.removeEventListener("lh:kbd-cycle-thinking", onCycleThinking);
-	}, [levels, effectiveLevel, effectiveProvider, effectiveId, apply]);
+	}, [levels, effectiveLevel, applyLevel]);
 
 	// Selecting a model (click and Enter share one path): keep the
 	// thinking level only when the new model supports it — otherwise
@@ -378,7 +406,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 					<ThinkingMenuList
 						levels={catalog ? levels : []}
 						effectiveLevel={effectiveLevel}
-						onPick={(level) => apply(effectiveProvider ?? "", effectiveId ?? "", level as ThinkingLevel)}
+						onPick={(level) => applyLevel(level as ThinkingLevel)}
 						empty={catalog ? (effectiveId ? `${prettyModel(effectiveId)} has no thinking levels.` : "Pick a model first.") : "Loading…"}
 						footer="Levels this model actually supports"
 					/>

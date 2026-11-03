@@ -177,6 +177,14 @@ it("the chat endpoint switches a lesson in and out of cram, never a practice ses
 	assert.equal(chatStore.getChat(lesson.id)!.style, undefined);
 	assert.equal((await put(lesson.id, { style: "speedrun", title: "Renamed" })).status, 400);
 	assert.equal(chatStore.getChat(lesson.id)!.title, "Lesson", "a rejected request writes nothing");
+	// The open view's style re-read (another window's switch): metadata only.
+	const { GET } = await import("../app/api/chats/[id]/route.ts");
+	const style = async (id: string) =>
+		(await (await GET(new Request(`http://test/api/chats/${id}?only=style`), { params: Promise.resolve({ id }) })).json()) as Record<string, unknown>;
+	assert.deepEqual(await style(lesson.id), { style: null });
+	assert.equal((await put(lesson.id, { style: "cram" })).status, 200);
+	assert.deepEqual(await style(lesson.id), { style: "cram" });
+	assert.equal((await put(lesson.id, { style: null })).status, 200);
 	const practice = chatStore.createChat("Drill", "practice");
 	assert.equal((await put(practice.id, { style: "cram" })).status, 400);
 	assert.equal(chatStore.getChat(practice.id)!.style, undefined);
@@ -188,14 +196,17 @@ it("the header Cram chip saves the switch and reports a failed save", async () =
 	let ok = true;
 	globalThis.fetch = (async (_url: string, init: RequestInit) => {
 		bodies.push(JSON.parse(String(init.body)));
+		if (ok) serverOn = (bodies.at(-1) as { style: string | null }).style === "cram";
 		return ok ? Response.json({ ok: true }) : new Response("no", { status: 500 });
 	}) as typeof fetch;
 	const host = document.createElement("div");
 	document.body.append(host);
 	root = createRoot(host);
+	const { useNewestWins } = await import("../components/newest-wins.ts");
+	let serverOn = false;
 	function Harness() {
-		const [on, setOn] = React.useState(false);
-		return <CramToggle chatId="chat_1" on={on} onChange={setOn} />;
+		const { value: on, beginSave } = useNewestWins(false, async () => serverOn);
+		return <CramToggle chatId="chat_1" on={on} beginSave={beginSave} />;
 	}
 	await act(async () => root!.render(<Harness />));
 	const chip = () => host.querySelector('[data-testid="cram-toggle"]') as HTMLButtonElement;
@@ -227,7 +238,7 @@ it("a cram teacher's tools include both question kinds; a normal teacher keeps o
 	const { createTeacherTools } = await import("../src/agent/tools.ts");
 	const ctx = { chatId: "c", chatStore: chatStore, jobStore: {} as never, spawn: () => {} } as never;
 	const names = (tools: Record<string, unknown>) => Object.keys(tools).filter((n) => n === "quiz" || n === "explain").sort();
-	assert.deepEqual(names(createTeacherTools(ctx, undefined, true)), ["explain", "quiz"]);
+	assert.deepEqual(names(createTeacherTools(ctx, undefined, "mixed")), ["explain", "quiz"]);
 	assert.deepEqual(names(createTeacherTools(ctx)), ["quiz"]);
 	assert.deepEqual(names(createTeacherTools(ctx, { explain: true })), ["explain"]);
 });

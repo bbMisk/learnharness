@@ -1,17 +1,43 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ZapIcon } from "lucide-react";
 import { Hint } from "@/components/ui/hint";
+import { useNewestWins, type NewestApply } from "@/components/newest-wins";
+import { useServerEvent, useServerResync } from "@/components/server-events";
+
+/** Whether the open lesson is in cram mode, as the chat view knows it. The
+ *  style is chat metadata another window can switch (setChatOrganization
+ *  emits chats-changed), so it is re-read on mount, on every chats-changed
+ *  and on every events reconnect; reads and the chip's own saves race
+ *  through useNewestWins — the newest confirmed value wins. */
+export function useLessonCram(chatId: string, initial: boolean) {
+	const read = useCallback(async () => {
+		const r = await fetch(`/api/chats/${chatId}?only=style`, { cache: "no-store" });
+		if (!r.ok) throw new Error(`style read failed: ${r.status}`);
+		return ((await r.json()) as { style?: string | null }).style === "cram";
+	}, [chatId]);
+	// A failed read keeps the last confirmed value; the next event or
+	// reconnect retries (a save's reconcile retries on its own).
+	const { value: cram, refresh, beginSave } = useNewestWins(initial, read);
+	const reread = useCallback(() => void refresh(), [refresh]);
+	useEffect(reread, [reread]);
+	useServerEvent("chats-changed", reread);
+	useServerResync(reread);
+	return { cram, begin: beginSave };
+}
 
 /** The header's Cram chip (owner, 2026-11-01): switches a lesson in or out of
- *  cram mode (src/core/cram.ts); the tutor follows from its next reply. */
-export function CramToggle({ chatId, on, onChange }: { chatId: string; on: boolean; onChange: (on: boolean) => void }) {
+ *  cram mode (src/core/cram.ts); the tutor follows from its next reply.
+ *  `beginSave` starts the save in the lesson's read order (useLessonCram's
+ *  begin): its applier lands the switch unless a newer read won. */
+export function CramToggle({ chatId, on, beginSave }: { chatId: string; on: boolean; beginSave: () => NewestApply<boolean> }) {
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState("");
 	const toggle = async () => {
 		setSaving(true);
 		setError("");
+		const apply = beginSave();
 		try {
 			const response = await fetch(`/api/chats/${chatId}`, {
 				method: "PUT",
@@ -19,7 +45,7 @@ export function CramToggle({ chatId, on, onChange }: { chatId: string; on: boole
 				body: JSON.stringify({ style: on ? null : "cram" }),
 			});
 			if (!response.ok) throw new Error();
-			onChange(!on);
+			apply(!on);
 		} catch {
 			setError("Couldn't switch. Try again.");
 		} finally {
