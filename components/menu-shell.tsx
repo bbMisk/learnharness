@@ -40,6 +40,7 @@ import { createPortal } from "react-dom";
 const GAP = 4; // anchor edge → menu (the bespoke shells' settled 4px)
 const EDGE = 8; // viewport floor the menu never enters
 const CAP_VH = 0.6; // 60vh — the graph pattern's cap
+const MIN_SAFE_WIDTH = 160; // narrower than this against a side inset: flip the horizontal anchor
 const MIN_USABLE = 96; // floor: a shorter cap is an unusable sliver; the
 // cap then overflows the edge instead of crushing the menu
 
@@ -107,15 +108,28 @@ export function computeMenuPlacement(
 	const left = safe.left ?? 0;
 	const right = safe.right ?? 0;
 	if (left > 0 || right > 0) {
-		horizontal.maxWidth = Math.max(0, align === "right" ? rect.right - left - EDGE : viewport.width - right - EDGE - rect.left);
+		const roomLeftward = rect.right - left - EDGE;
+		const roomRightward = viewport.width - right - EDGE - rect.left;
+		if (align === "right" && roomLeftward < MIN_SAFE_WIDTH && roomRightward > roomLeftward) {
+			// Anchored too close to the left safe edge: open rightward instead (hunt finding).
+			delete horizontal.right;
+			horizontal.left = Math.max(rect.left, left + EDGE);
+			horizontal.maxWidth = Math.max(0, viewport.width - right - EDGE - horizontal.left);
+		} else if (align === "left" && roomRightward < MIN_SAFE_WIDTH && roomLeftward > roomRightward) {
+			delete horizontal.left;
+			horizontal.right = Math.max(viewport.width - rect.right, right + EDGE);
+			horizontal.maxWidth = Math.max(0, viewport.width - horizontal.right - left - EDGE);
+		} else {
+			horizontal.maxWidth = Math.max(0, align === "right" ? roomLeftward : roomRightward);
+		}
 	}
 	const vertical: Record<string, number> =
 		side === "down" ? { top: rect.bottom + GAP } : { bottom: viewport.height - rect.top + GAP };
 	return { side, style: { ...horizontal, ...vertical }, maxHeight };
 }
 
-/** The live top/bottom safe-area insets (globals.css --lh-safe-top/bottom). */
-function safeAreaInsets(): { top: number; bottom: number; left: number; right: number } {
+/** The live safe-area insets (globals.css --lh-safe-*). 0 on desktop/Electron. */
+export function safeAreaInsets(): { top: number; bottom: number; left: number; right: number } {
 	// Zero when styles can't be read (non-browser hosts): the pre-safe-area placement.
 	if (typeof getComputedStyle !== "function") return { top: 0, bottom: 0, left: 0, right: 0 };
 	try {

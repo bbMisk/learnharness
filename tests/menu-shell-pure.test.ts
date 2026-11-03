@@ -106,6 +106,11 @@ it("safe-area insets are not usable room (iPad Home Screen app)", () => {
 	const notch = computeMenuPlacement({ top: 100, bottom: 140, left: 300, right: 380 }, { width: 852, height: 393 }, 200, "down", "right", { top: 0, bottom: 21, left: 59, right: 59 });
 	assert.equal(notch.style.maxWidth, 380 - 59 - 8, "max width stops 8px inside the left inset");
 	assert.equal(computeMenuPlacement({ top: 100, bottom: 140, left: 300, right: 380 }, { width: 852, height: 393 }, 200, "down", "right").style.maxWidth, undefined, "no side insets: no width cap");
+	// Anchored at the left safe edge (graph context menu): flip to open rightward rather than crush to 0.
+	const edge = computeMenuPlacement({ top: 100, bottom: 100, left: 59, right: 59 }, { width: 852, height: 393 }, 200, "down", "right", { top: 0, bottom: 21, left: 59, right: 59 });
+	assert.equal(edge.style.right, undefined);
+	assert.equal(edge.style.left, 67, "opens from the safe edge + 8px");
+	assert.equal(edge.style.maxWidth, 852 - 59 - 8 - 67);
 	// Zero insets: identical to before.
 	assert.deepEqual(computeMenuPlacement(anchor, vp, 300, "up", "right", { top: 0, bottom: 0 }), computeMenuPlacement(anchor, vp, 300, "up", "right"));
 });
