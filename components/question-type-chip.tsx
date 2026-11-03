@@ -32,24 +32,21 @@ export type QuestionTypeApply = NewestApply<QuestionType | undefined>;
  *  another tab or device) and on every events reconnect (events missed
  *  while disconnected). */
 export function useLessonQuestionType(chatId: string, initial: QuestionType | undefined) {
-	const [questionType, begin] = useNewestWins(initial);
-	const refresh = useCallback(() => {
-		const apply = begin();
-		fetch(`/api/chats/${chatId}/settings`, { cache: "no-store" })
-			.then((r) => (r.ok ? (r.json() as Promise<{ settings?: ChatSettings }>) : Promise.reject()))
-			.then((body) => apply(sanitizeQuestionType(body.settings?.questionType)))
-			.catch(() => {
-				/* keep the last confirmed value; the next event or reconnect retries */
-			});
-	}, [chatId, begin]);
-	useEffect(() => {
-		refresh();
-	}, [refresh]);
+	const read = useCallback(async () => {
+		const r = await fetch(`/api/chats/${chatId}/settings`, { cache: "no-store" });
+		if (!r.ok) throw new Error(`settings read failed: ${r.status}`);
+		return sanitizeQuestionType(((await r.json()) as { settings?: ChatSettings }).settings?.questionType);
+	}, [chatId]);
+	// A failed read keeps the last confirmed value; the next event or
+	// reconnect retries (a save's reconcile retries on its own).
+	const { value: questionType, refresh, beginSave } = useNewestWins(initial, read);
+	const reread = useCallback(() => void refresh(), [refresh]);
+	useEffect(reread, [reread]);
 	useServerEvent("record-changed", (p) => {
-		if (p.chatId === chatId) refresh();
+		if (p.chatId === chatId) reread();
 	});
-	useServerResync(refresh);
-	return { questionType, begin };
+	useServerResync(reread);
+	return { questionType, begin: beginSave };
 }
 
 /** Whether the header shows the chip: the question type sets the TEACHER's

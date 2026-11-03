@@ -12,7 +12,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, describe, it } from "node:test";
-import { createFauxCore, fauxAssistantMessage, fauxText, type Context, type Model, type Api } from "@earendil-works/pi-ai";
+import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, type Context, type Model, type Api } from "@earendil-works/pi-ai";
 import type { AgentBuildOptions, TeachingAgent } from "../src/agent/teacher-agent.ts";
 import type { PiEngine } from "../src/agent/models.ts";
 import type { LhMessage } from "../src/core/native-messages.ts";
@@ -350,7 +350,7 @@ function recordingEngine(replies: number, model?: (base: Model<Api>) => Model<Ap
 	return { engine, contexts };
 }
 
-async function turn(chatId: string, engine: PiEngine, contexts: Context[]): Promise<Seen> {
+async function turn(chatId: string, engine: PiEngine, contexts: Context[], calls = 1): Promise<Seen> {
 	let opts: (AgentBuildOptions & { teaching: boolean }) | undefined;
 	const record = chatStore.getChat(chatId)!;
 	const factory = (o: AgentBuildOptions & { teaching: boolean }): TeachingAgent => {
@@ -372,7 +372,7 @@ async function turn(chatId: string, engine: PiEngine, contexts: Context[]): Prom
 	assert.equal(ack.status, 200, await ack.clone().text());
 	const handle = runningTurn(chatId);
 	if (handle) await new Response(handle.subscribe()).text();
-	assert.equal(contexts.length, before + 1, "one model request per turn");
+	assert.equal(contexts.length, before + calls, `${calls} model request(s) this turn`);
 	return { opts: opts!, context: contexts.at(-1)! };
 }
 
@@ -525,5 +525,113 @@ describe("the chat handler", () => {
 		assert.ok(!update2!.content.includes(MIXED));
 		assert.deepEqual((update2!.toolsAdded ?? []).map((t) => t.name).filter((n) => n === "quiz" || n === "explain"), ["quiz"]);
 		assert.deepEqual(quizTools(mcq.context), ["quiz"]);
+	});
+});
+
+// ─── within one run: the change applies from the tutor's next question ──────
+
+/** A two-call teacher run (a non-question tool, then prose), with `between`
+ *  run after the first request is sent and before its reply streams back —
+ *  i.e. between two model calls of ONE run. */
+function midRunEngine(between: () => Promise<void>, firstCall = fauxToolCall("ls", { path: "/nonexistent-question-type-fixture" }, { id: "call_ls" }), model?: (base: Model<Api>) => Model<Api>) {
+	const faux = createFauxCore({});
+	faux.setResponses([fauxAssistantMessage([firstCall], { stopReason: "toolUse" }), fauxAssistantMessage([fauxText("On we go.")])]);
+	const contexts: Context[] = [];
+	const engine: PiEngine = {
+		model: model ? model(faux.getModel()) : faux.getModel(),
+		// pi's loop awaits the stream function, so it may hold the first call.
+		streamFn: (async (...args: Parameters<PiEngine["streamFn"]>) => {
+			contexts.push(structuredClone(args[1]) as Context);
+			if (contexts.length === 1) await between();
+			return faux.streamSimple(...args);
+		}) as unknown as PiEngine["streamFn"],
+	};
+	return { engine, contexts };
+}
+
+async function teachLesson(title: string, settings: ChatSettings, style?: "cram") {
+	const chat = chatStore.createChat(title);
+	chatStore.saveSettings(chat.id, { model: MODEL, ...settings });
+	chatStore.saveMessages(chat.id, probeDone);
+	if (style) setChatOrganization(chat.id, { style });
+	return chat.id;
+}
+
+describe("within one run", () => {
+	it("a type saved between two model calls applies to the second: tools and prompt", async () => {
+		writeSettings({ version: 1, graph: { enabled: false } });
+		const chatId = await teachLesson("Mid-run SAQ", { questionType: "mcq" });
+		const { engine, contexts } = midRunEngine(() => choose(chatId, "saq"));
+		await turn(chatId, engine, contexts, 2);
+		const [first, second] = contexts as [Context, Context];
+		assert.deepEqual(quizTools(first), ["quiz"]);
+		assert.deepEqual(quizTools(second), ["explain"], "the next model call of the same run");
+		assert.deepEqual(toolNames(second).filter((n) => n !== "explain"), toolNames(first).filter((n) => n !== "quiz"), "only the quizzing tool moved");
+		assert.equal(prompt(second), prompt(first), "MCQ and SAQ teach prompts are the same");
+		assert.equal(systems(second).length, 1, "one leading system message, rebuilt — no stacked updates");
+		// The run's history rides on unchanged.
+		assert.deepEqual(second.messages.slice(1, first.messages.length), first.messages.slice(1));
+
+		const mixedId = await teachLesson("Mid-run Mixed", { questionType: "mcq" });
+		const mixed = midRunEngine(() => choose(mixedId, "mixed"));
+		await turn(mixedId, mixed.engine, mixed.contexts, 2);
+		assert.ok(!prompt(mixed.contexts[0]!).includes(MIXED));
+		assert.ok(prompt(mixed.contexts[1]!).endsWith(`\n\n${MIXED}`));
+		assert.deepEqual(quizTools(mixed.contexts[1]!), ["explain", "quiz"]);
+	});
+
+	it("no change: the second request's system message is byte-identical to the first's", async () => {
+		writeSettings({ version: 1, graph: { enabled: false } });
+		const chatId = await teachLesson("Mid-run steady", { questionType: "mixed" });
+		const { engine, contexts } = midRunEngine(async () => {
+			await choose(chatId, "mixed"); // a save that changes nothing
+		});
+		await turn(chatId, engine, contexts, 2);
+		assert.equal(JSON.stringify(systems(contexts[1]!)), JSON.stringify(systems(contexts[0]!)));
+	});
+
+	it("cram: step 3 and the quizzing tools swap mid-run; the problem set stays", async () => {
+		writeSettings({ version: 1, graph: { enabled: false } });
+		const chatId = await teachLesson("Mid-run cram", {}, "cram");
+		const { engine, contexts } = midRunEngine(() => choose(chatId, "mcq"));
+		await turn(chatId, engine, contexts, 2);
+		const [first, second] = contexts as [Context, Context];
+		assert.ok(prompt(first).includes(cramInstructions("mixed")));
+		assert.ok(prompt(second).includes(cramInstructions("mcq")));
+		assert.ok(!prompt(second).includes(MIXED));
+		assert.deepEqual(quizTools(second), ["quiz"]);
+		assert.ok(toolNames(second).includes("problem_list") && toolNames(second).includes("note_mistake"));
+	});
+
+	it("shared handoff: the prober's prefix stays; the teacher's update is rebuilt for the new type", async () => {
+		writeSettings({ version: 1, graph: { enabled: false }, general: { sharedHandoffPrefix: true } });
+		const chatId = await teachLesson("Mid-run handoff", { questionType: "mixed" });
+		const eligible = (base: Model<Api>) => ({ ...base, api: "openai-responses", compat: { supportsMidConvoSystemMessages: true, supportsAdditionalTools: true } }) as Model<Api>;
+		const { engine, contexts } = midRunEngine(() => choose(chatId, "saq"), undefined, eligible);
+		await turn(chatId, engine, contexts, 2);
+		const [first, second] = contexts as [Context, Context];
+		const [lead1, update1] = systems(first);
+		const [lead2, update2] = systems(second);
+		assert.equal(systems(second).length, 2);
+		assert.equal(JSON.stringify(lead2), JSON.stringify(lead1), "the prober's leading message is untouched");
+		assert.ok(update1!.content.endsWith(`\n\n${MIXED}`));
+		assert.ok(update2!.content.startsWith(HANDOFF_UPDATE_TEXT) && !update2!.content.includes(MIXED));
+		assert.deepEqual(quizTools(second), ["explain"]);
+		assert.equal(second.messages.indexOf(update2 as never), first.messages.indexOf(update1 as never), "the update keeps its place");
+		writeSettings({ version: 1, graph: { enabled: false } });
+	});
+
+	it("history with a call to the now-removed quizzing tool carries into the next call", async () => {
+		writeSettings({ version: 1, graph: { enabled: false } });
+		const chatId = await teachLesson("Mid-run removed tool", { questionType: "mcq" });
+		// A quiz call that fails authoring validation does not end the run.
+		const badQuiz = fauxToolCall("quiz", { question: "?" }, { id: "call_quiz" });
+		const { engine, contexts } = midRunEngine(() => choose(chatId, "saq"), badQuiz);
+		await turn(chatId, engine, contexts, 2);
+		const second = contexts[1]!;
+		assert.deepEqual(quizTools(second), ["explain"]);
+		const calls = second.messages.flatMap((m) => (m.role === "assistant" ? m.content.filter((b) => b.type === "toolCall").map((b) => b.name) : []));
+		assert.ok(calls.includes("quiz"), "the earlier quiz call is still in the history");
+		assert.ok(second.messages.some((m) => m.role === "toolResult" && m.toolCallId === "call_quiz"), "with its result");
 	});
 });

@@ -189,29 +189,34 @@ it("opens a three-option menu with the current type checked", async () => {
 	assert.equal(menu(), null, "the chip toggles it closed");
 });
 
-it("a pick saves only { questionType } through the chat settings API and updates at once", async () => {
+it("a pick saves only { questionType } through the chat settings API, updates at once, then reconciles", async () => {
 	const api = fakeApi({ model: MODEL, thinkingLevel: "low" });
 	await mount(<Harness />);
 	await settle();
 	const mountReads = api.calls.length;
 	const chatCalls = () => api.calls.slice(mountReads).filter((c) => c.url !== "/api/settings");
+	const PUT = (questionType: string) => ({ url: "/api/chats/chat_1/settings", method: "PUT", body: { questionType } });
+	const GET = { url: "/api/chats/chat_1/settings", method: "GET" };
 	await click(chip());
 	await click(option("saq"));
+	await settle();
 	assert.equal(chip().textContent, "Qs: SAQ");
 	assert.equal(menu(), null, "the menu closes on a saved pick");
-	assert.deepEqual(chatCalls(), [{ url: "/api/chats/chat_1/settings", method: "PUT", body: { questionType: "saq" } }], "no read-then-write of the model fields");
+	assert.deepEqual(chatCalls(), [PUT("saq"), GET], "no read-then-write of the model fields; one reconcile read after the commit");
 	assert.deepEqual(api.settings, { model: MODEL, thinkingLevel: "low", questionType: "saq" });
 	await click(chip());
 	await click(option("mixed"));
+	await settle();
 	assert.equal(chip().textContent, "Qs: Mixed");
-	assert.deepEqual(chatCalls().at(-1), { url: "/api/chats/chat_1/settings", method: "PUT", body: { questionType: "mixed" } });
+	assert.deepEqual(chatCalls().slice(-2), [PUT("mixed"), GET]);
 	// Re-picking the type this view shows still writes: another device may
 	// have changed the stored value meanwhile.
 	api.settings = { ...api.settings, questionType: "mcq" };
 	await click(chip());
 	await click(option("mixed"));
-	assert.deepEqual(chatCalls().at(-1), { url: "/api/chats/chat_1/settings", method: "PUT", body: { questionType: "mixed" } });
-	assert.equal(chatCalls().length, 3);
+	await settle();
+	assert.deepEqual(chatCalls().slice(-2), [PUT("mixed"), GET]);
+	assert.equal(chatCalls().length, 6);
 	assert.equal(api.settings.questionType, "mixed");
 	assert.equal(menu(), null);
 });
@@ -369,4 +374,90 @@ it("a slow Cram save response never restores a style a newer read replaced", asy
 	await settle();
 	assert.equal(cramChip().getAttribute("aria-pressed"), "false", "the older save's response is superseded");
 	assert.equal(chip().textContent, "Qs: MCQ");
+});
+
+/** A chat API whose PUTs can be held BEFORE they commit and whose GETs can
+ *  fail: the server's value is what a GET sees at the moment it is served. */
+function racingApi(initial: { questionType?: string; style?: string | null }) {
+	const state = { questionType: initial.questionType, style: initial.style ?? null, failGets: 0, holdPuts: false, held: [] as Array<() => void>, gets: 0 };
+	globalThis.fetch = (async (url: string, init?: RequestInit) => {
+		if (url === "/api/settings") return Response.json({ settings: { version: 1, agent: {} } });
+		if (init?.method === "PUT") {
+			const body = JSON.parse(String(init.body));
+			const commit = () => {
+				if ("questionType" in body) state.questionType = body.questionType;
+				if ("style" in body) state.style = body.style;
+			};
+			const respond = () => (url.endsWith("/settings") ? Response.json({ settings: { questionType: state.questionType } }) : Response.json({ ok: true }));
+			if (!state.holdPuts) {
+				commit();
+				return respond();
+			}
+			return new Promise<Response>((resolve) => state.held.push(() => { commit(); resolve(respond()); }));
+		}
+		state.gets++;
+		if (state.failGets > 0) {
+			state.failGets--;
+			return Response.json({ error: "down" }, { status: 503 });
+		}
+		if (url === "/api/chats/chat_1?only=style") return Response.json({ style: state.style });
+		assert.equal(url, "/api/chats/chat_1/settings");
+		return Response.json({ settings: state.questionType ? { questionType: state.questionType } : {} });
+	}) as typeof fetch;
+	return state;
+}
+
+it("a read served before the save committed cannot leave the label stale: the save reconciles", async () => {
+	events = fakeEvents();
+	const api = racingApi({ questionType: "mcq" });
+	await mount(<Harness initial="mcq" />);
+	await settle();
+	api.holdPuts = true;
+	await click(chip());
+	await click(option("saq"));
+	// A refresh starts after the save did, and is served before it commits.
+	await events.server("record-changed", { chatId: "chat_1" });
+	await settle();
+	assert.equal(chip().textContent, "Qs: MCQ", "the refresh read the old value");
+	await act(async () => api.held.shift()!());
+	await settle();
+	assert.equal(chip().textContent, "Qs: SAQ", "the post-commit read wins over the stale one");
+});
+
+it("the reconcile read retries with backoff, and a newer change from another window still wins", async () => {
+	events = fakeEvents();
+	const api = racingApi({ questionType: "mcq" });
+	await mount(<Harness initial="mcq" />);
+	await settle();
+	api.holdPuts = true;
+	await click(chip());
+	await click(option("saq"));
+	await events.server("record-changed", { chatId: "chat_1" });
+	await settle();
+	api.failGets = 1;
+	const gets = api.gets;
+	await act(async () => api.held.shift()!());
+	await settle();
+	assert.equal(chip().textContent, "Qs: MCQ", "the first reconcile read failed");
+	// Another window saves Mixed before the retry.
+	api.questionType = "mixed";
+	await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+	assert.equal(api.gets, gets + 2, "one failed read, one retry");
+	assert.equal(chip().textContent, "Qs: Mixed", "the retry reads the newest value");
+});
+
+it("the Cram chip reconciles after a save the same way", async () => {
+	events = fakeEvents();
+	const api = racingApi({ style: null });
+	await mount(<ServerEventsProvider connect={connect}><LiveLesson /></ServerEventsProvider>);
+	await settle();
+	api.holdPuts = true;
+	await click(cramChip());
+	await events.server("chats-changed", {});
+	await settle();
+	assert.equal(cramChip().getAttribute("aria-pressed"), "false", "the refresh read the old style");
+	await act(async () => api.held.shift()!());
+	await settle();
+	assert.equal(cramChip().getAttribute("aria-pressed"), "true");
+	assert.equal(chip().textContent, "Qs: Mixed");
 });

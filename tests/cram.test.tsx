@@ -196,15 +196,17 @@ it("the header Cram chip saves the switch and reports a failed save", async () =
 	let ok = true;
 	globalThis.fetch = (async (_url: string, init: RequestInit) => {
 		bodies.push(JSON.parse(String(init.body)));
+		if (ok) serverOn = (bodies.at(-1) as { style: string | null }).style === "cram";
 		return ok ? Response.json({ ok: true }) : new Response("no", { status: 500 });
 	}) as typeof fetch;
 	const host = document.createElement("div");
 	document.body.append(host);
 	root = createRoot(host);
 	const { useNewestWins } = await import("../components/newest-wins.ts");
+	let serverOn = false;
 	function Harness() {
-		const [on, begin] = useNewestWins(false);
-		return <CramToggle chatId="chat_1" on={on} beginSave={begin} />;
+		const { value: on, beginSave } = useNewestWins(false, async () => serverOn);
+		return <CramToggle chatId="chat_1" on={on} beginSave={beginSave} />;
 	}
 	await act(async () => root!.render(<Harness />));
 	const chip = () => host.querySelector('[data-testid="cram-toggle"]') as HTMLButtonElement;

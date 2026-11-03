@@ -65,7 +65,7 @@ import {
 	type TurnInput,
 } from "../core/input-events.ts";
 import { steerDelivered } from "../core/contracts.ts";
-import type { RequestFingerprint, TurnStepUsage } from "../core/contracts.ts";
+import type { QuestionType, RequestFingerprint, TurnStepUsage } from "../core/contracts.ts";
 
 /**
  * One chat turn over the server-owned native record. Framework-free (plain
@@ -477,9 +477,19 @@ export async function handleChatInput(
 	// Read off the record every run, so a change applies from the next
 	// request. Teacher only: the prober keeps the app mechanic, practice
 	// never quizzes.
+	const cramLesson = record.style === "cram";
 	const questionType = record.kind === "practice"
 		? undefined
-		: effectiveQuestionType(record.settings?.questionType, record.style === "cram", effective.agent.tools);
+		: effectiveQuestionType(record.settings?.questionType, cramLesson, effective.agent.tools);
+	const styleFor = (type: QuestionType | undefined) =>
+		withTeachingStyle(projectContext, { ...record, messages: agentMessages }, effective.general.cramShortProbe, type);
+	// …and re-resolved before every model call of the run (a change applies
+	// from the tutor's next question, not its next run). The run's cram style
+	// stays fixed; only the type moves.
+	const liveQuestionType = record.kind === "practice" ? undefined : {
+		current: () => effectiveQuestionType(stores.chatStore.getChat(chatId)?.settings?.questionType, cramLesson, effectiveSettings().agent.tools),
+		projectContextFor: styleFor,
+	};
 	const agentOpts: AgentBuildOptions = {
 		engine,
 		callPurpose,
@@ -488,6 +498,7 @@ export async function handleChatInput(
 		onUsage: collectUsage,
 		toolToggles: effective.agent.tools,
 		questionType,
+		...(liveQuestionType ? { liveQuestionType } : {}),
 		// The cram teacher's problem-set tools (core/lesson-tracking.ts).
 		cram: record.style === "cram" && record.kind !== "practice",
 		// Debug (owner, 2026-10-04): teacher/prober raw provider events under
@@ -497,7 +508,7 @@ export async function handleChatInput(
 		// point as the tool delta — the agent layer composes the system
 		// prompt fresh per turn, swapping in any enabled override segments.
 		promptSwitches: effective.agent.prompts,
-		projectContext: withTeachingStyle(projectContext, { ...record, messages: agentMessages }, effective.general.cramShortProbe, questionType),
+		projectContext: styleFor(questionType),
 		// SHARED HANDOFF PREFIX (opt-in experiment, Settings → General): the
 		// teacher keeps the prober's request prefix (agent/shared-handoff.ts),
 		// rebuilt from the record every run — the prober's registry and its

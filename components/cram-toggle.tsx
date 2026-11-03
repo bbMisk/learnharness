@@ -12,22 +12,19 @@ import { useServerEvent, useServerResync } from "@/components/server-events";
  *  and on every events reconnect; reads and the chip's own saves race
  *  through useNewestWins — the newest confirmed value wins. */
 export function useLessonCram(chatId: string, initial: boolean) {
-	const [cram, begin] = useNewestWins(initial);
-	const refresh = useCallback(() => {
-		const apply = begin();
-		fetch(`/api/chats/${chatId}?only=style`, { cache: "no-store" })
-			.then((r) => (r.ok ? (r.json() as Promise<{ style?: string | null }>) : Promise.reject()))
-			.then((body) => apply(body.style === "cram"))
-			.catch(() => {
-				/* keep the last confirmed value; the next event or reconnect retries */
-			});
-	}, [chatId, begin]);
-	useEffect(() => {
-		refresh();
-	}, [refresh]);
-	useServerEvent("chats-changed", refresh);
-	useServerResync(refresh);
-	return { cram, begin };
+	const read = useCallback(async () => {
+		const r = await fetch(`/api/chats/${chatId}?only=style`, { cache: "no-store" });
+		if (!r.ok) throw new Error(`style read failed: ${r.status}`);
+		return ((await r.json()) as { style?: string | null }).style === "cram";
+	}, [chatId]);
+	// A failed read keeps the last confirmed value; the next event or
+	// reconnect retries (a save's reconcile retries on its own).
+	const { value: cram, refresh, beginSave } = useNewestWins(initial, read);
+	const reread = useCallback(() => void refresh(), [refresh]);
+	useEffect(reread, [reread]);
+	useServerEvent("chats-changed", reread);
+	useServerResync(reread);
+	return { cram, begin: beginSave };
 }
 
 /** The header's Cram chip (owner, 2026-11-01): switches a lesson in or out of

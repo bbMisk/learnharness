@@ -1,8 +1,8 @@
 import { Agent } from "@earendil-works/pi-agent-core";
-import type { AgentEvent, AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
+import type { AgentEvent, AgentMessage, AgentRequestUpdate, AgentTool, PrepareRequestContext } from "@earendil-works/pi-agent-core";
 import { invalidInputResult, questionResult } from "./tool-execute.ts";
 import { providerEventObserver } from "./provider-events.ts";
-import type { Usage } from "@earendil-works/pi-ai";
+import { createInitialSystemMessage, toToolDeclaration, type Usage } from "@earendil-works/pi-ai";
 import { PATHS } from "../../config.ts";
 import { APP_IDENTITY, piEngineFor, type PiEngine } from "./models.ts";
 import { effectivePromptSegments } from "./prompt-segments.ts";
@@ -128,6 +128,16 @@ export interface AgentBuildOptions {
 	 *  "saq" explain, "mixed" both. Absent = the toolToggles mechanic. The
 	 *  prober and the practitioner never read it. */
 	questionType?: QuestionType;
+	/** The lesson's question type as it stands NOW (owner, 2026-11-03: a change
+	 *  applies from the tutor's next question). Read before every model call of
+	 *  a teacher run; when it differs from the type in use, the teacher's
+	 *  request is rebuilt exactly as a fresh run would build it — quizzing
+	 *  tools, prompt (`projectContextFor`) and, under the shared handoff, the
+	 *  update — and nothing changes while it does not. Teacher only. */
+	liveQuestionType?: {
+		current: () => QuestionType;
+		projectContextFor: (questionType: QuestionType) => string;
+	};
 	/** Cram lessons (core/cram.ts): the teacher also tracks the problem set
 	 *  (problem_list / problem_done — core/lesson-tracking.ts). */
 	cram?: boolean;
@@ -229,7 +239,25 @@ function agentLoadout(
 	};
 }
 
-function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: AgentTool<any, any>[]) {
+/** The run's opening history: the shared handoff's layout when it applies,
+ *  else none (pi seeds the leading system message from the loadout). */
+function handoffSeed(kind: AgentKind, opts: AgentBuildOptions, history: readonly AgentMessage[], loadout: AgentLoadout, model: PiEngine["model"]): AgentMessage[] | null {
+	return kind === "teacher" && opts.sharedHandoff && sharedHandoffSupported(model)
+		? sharedHandoffMessages(
+				history,
+				agentLoadout("prober", opts, opts.sharedHandoff.proberTools, model, opts.sharedHandoff.proberProjectContext),
+				loadout,
+			)
+		: null;
+}
+
+function baseAgentOptions(
+	kind: AgentKind,
+	opts: AgentBuildOptions,
+	tools: AgentTool<any, any>[],
+	/** The teacher's registry for another question type (the live swap). */
+	retool?: (questionType: QuestionType) => AgentTool<any, any>[],
+) {
 	// Practice never reaches the role fallback (the handler ALWAYS injects
 	// the session's conversation engine — practice rides the same
 	// conversation-spec resolution as teaching); the cast keeps AgentKind
@@ -241,13 +269,25 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	// prober's system message and carries its own as a mid-conversation
 	// update; null (unsupported model, no concluded probe, compacted past the
 	// handoff) keeps today's request exactly.
-	const handoff = kind === "teacher" && opts.sharedHandoff && sharedHandoffSupported(engine.model)
-		? sharedHandoffMessages(
-				opts.messages ?? [],
-				agentLoadout("prober", opts, opts.sharedHandoff.proberTools, engine.model, opts.sharedHandoff.proberProjectContext),
-				loadout,
-			)
-		: null;
+	const handoff = handoffSeed(kind, opts, opts.messages ?? [], loadout, engine.model);
+	// THE LIVE QUESTION TYPE (owner, 2026-11-03): before each model call of a
+	// teacher run, re-resolve the lesson's type; on a change, rebuild the
+	// request's system messages and executable tools exactly as a fresh run
+	// would (the record never holds system messages, so the history is every
+	// non-system message). Unchanged → no update, the request is untouched.
+	let questionTypeInUse = opts.questionType;
+	const questionTypeSwap = (request: PrepareRequestContext): AgentRequestUpdate | undefined => {
+		if (!retool || !opts.liveQuestionType) return undefined;
+		const next = opts.liveQuestionType.current();
+		if (next === questionTypeInUse) return undefined;
+		questionTypeInUse = next;
+		const nextOpts = { ...opts, questionType: next, projectContext: opts.liveQuestionType.projectContextFor(next) };
+		const nextLoadout = agentLoadout(kind, nextOpts, retool(next), request.model, nextOpts.projectContext);
+		const history = request.context.messages.filter((m) => m.role !== "system");
+		const leading = createInitialSystemMessage(nextLoadout.systemPrompt, nextLoadout.tools.map(toToolDeclaration));
+		const messages = handoffSeed(kind, nextOpts, history, nextLoadout, request.model) ?? [...(leading ? [leading] : []), ...history];
+		return { context: { messages, tools: nextLoadout.tools } };
+	};
 	// Debug recorder (owner, 2026-10-04): raw provider events when
 	// LH_PROVIDER_EVENTS=1 and the caller handed a chatId; undefined is
 	// the normal no-observer path (tests, env-off).
@@ -301,7 +341,9 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 		// an abort's dangling question call gets its INTERRUPTED result. It
 		// must never throw (pi's convertToLlm contract).
 		convertToLlm: toLlmMessages,
-		prepareRequest: (request) => {
+		prepareRequest: (prepared) => {
+			const update = questionTypeSwap(prepared);
+			const request = update?.context ? { ...prepared, context: update.context } : prepared;
 			if (opts.callPurpose) {
 				let learner = false, automatic = false;
 				const messages = request.context.messages;
@@ -318,6 +360,7 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 				else if (learner) opts.callPurpose.background = false;
 			}
 			opts.requestCycle?.prepare(request);
+			return update;
 		},
 	});
 	if (opts.onUsage) {
@@ -361,7 +404,12 @@ export function createTeacherAgent(
 	opts: AgentBuildOptions = {},
 ) {
 	const tools = opts.tools ?? (ctx ? createTeacherTools(ctx, opts.toolToggles, opts.questionType, opts.cram) : bareQuestionTools());
-	return baseAgentOptions("teacher", opts, Object.values(tools));
+	// The live question-type swap rebuilds the registry for the new type;
+	// an explicit test registry is caller-owned and never swapped.
+	const retool = !opts.tools && ctx
+		? (questionType: QuestionType) => Object.values(createTeacherTools(ctx, opts.toolToggles, questionType, opts.cram))
+		: undefined;
+	return baseAgentOptions("teacher", opts, Object.values(tools), retool);
 }
 
 /** The bare teach question set (tests, bare agents): quiz with the shared
