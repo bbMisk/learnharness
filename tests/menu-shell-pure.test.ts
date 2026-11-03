@@ -99,6 +99,9 @@ it("safe-area insets are not usable room (iPad Home Screen app)", () => {
 	const capped = computeMenuPlacement(midAnchor, short, 300, "up", "right", { top: 24, bottom: 20 });
 	assert.equal(capped.side, "up");
 	assert.equal(capped.maxHeight, 164, "the menu's top edge stays 8px below the status bar");
+	// Tiny viewport: the 96px usability floor never pushes into the home indicator.
+	const tiny = computeMenuPlacement({ top: 110, bottom: 150, left: 10, right: 60 }, { width: 500, height: 260 }, 300, "down", "right", { top: 24, bottom: 21 });
+	assert.ok(150 + 4 + tiny.maxHeight <= 260 - 21, `menu bottom ${150 + 4 + tiny.maxHeight} stays above the inset`);
 	// Zero insets: identical to before.
 	assert.deepEqual(computeMenuPlacement(anchor, vp, 300, "up", "right", { top: 0, bottom: 0 }), computeMenuPlacement(anchor, vp, 300, "up", "right"));
 });

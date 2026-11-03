@@ -93,7 +93,13 @@ export function computeMenuPlacement(
 		}
 	}
 	const avail = side === "down" ? availDown : availUp;
-	const maxHeight = Math.max(MIN_USABLE, Math.min(CAP_VH * viewport.height, avail));
+	let maxHeight = Math.max(MIN_USABLE, Math.min(CAP_VH * viewport.height, avail));
+	// With safe-area insets the usability floor must not push the menu into the
+	// status bar or home indicator (hunt finding). Zero insets: unchanged.
+	if (safe.top > 0 || safe.bottom > 0) {
+		const safeRoom = side === "down" ? viewport.height - safe.bottom - (rect.bottom + GAP) : rect.top - GAP - safe.top;
+		maxHeight = Math.max(0, Math.min(maxHeight, safeRoom));
+	}
 	const horizontal: Record<string, number> =
 		align === "right" ? { right: viewport.width - rect.right } : { left: rect.left };
 	const vertical: Record<string, number> =
