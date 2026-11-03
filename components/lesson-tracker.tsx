@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ListChecksIcon } from "lucide-react";
 import { Hint } from "@/components/ui/hint";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
-import type { LessonTracking } from "@/src/core";
+import { correctProblemCount, type LessonTracking, type TrackedProblem } from "@/src/core";
 
 /**
  * The lesson-tracking card (owner, 2026-11-02): a floating panel in the
@@ -121,10 +121,10 @@ function SectionHeader({ title, count }: { title: string; count: string }) {
 	);
 }
 
-function Row({ symbol, status, text, className }: { symbol: string; status: string; text: string; className: string }) {
+function Row({ symbol, status, text, className, symbolClassName = "" }: { symbol: string; status: string; text: string; className: string; symbolClassName?: string }) {
 	return (
 		<li data-status={status} className={`flex gap-2 leading-snug ${className}`}>
-			<span aria-hidden className="w-3 shrink-0 text-center">
+			<span aria-hidden data-testid="lesson-tracker-symbol" className={`w-3 shrink-0 text-center ${symbolClassName}`}>
 				{symbol}
 			</span>
 			<span className="min-w-0 break-words">{text}</span>
@@ -132,15 +132,31 @@ function Row({ symbol, status, text, className }: { symbol: string; status: stri
 	);
 }
 
+/** One problem row (owner, 2026-11-03): ▸ + bold the current problem, then
+ *  its latest outcome — the quiz feedback's green ✓ correct and red ✗
+ *  incorrect (answered-card.tsx), a grey – skipped — else ○ not started. */
+function ProblemRow({ problem: p }: { problem: TrackedProblem }) {
+	if (p.current) return <Row symbol="▸" status="current" text={p.label} className="font-semibold text-foreground" />;
+	switch (p.outcome) {
+		case "correct":
+			return <Row symbol="✓" status="correct" text={p.label} className="text-muted-foreground" symbolClassName="text-green-500" />;
+		case "incorrect":
+			return <Row symbol="✗" status="incorrect" text={p.label} className="text-muted-foreground" symbolClassName="text-red-500" />;
+		case "skipped":
+			return <Row symbol="–" status="skipped" text={p.label} className="text-muted-foreground" symbolClassName="text-muted-foreground" />;
+		default:
+			return <Row symbol="○" status="todo" text={p.label} className="text-muted-foreground" />;
+	}
+}
+
 /**
- * The card: "Problems N/M" (✓ done, ▸ the first not-done, ○ the rest) when
- * a list exists, "Mistakes K open" (○ open, ✓ resolved) when any mistake
+ * The card: "Problems correct/total" (one ProblemRow each) when a list
+ * exists, "Mistakes K open" (○ open, ✓ resolved) when any mistake
  * exists. `bottomReserve` is the dock's height — the card never reaches the
  * composer; it scrolls instead.
  */
 export function LessonTrackerCard({ tracking, bottomReserve }: { tracking: LessonTracking; bottomReserve: number }) {
 	const { problems, mistakes } = tracking;
-	const firstOpen = problems?.findIndex((p) => !p.done) ?? -1;
 	const openMistakes = mistakes.filter((m) => !m.resolved).length;
 	return (
 		<aside
@@ -151,17 +167,11 @@ export function LessonTrackerCard({ tracking, bottomReserve }: { tracking: Lesso
 		>
 			{problems && (
 				<section data-testid="lesson-tracker-problems">
-					<SectionHeader title="Problems" count={`${problems.filter((p) => p.done).length}/${problems.length}`} />
+					<SectionHeader title="Problems" count={`${correctProblemCount(problems)}/${problems.length}`} />
 					<ul className="flex flex-col gap-1">
-						{problems.map((p, i) =>
-							p.done ? (
-								<Row key={p.id} symbol="✓" status="done" text={p.label} className="text-muted-foreground" />
-							) : i === firstOpen ? (
-								<Row key={p.id} symbol="▸" status="current" text={p.label} className="font-medium text-foreground" />
-							) : (
-								<Row key={p.id} symbol="○" status="todo" text={p.label} className="text-muted-foreground" />
-							),
-						)}
+						{problems.map((p) => (
+							<ProblemRow key={p.id} problem={p} />
+						))}
 					</ul>
 				</section>
 			)}

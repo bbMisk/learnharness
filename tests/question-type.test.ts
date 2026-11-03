@@ -305,7 +305,7 @@ describe("tool sets", () => {
 		for (const type of ["mcq", "saq", "mixed"] as const) {
 			const tools = createTeacherTools(ctx("c") as never, undefined, type, true);
 			assert.deepEqual(quizzing(tools), expected[type]);
-			assert.ok("problem_list" in tools && "problem_done" in tools);
+			assert.ok("problem_list" in tools && "problem_start" in tools && "problem_done" in tools);
 		}
 	});
 });
@@ -617,7 +617,7 @@ describe("within one run", () => {
 		assert.ok(prompt(second).includes(cramInstructions("mcq")));
 		assert.ok(!prompt(second).includes(MIXED));
 		assert.deepEqual(quizTools(second), ["quiz"]);
-		assert.ok(toolNames(second).includes("problem_list") && toolNames(second).includes("note_mistake"));
+		assert.ok(["problem_list", "problem_start", "problem_done", "note_mistake", "resolve_mistake"].every((t) => toolNames(second).includes(t)));
 	});
 
 	it("shared handoff: the prober's prefix stays; the teacher's update is rebuilt for the new type", async () => {
@@ -635,6 +635,21 @@ describe("within one run", () => {
 		assert.ok(update2!.content.startsWith(HANDOFF_UPDATE_TEXT) && !update2!.content.includes(MIXED));
 		assert.deepEqual(quizTools(second), ["explain"]);
 		assert.equal(second.messages.indexOf(update2 as never), first.messages.indexOf(update1 as never), "the update keeps its place");
+		writeSettings({ version: 1, graph: { enabled: false } });
+	});
+
+	it("shared handoff in cram: the rebuilt teacher keeps every tracking tool, problem_start included", async () => {
+		writeSettings({ version: 1, graph: { enabled: false }, general: { sharedHandoffPrefix: true } });
+		const chatId = await teachLesson("Mid-run handoff cram", {}, "cram");
+		const eligible = (base: Model<Api>) => ({ ...base, api: "openai-responses", compat: { supportsMidConvoSystemMessages: true, supportsAdditionalTools: true } }) as Model<Api>;
+		const { engine, contexts } = midRunEngine(() => choose(chatId, "saq"), undefined, eligible);
+		await turn(chatId, engine, contexts, 2);
+		const tracking = ["problem_list", "problem_start", "problem_done", "note_mistake", "resolve_mistake"];
+		for (const context of contexts.slice(0, 2) as Context[]) {
+			assert.equal(systems(context).length, 2, "the shared handoff layout");
+			assert.ok(tracking.every((t) => toolNames(context).includes(t)));
+		}
+		assert.deepEqual(quizTools(contexts[1] as Context), ["explain"]);
 		writeSettings({ version: 1, graph: { enabled: false } });
 	});
 

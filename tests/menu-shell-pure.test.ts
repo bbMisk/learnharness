@@ -80,3 +80,40 @@ describe("computeMenuPlacement — cap + position", () => {
 		assert.ok(!("right" in p.style));
 	});
 });
+it("safe-area insets are not usable room (iPad Home Screen app)", () => {
+	const anchor = { top: 300, bottom: 340, left: 100, right: 200 };
+	const vp = { width: 1180, height: 768 };
+	// An upward menu near the top never reaches into the 24px status bar.
+	const up = computeMenuPlacement(anchor, vp, 600, "up", "right", { top: 24, bottom: 20 });
+	assert.ok(up.side === "down" || up.maxHeight <= anchor.top - 24, `up menu stays below the status bar (max ${up.maxHeight})`);
+	// Downward room shrinks by exactly the 20px home-indicator inset.
+	const low = { top: 100, bottom: 140, left: 100, right: 200 };
+	const plain = computeMenuPlacement(low, vp, 2000, "down", "right");
+	const safe = computeMenuPlacement(low, vp, 2000, "down", "right", { top: 24, bottom: 20 });
+	assert.equal(safe.side, "down");
+	assert.ok(plain.maxHeight - safe.maxHeight <= 20 && safe.maxHeight <= plain.maxHeight);
+	// A menu that stays above its anchor is capped by the status bar: 200 - 4 - 8 = 188 → 164 with a 24px inset.
+	const short = { width: 1180, height: 400 };
+	const midAnchor = { top: 200, bottom: 240, left: 100, right: 200 };
+	assert.equal(computeMenuPlacement(midAnchor, short, 300, "up", "right").maxHeight, 188);
+	const capped = computeMenuPlacement(midAnchor, short, 300, "up", "right", { top: 24, bottom: 20 });
+	assert.equal(capped.side, "up");
+	assert.equal(capped.maxHeight, 164, "the menu's top edge stays 8px below the status bar");
+	// Tiny viewport: the 96px usability floor never pushes into the home indicator.
+	const tiny = computeMenuPlacement({ top: 110, bottom: 150, left: 10, right: 60 }, { width: 500, height: 260 }, 300, "down", "right", { top: 24, bottom: 21 });
+	assert.ok(150 + 4 + tiny.maxHeight <= 260 - 21, `menu bottom ${150 + 4 + tiny.maxHeight} stays above the inset`);
+	// Landscape notch: a right-aligned menu never extends left of the safe edge.
+	const notch = computeMenuPlacement({ top: 100, bottom: 140, left: 300, right: 380 }, { width: 852, height: 393 }, 200, "down", "right", { top: 0, bottom: 21, left: 59, right: 59 });
+	assert.equal(notch.style.maxWidth, 380 - 59 - 8, "max width stops 8px inside the left inset");
+	assert.equal(computeMenuPlacement({ top: 100, bottom: 140, left: 300, right: 380 }, { width: 852, height: 393 }, 200, "down", "right").style.maxWidth, 380 - 8, "no side insets: capped at the viewport edge only");
+	// iPad split view (320px, no side insets): a menu anchored near the right edge stays on screen.
+	const split = computeMenuPlacement({ top: 100, bottom: 140, left: 250, right: 292 }, { width: 320, height: 700 }, 200, "down", "right", { top: 24, bottom: 20, left: 0, right: 0 });
+	assert.equal(split.style.maxWidth, 292 - 8, "a 352px menu is narrowed to fit left of its anchor");
+	// Anchored at the left safe edge (graph context menu): flip to open rightward rather than crush to 0.
+	const edge = computeMenuPlacement({ top: 100, bottom: 100, left: 59, right: 59 }, { width: 852, height: 393 }, 200, "down", "right", { top: 0, bottom: 21, left: 59, right: 59 });
+	assert.equal(edge.style.right, undefined);
+	assert.equal(edge.style.left, 67, "opens from the safe edge + 8px");
+	assert.equal(edge.style.maxWidth, 852 - 59 - 8 - 67);
+	// Zero insets: identical to before.
+	assert.deepEqual(computeMenuPlacement(anchor, vp, 300, "up", "right", { top: 0, bottom: 0 }), computeMenuPlacement(anchor, vp, 300, "up", "right"));
+});

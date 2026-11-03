@@ -1,5 +1,7 @@
 "use client";
 
+import { safeAreaInsets } from "@/components/safe-area";
+export { safeAreaInsets };
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 
@@ -40,6 +42,7 @@ import { createPortal } from "react-dom";
 const GAP = 4; // anchor edge → menu (the bespoke shells' settled 4px)
 const EDGE = 8; // viewport floor the menu never enters
 const CAP_VH = 0.6; // 60vh — the graph pattern's cap
+const MIN_SAFE_WIDTH = 160; // narrower than this against a side inset: flip the horizontal anchor
 const MIN_USABLE = 96; // floor: a shorter cap is an unusable sliver; the
 // cap then overflows the edge instead of crushing the menu
 
@@ -76,9 +79,12 @@ export function computeMenuPlacement(
 	contentHeight: number,
 	preferredSide: MenuSide,
 	align: MenuAlign,
+	/** Safe-area insets (iPad Home Screen app, owner 2026-11-03): the status
+	 *  bar and home indicator are not usable room. 0 on desktop/Electron. */
+	safe: { top: number; bottom: number; left?: number; right?: number } = { top: 0, bottom: 0 },
 ): MenuPlacement {
-	const availDown = viewport.height - EDGE - (rect.bottom + GAP);
-	const availUp = rect.top - GAP - EDGE;
+	const availDown = viewport.height - safe.bottom - EDGE - (rect.bottom + GAP);
+	const availUp = rect.top - GAP - EDGE - safe.top;
 	// contentHeight ≤ 0 (nothing measured yet) keeps the preferred side —
 	// the hidden first pass re-measures and decides with real numbers.
 	let side = preferredSide;
@@ -90,9 +96,36 @@ export function computeMenuPlacement(
 		}
 	}
 	const avail = side === "down" ? availDown : availUp;
-	const maxHeight = Math.max(MIN_USABLE, Math.min(CAP_VH * viewport.height, avail));
+	let maxHeight = Math.max(MIN_USABLE, Math.min(CAP_VH * viewport.height, avail));
+	// With safe-area insets the usability floor must not push the menu into the
+	// status bar or home indicator (hunt finding). Zero insets: unchanged.
+	if (safe.top > 0 || safe.bottom > 0) {
+		const safeRoom = side === "down" ? viewport.height - safe.bottom - (rect.bottom + GAP) : rect.top - GAP - safe.top;
+		maxHeight = Math.max(0, Math.min(maxHeight, safeRoom));
+	}
 	const horizontal: Record<string, number> =
 		align === "right" ? { right: viewport.width - rect.right } : { left: rect.left };
+	// The menu may not grow past the (safe) edge on the side it extends toward:
+	// iPhone landscape notch, or a window narrower than the menu (iPad split
+	// view). The cap only binds when the menu would otherwise leave that edge.
+	const left = safe.left ?? 0;
+	const right = safe.right ?? 0;
+	{
+		const roomLeftward = rect.right - left - EDGE;
+		const roomRightward = viewport.width - right - EDGE - rect.left;
+		if (align === "right" && roomLeftward < MIN_SAFE_WIDTH && roomRightward > roomLeftward) {
+			// Anchored too close to the left safe edge: open rightward instead (hunt finding).
+			delete horizontal.right;
+			horizontal.left = Math.max(rect.left, left + EDGE);
+			horizontal.maxWidth = Math.max(0, viewport.width - right - EDGE - horizontal.left);
+		} else if (align === "left" && roomRightward < MIN_SAFE_WIDTH && roomLeftward > roomRightward) {
+			delete horizontal.left;
+			horizontal.right = Math.max(viewport.width - rect.right, right + EDGE);
+			horizontal.maxWidth = Math.max(0, viewport.width - horizontal.right - left - EDGE);
+		} else {
+			horizontal.maxWidth = Math.max(0, align === "right" ? roomLeftward : roomRightward);
+		}
+	}
 	const vertical: Record<string, number> =
 		side === "down" ? { top: rect.bottom + GAP } : { bottom: viewport.height - rect.top + GAP };
 	return { side, style: { ...horizontal, ...vertical }, maxHeight };
@@ -204,6 +237,7 @@ export function MenuShell({
 				menuRef.current.scrollHeight,
 				preferredSide,
 				align,
+				safeAreaInsets(),
 			);
 			setPlaced(p);
 		};

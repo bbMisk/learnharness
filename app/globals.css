@@ -598,3 +598,22 @@ body {
 	outline: 1px solid var(--border);
 	border-radius: 0.25rem;
 }
+
+/* Safe areas (owner, 2026-11-03): the iPad Home Screen web app runs under the
+   status bar (viewport-fit=cover in app/layout.tsx), where iPadOS blurs
+   whatever sits there. Keep the whole app inside the safe area; the strip
+   above shows the page background. Every inset is 0 in Electron and desktop
+   browsers, so their layout is unchanged. Full-height roots use
+   .lh-h-screen instead of h-dvh so the padding doesn't overflow. */
+:root {
+	--lh-safe-top: env(safe-area-inset-top, 0px);
+	--lh-safe-bottom: env(safe-area-inset-bottom, 0px);
+	--lh-safe-left: env(safe-area-inset-left, 0px);
+	--lh-safe-right: env(safe-area-inset-right, 0px);
+}
+body {
+	padding: var(--lh-safe-top) env(safe-area-inset-right, 0px) var(--lh-safe-bottom) env(safe-area-inset-left, 0px);
+}
+.lh-h-screen {
+	height: calc(100dvh - var(--lh-safe-top) - var(--lh-safe-bottom));
+}

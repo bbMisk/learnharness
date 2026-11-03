@@ -25,6 +25,7 @@ import { createPortal } from "react-dom";
 
 import { ThinkingBlock } from "@/components/thinking-block";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
+import { safeAreaInsets } from "@/components/safe-area";
 
 /* TARGET NAMES (owner round 17, 2026-10-06): targets are normalized to
  * opaque node ids at the record seam (owner round 9 — the mastery trace
@@ -170,6 +171,11 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
  * the original SMALL register (text-xs rows, mono values — owner
  * correction: the 15px pass was way too large); the trigger matches
  * the eyebrow size; the box opens BELOW the trigger, always. */
+/** Any scroll closes the metadata popover EXCEPT one inside it (it scrolls when capped). */
+export function scrollClosesPopover(target: EventTarget | null, box: Element | null): boolean {
+	return !(box && typeof Node !== "undefined" && target instanceof Node && box.contains(target));
+}
+
 function MetadataPopover({
 	concludeInput,
 	problemInput,
@@ -183,7 +189,8 @@ function MetadataPopover({
 	// The portal's anchor (owner fix, 2026-10-06): the box is placed from
 	// the trigger's viewport rect AT OPEN TIME — any scroll closes the
 	// box, so there is nothing to track.
-	const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
+	const [anchor, setAnchor] = useState<{ top?: number; bottom?: number; left: number; maxHeight?: number } | null>(null);
+	const boxRef = useRef<HTMLDivElement>(null);
 	const [names, setNames] = useState<Record<string, string> | null>(null);
 	const targets = Array.isArray(problemInput.target)
 		? problemInput.target.filter((t): t is string => typeof t === "string")
@@ -206,8 +213,18 @@ function MetadataPopover({
 	useEffect(() => {
 		if (!open) return;
 		const close = () => setOpen(false);
-		window.addEventListener("scroll", close, { capture: true, passive: true });
-		return () => window.removeEventListener("scroll", close, { capture: true });
+		// Scrolling INSIDE the popover (it scrolls when capped above the home
+		// indicator) must not close it (round-9 hunt).
+		const onScroll = (e: Event) => {
+			if (scrollClosesPopover(e.target, boxRef.current)) close();
+		};
+		window.addEventListener("scroll", onScroll, { capture: true, passive: true });
+		// A resize/rotation closes it too: its fixed coordinates would be stale (round-8 hunt).
+		window.addEventListener("resize", close);
+		return () => {
+			window.removeEventListener("scroll", onScroll, { capture: true });
+			window.removeEventListener("resize", close);
+		};
 	}, [open]);
 
 	const mode = typeof problemInput.mode === "string" ? problemInput.mode : "";
@@ -229,9 +246,18 @@ function MetadataPopover({
 						const r = triggerRef.current?.getBoundingClientRect();
 						if (r) {
 							// Below the trigger, always; clamped so the 320px box
-							// never leaves the viewport's right edge.
-							const left = Math.max(8, Math.min(r.left, window.innerWidth - 328));
-							setAnchor({ top: r.bottom + 8, left });
+							// never leaves the viewport's right edge, and (iPhone/iPad
+							// Home Screen app) the safe area. Zero insets: unchanged.
+							const safe = safeAreaInsets();
+							const left = Math.max(8 + safe.left, Math.min(r.left, window.innerWidth - 328 - safe.right));
+							const top = r.bottom + 8;
+							if (safe.bottom > 0 || safe.top > 0) {
+								// Safe rectangle only: open above when below has less room (hunt finding).
+								const below = window.innerHeight - safe.bottom - 8 - top;
+								const above = r.top - 8 - 8 - safe.top;
+								if (below < 96 && above > below) setAnchor({ bottom: window.innerHeight - r.top + 8, left, maxHeight: above });
+								else setAnchor({ top, left, maxHeight: Math.max(0, below) });
+							} else setAnchor({ top, left });
 						}
 						return true;
 					});
@@ -245,6 +271,7 @@ function MetadataPopover({
 				anchor &&
 				createPortal(
 					<div
+						ref={boxRef}
 						data-testid="metadata-box"
 						// PORTALED TO BODY (owner fix, 2026-10-06): the transcript's
 						// MessageContent boxes carry overflow-hidden — an absolutely
@@ -252,7 +279,7 @@ function MetadataPopover({
 						// cut-off bug). A fixed-position portal sits on top of
 						// EVERYTHING, the dialogs' law. Node-card info-box register;
 						// opening BELOW the trigger — always.
-						style={{ position: "fixed", top: anchor.top, left: anchor.left }}
+						style={{ position: "fixed", ...(anchor.bottom !== undefined ? { bottom: anchor.bottom } : { top: anchor.top }), left: anchor.left, ...(anchor.maxHeight !== undefined ? { maxHeight: anchor.maxHeight, overflowY: "auto" as const } : {}) }}
 						className="z-50 w-80 max-w-[calc(100vw-1rem)] rounded-xl border bg-card p-4 text-left shadow-lg"
 					>
 				<dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">

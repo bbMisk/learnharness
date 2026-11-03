@@ -58,7 +58,8 @@ export type { ProbeDoneContext } from "./tools/probe.ts";
  *   only.
  * - lessonTrackingTools (src/agent/tools/lesson-tracking.ts): SERVER-SIDE —
  *   note_mistake / resolve_mistake for every teacher, problem_list /
- *   problem_done for a cram teacher only. Never the prober or practice.
+ *   problem_start / problem_done for a cram teacher only. Never the prober
+ *   or practice.
  */
 
 /** GLM wobble guard (owner-approved, 2026-09-26): models sometimes emit

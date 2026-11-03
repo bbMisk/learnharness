@@ -3,11 +3,12 @@
  * the teacher's mistake log, shown to the learner in the chat's tracking
  * card (components/lesson-tracker.tsx).
  *
- * Four server-side tools write it (src/agent/tools/lesson-tracking.ts):
- *   problem_list({ problems })  — cram teacher only; replaces the list
- *   problem_done({ id })        — cram teacher only
- *   note_mistake({ text })      — every teacher (teach + cram); mints m1, m2…
- *   resolve_mistake({ id })     — every teacher
+ * Five server-side tools write it (src/agent/tools/lesson-tracking.ts):
+ *   problem_list({ problems })      — cram teacher only; replaces the list
+ *   problem_start({ id })           — cram teacher only
+ *   problem_done({ id, outcome })   — cram teacher only; correct | incorrect | skipped
+ *   note_mistake({ text })          — every teacher (teach + cram); mints m1, m2…
+ *   resolve_mistake({ id })         — every teacher
  *
  * NO separate storage: the state is DERIVED from the record's successful
  * tool results, whose `details` carry exactly what the fold needs (the
@@ -18,10 +19,15 @@
  * this SAME fold, so the ids the tools validate against are the ids the
  * card shows.
  *
- * Problem statuses follow the plan map's rule (contracts/plan.ts): the
- * list carries structure, completion derives from every problem_done in
- * the record, and only ids in the LATEST list display — a re-list keeps
- * the ticks of the problems it keeps.
+ * Problem statuses (owner, 2026-11-03) follow the plan map's rule
+ * (contracts/plan.ts): the list carries structure, statuses derive from the
+ * record's start/done events by id, and only ids in the LATEST list display
+ * — a re-list keeps the outcomes of the problems it keeps.
+ *   outcome — from the problem's LATEST problem_done (a correct redo turns a
+ *             ✗ green); a legacy problem_done with no outcome is "correct".
+ *   current — the most recently started problem with no problem_done after
+ *             that start (a finished problem started again is current
+ *             again until its next problem_done); null when none.
  *
  * Pure and browser-safe (type-only imports).
  */
@@ -29,13 +35,15 @@
 import type { LhMessage } from "./native-messages.ts";
 
 export const PROBLEM_LIST_TOOL = "problem_list";
+export const PROBLEM_START_TOOL = "problem_start";
 export const PROBLEM_DONE_TOOL = "problem_done";
 export const NOTE_MISTAKE_TOOL = "note_mistake";
 export const RESOLVE_MISTAKE_TOOL = "resolve_mistake";
 
-/** The four tracking tools: hidden from the transcript (view.ts). */
+/** The tracking tools: hidden from the transcript (view.ts) and the export. */
 export const LESSON_TRACKING_TOOLS: readonly string[] = [
 	PROBLEM_LIST_TOOL,
+	PROBLEM_START_TOOL,
 	PROBLEM_DONE_TOOL,
 	NOTE_MISTAKE_TOOL,
 	RESOLVE_MISTAKE_TOOL,
@@ -45,10 +53,17 @@ export function isLessonTrackingTool(name: string): boolean {
 	return LESSON_TRACKING_TOOLS.includes(name);
 }
 
+/** How the teacher left a problem (problem_done's outcome). */
+export type ProblemOutcome = "correct" | "incorrect" | "skipped";
+export const PROBLEM_OUTCOMES: readonly ProblemOutcome[] = ["correct", "incorrect", "skipped"];
+
 export interface TrackedProblem {
 	id: string;
 	label: string;
-	done: boolean;
+	/** From the latest problem_done; null before any. */
+	outcome: ProblemOutcome | null;
+	/** The one problem in progress (see the module note). */
+	current: boolean;
 }
 
 export interface TrackedMistake {
@@ -65,7 +80,8 @@ export interface LessonTracking {
 
 /** A successful tracking result's record-facing `details`, per tool. */
 export type ProblemListDetails = { ok: true; problems: Array<{ id: string; label: string }> };
-export type ProblemDoneDetails = { ok: true; id: string };
+export type ProblemStartDetails = { ok: true; id: string };
+export type ProblemDoneDetails = { ok: true; id: string; outcome: ProblemOutcome };
 export type NoteMistakeDetails = { ok: true; id: string; text: string };
 export type ResolveMistakeDetails = { ok: true; id: string };
 
@@ -80,7 +96,11 @@ function isString(v: unknown): v is string {
  */
 export class LessonTracker {
 	private list: Array<{ id: string; label: string }> | null = null;
-	private readonly done = new Set<string>();
+	/** Event order: every start/done takes the next sequence number. */
+	private seq = 0;
+	private readonly lastStart = new Map<string, number>();
+	private readonly lastDone = new Map<string, number>();
+	private readonly outcomes = new Map<string, ProblemOutcome>();
 	private readonly mistakes: TrackedMistake[] = [];
 
 	/** Fold one successful tracking result (unknown tools/shapes: ignored). */
@@ -95,8 +115,14 @@ export class LessonTracker {
 					.map((p) => ({ id: p.id as string, label: p.label as string }));
 				return;
 			}
+			case PROBLEM_START_TOOL:
+				if (isString(d.id)) this.lastStart.set(d.id, ++this.seq);
+				return;
 			case PROBLEM_DONE_TOOL:
-				if (isString(d.id)) this.done.add(d.id);
+				if (!isString(d.id)) return;
+				this.lastDone.set(d.id, ++this.seq);
+				// Legacy records (before outcomes, 2026-11-03) meant "correct".
+				this.outcomes.set(d.id, PROBLEM_OUTCOMES.includes(d.outcome as ProblemOutcome) ? (d.outcome as ProblemOutcome) : "correct");
 				return;
 			case NOTE_MISTAKE_TOOL:
 				if (isString(d.id) && isString(d.text) && !this.mistake(d.id)) {
@@ -125,9 +151,26 @@ export class LessonTracker {
 		return `m${this.mistakes.length + 1}`;
 	}
 
+	/** The current problem among the latest list's ids, or null. */
+	private currentId(): string | null {
+		let current: string | null = null;
+		let at = 0;
+		for (const p of this.list ?? []) {
+			const start = this.lastStart.get(p.id) ?? 0;
+			if (start > (this.lastDone.get(p.id) ?? 0) && start > at) {
+				current = p.id;
+				at = start;
+			}
+		}
+		return current;
+	}
+
 	snapshot(): LessonTracking {
+		const current = this.currentId();
 		return {
-			problems: this.list ? this.list.map((p) => ({ ...p, done: this.done.has(p.id) })) : null,
+			problems: this.list
+				? this.list.map((p) => ({ ...p, outcome: this.outcomes.get(p.id) ?? null, current: p.id === current }))
+				: null,
 			mistakes: this.mistakes.map((m) => ({ ...m })),
 		};
 	}
@@ -189,7 +232,9 @@ export function deriveLessonTracking(
  * The one pure-data line the compaction marker carries (owner, 2026-11-02):
  * the tracker ids can fall into the condensed-away history, so the summary
  * the tutor sees after a cut ends with the state, e.g.
- *   Lesson tracking: problems q1 "Q1: binomial MLE" ✓, q2 "Q2: Fisher information" open; open mistakes m1 "dropped the sign of the score"
+ *   Lesson tracking: problems q1 "Q1: binomial MLE" ✓, q2 "Q2: CRLB" ✗, q3 "Q3: sufficiency" skipped, q4 "Q4: MoM" current, q5 "Q5: UMVUE" open; open mistakes m1 "dropped the sign of the score"
+ * A problem reads current while in progress (its old outcome, if restarted,
+ * returns with its next problem_done), else its outcome, else open.
  * Each problem carries its label so the tutor can tell which id is which once
  * the problem_list call is condensed away (owner, 2026-11-02, round-2 hunt).
  * The problems part needs a list, the mistakes part an open mistake; null
@@ -198,12 +243,26 @@ export function deriveLessonTracking(
 export function lessonTrackingLine(tracking: LessonTracking): string | null {
 	const parts: string[] = [];
 	if (tracking.problems) {
-		parts.push(`problems ${tracking.problems.map((p) => `${p.id} ${JSON.stringify(p.label)} ${p.done ? "✓" : "open"}`).join(", ")}`);
+		parts.push(`problems ${tracking.problems.map((p) => `${p.id} ${JSON.stringify(p.label)} ${problemStatusWord(p)}`).join(", ")}`);
 	}
 	const open = tracking.mistakes.filter((m) => !m.resolved);
 	// Quoted as JSON so a quote inside a mistake can't read as a second entry (round-3 hunt).
 	if (open.length > 0) parts.push(`open mistakes ${open.map((m) => `${m.id} ${JSON.stringify(m.text)}`).join(", ")}`);
 	return parts.length > 0 ? `Lesson tracking: ${parts.join("; ")}` : null;
+}
+
+const OUTCOME_WORD: Record<ProblemOutcome, string> = { correct: "✓", incorrect: "✗", skipped: "skipped" };
+
+function problemStatusWord(p: TrackedProblem): string {
+	if (p.current) return "current";
+	return p.outcome ? OUTCOME_WORD[p.outcome] : "open";
+}
+
+/** Correct problems / all problems: the card's header count. Counts every
+ *  problem whose LATEST outcome is correct, including one started again for
+ *  a redo (hunt finding: a restart must not uncount a correct answer). */
+export function correctProblemCount(problems: readonly TrackedProblem[]): number {
+	return problems.filter((p) => p.outcome === "correct").length;
 }
 
 /** Anything for the card to show: a problem list or any mistake. */

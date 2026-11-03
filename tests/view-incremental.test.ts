@@ -63,8 +63,9 @@ function history(groups: number): LhMessage[] {
 			out.push(assistant(`lt${g}`, [text(`set ${g}`), call(`pl${g}`, "problem_list", { problems: [{ id: "q1", label: "Q1" }] }), call(`nm${g}`, "note_mistake", { text: `m ${g}` })]));
 			out.push(result(`plr${g}`, `pl${g}`, "problem_list", { ok: true, problems: [{ id: "q1", label: "Q1" }] }));
 			out.push(result(`nmr${g}`, `nm${g}`, "note_mistake", { ok: true, id: "m1", text: `m ${g}` }));
-			out.push(assistant(`lu${g}`, [call(`pd${g}`, "problem_done", { id: "q1" }), call(`rm${g}`, "resolve_mistake", { id: "m9" })]));
-			out.push(result(`pdr${g}`, `pd${g}`, "problem_done", { ok: true, id: "q1" }));
+			out.push(assistant(`lu${g}`, [call(`ps${g}`, "problem_start", { id: "q1" }), call(`pd${g}`, "problem_done", { id: "q1", outcome: "correct" }), call(`rm${g}`, "resolve_mistake", { id: "m9" })]));
+			out.push(result(`psr${g}`, `ps${g}`, "problem_start", { ok: true, id: "q1" }));
+			out.push(result(`pdr${g}`, `pd${g}`, "problem_done", { ok: true, id: "q1", outcome: "correct" }));
 			out.push(result(`rmr${g}`, `rm${g}`, "resolve_mistake", { ok: false, error: "No mistake" }, true));
 		}
 		if (g % 10 === 7) {
