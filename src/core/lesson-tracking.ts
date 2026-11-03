@@ -258,9 +258,11 @@ function problemStatusWord(p: TrackedProblem): string {
 	return p.outcome ? OUTCOME_WORD[p.outcome] : "open";
 }
 
-/** Correct problems / all problems: the card's header count. */
+/** Correct problems / all problems: the card's header count. Counts every
+ *  problem whose LATEST outcome is correct, including one started again for
+ *  a redo (hunt finding: a restart must not uncount a correct answer). */
 export function correctProblemCount(problems: readonly TrackedProblem[]): number {
-	return problems.filter((p) => p.outcome === "correct" && !p.current).length;
+	return problems.filter((p) => p.outcome === "correct").length;
 }
 
 /** Anything for the card to show: a problem list or any mistake. */

@@ -76,9 +76,12 @@ export function computeMenuPlacement(
 	contentHeight: number,
 	preferredSide: MenuSide,
 	align: MenuAlign,
+	/** Safe-area insets (iPad Home Screen app, owner 2026-11-03): the status
+	 *  bar and home indicator are not usable room. 0 on desktop/Electron. */
+	safe: { top: number; bottom: number } = { top: 0, bottom: 0 },
 ): MenuPlacement {
-	const availDown = viewport.height - EDGE - (rect.bottom + GAP);
-	const availUp = rect.top - GAP - EDGE;
+	const availDown = viewport.height - safe.bottom - EDGE - (rect.bottom + GAP);
+	const availUp = rect.top - GAP - EDGE - safe.top;
 	// contentHeight ≤ 0 (nothing measured yet) keeps the preferred side —
 	// the hidden first pass re-measures and decides with real numbers.
 	let side = preferredSide;
@@ -96,6 +99,13 @@ export function computeMenuPlacement(
 	const vertical: Record<string, number> =
 		side === "down" ? { top: rect.bottom + GAP } : { bottom: viewport.height - rect.top + GAP };
 	return { side, style: { ...horizontal, ...vertical }, maxHeight };
+}
+
+/** The live top/bottom safe-area insets (globals.css --lh-safe-top/bottom). */
+function safeAreaInsets(): { top: number; bottom: number } {
+	const css = getComputedStyle(document.documentElement);
+	const px = (name: string) => Number.parseFloat(css.getPropertyValue(name)) || 0;
+	return { top: px("--lh-safe-top"), bottom: px("--lh-safe-bottom") };
 }
 
 /** The shared shell. Exactly one anchor seam: pass `anchorRef` (a live
@@ -204,6 +214,7 @@ export function MenuShell({
 				menuRef.current.scrollHeight,
 				preferredSide,
 				align,
+				safeAreaInsets(),
 			);
 			setPlaced(p);
 		};

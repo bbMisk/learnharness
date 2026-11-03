@@ -137,14 +137,14 @@ it("shows only the sections that exist", async () => {
 	assert.equal(host.querySelector('[data-testid="lesson-tracker-mistakes"]'), null);
 	assert.equal(count(host, "problems"), "0/5");
 	assert.deepEqual(rows(host, "problems").map((r) => r[0]), ["todo", "todo", "todo", "todo", "todo"], "nothing started: nothing current");
-	// Legacy records (no outcome) read as correct; a restarted problem is current, not counted.
+	// Legacy records (no outcome) read as correct; a restarted correct problem is current and still counted (hunt finding).
 	const legacy = deriveLessonTracking([record[0]!, ...["q1", "q2", "q3", "q4", "q5"].map((id, i) => result(20 + i, "problem_done", { ok: true, id }))]);
 	await act(async () => root!.render(<LessonTrackerCard tracking={legacy} bottomReserve={0} />));
 	assert.equal(count(host, "problems"), "5/5");
 	assert.deepEqual(rows(host, "problems").map((r) => r[0]), ["correct", "correct", "correct", "correct", "correct"]);
 	const redo = deriveLessonTracking([record[0]!, result(30, "problem_done", { ok: true, id: "q2", outcome: "correct" }), result(31, "problem_start", { ok: true, id: "q2" })]);
 	await act(async () => root!.render(<LessonTrackerCard tracking={redo} bottomReserve={0} />));
-	assert.equal(count(host, "problems"), "0/5");
+	assert.equal(count(host, "problems"), "1/5");
 	assert.equal(rows(host, "problems")[1]![0], "current");
 });
 

@@ -80,3 +80,25 @@ describe("computeMenuPlacement — cap + position", () => {
 		assert.ok(!("right" in p.style));
 	});
 });
+it("safe-area insets are not usable room (iPad Home Screen app)", () => {
+	const anchor = { top: 300, bottom: 340, left: 100, right: 200 };
+	const vp = { width: 1180, height: 768 };
+	// An upward menu near the top never reaches into the 24px status bar.
+	const up = computeMenuPlacement(anchor, vp, 600, "up", "right", { top: 24, bottom: 20 });
+	assert.ok(up.side === "down" || up.maxHeight <= anchor.top - 24, `up menu stays below the status bar (max ${up.maxHeight})`);
+	// Downward room shrinks by exactly the 20px home-indicator inset.
+	const low = { top: 100, bottom: 140, left: 100, right: 200 };
+	const plain = computeMenuPlacement(low, vp, 2000, "down", "right");
+	const safe = computeMenuPlacement(low, vp, 2000, "down", "right", { top: 24, bottom: 20 });
+	assert.equal(safe.side, "down");
+	assert.ok(plain.maxHeight - safe.maxHeight <= 20 && safe.maxHeight <= plain.maxHeight);
+	// A menu that stays above its anchor is capped by the status bar: 200 - 4 - 8 = 188 → 164 with a 24px inset.
+	const short = { width: 1180, height: 400 };
+	const midAnchor = { top: 200, bottom: 240, left: 100, right: 200 };
+	assert.equal(computeMenuPlacement(midAnchor, short, 300, "up", "right").maxHeight, 188);
+	const capped = computeMenuPlacement(midAnchor, short, 300, "up", "right", { top: 24, bottom: 20 });
+	assert.equal(capped.side, "up");
+	assert.equal(capped.maxHeight, 164, "the menu's top edge stays 8px below the status bar");
+	// Zero insets: identical to before.
+	assert.deepEqual(computeMenuPlacement(anchor, vp, 300, "up", "right", { top: 0, bottom: 0 }), computeMenuPlacement(anchor, vp, 300, "up", "right"));
+});
