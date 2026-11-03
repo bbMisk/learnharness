@@ -3,6 +3,7 @@ import {
 	effectiveSettings,
 	getChat,
 	mergeChatSettings,
+	namesModelPair,
 	parseSettingsBody,
 	stores,
 	validateChatSettings,
@@ -56,16 +57,21 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 	const chat = getChat(id);
 	if (!chat) return Response.json({ error: "Not found" }, { status: 404 });
 	const merged = mergeChatSettings(chat.settings, body, parsed.settings);
-	if (!sameModel(merged.model, chat.settings?.model)) {
-		const verdict = validateChatSettings(merged);
-		if (!verdict.ok) {
-			return Response.json({ error: verdict.error, supported: verdict.supported }, { status: 400 });
+	// The model pair is checked and clamped only when this write names it:
+	// a question-type write leaves a stored pin exactly as it was.
+	let settings = merged;
+	if (namesModelPair(body)) {
+		if (!sameModel(merged.model, chat.settings?.model)) {
+			const verdict = validateChatSettings(merged);
+			if (!verdict.ok) {
+				return Response.json({ error: verdict.error, supported: verdict.supported }, { status: 400 });
+			}
 		}
+		// Clamp-on-write (owner, interlude 2026-09-22): a pinned thinking
+		// level never rejects — it clamps to the named model's nearest
+		// supported (the merged model, else the record's strong slot).
+		settings = clampChatLevel(merged, effectiveSettings().models.strong);
 	}
-	// Clamp-on-write (owner, interlude 2026-09-22): a pinned thinking
-	// level never rejects — it clamps to the named model's nearest
-	// supported (the merged model, else the record's strong slot).
-	const settings = clampChatLevel(merged, effectiveSettings().models.strong);
 	stores.chatStore.saveSettings(id, settings);
 	// Open views of this chat (other tabs, other devices) refetch the record.
 	emit("record-changed", { chatId: id });

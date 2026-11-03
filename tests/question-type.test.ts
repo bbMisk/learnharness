@@ -38,6 +38,7 @@ const { CRAM_INSTRUCTIONS, cramInstructions, withTeachingStyle } = await import(
 const { MIXED_QUESTION_RULE, QUESTION_TYPE_LABEL, appQuestionType, effectiveQuestionType, sanitizeQuestionType } = await import("../src/core/question-type.ts");
 const settingsRoute = await import("../app/api/chats/[id]/settings/route.ts");
 const { subscribe } = await import("../src/core/events.ts");
+const sectionRoute = await import("../app/api/settings/[section]/route.ts");
 after(() => fs.rmSync(scratch, { recursive: true, force: true }));
 
 const MIXED =
@@ -137,6 +138,33 @@ describe("the settings route", () => {
 		// A full object still replaces every group it names.
 		assert.equal((await put(chat.id, { model: MODEL, thinkingLevel: "low", questionType: "saq" })).status, 200);
 		assert.deepEqual(chatStore.getChat(chat.id)!.settings, { model: MODEL, thinkingLevel: "low", questionType: "saq" });
+	});
+
+	it("a question-type write leaves a stored thinking pin exactly as it was; a model write still clamps it", async () => {
+		const chat = chatStore.createChat("Pin");
+		// The catalog clamps xhigh to max for this model — but only a write
+		// that names the model pair may apply that.
+		chatStore.saveSettings(chat.id, { model: MODEL, thinkingLevel: "xhigh" });
+		assert.equal((await put(chat.id, { questionType: "saq" })).status, 200);
+		assert.deepEqual(chatStore.getChat(chat.id)!.settings, { model: MODEL, thinkingLevel: "xhigh", questionType: "saq" });
+		assert.equal((await put(chat.id, { model: MODEL, thinkingLevel: "xhigh" })).status, 200);
+		assert.deepEqual(chatStore.getChat(chat.id)!.settings, { model: MODEL, thinkingLevel: "max", questionType: "saq" });
+	});
+
+	it("a saved Settings section tells every open window to refetch it", async () => {
+		const seen: unknown[] = [];
+		const off = subscribe((event) => seen.push(event));
+		try {
+			const response = await sectionRoute.PUT(
+				new Request("http://test/api/settings/agent", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ tools: { explain: true } }) }),
+				{ params: Promise.resolve({ section: "agent" }) },
+			);
+			assert.equal(response.status, 200);
+		} finally {
+			off();
+			writeSettings({ version: 1, graph: { enabled: false } });
+		}
+		assert.deepEqual(seen.filter((e) => (e as { type: string }).type === "settings-changed"), [{ type: "settings-changed", section: "agent" }]);
 	});
 
 	it("a saved write tells open views of the chat to refetch", async () => {

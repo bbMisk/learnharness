@@ -5,6 +5,7 @@ import { CircleHelpIcon } from "lucide-react";
 import { MenuShell } from "@/components/menu-shell";
 import { Hint } from "@/components/ui/hint";
 import { useSettingsSaved } from "@/components/settings-signal";
+import { useServerEvent, useServerResync } from "@/components/server-events";
 import {
 	QUESTION_TYPES,
 	QUESTION_TYPE_LABEL,
@@ -16,6 +17,46 @@ import {
 	type QuestionType,
 	type UserSettings,
 } from "@/src/core";
+
+/** One applier per read or save of the lesson's stored question type:
+ *  call it with the confirmed value. */
+export type QuestionTypeApply = (questionType: QuestionType | undefined) => void;
+
+/** The lesson's stored question type as the header knows it (owner,
+ *  2026-11-03), owned by the always-mounted chat view. Every read and save
+ *  takes a ticket when it STARTS; a result lands only if no later-started
+ *  one has landed first — the newest confirmed value wins, so a slow save
+ *  response never restores a label a newer refresh replaced. Refreshed on
+ *  the chat's record-changed event (every settings write emits it — another
+ *  tab or device) and on every events reconnect (events missed while
+ *  disconnected). */
+export function useLessonQuestionType(chatId: string, initial: QuestionType | undefined) {
+	const [questionType, setQuestionType] = useState(initial);
+	const issued = useRef(0);
+	const applied = useRef(0);
+	const begin = useCallback((): QuestionTypeApply => {
+		const ticket = ++issued.current;
+		return (value) => {
+			if (ticket < applied.current) return;
+			applied.current = ticket;
+			setQuestionType(value);
+		};
+	}, []);
+	const refresh = useCallback(() => {
+		const apply = begin();
+		fetch(`/api/chats/${chatId}/settings`, { cache: "no-store" })
+			.then((r) => (r.ok ? (r.json() as Promise<{ settings?: ChatSettings }>) : Promise.reject()))
+			.then((body) => apply(sanitizeQuestionType(body.settings?.questionType)))
+			.catch(() => {
+				/* keep the last confirmed value; the next event or reconnect retries */
+			});
+	}, [chatId, begin]);
+	useServerEvent("record-changed", (p) => {
+		if (p.chatId === chatId) refresh();
+	});
+	useServerResync(refresh);
+	return { questionType, begin };
+}
 
 /** Whether the header shows the chip: the question type sets the TEACHER's
  *  tools, so never in a practice session and not while the prober runs. */
@@ -30,14 +71,15 @@ export function showsQuestionTypeChip(kind: "teach" | "practice", phase: Phase3)
  *  write, so it can never restore an older model); the tutor follows from
  *  its next request. Unset resolves like the server (core/question-type.ts):
  *  cram Mixed, else the app-wide Settings → Agent mechanic, read on mount
- *  (a change made while the chip was hidden) and whenever the Agent section
- *  saves. */
+ *  (a change made while the chip was hidden), whenever the Agent section
+ *  saves (this window's signal, or any window's settings-changed event) and
+ *  on every events reconnect. */
 export function QuestionTypeChip({
 	chatId,
 	stored,
 	cram,
 	initialAgentTools,
-	onSaved,
+	beginSave,
 }: {
 	chatId: string;
 	/** The chat's own stored choice (absent = unset). */
@@ -46,7 +88,9 @@ export function QuestionTypeChip({
 	cram: boolean;
 	/** Settings → Agent's tool map as the page was served. */
 	initialAgentTools?: EnabledTools;
-	onSaved: (questionType: QuestionType) => void;
+	/** Starts a save in the lesson's ticket order (useLessonQuestionType's
+	 *  begin): its applier lands the confirmed value unless a newer read won. */
+	beginSave: () => QuestionTypeApply;
 }) {
 	const [agentTools, setAgentTools] = useState(initialAgentTools);
 	const [open, setOpen] = useState(false);
@@ -79,6 +123,10 @@ export function QuestionTypeChip({
 	useSettingsSaved((section) => {
 		if (section === "agent") readAgentTools();
 	});
+	useServerEvent("settings-changed", (p) => {
+		if (p.section === "agent") readAgentTools();
+	});
+	useServerResync(readAgentTools);
 
 	// The dropdown contract (model-picker's): a click outside the menu or Esc
 	// closes it; the menu body lives in a portal, carved out via [data-lh-menu].
@@ -108,6 +156,7 @@ export function QuestionTypeChip({
 		// have changed the stored value, and the field-level write is idempotent.
 		setSaving(true);
 		setError("");
+		const apply = beginSave();
 		try {
 			const response = await fetch(`/api/chats/${chatId}/settings`, {
 				method: "PUT",
@@ -116,7 +165,7 @@ export function QuestionTypeChip({
 			});
 			if (!response.ok) throw new Error();
 			const saved = ((await response.json().catch(() => null)) as { settings?: ChatSettings } | null)?.settings;
-			onSaved(sanitizeQuestionType(saved?.questionType) ?? next);
+			apply(sanitizeQuestionType(saved?.questionType) ?? next);
 			setOpen(false);
 		} catch {
 			setError("Couldn't switch. Try again.");

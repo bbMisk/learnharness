@@ -54,7 +54,7 @@ import { TopBar } from "@/components/top-bar";
 import type { JobRecord, Phase3, QuestionAnswerData, QuestionCall, QuestionFormDraft, TurnUsage, SessionPricing } from "@/src/core";
 import { PhaseChip } from "@/components/phase-divider";
 import { CramToggle } from "@/components/cram-toggle";
-import { QuestionTypeChip, showsQuestionTypeChip } from "@/components/question-type-chip";
+import { QuestionTypeChip, showsQuestionTypeChip, useLessonQuestionType } from "@/components/question-type-chip";
 import { LessonTrackerCard, LessonTrackerChip, lessonTrackerRoom, useLessonTrackerShown } from "@/components/lesson-tracker";
 import { CoverageRing } from "@/components/extraction-coverage";
 import { Button } from "@/components/ui/button";
@@ -71,7 +71,6 @@ import {
 	isTeachingCheck,
 	revealsQuestions,
 	hasLessonTracking,
-	sanitizeQuestionType,
 } from "@/src/core";
 import { useGeneralSettings } from "@/components/general-settings";
 import { rememberRevealed, wasRevealed } from "@/components/revealed-questions";
@@ -490,8 +489,9 @@ export function Chat({
 	const teachingCheck = pending !== null && isTeachingCheck(pending.tool, pending.input, phaseAt3(messages));
 	const [cram, setCram] = useState(style === "cram");
 	// The lesson's stored question type (owner, 2026-11-03): the Qs chip
-	// writes it; every record sync re-reads it (another device's pick).
-	const [questionType, setQuestionType] = useState(initialQuestionType);
+	// writes it; record-changed and reconnects re-read it (another device's
+	// pick), newest confirmed value first.
+	const lessonQuestionType = useLessonQuestionType(chatId, initialQuestionType);
 	// Hooks run on every render: never behind && (a skipped hook crashed the page after an answer).
 	const revealSetting = useGeneralSettings()?.revealQuestions;
 	const requiresReveal = teachingCheck && revealsQuestions(revealSetting, cram);
@@ -788,9 +788,8 @@ export function Chat({
 		try {
 			const res = await fetch(`/api/chats/${chatId}`);
 			if (!res.ok) return false;
-			const record = (await res.json()) as { messages?: LhMessage[]; turns?: TurnUsage[]; pricing?: SessionPricing; turnError?: string; settings?: ChatSettings };
+			const record = (await res.json()) as { messages?: LhMessage[]; turns?: TurnUsage[]; pricing?: SessionPricing; turnError?: string };
 			if (Array.isArray(record.turns)) setTurns(record.turns);
-			setQuestionType(sanitizeQuestionType(record.settings?.questionType));
 			setPricing(record.pricing);
 			if (!Array.isArray(record.messages)) return false;
 			setMessages(record.messages, record.turnError);
@@ -1337,7 +1336,7 @@ export function Chat({
 					{/* The lesson's question type (owner, 2026-11-03): the teacher's
 					    tools, so never for practice and not while the prober runs. */}
 					{showsQuestionTypeChip(kind, phases.at(-1) ?? "probe") && (
-						<QuestionTypeChip chatId={chatId} stored={questionType} cram={cram} initialAgentTools={agentTools} onSaved={setQuestionType} />
+						<QuestionTypeChip chatId={chatId} stored={lessonQuestionType.questionType} cram={cram} initialAgentTools={agentTools} beginSave={lessonQuestionType.begin} />
 					)}
 					{kind !== "practice" && <CoverageRing chatId={chatId} refreshKey={coverageTick} />}
 					{/* Practice sessions: no phase arc — a quiet Practice tag

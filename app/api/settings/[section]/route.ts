@@ -31,6 +31,7 @@
  */
 
 import type { AgentSettings, ChatSettings, ModelsSettings } from "@/src/core";
+import { emit } from "@/src/core";
 import {
 	SETTINGS_SECTIONS,
 	scheduleFlashcardCuration,
@@ -131,6 +132,8 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 	// along untouched (other sections, unknown keys — sanitize preserves).
 	const next = { ...record, [section]: sectionOut };
 	writeSettingsRecord(next);
+	// Other open windows that read this section refetch it.
+	emit("settings-changed", { section });
 	if (section === "agent" || section === "general" || section === "models") {
 		if (next.agent?.flashcards?.enabled === false) abortFlashcardAgent();
 		else scheduleFlashcardCuration();

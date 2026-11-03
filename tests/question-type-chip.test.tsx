@@ -34,7 +34,8 @@ Object.assign(globalThis, {
 });
 const { createRoot } = await import("react-dom/client");
 type Root = ReturnType<typeof createRoot>;
-const { QuestionTypeChip, showsQuestionTypeChip } = await import("../components/question-type-chip.tsx");
+const { QuestionTypeChip, showsQuestionTypeChip, useLessonQuestionType } = await import("../components/question-type-chip.tsx");
+const { ServerEventsProvider } = await import("../components/server-events.tsx");
 const { notifySettingsSaved } = await import("../components/settings-signal.ts");
 type QuestionType = "mcq" | "saq" | "mixed";
 
@@ -54,11 +55,29 @@ const click = async (element: HTMLElement) => {
 	await act(async () => element.click());
 };
 
-/** The chat's wiring: the stored value lives in the chat, the chip saves it. */
-function Harness({ initial, cram = false, agentTools }: { initial?: QuestionType; cram?: boolean; agentTools?: Record<string, boolean> }) {
-	const [stored, setStored] = React.useState(initial);
-	return <QuestionTypeChip chatId="chat_1" stored={stored} cram={cram} initialAgentTools={agentTools} onSaved={setStored} />;
+/** The window's events channel, faked: server frames and reconnects on demand. */
+function fakeEvents() {
+	let open = () => {};
+	const handlers = new Map<string, (data: string) => void>();
+	return {
+		source: { close() {}, onOpen: (cb: () => void) => { open = cb; }, onEvent: (name: string, cb: (data: string) => void) => { handlers.set(name, cb); } },
+		server: (name: string, payload: unknown) => act(async () => handlers.get(name)?.(JSON.stringify(payload))),
+		reconnect: () => act(async () => open()),
+	};
 }
+let events = fakeEvents();
+const connect = () => events.source;
+
+/** The chat's wiring (components/chat.tsx): the stored value lives in the
+ *  always-mounted view's useLessonQuestionType, the chip saves through it. */
+function Lesson({ initial, cram = false, agentTools }: { initial?: QuestionType; cram?: boolean; agentTools?: Record<string, boolean> }) {
+	const lesson = useLessonQuestionType("chat_1", initial);
+	return <QuestionTypeChip chatId="chat_1" stored={lesson.questionType} cram={cram} initialAgentTools={agentTools} beginSave={lesson.begin} />;
+}
+function Harness(props: { initial?: QuestionType; cram?: boolean; agentTools?: Record<string, boolean> }) {
+	return <ServerEventsProvider connect={connect}><Lesson {...props} /></ServerEventsProvider>;
+}
+const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 
 async function mount(element: React.ReactNode) {
 	const host = document.createElement("div");
@@ -203,6 +222,67 @@ it("the header shows it for lessons past the probe, never for practice", () => {
 	for (const phase of ["probe", "plan", "teach"] as const) assert.equal(showsQuestionTypeChip("practice", phase), false);
 	// The chat wires it beside the Cram chip, gated on the session's current phase.
 	const chat = fs.readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
-	assert.match(chat, /\{showsQuestionTypeChip\(kind, phases\.at\(-1\) \?\? "probe"\) && \(\s*<QuestionTypeChip chatId=\{chatId\} stored=\{questionType\} cram=\{cram\}/);
-	assert.match(chat, /setQuestionType\(sanitizeQuestionType\(record\.settings\?\.questionType\)\)/, "a record sync re-reads it (another device's pick)");
+	assert.match(chat, /\{showsQuestionTypeChip\(kind, phases\.at\(-1\) \?\? "probe"\) && \(\s*<QuestionTypeChip chatId=\{chatId\} stored=\{lessonQuestionType\.questionType\} cram=\{cram\} initialAgentTools=\{agentTools\} beginSave=\{lessonQuestionType\.begin\} \/>/);
+	assert.match(chat, /const lessonQuestionType = useLessonQuestionType\(chatId, initialQuestionType\);/, "owned by the always-mounted view");
+});
+
+it("a slow save response never restores a label a newer refresh replaced", async () => {
+	events = fakeEvents();
+	let stored: Record<string, unknown> = { model: MODEL };
+	let releasePut!: () => void;
+	globalThis.fetch = (async (url: string, init?: RequestInit) => {
+		if (url === "/api/settings") return Response.json({ settings: { version: 1, agent: {} } });
+		assert.equal(url, "/api/chats/chat_1/settings");
+		if (init?.method !== "PUT") return Response.json({ settings: stored });
+		stored = { ...stored, ...JSON.parse(String(init.body)) };
+		const confirmed = stored;
+		return new Promise<Response>((resolve) => { releasePut = () => resolve(Response.json({ settings: confirmed })); });
+	}) as typeof fetch;
+	await mount(<Harness initial="mcq" />);
+	await click(chip());
+	await click(option("saq"));
+	// Another device saves Mixed; its record-changed reaches this tab first.
+	stored = { ...stored, questionType: "mixed" };
+	await events.server("record-changed", { chatId: "chat_1" });
+	await settle();
+	assert.equal(chip().textContent, "Qs: Mixed");
+	await act(async () => releasePut());
+	await settle();
+	assert.equal(chip().textContent, "Qs: Mixed", "the older save's response is superseded");
+});
+
+it("a record-changed for this chat or a reconnect re-reads the stored type; another chat's event does not", async () => {
+	events = fakeEvents();
+	const api = fakeApi({ model: MODEL, questionType: "mcq" });
+	await mount(<Harness initial="mcq" />);
+	api.settings = { ...api.settings, questionType: "mixed" };
+	await events.server("record-changed", { chatId: "chat_2" });
+	await settle();
+	assert.equal(chip().textContent, "Qs: MCQ");
+	await events.reconnect();
+	await settle();
+	assert.equal(chip().textContent, "Qs: Mixed", "missed while disconnected, healed on reconnect");
+	api.settings = { ...api.settings, questionType: "saq" };
+	await events.server("record-changed", { chatId: "chat_1" });
+	await settle();
+	assert.equal(chip().textContent, "Qs: SAQ");
+});
+
+it("an unset lesson follows Settings → Agent saved in another window, and on reconnect", async () => {
+	events = fakeEvents();
+	const api = fakeApi({});
+	await mount(<Harness />);
+	await settle();
+	assert.equal(chip().textContent, "Qs: MCQ");
+	api.agent = { tools: { explain: true } };
+	await events.server("settings-changed", { section: "general" });
+	await settle();
+	assert.equal(chip().textContent, "Qs: MCQ", "other sections are ignored");
+	await events.server("settings-changed", { section: "agent" });
+	await settle();
+	assert.equal(chip().textContent, "Qs: SAQ");
+	api.agent = { tools: { explain: false } };
+	await events.reconnect();
+	await settle();
+	assert.equal(chip().textContent, "Qs: MCQ");
 });

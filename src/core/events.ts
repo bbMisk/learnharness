@@ -46,6 +46,10 @@ export interface ServerEvents {
 	 *  Same notify-then-fetch contract as the turn events: open views of
 	 *  the chat refetch and adopt the durable record. */
 	"record-changed": { chatId: string };
+	/** A settings section was saved (PUT /api/settings/[section]). Open
+	 *  windows that read that section refetch it — e.g. the lesson header's
+	 *  question-type chip follows Settings → Agent saved in another window. */
+	"settings-changed": { section: string };
 	/** A compaction started/finished for the chat (owner round 14,
 	 *  2026-10-05). running=true is the SEND GATE: while a compaction is
 	 *  in flight the server structurally refuses model interaction for
@@ -68,13 +72,15 @@ export const SERVER_EVENT_TYPES = [
 	"sources-changed",
 	"subscriptions-changed",
 	"record-changed",
+	"settings-changed",
 	"compaction-changed",
 ] as const satisfies readonly ServerEventType[];
 
-/** One notification: the type discriminates the payload. */
+/** One notification: the type discriminates the payload (distributed per
+ *  type, so narrowing on `type` narrows the payload). */
 export type ServerEvent<K extends ServerEventType = ServerEventType> = {
-	type: K;
-} & ServerEvents[K];
+	[T in K]: { type: T } & ServerEvents[T];
+}[K];
 
 export type ServerEventListener = (event: ServerEvent) => void;
 

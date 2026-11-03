@@ -75,6 +75,12 @@ export function parseSettingsBody(body: unknown): SettingsBodyResult<ChatSetting
 	return { ok: true, settings };
 }
 
+/** Does a per-chat settings body name the model pair ({model, thinkingLevel})? */
+export function namesModelPair(body: unknown): boolean {
+	const raw = asRecord(body);
+	return raw !== null && ("model" in raw || "thinkingLevel" in raw);
+}
+
 /** The per-chat settings write's FIELD-LEVEL merge (fix, 2026-11-03): the
  *  parsed body's fields applied onto the CURRENT record's settings. Two
  *  field groups, each replaced only when the body names it: the model pair
@@ -82,9 +88,8 @@ export function parseSettingsBody(body: unknown): SettingsBodyResult<ChatSetting
  *  member cleared — the picker's {model} still drops a stale level) and
  *  `questionType`. Anything else the record holds rides through. Pure. */
 export function mergeChatSettings(current: ChatSettings | undefined, body: unknown, parsed: ChatSettings): ChatSettings {
-	const raw = asRecord(body) ?? {};
 	const out: ChatSettings = { ...current };
-	if ("model" in raw || "thinkingLevel" in raw) {
+	if (namesModelPair(body)) {
 		delete out.model;
 		delete out.thinkingLevel;
 		if (parsed.model) out.model = parsed.model;
