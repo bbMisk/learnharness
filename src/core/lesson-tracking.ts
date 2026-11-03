@@ -189,14 +189,16 @@ export function deriveLessonTracking(
  * The one pure-data line the compaction marker carries (owner, 2026-11-02):
  * the tracker ids can fall into the condensed-away history, so the summary
  * the tutor sees after a cut ends with the state, e.g.
- *   Lesson tracking: problems q1 ✓, q2 open; open mistakes m1 "dropped the sign of the score"
+ *   Lesson tracking: problems q1 "Q1: binomial MLE" ✓, q2 "Q2: Fisher information" open; open mistakes m1 "dropped the sign of the score"
+ * Each problem carries its label so the tutor can tell which id is which once
+ * the problem_list call is condensed away (owner, 2026-11-02, round-2 hunt).
  * The problems part needs a list, the mistakes part an open mistake; null
  * when neither exists.
  */
 export function lessonTrackingLine(tracking: LessonTracking): string | null {
 	const parts: string[] = [];
 	if (tracking.problems) {
-		parts.push(`problems ${tracking.problems.map((p) => `${p.id} ${p.done ? "✓" : "open"}`).join(", ")}`);
+		parts.push(`problems ${tracking.problems.map((p) => `${p.id} ${JSON.stringify(p.label)} ${p.done ? "✓" : "open"}`).join(", ")}`);
 	}
 	const open = tracking.mistakes.filter((m) => !m.resolved);
 	if (open.length > 0) parts.push(`open mistakes ${open.map((m) => `${m.id} "${m.text}"`).join(", ")}`);

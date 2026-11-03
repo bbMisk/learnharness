@@ -484,9 +484,9 @@ describe("the compaction line", () => {
 		});
 		assert.equal(
 			lessonTrackingLine(tracking([["q1", true], ["q2", true], ["q3", false], ["q4", false]], [["m1", "dropped the sign of the score", false]])),
-			'Lesson tracking: problems q1 ✓, q2 ✓, q3 open, q4 open; open mistakes m1 "dropped the sign of the score"',
+			'Lesson tracking: problems q1 "Q1" ✓, q2 "Q2" ✓, q3 "Q3" open, q4 "Q4" open; open mistakes m1 "dropped the sign of the score"',
 		);
-		assert.equal(lessonTrackingLine(tracking([["q1", false]], [["m1", "x", true]])), "Lesson tracking: problems q1 open");
+		assert.equal(lessonTrackingLine(tracking([["q1", false]], [["m1", "x", true]])), 'Lesson tracking: problems q1 "Q1" open');
 		assert.equal(
 			lessonTrackingLine(tracking(null, [["m1", "a", true], ["m2", "b", false], ["m3", "c", false]])),
 			'Lesson tracking: open mistakes m2 "b", m3 "c"',
@@ -543,7 +543,7 @@ describe("the compaction line", () => {
 		assert.ok(marker, "the lesson compacted");
 		const kept = record.findIndex((m) => m.id === marker.details.firstKeptMessageId);
 		assert.ok(kept > record.findIndex((m) => m.id === "r-r2"), "every tracking call falls before the cut");
-		const line = 'Lesson tracking: problems q1 ✓, q2 open, q7 open; open mistakes m1 "dropped the sign of the score"';
+		const line = 'Lesson tracking: problems q1 "Q1" ✓, q2 "Q2" open, q7 "Q7" open; open mistakes m1 "dropped the sign of the score"';
 		assert.ok(marker.content.endsWith(`The learner is cramming estimation; Q1 is done.\n\n${line}`));
 
 		// The teacher's next request: the condensed head carries the line; the
