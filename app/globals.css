@@ -608,6 +608,8 @@ body {
 :root {
 	--lh-safe-top: env(safe-area-inset-top, 0px);
 	--lh-safe-bottom: env(safe-area-inset-bottom, 0px);
+	--lh-safe-left: env(safe-area-inset-left, 0px);
+	--lh-safe-right: env(safe-area-inset-right, 0px);
 }
 body {
 	padding: var(--lh-safe-top) env(safe-area-inset-right, 0px) var(--lh-safe-bottom) env(safe-area-inset-left, 0px);

@@ -102,6 +102,10 @@ it("safe-area insets are not usable room (iPad Home Screen app)", () => {
 	// Tiny viewport: the 96px usability floor never pushes into the home indicator.
 	const tiny = computeMenuPlacement({ top: 110, bottom: 150, left: 10, right: 60 }, { width: 500, height: 260 }, 300, "down", "right", { top: 24, bottom: 21 });
 	assert.ok(150 + 4 + tiny.maxHeight <= 260 - 21, `menu bottom ${150 + 4 + tiny.maxHeight} stays above the inset`);
+	// Landscape notch: a right-aligned menu never extends left of the safe edge.
+	const notch = computeMenuPlacement({ top: 100, bottom: 140, left: 300, right: 380 }, { width: 852, height: 393 }, 200, "down", "right", { top: 0, bottom: 21, left: 59, right: 59 });
+	assert.equal(notch.style.maxWidth, 380 - 59 - 8, "max width stops 8px inside the left inset");
+	assert.equal(computeMenuPlacement({ top: 100, bottom: 140, left: 300, right: 380 }, { width: 852, height: 393 }, 200, "down", "right").style.maxWidth, undefined, "no side insets: no width cap");
 	// Zero insets: identical to before.
 	assert.deepEqual(computeMenuPlacement(anchor, vp, 300, "up", "right", { top: 0, bottom: 0 }), computeMenuPlacement(anchor, vp, 300, "up", "right"));
 });

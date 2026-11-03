@@ -78,7 +78,7 @@ export function computeMenuPlacement(
 	align: MenuAlign,
 	/** Safe-area insets (iPad Home Screen app, owner 2026-11-03): the status
 	 *  bar and home indicator are not usable room. 0 on desktop/Electron. */
-	safe: { top: number; bottom: number } = { top: 0, bottom: 0 },
+	safe: { top: number; bottom: number; left?: number; right?: number } = { top: 0, bottom: 0 },
 ): MenuPlacement {
 	const availDown = viewport.height - safe.bottom - EDGE - (rect.bottom + GAP);
 	const availUp = rect.top - GAP - EDGE - safe.top;
@@ -102,21 +102,28 @@ export function computeMenuPlacement(
 	}
 	const horizontal: Record<string, number> =
 		align === "right" ? { right: viewport.width - rect.right } : { left: rect.left };
+	// Side insets (iPhone landscape notch): the menu may not grow past the safe
+	// edge on the side it extends toward. Zero side insets: no cap, unchanged.
+	const left = safe.left ?? 0;
+	const right = safe.right ?? 0;
+	if (left > 0 || right > 0) {
+		horizontal.maxWidth = Math.max(0, align === "right" ? rect.right - left - EDGE : viewport.width - right - EDGE - rect.left);
+	}
 	const vertical: Record<string, number> =
 		side === "down" ? { top: rect.bottom + GAP } : { bottom: viewport.height - rect.top + GAP };
 	return { side, style: { ...horizontal, ...vertical }, maxHeight };
 }
 
 /** The live top/bottom safe-area insets (globals.css --lh-safe-top/bottom). */
-function safeAreaInsets(): { top: number; bottom: number } {
+function safeAreaInsets(): { top: number; bottom: number; left: number; right: number } {
 	// Zero when styles can't be read (non-browser hosts): the pre-safe-area placement.
-	if (typeof getComputedStyle !== "function") return { top: 0, bottom: 0 };
+	if (typeof getComputedStyle !== "function") return { top: 0, bottom: 0, left: 0, right: 0 };
 	try {
 		const css = getComputedStyle(document.documentElement);
 		const px = (name: string) => Number.parseFloat(css.getPropertyValue?.(name) ?? "") || 0;
-		return { top: px("--lh-safe-top"), bottom: px("--lh-safe-bottom") };
+		return { top: px("--lh-safe-top"), bottom: px("--lh-safe-bottom"), left: px("--lh-safe-left"), right: px("--lh-safe-right") };
 	} catch {
-		return { top: 0, bottom: 0 };
+		return { top: 0, bottom: 0, left: 0, right: 0 };
 	}
 }
 
