@@ -82,17 +82,24 @@ export function namesModelPair(body: unknown): boolean {
 }
 
 /** The per-chat settings write's FIELD-LEVEL merge (fix, 2026-11-03): the
- *  parsed body's fields applied onto the CURRENT record's settings. Two
- *  field groups, each replaced only when the body names it: the model pair
- *  (`model` or `thinkingLevel` named → both come from the body, an absent
- *  member cleared — the picker's {model} still drops a stale level) and
- *  `questionType`. Anything else the record holds rides through. Pure. */
+ *  parsed body's fields applied onto the CURRENT record's settings, each
+ *  group only when the body names it:
+ *  - `model` named → the pair comes from the body (an absent level is
+ *    cleared — the picker's {model} still drops a stale level);
+ *  - only `thinkingLevel` named → the level changes on the CURRENT saved
+ *    model, so a window holding an older model can never write it back;
+ *  - `questionType`.
+ *  Anything else the record holds rides through. Pure. */
 export function mergeChatSettings(current: ChatSettings | undefined, body: unknown, parsed: ChatSettings): ChatSettings {
+	const raw = asRecord(body) ?? {};
 	const out: ChatSettings = { ...current };
-	if (namesModelPair(body)) {
+	if ("model" in raw) {
 		delete out.model;
 		delete out.thinkingLevel;
 		if (parsed.model) out.model = parsed.model;
+		if (parsed.thinkingLevel !== undefined) out.thinkingLevel = parsed.thinkingLevel;
+	} else if ("thinkingLevel" in raw) {
+		delete out.thinkingLevel;
 		if (parsed.thinkingLevel !== undefined) out.thinkingLevel = parsed.thinkingLevel;
 	}
 	if (parsed.questionType !== undefined) out.questionType = parsed.questionType;

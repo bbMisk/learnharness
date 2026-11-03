@@ -14,12 +14,14 @@ import { emit, type ChatSettings } from "@/src/core";
  * The per-chat model control (model-control wave) and the lesson's question
  * type (owner, 2026-11-03). FIELD-LEVEL writes (fix, 2026-11-03): a body
  * names the fields it changes and the write merges them into the CURRENT
- * record (mergeChatSettings) — the model pair {model, thinkingLevel} is one
- * field group (naming either replaces both, so the picker's {model} still
- * clears a stale level), `questionType` another. The model picker sends
- * only the model pair, the Qs chip only `questionType`, so neither can
- * restore the other's older value; a full object still replaces every group
- * it names. Unknown keys are dropped; `{}` changes nothing.
+ * record (mergeChatSettings): naming `model` replaces the model pair
+ * {model, thinkingLevel} (so the picker's {model} still clears a stale
+ * level); naming only `thinkingLevel` changes the level on the CURRENT saved
+ * model; `questionType` is its own field. The model picker sends a model
+ * pick as the pair and a level change as { thinkingLevel } alone, the Qs
+ * chip only `questionType`, so none can restore another's older value; a
+ * full object still replaces every group it names. Unknown keys are
+ * dropped; `{}` changes nothing.
  * PER-SESSION MODELS (owner, 2026-09-28): this route is THE in-session
  * writer — the composer's control binds the session's own record; the
  * strong slot is only the birth default and never reaches an existing

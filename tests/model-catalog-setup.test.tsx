@@ -11,6 +11,7 @@ import { useModelCatalog } from "../components/model-catalog.ts";
 import { notifySettingsSaved } from "../components/settings-signal.ts";
 import { useModelSetup, savedSlotsConfigured, selectedModelUnavailable, openModelPicker } from "../components/setup-cta.tsx";
 import { StatsBar } from "../components/stats-bar.tsx";
+import { ServerEventsProvider } from "../components/server-events.tsx";
 import type { ModelCatalogEntry, ModelCatalogResponse, ModelsSettings } from "../src/core/index.ts";
 
 const dom = parseHTML("<html><body></body></html>");
@@ -212,12 +213,13 @@ test("blocked session recovery opens its ordinary picker, never changes Strong o
 	body.models = [available]; body.providers = [{ id: "other", envVar: "OTHER_KEY", keyPresent: true }];
 	body.slots.strong = { model: { provider: "other", id: b.id }, thinkingLevel: "medium" };
 	const globals: ModelsSettings = { strong: body.slots.strong };
-	const session = { model: { provider: a.provider, id: a.id }, thinkingLevel: "xhigh" };
+	let session = { model: { provider: a.provider, id: a.id }, thinkingLevel: "xhigh" };
 	const requestsOnly = globalThis.fetch; const sessionWrites: unknown[] = [];
 	globalThis.fetch = async (input, init) => {
 		if (input === "/api/settings") return Response.json({ settings: { models: globals } });
 		if (input === "/api/chats/fixture/settings" && init?.method !== "PUT") return Response.json({ settings: session });
-		if (input === "/api/chats/fixture/settings") { const next = JSON.parse(String(init?.body)); sessionWrites.push(next); return Response.json({ settings: next }); }
+		// The server stores the write (the picker re-reads after every save).
+		if (input === "/api/chats/fixture/settings") { const next = JSON.parse(String(init?.body)); sessionWrites.push(next); session = next; return Response.json({ settings: next }); }
 		return requestsOnly(input, init);
 	};
 	await warm(body); let selected: string | undefined;
@@ -481,4 +483,48 @@ for (const chatId of [undefined, "fixture"]) test(`${chatId ? "session" : "defau
 	stored = changes[3]!;
 	await act(async () => pending[3]!.resolve(Response.json(chatId ? { settings: stored } : { settings: { models: { strong: stored } } })));
 	assert.equal(selected, `${stored.model.provider}:${stored.model.id}`);
+});
+
+test("session picker follows another window's model change, and a level change never writes the stale model back", async () => {
+	installFetch(); await warm();
+	// The server: this session's settings, merged field by field like the route.
+	let stored: Record<string, unknown> = { model: { provider: a.provider, id: a.id }, thinkingLevel: "low", questionType: "saq" };
+	const sessionWrites: unknown[] = [];
+	const requestsOnly = globalThis.fetch;
+	globalThis.fetch = async (input, init) => {
+		if (input === "/api/settings") return Response.json({ settings: { models: {} } });
+		if (input === "/api/chats/fixture/settings" && init?.method === "PUT") {
+			const body = JSON.parse(String(init.body)); sessionWrites.push(body);
+			stored = "model" in body ? { ...stored, model: body.model, thinkingLevel: body.thinkingLevel } : { ...stored, ...body };
+			return Response.json({ settings: stored });
+		}
+		if (input === "/api/chats/fixture/settings") return Response.json({ settings: stored });
+		return requestsOnly(input, init);
+	};
+	let open = () => {};
+	const handlers = new Map<string, (data: string) => void>();
+	const source = { close() {}, onOpen: (cb: () => void) => { open = cb; }, onEvent: (name: string, cb: (data: string) => void) => { handlers.set(name, cb); } };
+	const connect = () => source;
+	let selected: string | undefined;
+	await render(<><Reader /><ServerEventsProvider connect={connect}><StatsBar turns={[]} chatId="fixture" onModelChange={(id) => { selected = id; }} /></ServerEventsProvider></>);
+	await answer(1, catalog());
+	assert.equal(selected, `${a.provider}:${a.id}`);
+	// Another window switches this session to B.
+	stored = { ...stored, model: { provider: b.provider, id: b.id }, thinkingLevel: "medium" };
+	await act(async () => handlers.get("chat-settings-changed")!(JSON.stringify({ chatId: "other_chat" })));
+	assert.equal(selected, `${a.provider}:${a.id}`, "another chat's event is not ours");
+	await act(async () => handlers.get("chat-settings-changed")!(JSON.stringify({ chatId: "fixture" })));
+	assert.equal(selected, `${b.provider}:${b.id}`, "the pill follows the other window");
+	// …and a reconnect heals a missed event.
+	stored = { ...stored, model: { provider: a.provider, id: a.id }, thinkingLevel: "low" };
+	await act(async () => open());
+	assert.equal(selected, `${a.provider}:${a.id}`);
+	// Missed entirely: the other window moves to B again, then this window cycles its level.
+	stored = { ...stored, model: { provider: b.provider, id: b.id }, thinkingLevel: "medium" };
+	await act(async () => { window.dispatchEvent(new CustomEvent("lh:kbd-cycle-thinking")); });
+	assert.deepEqual(sessionWrites, [{ thinkingLevel: "high" }], "a level change names only the level");
+	assert.deepEqual((stored as { model: unknown }).model, { provider: b.provider, id: b.id }, "the stale model is never written back");
+	assert.equal(stored.questionType, "saq", "the question type is untouched");
+	await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+	assert.equal(selected, `${b.provider}:${b.id}`, "the post-save reconcile shows the server's model");
 });

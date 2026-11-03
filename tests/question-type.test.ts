@@ -151,6 +151,22 @@ describe("the settings route", () => {
 		assert.deepEqual(chatStore.getChat(chat.id)!.settings, { model: MODEL, thinkingLevel: "max", questionType: "saq" });
 	});
 
+	it("a level-only write changes the level on the CURRENT model; a model write still resets it", async () => {
+		const gone = { provider: "nowhere", id: "retired-model" };
+		const chat = chatStore.createChat("Level only");
+		// Window A moved this session to MODEL; window B still shows `gone`.
+		chatStore.saveSettings(chat.id, { model: MODEL, thinkingLevel: "low", questionType: "saq" });
+		assert.equal((await put(chat.id, { thinkingLevel: "high" })).status, 200);
+		assert.deepEqual(chatStore.getChat(chat.id)!.settings, { model: MODEL, thinkingLevel: "high", questionType: "saq" });
+		// Clamped against the current model, as any level write is.
+		assert.equal((await put(chat.id, { thinkingLevel: "xhigh" })).status, 200);
+		assert.deepEqual(chatStore.getChat(chat.id)!.settings, { model: MODEL, thinkingLevel: "max", questionType: "saq" });
+		// A model write still replaces the pair: an absent level clears.
+		assert.equal((await put(chat.id, { model: MODEL })).status, 200);
+		assert.deepEqual(chatStore.getChat(chat.id)!.settings, { model: MODEL, questionType: "saq" });
+		assert.equal((await put(chat.id, { model: gone, thinkingLevel: "low" })).status, 400, "a stale model named outright is still a catalog change");
+	});
+
 	it("a saved Settings section tells every open window to refetch it", async () => {
 		const seen: unknown[] = [];
 		const off = subscribe((event) => seen.push(event));
