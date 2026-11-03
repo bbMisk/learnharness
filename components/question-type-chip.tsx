@@ -28,7 +28,7 @@ export type QuestionTypeApply = NewestApply<QuestionType | undefined>;
  *  through useNewestWins (the newest confirmed value wins, so a slow save
  *  response never restores a label a newer refresh replaced). Read once on
  *  mount (a save that landed between the page render and this subscription),
- *  on the chat's record-changed event (every settings write emits it —
+ *  on the chat's chat-settings-changed event (every settings write emits it —
  *  another tab or device) and on every events reconnect (events missed
  *  while disconnected). */
 export function useLessonQuestionType(chatId: string, initial: QuestionType | undefined) {
@@ -42,7 +42,7 @@ export function useLessonQuestionType(chatId: string, initial: QuestionType | un
 	const { value: questionType, refresh, beginSave } = useNewestWins(initial, read);
 	const reread = useCallback(() => void refresh(), [refresh]);
 	useEffect(reread, [reread]);
-	useServerEvent("record-changed", (p) => {
+	useServerEvent("chat-settings-changed", (p) => {
 		if (p.chatId === chatId) reread();
 	});
 	useServerResync(reread);

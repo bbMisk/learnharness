@@ -73,8 +73,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 		settings = clampChatLevel(merged, effectiveSettings().models.strong);
 	}
 	stores.chatStore.saveSettings(id, settings);
-	// Open views of this chat (other tabs, other devices) refetch the record.
-	emit("record-changed", { chatId: id });
+	// Open views of this chat (other tabs, other devices) refetch its
+	// settings — a narrow event: the transcript did not change.
+	emit("chat-settings-changed", { chatId: id });
 	return Response.json({ settings });
 }
 

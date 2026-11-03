@@ -54,6 +54,7 @@ import { TopBar } from "@/components/top-bar";
 import type { JobRecord, Phase3, QuestionAnswerData, QuestionCall, QuestionFormDraft, TurnUsage, SessionPricing } from "@/src/core";
 import { PhaseChip } from "@/components/phase-divider";
 import { CramToggle, useLessonCram } from "@/components/cram-toggle";
+import { recordSyncVerdict } from "@/components/record-sync";
 import { QuestionTypeChip, showsQuestionTypeChip, useLessonQuestionType } from "@/components/question-type-chip";
 import { LessonTrackerCard, LessonTrackerChip, lessonTrackerRoom, useLessonTrackerShown } from "@/components/lesson-tracker";
 import { CoverageRing } from "@/components/extraction-coverage";
@@ -442,6 +443,9 @@ export function Chat({
 	const busy = localStream || turnInFlight;
 	const busyRef = useRef(busy);
 	busyRef.current = busy;
+	// The full record refresh's freshness snapshot (record-sync.ts).
+	const nativeMessagesRef = useRef(nativeMessages);
+	nativeMessagesRef.current = nativeMessages;
 	// The attach handoff (stream-reattach wave): the moment a resumed
 	// stream takes over the rendering — the SDK left "ready", so
 	// submitted/streaming means chunks are flowing — localStream covers
@@ -786,11 +790,18 @@ export function Chat({
 	 * when nothing is active; the two never overlap). */
 	useEnterSubmits(sendNext);
 
-	const syncFromServer = useCallback(async () => {
+	const syncFromServer = useCallback(async (retries = 1): Promise<boolean> => {
 		try {
+			// Freshness gate (record-sync.ts): the snapshot must not wipe a
+			// send (or any local advance) that happened while it was in flight.
+			const moment = () => ({ busy: busyRef.current, messages: nativeMessagesRef.current });
+			const start = moment();
 			const res = await fetch(`/api/chats/${chatId}`);
 			if (!res.ok) return false;
 			const record = (await res.json()) as { messages?: LhMessage[]; turns?: TurnUsage[]; pricing?: SessionPricing; turnError?: string };
+			const verdict = recordSyncVerdict(start, moment());
+			if (verdict === "skip") return false;
+			if (verdict === "retry") return retries > 0 ? syncFromServer(retries - 1) : false;
 			if (Array.isArray(record.turns)) setTurns(record.turns);
 			setPricing(record.pricing);
 			if (!Array.isArray(record.messages)) return false;

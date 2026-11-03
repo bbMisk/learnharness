@@ -167,7 +167,7 @@ describe("the settings route", () => {
 		assert.deepEqual(seen.filter((e) => (e as { type: string }).type === "settings-changed"), [{ type: "settings-changed", section: "agent" }]);
 	});
 
-	it("a saved write tells open views of the chat to refetch", async () => {
+	it("a saved write tells open views of the chat to refetch its settings, not its transcript", async () => {
 		const chat = chatStore.createChat("Event");
 		chatStore.saveSettings(chat.id, { model: MODEL });
 		const seen: unknown[] = [];
@@ -178,7 +178,8 @@ describe("the settings route", () => {
 		} finally {
 			off();
 		}
-		assert.deepEqual(seen.filter((e) => (e as { type: string }).type === "record-changed"), [{ type: "record-changed", chatId: chat.id }], "once, for the saved write only");
+		assert.deepEqual(seen.filter((e) => (e as { type: string }).type === "chat-settings-changed"), [{ type: "chat-settings-changed", chatId: chat.id }], "once, for the saved write only");
+		assert.equal(seen.filter((e) => (e as { type: string }).type === "record-changed").length, 0, "never a full record refresh: the transcript did not change");
 	});
 
 	it("rejects an unknown type and writes nothing", async () => {

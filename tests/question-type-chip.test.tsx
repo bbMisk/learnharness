@@ -260,7 +260,7 @@ it("a slow save response never restores a label a newer refresh replaced", async
 	await click(option("saq"));
 	// Another device saves Mixed; its record-changed reaches this tab first.
 	stored = { ...stored, questionType: "mixed" };
-	await events.server("record-changed", { chatId: "chat_1" });
+	await events.server("chat-settings-changed", { chatId: "chat_1" });
 	await settle();
 	assert.equal(chip().textContent, "Qs: Mixed");
 	await act(async () => releasePut());
@@ -268,19 +268,19 @@ it("a slow save response never restores a label a newer refresh replaced", async
 	assert.equal(chip().textContent, "Qs: Mixed", "the older save's response is superseded");
 });
 
-it("a record-changed for this chat or a reconnect re-reads the stored type; another chat's event does not", async () => {
+it("a chat-settings-changed for this chat or a reconnect re-reads the stored type; another chat's event does not", async () => {
 	events = fakeEvents();
 	const api = fakeApi({ model: MODEL, questionType: "mcq" });
 	await mount(<Harness initial="mcq" />);
 	api.settings = { ...api.settings, questionType: "mixed" };
-	await events.server("record-changed", { chatId: "chat_2" });
+	await events.server("chat-settings-changed", { chatId: "chat_2" });
 	await settle();
 	assert.equal(chip().textContent, "Qs: MCQ");
 	await events.reconnect();
 	await settle();
 	assert.equal(chip().textContent, "Qs: Mixed", "missed while disconnected, healed on reconnect");
 	api.settings = { ...api.settings, questionType: "saq" };
-	await events.server("record-changed", { chatId: "chat_1" });
+	await events.server("chat-settings-changed", { chatId: "chat_1" });
 	await settle();
 	assert.equal(chip().textContent, "Qs: SAQ");
 });
@@ -416,7 +416,7 @@ it("a read served before the save committed cannot leave the label stale: the sa
 	await click(chip());
 	await click(option("saq"));
 	// A refresh starts after the save did, and is served before it commits.
-	await events.server("record-changed", { chatId: "chat_1" });
+	await events.server("chat-settings-changed", { chatId: "chat_1" });
 	await settle();
 	assert.equal(chip().textContent, "Qs: MCQ", "the refresh read the old value");
 	await act(async () => api.held.shift()!());
@@ -432,7 +432,7 @@ it("the reconcile read retries with backoff, and a newer change from another win
 	api.holdPuts = true;
 	await click(chip());
 	await click(option("saq"));
-	await events.server("record-changed", { chatId: "chat_1" });
+	await events.server("chat-settings-changed", { chatId: "chat_1" });
 	await settle();
 	api.failGets = 1;
 	const gets = api.gets;

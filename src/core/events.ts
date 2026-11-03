@@ -46,6 +46,10 @@ export interface ServerEvents {
 	 *  Same notify-then-fetch contract as the turn events: open views of
 	 *  the chat refetch and adopt the durable record. */
 	"record-changed": { chatId: string };
+	/** A chat's settings changed (PUT /api/chats/[id]/settings): only views
+	 *  that read the settings refetch them — never the transcript (a full
+	 *  record refresh racing a send would clear its optimistic tail). */
+	"chat-settings-changed": { chatId: string };
 	/** A settings section was saved (PUT /api/settings/[section]). Open
 	 *  windows that read that section refetch it — e.g. the lesson header's
 	 *  question-type chip follows Settings → Agent saved in another window. */
@@ -72,6 +76,7 @@ export const SERVER_EVENT_TYPES = [
 	"sources-changed",
 	"subscriptions-changed",
 	"record-changed",
+	"chat-settings-changed",
 	"settings-changed",
 	"compaction-changed",
 ] as const satisfies readonly ServerEventType[];
