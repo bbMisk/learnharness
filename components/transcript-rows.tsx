@@ -70,6 +70,10 @@ export interface TranscriptRowsProps {
 	transcript: { hidesMessage: (mi: number) => boolean; hiddenParts: (mi: number) => number };
 	/** status === "streaming": the last part's reasoning spinner. */
 	streaming: boolean;
+	/** The native message being written right now (while streaming): only ITS
+	 *  reasoning shows "Thinking…". A hidden step (lesson tracking) projects no
+	 *  part, and must not re-activate an earlier step's reasoning (round-4 hunt). */
+	activeMessageId?: string;
 	/** Malformed question calls; ignored while a turn runs. */
 	malformedQuestions: readonly QuestionCall[];
 	busy: boolean;
@@ -101,6 +105,7 @@ export function TranscriptRows({
 	phases,
 	transcript,
 	streaming,
+	activeMessageId,
 	malformedQuestions,
 	busy,
 	questionPending,
@@ -121,6 +126,7 @@ export function TranscriptRows({
 				teachSeam={m.role === "assistant" && mi > 0 && phases[mi] === "teach" && phases[mi - 1] !== "teach"}
 				hiddenParts={transcript.hiddenParts(mi)}
 				streamingLast={streaming && mi === messages.length - 1}
+				activeReasoningId={streaming && mi === messages.length - 1 && activeMessageId ? `${activeMessageId}-r0` : undefined}
 				anchors={anchors[mi]!}
 				malformedQuestions={malformed}
 				questionPending={questionPending}
@@ -140,6 +146,8 @@ interface RowProps {
 	hiddenParts: number;
 	/** The live turn streams and this is the last row. */
 	streamingLast: boolean;
+	/** The reasoning part id of the message being written now, when known. */
+	activeReasoningId?: string;
 	anchors: string;
 	malformedQuestions: readonly QuestionCall[];
 	questionPending: boolean;
@@ -154,6 +162,7 @@ const TranscriptRow = memo(function TranscriptRow({
 	teachSeam,
 	hiddenParts,
 	streamingLast,
+	activeReasoningId,
 	anchors,
 	malformedQuestions,
 	questionPending,
@@ -296,7 +305,7 @@ const TranscriptRow = memo(function TranscriptRow({
 									part={part}
 									pi={pi}
 									teachBoundary={teachBoundary}
-									reasoningStreaming={streamingLast && pi === m.parts.length - 1}
+									reasoningStreaming={streamingLast && pi === m.parts.length - 1 && (activeReasoningId === undefined || part.id === activeReasoningId)}
 									anchored={part.type === "text" && !!part.id && anchored.has(part.id)}
 									malformed={malformed}
 									questionPending={malformed ? questionPending : false}

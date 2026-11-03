@@ -1356,6 +1356,7 @@ export function Chat({
 								phases={phases}
 								transcript={transcript}
 								streaming={status === "streaming"}
+								activeMessageId={status === "streaming" ? nativeMessages.at(-1)?.id : undefined}
 								malformedQuestions={malformedQuestions}
 								busy={busy}
 								questionPending={!!pending}

@@ -68,8 +68,8 @@ function settledHistory(): LhMessage[] {
 const SHOW_ALL = { hidesMessage: () => false, hiddenParts: () => 0 };
 const noop = () => {};
 
-type SetView = (v: { messages: LhViewMessage[]; streaming: boolean }) => void;
-function Harness({ initial, expose }: { initial: { messages: LhViewMessage[]; streaming: boolean }; expose: (set: SetView) => void }) {
+type SetView = (v: { messages: LhViewMessage[]; streaming: boolean; activeMessageId?: string }) => void;
+function Harness({ initial, expose }: { initial: { messages: LhViewMessage[]; streaming: boolean; activeMessageId?: string }; expose: (set: SetView) => void }) {
 	const [view, set] = useState(initial);
 	expose(set);
 	return (
@@ -79,6 +79,7 @@ function Harness({ initial, expose }: { initial: { messages: LhViewMessage[]; st
 				phases={phaseTimeline(view.messages)}
 				transcript={SHOW_ALL}
 				streaming={view.streaming}
+				activeMessageId={view.activeMessageId}
 				malformedQuestions={[]}
 				busy={view.streaming}
 				questionPending={false}
@@ -161,5 +162,24 @@ describe("streaming leaves settled transcript rows alone", () => {
 			assert.equal(markup(host), markup(fresh.host));
 		}
 		assert.ok(host.querySelector('[data-probe="p_new"]'));
+	});
+});
+
+describe("the thinking row follows the message being written (round-4 hunt)", () => {
+	it("a hidden tracking-only step does not re-activate the previous step's reasoning", async () => {
+		const native = [
+			user("u1", "cram me"),
+			assistant("a1", [{ type: "thinking", thinking: "planning" }, { type: "toolCall", id: "c1", name: "note_mistake", arguments: { text: "x" } }]),
+			({ id: "r_c1", role: "toolResult", toolCallId: "c1", toolName: "note_mistake", content: [{ type: "text", text: "{}" }], details: { ok: true, id: "m1", text: "x" }, isError: false, timestamp: 0 }) as unknown as LhMessage,
+			assistant("a2", [{ type: "toolCall", id: "c2", name: "note_mistake", arguments: { text: "y" } }]),
+		];
+		const live: LiveTurnState = { inFlight: true, streamingIds: new Set(["a1", "a2"]), executions: new Map() };
+		const view = projectView(native, live);
+		const { host, setView } = await mount(view, true);
+		await act(async () => setView({ messages: view, streaming: true, activeMessageId: "a2" }));
+		assert.ok(!host.textContent!.includes("Thinking..."), "a1's reasoning is not shown as still thinking while hidden a2 streams");
+		assert.ok(host.textContent!.includes("AGENT’S THINKING"));
+		await act(async () => setView({ messages: view, streaming: true, activeMessageId: "a1" }));
+		assert.ok(host.textContent!.includes("Thinking..."), "the message being written keeps its live thinking row");
 	});
 });
