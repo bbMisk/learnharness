@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { safeAreaInsets } from "@/components/safe-area";
 import { CLAUDE_CODE_PROVIDER, sessionCacheHitRate, subscriptionLabels, subscriptionLabel, type cliContextWindowOf, type SessionPricing, type TurnUsage } from "@/src/core";
 import { formatTokens, formatUsd, planCostLabel, prettyModel } from "@/components/usage-format";
 import { ModelControl, catalogLimits, useModelCatalog } from "@/components/model-picker";
@@ -69,6 +70,26 @@ export function StatsBar({
 	leadingSlot?: ReactNode;
 }) {
 	const [open, setOpen] = useState(false);
+	// The centred stats popover stays inside the (safe) viewport: shift it back
+	// when it would cross an edge (notch, narrow window). 0 when it fits.
+	const detailRef = useRef<HTMLDivElement>(null);
+	const [detailShift, setDetailShift] = useState(0);
+	useLayoutEffect(() => {
+		if (!open) {
+			setDetailShift(0);
+			return;
+		}
+		const el = detailRef.current;
+		if (!el || typeof window === "undefined") return;
+		const rect = el.getBoundingClientRect();
+		if (rect.width === 0) return; // not laid out (non-browser hosts)
+		const unshifted = rect.left - detailShift;
+		const safe = safeAreaInsets();
+		const minLeft = safe.left + 8;
+		const maxRight = window.innerWidth - safe.right - 8;
+		const next = unshifted < minLeft ? minLeft - unshifted : unshifted + rect.width > maxRight ? maxRight - (unshifted + rect.width) : 0;
+		if (next !== detailShift) setDetailShift(next);
+	}, [open, detailShift]);
 	const [selectedModel, setSelectedModel] = useState<string | undefined>();
 	const modelChanged = useCallback((model: string | undefined) => {
 		setSelectedModel(model);
@@ -152,7 +173,9 @@ export function StatsBar({
 			</button>
 				{open && (
 					<div
+						ref={detailRef}
 						data-testid="stats-detail"
+						style={detailShift ? { transform: `translateX(calc(-50% + ${detailShift}px))` } : undefined}
 						className="absolute bottom-full left-1/2 z-40 mb-1.5 w-72 -translate-x-1/2 rounded-xl border bg-card p-3 text-xs shadow-xl"
 					>
 						<div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">

@@ -105,11 +105,12 @@ export function computeMenuPlacement(
 	}
 	const horizontal: Record<string, number> =
 		align === "right" ? { right: viewport.width - rect.right } : { left: rect.left };
-	// Side insets (iPhone landscape notch): the menu may not grow past the safe
-	// edge on the side it extends toward. Zero side insets: no cap, unchanged.
+	// The menu may not grow past the (safe) edge on the side it extends toward:
+	// iPhone landscape notch, or a window narrower than the menu (iPad split
+	// view). The cap only binds when the menu would otherwise leave that edge.
 	const left = safe.left ?? 0;
 	const right = safe.right ?? 0;
-	if (left > 0 || right > 0) {
+	{
 		const roomLeftward = rect.right - left - EDGE;
 		const roomRightward = viewport.width - right - EDGE - rect.left;
 		if (align === "right" && roomLeftward < MIN_SAFE_WIDTH && roomRightward > roomLeftward) {
