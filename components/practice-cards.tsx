@@ -25,7 +25,7 @@ import { createPortal } from "react-dom";
 
 import { ThinkingBlock } from "@/components/thinking-block";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
-import { safeAreaInsets } from "@/components/menu-shell";
+import { safeAreaInsets } from "@/components/safe-area";
 
 /* TARGET NAMES (owner round 17, 2026-10-06): targets are normalized to
  * opaque node ids at the record seam (owner round 9 — the mastery trace
@@ -184,7 +184,7 @@ function MetadataPopover({
 	// The portal's anchor (owner fix, 2026-10-06): the box is placed from
 	// the trigger's viewport rect AT OPEN TIME — any scroll closes the
 	// box, so there is nothing to track.
-	const [anchor, setAnchor] = useState<{ top: number; left: number; maxHeight?: number } | null>(null);
+	const [anchor, setAnchor] = useState<{ top?: number; bottom?: number; left: number; maxHeight?: number } | null>(null);
 	const [names, setNames] = useState<Record<string, string> | null>(null);
 	const targets = Array.isArray(problemInput.target)
 		? problemInput.target.filter((t): t is string => typeof t === "string")
@@ -235,7 +235,13 @@ function MetadataPopover({
 							const safe = safeAreaInsets();
 							const left = Math.max(8 + safe.left, Math.min(r.left, window.innerWidth - 328 - safe.right));
 							const top = r.bottom + 8;
-							setAnchor({ top, left, maxHeight: safe.bottom > 0 ? Math.max(96, window.innerHeight - safe.bottom - 8 - top) : undefined });
+							if (safe.bottom > 0 || safe.top > 0) {
+								// Safe rectangle only: open above when below has less room (hunt finding).
+								const below = window.innerHeight - safe.bottom - 8 - top;
+								const above = r.top - 8 - 8 - safe.top;
+								if (below < 96 && above > below) setAnchor({ bottom: window.innerHeight - r.top + 8, left, maxHeight: above });
+								else setAnchor({ top, left, maxHeight: Math.max(0, below) });
+							} else setAnchor({ top, left });
 						}
 						return true;
 					});
@@ -256,7 +262,7 @@ function MetadataPopover({
 						// cut-off bug). A fixed-position portal sits on top of
 						// EVERYTHING, the dialogs' law. Node-card info-box register;
 						// opening BELOW the trigger — always.
-						style={{ position: "fixed", top: anchor.top, left: anchor.left, ...(anchor.maxHeight !== undefined ? { maxHeight: anchor.maxHeight, overflowY: "auto" as const } : {}) }}
+						style={{ position: "fixed", ...(anchor.bottom !== undefined ? { bottom: anchor.bottom } : { top: anchor.top }), left: anchor.left, ...(anchor.maxHeight !== undefined ? { maxHeight: anchor.maxHeight, overflowY: "auto" as const } : {}) }}
 						className="z-50 w-80 max-w-[calc(100vw-1rem)] rounded-xl border bg-card p-4 text-left shadow-lg"
 					>
 				<dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
