@@ -171,6 +171,11 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
  * the original SMALL register (text-xs rows, mono values — owner
  * correction: the 15px pass was way too large); the trigger matches
  * the eyebrow size; the box opens BELOW the trigger, always. */
+/** Any scroll closes the metadata popover EXCEPT one inside it (it scrolls when capped). */
+export function scrollClosesPopover(target: EventTarget | null, box: Element | null): boolean {
+	return !(box && typeof Node !== "undefined" && target instanceof Node && box.contains(target));
+}
+
 function MetadataPopover({
 	concludeInput,
 	problemInput,
@@ -185,6 +190,7 @@ function MetadataPopover({
 	// the trigger's viewport rect AT OPEN TIME — any scroll closes the
 	// box, so there is nothing to track.
 	const [anchor, setAnchor] = useState<{ top?: number; bottom?: number; left: number; maxHeight?: number } | null>(null);
+	const boxRef = useRef<HTMLDivElement>(null);
 	const [names, setNames] = useState<Record<string, string> | null>(null);
 	const targets = Array.isArray(problemInput.target)
 		? problemInput.target.filter((t): t is string => typeof t === "string")
@@ -207,11 +213,16 @@ function MetadataPopover({
 	useEffect(() => {
 		if (!open) return;
 		const close = () => setOpen(false);
-		window.addEventListener("scroll", close, { capture: true, passive: true });
+		// Scrolling INSIDE the popover (it scrolls when capped above the home
+		// indicator) must not close it (round-9 hunt).
+		const onScroll = (e: Event) => {
+			if (scrollClosesPopover(e.target, boxRef.current)) close();
+		};
+		window.addEventListener("scroll", onScroll, { capture: true, passive: true });
 		// A resize/rotation closes it too: its fixed coordinates would be stale (round-8 hunt).
 		window.addEventListener("resize", close);
 		return () => {
-			window.removeEventListener("scroll", close, { capture: true });
+			window.removeEventListener("scroll", onScroll, { capture: true });
 			window.removeEventListener("resize", close);
 		};
 	}, [open]);
@@ -260,6 +271,7 @@ function MetadataPopover({
 				anchor &&
 				createPortal(
 					<div
+						ref={boxRef}
 						data-testid="metadata-box"
 						// PORTALED TO BODY (owner fix, 2026-10-06): the transcript's
 						// MessageContent boxes carry overflow-hidden — an absolutely
