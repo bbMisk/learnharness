@@ -51,7 +51,7 @@ const { jobStore } = await import("../src/store/jobs.ts");
 after(() => fs.rmSync(scratch, { recursive: true, force: true }));
 
 const TRACK_SET =
-	"Track the set. When teaching starts, call problem_list once with every problem in the set, in order, each with a short label (e.g. 'Q3: CRLB bound'). Call problem_done once the learner has completed that problem's full attempt correctly, after any follow-up. Re-call problem_list only if the set itself changes.";
+	"Track the set. When teaching starts, call problem_list once with every problem in the set, in order, each with a short label (e.g. 'Q3: CRLB bound'). Call problem_start when you begin a problem. When you leave a problem, call problem_done with its outcome: correct if the learner completed its full attempt correctly (after any follow-up), incorrect if they didn't, skipped if you moved on without an attempt. Re-call problem_list only if the set itself changes.";
 const MISTAKES =
 	"Mistakes. When the learner makes a substantive mistake (a misconception or a wrong step, not a slip or typo), call note_mistake with one short line naming it. When they later complete a problem or check that would have exposed the same mistake and get it right, call resolve_mistake with its id. Never mention these calls to the learner.";
 /** The approved wording, ignoring the bold lead-in markup. */
@@ -155,8 +155,8 @@ describe("lesson-tracking tools: validation, slim results, derivation", () => {
 		// Unknown id: the error lists the valid ids. A known id ticks.
 		r = await run(tools, "problem_done", { id: "q9" });
 		assert.match(errorOf(r), /No problem "q9" in the current list\. Ids: q1, q2, q3\./);
-		r = await run(tools, "problem_done", { id: "q2" });
-		assert.deepEqual(JSON.parse(textOf(r)), { ok: true, done: 1, of: 3 });
+		r = await run(tools, "problem_done", { id: "q2", outcome: "correct" });
+		assert.deepEqual(JSON.parse(textOf(r)), { ok: true, correct: 1, of: 3 });
 	});
 
 	it("note_mistake mints m1, m2… per chat; resolve_mistake needs an open, existing id", async () => {
@@ -191,7 +191,7 @@ describe("lesson-tracking tools: validation, slim results, derivation", () => {
 			return r;
 		};
 		await keep("problem_list", { problems: [{ id: "a", label: "A" }, { id: "b", label: "B" }, { id: "c", label: "C" }] });
-		await keep("problem_done", { id: "a" });
+		await keep("problem_done", { id: "a", outcome: "correct" });
 		await keep("problem_done", { id: "zzz" }); // refused: never counts
 		await keep("note_mistake", { text: "Sign error in the score" });
 		await keep("note_mistake", { text: "Confuses MLE with MoM" });
@@ -204,9 +204,9 @@ describe("lesson-tracking tools: validation, slim results, derivation", () => {
 		const derived = deriveLessonTracking(chatStore.getChat(chatId)!.messages);
 		assert.deepEqual(derived, {
 			problems: [
-				{ id: "c", label: "C (rewritten)", done: false },
-				{ id: "a", label: "A", done: true },
-				{ id: "d", label: "D", done: false },
+				{ id: "c", label: "C (rewritten)", outcome: null, current: false },
+				{ id: "a", label: "A", outcome: "correct", current: false },
+				{ id: "d", label: "D", outcome: null, current: false },
 			],
 			mistakes: [
 				{ id: "m1", text: "Sign error in the score", resolved: true },
@@ -232,6 +232,84 @@ describe("lesson-tracking tools: validation, slim results, derivation", () => {
 	});
 });
 
+describe("problem outcomes and the current problem (owner, 2026-11-03)", () => {
+	const LIST = [{ id: "q1", label: "Q1" }, { id: "q2", label: "Q2" }, { id: "q3", label: "Q3" }, { id: "q4", label: "Q4" }];
+	let n = 0;
+	const ev = (toolName: string, details: Record<string, unknown>) => toolResultMessage(`e${n++}`, toolName, { content: [{ type: "text", text: "ok" }], details: { ok: true, ...details } });
+	const list = () => ev("problem_list", { problems: LIST });
+	const start = (id: string) => ev("problem_start", { id });
+	const done = (id: string, outcome?: string) => ev("problem_done", outcome ? { id, outcome } : { id });
+	const view = (messages: LhMessage[]) => deriveLessonTracking(messages).problems!.map((p) => `${p.id}:${p.current ? "current" : p.outcome ?? "open"}`);
+
+	it("out of order: the card's bug — Q3 finished first never makes Q1 current", () => {
+		assert.deepEqual(view([list(), start("q3"), done("q3", "correct")]), ["q1:open", "q2:open", "q3:correct", "q4:open"]);
+		assert.deepEqual(view([list(), start("q3"), done("q3", "correct"), start("q2")]), ["q1:open", "q2:current", "q3:correct", "q4:open"]);
+		assert.deepEqual(view([list(), start("q4"), done("q4", "skipped"), start("q2"), done("q2", "incorrect")]), ["q1:open", "q2:incorrect", "q3:open", "q4:skipped"]);
+	});
+
+	it("current: the most recently started problem with no problem_done after that start", () => {
+		assert.deepEqual(view([list(), start("q1"), start("q2")]), ["q1:open", "q2:current", "q3:open", "q4:open"]);
+		assert.deepEqual(view([list(), start("q1"), start("q2"), done("q2", "correct")]), ["q1:current", "q2:correct", "q3:open", "q4:open"], "an earlier open start is current again");
+		assert.deepEqual(view([list(), start("q1"), done("q1", "correct"), start("q2"), done("q2", "skipped")]), ["q1:correct", "q2:skipped", "q3:open", "q4:open"], "nothing in progress: no current");
+	});
+
+	it("restart and redo: a finished problem started again is current until its next problem_done, which replaces the outcome", () => {
+		const base = [list(), start("q1"), done("q1", "incorrect"), start("q2"), done("q2", "correct"), start("q1")];
+		assert.deepEqual(view(base), ["q1:current", "q2:correct", "q3:open", "q4:open"]);
+		assert.deepEqual(view([...base, done("q1", "correct")]), ["q1:correct", "q2:correct", "q3:open", "q4:open"], "a correct redo turns the ✗ green");
+		assert.deepEqual(view([list(), done("q1", "correct"), done("q1", "incorrect")]), ["q1:incorrect", "q2:open", "q3:open", "q4:open"], "the latest outcome wins either way");
+	});
+
+	it("legacy records: a problem_done with no outcome derives as correct; a re-list keeps outcomes of kept ids", () => {
+		assert.deepEqual(view([list(), done("q1"), done("q2")]), ["q1:correct", "q2:correct", "q3:open", "q4:open"]);
+		const relist = ev("problem_list", { problems: [{ id: "q2", label: "Q2" }, { id: "q5", label: "Q5" }] });
+		assert.deepEqual(view([list(), done("q2", "incorrect"), start("q5"), relist]), ["q2:incorrect", "q5:current"]);
+	});
+
+	it("problem_start validates like problem_done; problem_done needs a valid outcome", async () => {
+		const chatId = newChat();
+		const tools = lessonTrackingTools({ chatId, chatStore }, { problems: true });
+		assert.match(errorOf(await run(tools, "problem_start", { id: "q1" })), /No problem list yet — call problem_list first/);
+		await run(tools, "problem_list", { problems: LIST });
+		assert.match(errorOf(await run(tools, "problem_start", { id: "q9" })), /No problem "q9" in the current list\. Ids: q1, q2, q3, q4\./);
+		const ok = await run(tools, "problem_start", { id: "q2" });
+		assert.deepEqual(JSON.parse(textOf(ok)), { ok: true });
+		assert.deepEqual(ok.details, { ok: true, id: "q2" });
+		assert.match(errorOf(await run(tools, "problem_done", { id: "q2", outcome: "great" })), /outcome "great" is not one of: correct, incorrect, skipped/);
+		assert.match(errorOf(await run(tools, "problem_done", { id: "q9", outcome: "correct" })), /No problem "q9"/);
+		assert.deepEqual(JSON.parse(textOf(await run(tools, "problem_done", { id: "q2", outcome: "incorrect" }))), { ok: true, correct: 0, of: 4 });
+		assert.deepEqual(JSON.parse(textOf(await run(tools, "problem_done", { id: "q2", outcome: "correct" }))), { ok: true, correct: 1, of: 4 });
+		const schema = JSON.stringify(tools.problem_done!.parameters);
+		assert.match(schema, /"required":\["id","outcome"\]/, "outcome is required in the schema");
+	});
+
+	it("one tracker per tool context: the mid-run registry rebuild keeps the turn's state", async () => {
+		const chatId = newChat();
+		const ctx = { chatId, chatStore, jobStore, spawn: () => {} };
+		const first = createTeacherTools(ctx, undefined, "mcq", true);
+		await run(first, "problem_list", { problems: LIST });
+		await run(first, "problem_start", { id: "q1" });
+		await run(first, "note_mistake", { text: "Sign slip" });
+		// The live question-type swap rebuilds the registry with the SAME ctx.
+		const rebuilt = createTeacherTools(ctx, undefined, "saq", true);
+		assert.ok(rebuilt.problem_start && rebuilt.problem_done, "the rebuild keeps the problem tools");
+		assert.deepEqual(JSON.parse(textOf(await run(rebuilt, "note_mistake", { text: "Second" }))), { ok: true, id: "m2" });
+		assert.deepEqual(JSON.parse(textOf(await run(rebuilt, "problem_done", { id: "q1", outcome: "correct" }))), { ok: true, correct: 1, of: 4 });
+	});
+
+	it("a problem_start execution counts live before its result lands", () => {
+		const record: LhMessage[] = [
+			list(),
+			assistant("s1", [call("ps", "problem_start", { id: "q2" })]),
+		];
+		assert.equal(deriveLessonTracking(record).problems!.find((p) => p.current), undefined);
+		const live = new Map([["ps", { isError: false, output: { ok: true, id: "q2" } }]]);
+		assert.equal(deriveLessonTracking(record, live).problems!.find((p) => p.current)?.id, "q2");
+		const settled = [...record, result("r-ps", "ps", "problem_start", { ok: true, id: "q2" })];
+		assert.deepEqual(deriveLessonTracking(settled, live), deriveLessonTracking(settled));
+	});
+});
+
 describe("lesson-tracking scope", () => {
 	const ctx = (chatId: string) => ({ chatId, chatStore, jobStore, spawn: () => {} });
 	const tracking = (tools: Record<string, unknown>) => Object.keys(tools).filter((n) => LESSON_TRACKING_TOOLS.includes(n)).sort();
@@ -241,7 +319,7 @@ describe("lesson-tracking scope", () => {
 		assert.deepEqual(tracking(createTeacherTools(ctx(chatId))), ["note_mistake", "resolve_mistake"]);
 		assert.deepEqual(tracking(createTeacherTools(ctx(chatId), undefined, "mixed")), ["note_mistake", "resolve_mistake"], "Mixed alone does not add the problem tools");
 		assert.deepEqual(tracking(createTeacherTools(ctx(chatId), { explain: true }, undefined, false)), ["note_mistake", "resolve_mistake"]);
-		assert.deepEqual(tracking(createTeacherTools(ctx(chatId), undefined, "mixed", true)), ["note_mistake", "problem_done", "problem_list", "resolve_mistake"]);
+		assert.deepEqual(tracking(createTeacherTools(ctx(chatId), undefined, "mixed", true)), ["note_mistake", "problem_done", "problem_list", "problem_start", "resolve_mistake"]);
 		assert.deepEqual(tracking(createProberTools({ ...ctx(chatId), deliver: () => {} })), []);
 		assert.deepEqual(tracking(practiceTools({ chatId, chatStore })), []);
 	});
@@ -252,11 +330,13 @@ describe("lesson-tracking scope", () => {
 		assert.doesNotMatch(composeInstructions("prober"), /note_mistake|resolve_mistake/);
 		assert.doesNotMatch(composeInstructions("practice"), /note_mistake|resolve_mistake/);
 		for (const kind of ["teacher", "prober", "practice"] as const) {
-			assert.doesNotMatch(composeInstructions(kind), /problem_list|problem_done/, `${kind}'s base prompt never names the problem tools`);
+			assert.doesNotMatch(composeInstructions(kind), /problem_list|problem_start|problem_done/, `${kind}'s base prompt never names the problem tools`);
 		}
 		// The cram teacher's instructions carry the set paragraph; the cram
 		// prober's, a Teach lesson's, and practice's context do not.
 		assert.ok(plain(CRAM_INSTRUCTIONS).includes(TRACK_SET));
+		assert.doesNotMatch(CRAM_INSTRUCTIONS, /Call problem_done once the learner/, "the old paragraph is gone");
+		assert.match(CRAM_INSTRUCTIONS, /\*\*Track the set\.\*\* When teaching starts/, "the bold lead-in stays");
 		assert.doesNotMatch(CRAM_PROBE_INSTRUCTIONS, /problem_list/);
 		assert.ok(plain(withTeachingStyle("", { style: "cram", messages: probeDone })).includes(TRACK_SET));
 		assert.doesNotMatch(withTeachingStyle("", { style: "cram", messages: [] }), /problem_list/);
@@ -280,10 +360,12 @@ describe("lesson-tracking calls are hidden from the transcript", () => {
 			{ type: "text", text: "Here is the set." },
 			call("pl", "problem_list", { problems: [{ id: "q1", label: "Q1" }] }),
 			call("nm", "note_mistake", { text: "Sign slip" }),
+			call("ps", "problem_start", { id: "q1" }),
 			call("rd", "read", { path: "notes.md" }),
 		]),
 		result("r-pl", "pl", "problem_list", { ok: true, problems: [{ id: "q1", label: "Q1" }] }),
 		result("r-nm", "nm", "note_mistake", { ok: true, id: "m1", text: "Sign slip" }),
+		result("r-ps", "ps", "problem_start", { ok: true, id: "q1" }),
 		result("r-rd", "rd", "read", { body: "x" }),
 		// A message carrying ONLY tracking calls (one an error) renders nothing.
 		assistant("a2", [call("pd", "problem_done", { id: "q9" }), call("rm", "resolve_mistake", { id: "m1" })]),
@@ -375,29 +457,32 @@ describe("a simulated cram lesson (chat handler + faux engine)", () => {
 							{ id: "q3", label: "Q3: sufficiency" },
 						],
 					}, { id: "t1-list" }),
+					fauxToolCall("problem_start", { id: "q1" }, { id: "t1-start" }),
 					fauxToolCall("note_mistake", { text: "Treats the variance as the standard deviation" }, { id: "t1-m1" }),
 				],
 				{ stopReason: "toolUse" },
 			),
 			fauxAssistantMessage(
 				[
-					fauxToolCall("problem_done", { id: "q1" }, { id: "t1-done" }),
+					fauxToolCall("problem_done", { id: "q1", outcome: "incorrect" }, { id: "t1-done" }),
+					fauxToolCall("problem_start", { id: "q3" }, { id: "t1-start3" }),
 					fauxToolCall("note_mistake", { text: "Drops the n in the Fisher information" }, { id: "t1-m2" }),
 					fauxToolCall("resolve_mistake", { id: "m1" }, { id: "t1-r1" }),
-					fauxToolCall("problem_done", { id: "q7" }, { id: "t1-bad" }),
+					fauxToolCall("problem_done", { id: "q7", outcome: "correct" }, { id: "t1-bad" }),
+					fauxToolCall("problem_done", { id: "q2" }, { id: "t1-no-outcome" }),
 				],
 				{ stopReason: "toolUse" },
 			),
-			fauxAssistantMessage([fauxText("Q1 is done. On to the CRLB.")]),
+			fauxAssistantMessage([fauxText("Q1 needs another pass. On to sufficiency.")]),
 		]);
 		await turn(chatId, "Let's cram for the stats midterm.", lesson.engine);
 
 		const saved = chatStore.getChat(chatId)!.messages;
 		assert.deepEqual(deriveLessonTracking(saved), {
 			problems: [
-				{ id: "q1", label: "Q1: bias of the MLE", done: true },
-				{ id: "q2", label: "Q2: CRLB bound", done: false },
-				{ id: "q3", label: "Q3: sufficiency", done: false },
+				{ id: "q1", label: "Q1: bias of the MLE", outcome: "incorrect", current: false },
+				{ id: "q2", label: "Q2: CRLB bound", outcome: null, current: false },
+				{ id: "q3", label: "Q3: sufficiency", outcome: null, current: true },
 			],
 			mistakes: [
 				{ id: "m1", text: "Treats the variance as the standard deviation", resolved: true },
@@ -408,6 +493,9 @@ describe("a simulated cram lesson (chat handler + faux engine)", () => {
 		const lastContext = lesson.contexts.at(-1)!;
 		assert.ok(lastContext.includes(JSON.stringify(JSON.stringify({ ok: true, id: "m2" })).slice(1, -1)));
 		assert.match(lastContext, /No problem \\"q7\\" in the current list/);
+		const noOutcome = saved.find((m) => (m as { toolCallId?: string }).toolCallId === "t1-no-outcome") as { isError?: boolean; content: Array<{ text?: string }> } | undefined;
+		assert.equal(noOutcome?.isError, true, "a problem_done without an outcome is refused back to the model");
+		assert.match(noOutcome?.content[0]?.text ?? "", /problem_done[^]*outcome/);
 		assert.doesNotMatch(lastContext, /Q2: CRLB bound\\"[^]*Q2: CRLB bound/, "the list is never echoed back");
 		// The transcript shows the prose, never the tracking calls.
 		const types = projectView(saved).flatMap((m) => m.parts.map((p) => p.type));
@@ -417,7 +505,10 @@ describe("a simulated cram lesson (chat handler + faux engine)", () => {
 		const next = scripted([
 			fauxAssistantMessage(
 				[
-					fauxToolCall("problem_done", { id: "q2" }, { id: "t2-done" }),
+					fauxToolCall("problem_done", { id: "q3", outcome: "skipped" }, { id: "t2-skip" }),
+					fauxToolCall("problem_start", { id: "q1" }, { id: "t2-redo" }),
+					fauxToolCall("problem_done", { id: "q1", outcome: "correct" }, { id: "t2-redo-done" }),
+					fauxToolCall("problem_start", { id: "q2" }, { id: "t2-start2" }),
 					fauxToolCall("note_mistake", { text: "Forgets the regularity conditions" }, { id: "t2-m3" }),
 					fauxToolCall("resolve_mistake", { id: "m1" }, { id: "t2-again" }),
 				],
@@ -427,7 +518,7 @@ describe("a simulated cram lesson (chat handler + faux engine)", () => {
 		]);
 		await turn(chatId, "Done with the CRLB one.", next.engine);
 		const after2 = deriveLessonTracking(chatStore.getChat(chatId)!.messages);
-		assert.deepEqual(after2.problems?.map((p) => p.done), [true, true, false]);
+		assert.deepEqual(after2.problems?.map((p) => [p.id, p.outcome, p.current]), [["q1", "correct", false], ["q2", null, true], ["q3", "skipped", false]], "the correct redo replaced q1's ✗");
 		assert.deepEqual(after2.mistakes.map((m) => [m.id, m.resolved]), [["m1", true], ["m2", false], ["m3", false]]);
 		assert.match(next.contexts.at(-1)!, /already resolved/);
 	});
@@ -468,9 +559,9 @@ describe("live executions fold until their results land", () => {
 	]);
 
 	it("an ended execution counts before turn_end; its later result never counts twice", () => {
-		assert.deepEqual(deriveLessonTracking(record).problems?.map((p) => p.done), [false, false], "the record alone: not yet");
+		assert.deepEqual(deriveLessonTracking(record).problems?.map((p) => p.outcome), [null, null], "the record alone: not yet");
 		const live = deriveLessonTracking(record, executions);
-		assert.deepEqual(live.problems?.map((p) => p.done), [true, false]);
+		assert.deepEqual(live.problems?.map((p) => p.outcome), ["correct", null]);
 		assert.deepEqual(live.mistakes, [{ id: "m1", text: "Sign", resolved: false }]);
 		const settled = [
 			...record,
@@ -488,15 +579,22 @@ describe("live executions fold until their results land", () => {
 
 describe("the compaction line", () => {
 	it("formats the owner's line; each part only when it has something", () => {
-		const tracking = (problems: Array<[string, boolean]> | null, mistakes: Array<[string, string, boolean]>) => ({
-			problems: problems && problems.map(([id, done]) => ({ id, label: id.toUpperCase(), done })),
+		type Status = "correct" | "incorrect" | "skipped" | "current" | "redo" | null;
+		const tracking = (problems: Array<[string, Status]> | null, mistakes: Array<[string, string, boolean]>) => ({
+			problems: problems && problems.map(([id, status]) => ({
+				id,
+				label: id.toUpperCase(),
+				outcome: status === "current" ? null : status === "redo" ? ("incorrect" as const) : status,
+				current: status === "current" || status === "redo",
+			})),
 			mistakes: mistakes.map(([id, text, resolved]) => ({ id, text, resolved })),
 		});
 		assert.equal(
-			lessonTrackingLine(tracking([["q1", true], ["q2", true], ["q3", false], ["q4", false]], [["m1", "dropped the sign of the score", false]])),
-			'Lesson tracking: problems q1 "Q1" ✓, q2 "Q2" ✓, q3 "Q3" open, q4 "Q4" open; open mistakes m1 "dropped the sign of the score"',
+			lessonTrackingLine(tracking([["q1", "correct"], ["q2", "incorrect"], ["q3", "skipped"], ["q4", "current"], ["q5", null]], [["m1", "dropped the sign of the score", false]])),
+			'Lesson tracking: problems q1 "Q1" ✓, q2 "Q2" ✗, q3 "Q3" skipped, q4 "Q4" current, q5 "Q5" open; open mistakes m1 "dropped the sign of the score"',
 		);
-		assert.equal(lessonTrackingLine(tracking([["q1", false]], [["m1", "x", true]])), 'Lesson tracking: problems q1 "Q1" open');
+		assert.equal(lessonTrackingLine(tracking([["q1", "redo"]], [])), 'Lesson tracking: problems q1 "Q1" current', "a restarted problem reads current, not its old outcome");
+		assert.equal(lessonTrackingLine(tracking([["q1", null]], [["m1", "x", true]])), 'Lesson tracking: problems q1 "Q1" open');
 		assert.equal(
 			lessonTrackingLine(tracking(null, [["m1", "a", true], ["m2", "b", false], ["m3", "c", false]])),
 			'Lesson tracking: open mistakes m2 "b", m3 "c"',
@@ -601,8 +699,9 @@ describe("the Markdown export", () => {
 			result("r-pl", "pl", "problem_list", { ok: true, problems: [] }),
 			result("r-nm", "nm", "note_mistake", { ok: true, id: "m1", text: "x" }),
 			result("r-pi", "pi", "plan_init", { ok: true }),
-			assistant("a2", [call("pd", "problem_done", {}), call("rm", "resolve_mistake", {})]),
-			result("r-pd", "pd", "problem_done", { ok: true, id: "q1" }),
+			assistant("a2", [call("ps", "problem_start", {}), call("pd", "problem_done", {}), call("rm", "resolve_mistake", {})]),
+			result("r-ps", "ps", "problem_start", { ok: true, id: "q1" }),
+			result("r-pd", "pd", "problem_done", { ok: true, id: "q1", outcome: "correct" }),
 			result("r-rm", "rm", "resolve_mistake", { ok: true, id: "m1" }),
 		]);
 		for (const name of LESSON_TRACKING_TOOLS) assert.ok(!md.includes(name), `${name} stays out of the export`);

@@ -3,21 +3,27 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { serverExecute } from "../tool-execute.ts";
 import type { ChatStore } from "../../core/ports.ts";
 import {
+	correctProblemCount,
 	lessonTrackerOf,
 	NOTE_MISTAKE_TOOL,
 	PROBLEM_DONE_TOOL,
 	PROBLEM_LIST_TOOL,
+	PROBLEM_OUTCOMES,
+	PROBLEM_START_TOOL,
 	RESOLVE_MISTAKE_TOOL,
 	type LessonTracker,
 	type NoteMistakeDetails,
 	type ProblemDoneDetails,
 	type ProblemListDetails,
+	type ProblemOutcome,
+	type ProblemStartDetails,
 	type ResolveMistakeDetails,
 } from "../../core/lesson-tracking.ts";
 
 /**
  * The lesson-tracking tools (owner, 2026-11-02 — core/lesson-tracking.ts):
- * the cram teacher's problem set (problem_list / problem_done) and every
+ * the cram teacher's problem set (problem_list / problem_start /
+ * problem_done) and every
  * teacher's mistake log (note_mistake / resolve_mistake). SERVER-SIDE,
  * persisted in the transcript like plan_init: the state is DERIVED from
  * the record's successful results (their `details`), never stored apart.
@@ -26,7 +32,9 @@ import {
  * its end, so the registry (built per request) seeds ONE tracker from the
  * record at its first tracking call and folds its own successes into it
  * with the same reducer — a second note_mistake in the same turn mints m2,
- * a problem_done sees a list written earlier in the turn.
+ * a problem_done sees a list written earlier in the turn. The tracker is
+ * keyed to the tool CONTEXT object, so the mid-run registry rebuild (the
+ * live question-type swap, teacher-agent.ts — same ctx) keeps it.
  *
  * CONTEXT-SLIM results (the plan_init pattern): content is a short JSON
  * ack — the model wrote the input one message ago — and failures carry
@@ -53,8 +61,14 @@ const problemListInput = Type.Object({
 		{ description: "Every problem in the set, in order." },
 	),
 });
+const problemStartInput = Type.Object({
+	id: Type.String({ description: "The problem's id from the latest problem_list." }),
+});
 const problemDoneInput = Type.Object({
 	id: Type.String({ description: "The problem's id from the latest problem_list." }),
+	outcome: Type.Union(PROBLEM_OUTCOMES.map((o) => Type.Literal(o)), {
+		description: "correct: the learner completed its full attempt correctly (after any follow-up); incorrect: they didn't; skipped: you moved on without an attempt.",
+	}),
 });
 const noteMistakeInput = Type.Object({
 	text: Type.String({ description: "One short line naming the mistake." }),
@@ -88,18 +102,32 @@ function listIds(ids: readonly string[]): string {
 	return ids.length > 8 ? `${ids.slice(0, 8).join(", ")}, …` : ids.join(", ");
 }
 
+/** One lazily-seeded tracker per tool context (see the module note). */
+const trackers = new WeakMap<LessonTrackingToolContext, LessonTracker>();
+
 /**
  * The tracking tools for one teacher registry: the mistake pair always,
- * the problem pair only for a cram teacher (`problems`). All four share
- * one lazily-seeded tracker (see the module note).
+ * the problem tools only for a cram teacher (`problems`). All share one
+ * lazily-seeded tracker per context (see the module note).
  */
 export function lessonTrackingTools(
 	ctx: LessonTrackingToolContext,
 	opts: { problems: boolean },
 ): Record<string, AgentTool<any>> {
-	let seeded: LessonTracker | null = null;
-	const tracker = (): LessonTracker =>
-		(seeded ??= lessonTrackerOf(ctx.chatStore.getChat(ctx.chatId)?.messages ?? []));
+	const tracker = (): LessonTracker => {
+		let t = trackers.get(ctx);
+		if (!t) {
+			t = lessonTrackerOf(ctx.chatStore.getChat(ctx.chatId)?.messages ?? []);
+			trackers.set(ctx, t);
+		}
+		return t;
+	};
+	/** The latest list's validation for a problem id, or null when valid. */
+	const unknownProblem = (t: LessonTracker, id: string): string | null => {
+		const ids = t.problemIds();
+		if (ids === null) return "No problem list yet — call problem_list first.";
+		return ids.includes(id) ? null : `No problem "${id}" in the current list. Ids: ${listIds(ids)}.`;
+	};
 
 	const mistakeTools: Record<string, AgentTool<any>> = {
 		[NOTE_MISTAKE_TOOL]: {
@@ -161,24 +189,38 @@ export function lessonTrackingTools(
 				return { text: JSON.stringify({ ok: true, problems: details.problems.length }), details };
 			}),
 		},
+		[PROBLEM_START_TOOL]: {
+			name: PROBLEM_START_TOOL,
+			label: PROBLEM_START_TOOL,
+			description: "Mark a problem from the latest problem_list as begun, by id — call it when you begin the problem.",
+			parameters: problemStartInput,
+			execute: serverExecute(PROBLEM_START_TOOL, problemStartInput, ({ id }) => {
+				const t = tracker();
+				const error = unknownProblem(t, id);
+				if (error) return { ok: false, error };
+				const details: ProblemStartDetails = { ok: true, id };
+				t.apply(PROBLEM_START_TOOL, details);
+				return { text: JSON.stringify({ ok: true }), details };
+			}),
+		},
 		[PROBLEM_DONE_TOOL]: {
 			name: PROBLEM_DONE_TOOL,
 			label: PROBLEM_DONE_TOOL,
 			description:
-				"Mark a problem from the latest problem_list done, by id — once the learner has completed its full attempt correctly, after any follow-up.",
+				"Record how you left a problem from the latest problem_list, by id: outcome correct, incorrect or skipped. A later call replaces the problem's earlier outcome.",
 			parameters: problemDoneInput,
-			execute: serverExecute(PROBLEM_DONE_TOOL, problemDoneInput, ({ id }) => {
+			execute: serverExecute(PROBLEM_DONE_TOOL, problemDoneInput, ({ id, outcome }) => {
 				const t = tracker();
-				const ids = t.problemIds();
-				if (ids === null) return { ok: false, error: "No problem list yet — call problem_list first." };
-				if (!ids.includes(id)) {
-					return { ok: false, error: `No problem "${id}" in the current list. Ids: ${listIds(ids)}.` };
+				const error = unknownProblem(t, id);
+				if (error) return { ok: false, error };
+				if (!PROBLEM_OUTCOMES.includes(outcome as ProblemOutcome)) {
+					return { ok: false, error: `outcome "${String(outcome)}" is not one of: ${PROBLEM_OUTCOMES.join(", ")}.` };
 				}
-				const details: ProblemDoneDetails = { ok: true, id };
+				const details: ProblemDoneDetails = { ok: true, id, outcome: outcome as ProblemOutcome };
 				t.apply(PROBLEM_DONE_TOOL, details);
 				const problems = t.snapshot().problems ?? [];
 				return {
-					text: JSON.stringify({ ok: true, done: problems.filter((p) => p.done).length, of: problems.length }),
+					text: JSON.stringify({ ok: true, correct: correctProblemCount(problems), of: problems.length }),
 					details,
 				};
 			}),

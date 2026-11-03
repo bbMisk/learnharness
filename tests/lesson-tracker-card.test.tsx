@@ -71,14 +71,20 @@ const record: LhMessage[] = [
 			{ id: "q2", label: "Q2: CRLB bound" },
 			{ id: "q3", label: "Q3: sufficiency" },
 			{ id: "q4", label: "Q4: Rao-Blackwell" },
+			{ id: "q5", label: "Q5: UMVUE" },
 		],
 	}),
-	result(2, "problem_done", { ok: true, id: "q1" }),
-	result(3, "problem_done", { ok: true, id: "q3" }),
+	// The owner's iPad case: the teacher works out of order — Q3 first.
+	result(2, "problem_start", { ok: true, id: "q3" }),
+	result(3, "problem_done", { ok: true, id: "q3", outcome: "correct" }),
 	result(4, "note_mistake", { ok: true, id: "m1", text: "Variance taken as the standard deviation" }),
 	result(5, "note_mistake", { ok: true, id: "m2", text: "Drops the n in the Fisher information" }),
 	result(6, "note_mistake", { ok: true, id: "m3", text: "Forgets the regularity conditions" }),
 	result(7, "resolve_mistake", { ok: true, id: "m1" }),
+	result(8, "problem_start", { ok: true, id: "q1" }),
+	result(9, "problem_done", { ok: true, id: "q1", outcome: "incorrect" }),
+	result(10, "problem_done", { ok: true, id: "q4", outcome: "skipped" }),
+	result(11, "problem_start", { ok: true, id: "q2" }),
 ];
 
 const rows = (host: Element, section: string) =>
@@ -91,13 +97,25 @@ it("renders both sections with symbols and counts", async () => {
 	const card = host.querySelector('[data-testid="lesson-tracker"]')!;
 	assert.ok(card, "the card renders");
 	assert.match(card.querySelector("h3")!.textContent!, /^Problems/);
-	assert.equal(count(host, "problems"), "2/4");
+	assert.equal(count(host, "problems"), "1/5", "correct / total");
 	assert.deepEqual(rows(host, "problems"), [
-		["done", "✓Q1: bias of the MLE"],
+		["incorrect", "✗Q1: bias of the MLE"],
 		["current", "▸Q2: CRLB bound"],
-		["done", "✓Q3: sufficiency"],
-		["todo", "○Q4: Rao-Blackwell"],
+		["correct", "✓Q3: sufficiency"],
+		["skipped", "–Q4: Rao-Blackwell"],
+		["todo", "○Q5: UMVUE"],
 	]);
+	// Colours: the quiz feedback's green/red (answered-card.tsx), grey for skipped; bold for current.
+	const problemRow = (status: string) => host.querySelector(`[data-testid="lesson-tracker-problems"] li[data-status="${status}"]`)!;
+	const symbolClass = (status: string) => problemRow(status).querySelector('[data-testid="lesson-tracker-symbol"]')!.getAttribute("class")!;
+	assert.match(symbolClass("correct"), /\btext-green-500\b/);
+	assert.match(symbolClass("incorrect"), /\btext-red-500\b/);
+	assert.match(symbolClass("skipped"), /\btext-muted-foreground\b/);
+	assert.doesNotMatch(symbolClass("todo"), /text-(green|red)-500/);
+	assert.match(problemRow("current").getAttribute("class")!, /\bfont-semibold\b/);
+	for (const status of ["correct", "incorrect", "skipped", "todo"]) {
+		assert.doesNotMatch(problemRow(status).getAttribute("class")!, /font-semibold/, `${status} is not bold`);
+	}
 	assert.equal(count(host, "mistakes"), "2 open");
 	assert.deepEqual(rows(host, "mistakes"), [
 		["resolved", "✓Variance taken as the standard deviation"],
@@ -117,13 +135,17 @@ it("shows only the sections that exist", async () => {
 	const listOnly = deriveLessonTracking([record[0]!]);
 	host = await mount(<LessonTrackerCard tracking={listOnly} bottomReserve={0} />);
 	assert.equal(host.querySelector('[data-testid="lesson-tracker-mistakes"]'), null);
-	assert.equal(count(host, "problems"), "0/4");
-	assert.equal(rows(host, "problems")[0]![0], "current", "the first not-done problem is current");
-	// All done: no current row.
-	const allDone = deriveLessonTracking([record[0]!, ...["q1", "q2", "q3", "q4"].map((id, i) => result(10 + i, "problem_done", { ok: true, id }))]);
-	await act(async () => root!.render(<LessonTrackerCard tracking={allDone} bottomReserve={0} />));
-	assert.equal(count(host, "problems"), "4/4");
-	assert.deepEqual(rows(host, "problems").map((r) => r[0]), ["done", "done", "done", "done"]);
+	assert.equal(count(host, "problems"), "0/5");
+	assert.deepEqual(rows(host, "problems").map((r) => r[0]), ["todo", "todo", "todo", "todo", "todo"], "nothing started: nothing current");
+	// Legacy records (no outcome) read as correct; a restarted problem is current, not counted.
+	const legacy = deriveLessonTracking([record[0]!, ...["q1", "q2", "q3", "q4", "q5"].map((id, i) => result(20 + i, "problem_done", { ok: true, id }))]);
+	await act(async () => root!.render(<LessonTrackerCard tracking={legacy} bottomReserve={0} />));
+	assert.equal(count(host, "problems"), "5/5");
+	assert.deepEqual(rows(host, "problems").map((r) => r[0]), ["correct", "correct", "correct", "correct", "correct"]);
+	const redo = deriveLessonTracking([record[0]!, result(30, "problem_done", { ok: true, id: "q2", outcome: "correct" }), result(31, "problem_start", { ok: true, id: "q2" })]);
+	await act(async () => root!.render(<LessonTrackerCard tracking={redo} bottomReserve={0} />));
+	assert.equal(count(host, "problems"), "0/5");
+	assert.equal(rows(host, "problems")[1]![0], "current");
 });
 
 /** The chat's wiring (components/chat.tsx): chip in the header when the
@@ -166,9 +188,11 @@ it("updates live as tracking results arrive; no chip or card before any", async 
 	assert.ok(host.querySelector('[data-testid="empty"]'));
 	assert.equal(chip(host), null);
 	await act(async () => root!.render(<Harness messages={record.slice(0, 1)} />));
-	assert.equal(count(host, "problems"), "0/4");
+	assert.equal(count(host, "problems"), "0/5");
 	await act(async () => root!.render(<Harness messages={record.slice(0, 2)} />));
-	assert.equal(count(host, "problems"), "1/4");
+	assert.equal(rows(host, "problems")[2]![0], "current");
+	await act(async () => root!.render(<Harness messages={record.slice(0, 3)} />));
+	assert.equal(count(host, "problems"), "1/5");
 	await act(async () => root!.render(<Harness messages={record} />));
 	assert.equal(count(host, "mistakes"), "2 open");
 });
