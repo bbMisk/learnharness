@@ -53,7 +53,7 @@ import { PracticeDock } from "@/components/practice-dock";
 import { TopBar } from "@/components/top-bar";
 import type { JobRecord, Phase3, QuestionAnswerData, QuestionCall, QuestionFormDraft, TurnUsage, SessionPricing } from "@/src/core";
 import { PhaseChip } from "@/components/phase-divider";
-import { CramToggle } from "@/components/cram-toggle";
+import { CramToggle, useLessonCram } from "@/components/cram-toggle";
 import { QuestionTypeChip, showsQuestionTypeChip, useLessonQuestionType } from "@/components/question-type-chip";
 import { LessonTrackerCard, LessonTrackerChip, lessonTrackerRoom, useLessonTrackerShown } from "@/components/lesson-tracker";
 import { CoverageRing } from "@/components/extraction-coverage";
@@ -487,7 +487,9 @@ export function Chat({
 	// session's current phase IS the pending question's phase (the
 	// teacher's turn ends at the question call).
 	const teachingCheck = pending !== null && isTeachingCheck(pending.tool, pending.input, phaseAt3(messages));
-	const [cram, setCram] = useState(style === "cram");
+	// Cram is chat metadata another window can switch: re-read on
+	// chats-changed and reconnects, newest confirmed value first.
+	const { cram, begin: beginCramSave } = useLessonCram(chatId, style === "cram");
 	// The lesson's stored question type (owner, 2026-11-03): the Qs chip
 	// writes it; record-changed and reconnects re-read it (another device's
 	// pick), newest confirmed value first.
@@ -1332,7 +1334,7 @@ export function Chat({
 					{/* Practice (owner, 2026-10-04): the coverage ring hides —
 				    practice never extracts, so an ever-filling ring with no
 				    run behind it would lie. */}
-					{kind !== "practice" && <CramToggle chatId={chatId} on={cram} onChange={setCram} />}
+					{kind !== "practice" && <CramToggle chatId={chatId} on={cram} beginSave={beginCramSave} />}
 					{/* The lesson's question type (owner, 2026-11-03): the teacher's
 					    tools, so never for practice and not while the prober runs. */}
 					{showsQuestionTypeChip(kind, phases.at(-1) ?? "probe") && (

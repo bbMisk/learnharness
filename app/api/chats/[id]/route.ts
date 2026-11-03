@@ -9,6 +9,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 	const only = new URL(req.url).searchParams.get("only");
 	if (only === "stats") return jsonResponse(req, { turns: chat.turns, pricing: sessionCost(chat) });
 	if (only === "coverage") return jsonResponse(req, { coverage: sessionCoverage(chat) });
+	// The open chat view's cram chip re-reads the style another window set.
+	if (only === "style") return jsonResponse(req, { style: chat.style ?? null });
 	// turnInFlight lets a returning client re-attach to a running turn
 	// (chat-handler write-ahead + registry — see src/server/turn-liveness.ts).
 	// coverage (extraction-UX redesign, 2026-09-24): the chat view's ring

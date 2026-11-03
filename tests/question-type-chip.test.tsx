@@ -36,6 +36,7 @@ const { createRoot } = await import("react-dom/client");
 type Root = ReturnType<typeof createRoot>;
 const { QuestionTypeChip, showsQuestionTypeChip, useLessonQuestionType } = await import("../components/question-type-chip.tsx");
 const { ServerEventsProvider } = await import("../components/server-events.tsx");
+const { CramToggle, useLessonCram } = await import("../components/cram-toggle.tsx");
 const { notifySettingsSaved } = await import("../components/settings-signal.ts");
 type QuestionType = "mcq" | "saq" | "mixed";
 
@@ -91,12 +92,17 @@ async function mount(element: React.ReactNode) {
  *  named fields (the route's field-level write); /api/settings serves the
  *  Agent section. */
 function fakeApi(initial: Record<string, unknown>, agent: Record<string, unknown> = {}) {
-	const state = { settings: initial, calls: [] as Array<{ url: string; method: string; body?: unknown }>, failPut: false, agent };
+	const state = { settings: initial, calls: [] as Array<{ url: string; method: string; body?: unknown }>, failPut: false, agent, style: null as string | null };
 	globalThis.fetch = (async (url: string, init?: RequestInit) => {
 		const method = init?.method ?? "GET";
 		const body = init?.body ? JSON.parse(String(init.body)) : undefined;
 		state.calls.push({ url, method, ...(body ? { body } : {}) });
 		if (url === "/api/settings") return Response.json({ settings: { version: 1, agent: state.agent } });
+		if (url === "/api/chats/chat_1?only=style") return Response.json({ style: state.style });
+		if (url === "/api/chats/chat_1" && method === "PUT") {
+			state.style = body.style;
+			return Response.json({ ok: true });
+		}
 		assert.equal(url, "/api/chats/chat_1/settings");
 		if (method === "GET") return Response.json({ settings: state.settings });
 		if (state.failPut) return Response.json({ error: "no" }, { status: 500 });
@@ -107,13 +113,16 @@ function fakeApi(initial: Record<string, unknown>, agent: Record<string, unknown
 }
 
 it("labels: the stored type, else cram Mixed, else the app-wide mechanic", async () => {
-	fakeApi({});
+	fakeApi({ questionType: "saq" });
 	const host = await mount(<Harness initial="saq" />);
 	assert.equal(chip().textContent, "Qs: SAQ");
+	fakeApi({ questionType: "mcq" });
 	await act(async () => root!.render(<Harness key="mcq" initial="mcq" cram />));
 	assert.equal(chip().textContent, "Qs: MCQ", "an explicit choice wins over cram");
+	fakeApi({ questionType: "mixed" });
 	await act(async () => root!.render(<Harness key="mixed" initial="mixed" />));
 	assert.equal(chip().textContent, "Qs: Mixed");
+	fakeApi({});
 	await act(async () => root!.render(<Harness key="cram" cram />));
 	assert.equal(chip().textContent, "Qs: Mixed", "unset cram lesson");
 	await act(async () => root!.render(<Harness key="teach" />));
@@ -144,6 +153,7 @@ it("re-reads the app-wide mechanic on mount: a change made while it was hidden s
 it("only the latest Agent read lands: a slower, older response never restores the label", async () => {
 	const held: Array<(response: Response) => void> = [];
 	globalThis.fetch = (async (url: string) => {
+		if (url === "/api/chats/chat_1/settings") return Response.json({ settings: {} });
 		assert.equal(url, "/api/settings");
 		return new Promise<Response>((resolve) => held.push(resolve));
 	}) as typeof fetch;
@@ -182,7 +192,9 @@ it("opens a three-option menu with the current type checked", async () => {
 it("a pick saves only { questionType } through the chat settings API and updates at once", async () => {
 	const api = fakeApi({ model: MODEL, thinkingLevel: "low" });
 	await mount(<Harness />);
-	const chatCalls = () => api.calls.filter((c) => c.url !== "/api/settings");
+	await settle();
+	const mountReads = api.calls.length;
+	const chatCalls = () => api.calls.slice(mountReads).filter((c) => c.url !== "/api/settings");
 	await click(chip());
 	await click(option("saq"));
 	assert.equal(chip().textContent, "Qs: SAQ");
@@ -284,5 +296,77 @@ it("an unset lesson follows Settings → Agent saved in another window, and on r
 	api.agent = { tools: { explain: false } };
 	await events.reconnect();
 	await settle();
+	assert.equal(chip().textContent, "Qs: MCQ");
+});
+
+it("reads the stored type once on mount: a save that landed after the page rendered shows", async () => {
+	events = fakeEvents();
+	fakeApi({ model: MODEL, questionType: "mixed" });
+	await mount(<Harness initial="mcq" />);
+	await settle();
+	assert.equal(chip().textContent, "Qs: Mixed", "the page was served before another window's save");
+});
+
+/** The chat's full header wiring: cram and the question type, both live. */
+function LiveLesson() {
+	const { cram, begin } = useLessonCram("chat_1", false);
+	const lesson = useLessonQuestionType("chat_1", undefined);
+	return (
+		<>
+			<CramToggle chatId="chat_1" on={cram} beginSave={begin} />
+			<QuestionTypeChip chatId="chat_1" stored={lesson.questionType} cram={cram} beginSave={lesson.begin} />
+		</>
+	);
+}
+const cramChip = () => document.querySelector('[data-testid="cram-toggle"]') as HTMLButtonElement;
+
+it("cram switched in another window: chats-changed, a reconnect or the mount read refreshes the Cram chip and the label", async () => {
+	events = fakeEvents();
+	const api = fakeApi({});
+	await mount(<ServerEventsProvider connect={connect}><LiveLesson /></ServerEventsProvider>);
+	await settle();
+	assert.equal(chip().textContent, "Qs: MCQ");
+	assert.equal(cramChip().getAttribute("aria-pressed"), "false");
+	api.style = "cram";
+	await events.server("chats-changed", {});
+	await settle();
+	assert.equal(chip().textContent, "Qs: Mixed", "an unset lesson in cram resolves Mixed, as the server does");
+	assert.equal(cramChip().getAttribute("aria-pressed"), "true");
+	api.style = null;
+	await events.reconnect();
+	await settle();
+	assert.equal(chip().textContent, "Qs: MCQ");
+	assert.equal(cramChip().getAttribute("aria-pressed"), "false");
+	// A fresh mount reads the style the page may have missed.
+	await act(async () => root!.unmount());
+	api.style = "cram";
+	await mount(<ServerEventsProvider connect={connect}><LiveLesson /></ServerEventsProvider>);
+	await settle();
+	assert.equal(cramChip().getAttribute("aria-pressed"), "true");
+});
+
+it("a slow Cram save response never restores a style a newer read replaced", async () => {
+	events = fakeEvents();
+	let style: string | null = null;
+	let releasePut!: () => void;
+	globalThis.fetch = (async (url: string, init?: RequestInit) => {
+		if (url === "/api/settings") return Response.json({ settings: { version: 1, agent: {} } });
+		if (url === "/api/chats/chat_1/settings") return Response.json({ settings: {} });
+		if (url === "/api/chats/chat_1?only=style") return Response.json({ style });
+		assert.equal(url, "/api/chats/chat_1");
+		style = JSON.parse(String(init!.body)).style;
+		return new Promise<Response>((resolve) => { releasePut = () => resolve(Response.json({ ok: true })); });
+	}) as typeof fetch;
+	await mount(<ServerEventsProvider connect={connect}><LiveLesson /></ServerEventsProvider>);
+	await settle();
+	await click(cramChip());
+	// Another window switches it back off; its chats-changed arrives first.
+	style = null;
+	await events.server("chats-changed", {});
+	await settle();
+	assert.equal(cramChip().getAttribute("aria-pressed"), "false");
+	await act(async () => releasePut());
+	await settle();
+	assert.equal(cramChip().getAttribute("aria-pressed"), "false", "the older save's response is superseded");
 	assert.equal(chip().textContent, "Qs: MCQ");
 });

@@ -6,6 +6,7 @@ import { MenuShell } from "@/components/menu-shell";
 import { Hint } from "@/components/ui/hint";
 import { useSettingsSaved } from "@/components/settings-signal";
 import { useServerEvent, useServerResync } from "@/components/server-events";
+import { useNewestWins, type NewestApply } from "@/components/newest-wins";
 import {
 	QUESTION_TYPES,
 	QUESTION_TYPE_LABEL,
@@ -20,28 +21,18 @@ import {
 
 /** One applier per read or save of the lesson's stored question type:
  *  call it with the confirmed value. */
-export type QuestionTypeApply = (questionType: QuestionType | undefined) => void;
+export type QuestionTypeApply = NewestApply<QuestionType | undefined>;
 
 /** The lesson's stored question type as the header knows it (owner,
- *  2026-11-03), owned by the always-mounted chat view. Every read and save
- *  takes a ticket when it STARTS; a result lands only if no later-started
- *  one has landed first — the newest confirmed value wins, so a slow save
- *  response never restores a label a newer refresh replaced. Refreshed on
- *  the chat's record-changed event (every settings write emits it — another
- *  tab or device) and on every events reconnect (events missed while
- *  disconnected). */
+ *  2026-11-03), owned by the always-mounted chat view. Reads and saves race
+ *  through useNewestWins (the newest confirmed value wins, so a slow save
+ *  response never restores a label a newer refresh replaced). Read once on
+ *  mount (a save that landed between the page render and this subscription),
+ *  on the chat's record-changed event (every settings write emits it —
+ *  another tab or device) and on every events reconnect (events missed
+ *  while disconnected). */
 export function useLessonQuestionType(chatId: string, initial: QuestionType | undefined) {
-	const [questionType, setQuestionType] = useState(initial);
-	const issued = useRef(0);
-	const applied = useRef(0);
-	const begin = useCallback((): QuestionTypeApply => {
-		const ticket = ++issued.current;
-		return (value) => {
-			if (ticket < applied.current) return;
-			applied.current = ticket;
-			setQuestionType(value);
-		};
-	}, []);
+	const [questionType, begin] = useNewestWins(initial);
 	const refresh = useCallback(() => {
 		const apply = begin();
 		fetch(`/api/chats/${chatId}/settings`, { cache: "no-store" })
@@ -51,6 +42,9 @@ export function useLessonQuestionType(chatId: string, initial: QuestionType | un
 				/* keep the last confirmed value; the next event or reconnect retries */
 			});
 	}, [chatId, begin]);
+	useEffect(() => {
+		refresh();
+	}, [refresh]);
 	useServerEvent("record-changed", (p) => {
 		if (p.chatId === chatId) refresh();
 	});

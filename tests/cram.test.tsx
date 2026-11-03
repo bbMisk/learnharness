@@ -177,6 +177,14 @@ it("the chat endpoint switches a lesson in and out of cram, never a practice ses
 	assert.equal(chatStore.getChat(lesson.id)!.style, undefined);
 	assert.equal((await put(lesson.id, { style: "speedrun", title: "Renamed" })).status, 400);
 	assert.equal(chatStore.getChat(lesson.id)!.title, "Lesson", "a rejected request writes nothing");
+	// The open view's style re-read (another window's switch): metadata only.
+	const { GET } = await import("../app/api/chats/[id]/route.ts");
+	const style = async (id: string) =>
+		(await (await GET(new Request(`http://test/api/chats/${id}?only=style`), { params: Promise.resolve({ id }) })).json()) as Record<string, unknown>;
+	assert.deepEqual(await style(lesson.id), { style: null });
+	assert.equal((await put(lesson.id, { style: "cram" })).status, 200);
+	assert.deepEqual(await style(lesson.id), { style: "cram" });
+	assert.equal((await put(lesson.id, { style: null })).status, 200);
 	const practice = chatStore.createChat("Drill", "practice");
 	assert.equal((await put(practice.id, { style: "cram" })).status, 400);
 	assert.equal(chatStore.getChat(practice.id)!.style, undefined);
@@ -193,9 +201,10 @@ it("the header Cram chip saves the switch and reports a failed save", async () =
 	const host = document.createElement("div");
 	document.body.append(host);
 	root = createRoot(host);
+	const { useNewestWins } = await import("../components/newest-wins.ts");
 	function Harness() {
-		const [on, setOn] = React.useState(false);
-		return <CramToggle chatId="chat_1" on={on} onChange={setOn} />;
+		const [on, begin] = useNewestWins(false);
+		return <CramToggle chatId="chat_1" on={on} beginSave={begin} />;
 	}
 	await act(async () => root!.render(<Harness />));
 	const chip = () => host.querySelector('[data-testid="cram-toggle"]') as HTMLButtonElement;
