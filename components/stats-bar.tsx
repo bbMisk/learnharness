@@ -83,7 +83,17 @@ export function StatsBar({
 		if (!open || typeof window === "undefined") return;
 		const onResize = () => setViewportTick((n) => n + 1);
 		window.addEventListener("resize", onResize);
-		return () => window.removeEventListener("resize", onResize);
+		// Content growth (new turns while open) re-measures too (round-8 hunt).
+		const observer = typeof ResizeObserver === "function" ? new ResizeObserver(onResize) : null;
+		const el = detailRef.current;
+		if (observer && el) {
+			observer.observe(el);
+			for (const child of Array.from(el.children)) observer.observe(child);
+		}
+		return () => {
+			window.removeEventListener("resize", onResize);
+			observer?.disconnect();
+		};
 	}, [open]);
 	useLayoutEffect(() => {
 		if (!open) {

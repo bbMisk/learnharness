@@ -208,7 +208,12 @@ function MetadataPopover({
 		if (!open) return;
 		const close = () => setOpen(false);
 		window.addEventListener("scroll", close, { capture: true, passive: true });
-		return () => window.removeEventListener("scroll", close, { capture: true });
+		// A resize/rotation closes it too: its fixed coordinates would be stale (round-8 hunt).
+		window.addEventListener("resize", close);
+		return () => {
+			window.removeEventListener("scroll", close, { capture: true });
+			window.removeEventListener("resize", close);
+		};
 	}, [open]);
 
 	const mode = typeof problemInput.mode === "string" ? problemInput.mode : "";
