@@ -98,7 +98,7 @@ Pending calls are record-derived, so reopening an unanswered question needs no n
 
 **Plan:** `plan_init` parses a restricted Mermaid graph and validates its DAG structure. It writes/replaces the whole plan; it is intentionally re-callable, not mechanically author-once. Question node IDs validate against the current tree. Current/visited/upcoming statuses derive from tagged calls, not grades or explicit “done” writes. Presenting the plan and waiting for a natural learner reply is prompt doctrine, not a separate acceptance transaction.
 
-**Lesson tracking:** the teacher logs substantive mistakes (`note_mistake` mints `m1`, `m2`… per chat; `resolve_mistake`), and a cram teacher also lists the problem set (`problem_list` replaces it; `problem_done` ticks one). There is no separate storage: `src/core/lesson-tracking.ts` derives the state from the record's successful results, both for the tools' validation and for the chat's top-right progress card. The calls never render in the transcript.
+**Lesson tracking:** the teacher logs substantive mistakes (`note_mistake` mints `m1`, `m2`… per chat; `resolve_mistake`), and a cram teacher also lists the problem set (`problem_list` replaces it; `problem_done` ticks one). There is no separate storage: `src/core/lesson-tracking.ts` derives the state from the record's successful results, both for the tools' validation and for the chat's top-right progress card (which also folds tracking executions that ended before their results land). The calls never render in the transcript or the Markdown export. A compaction marker ends with one `Lesson tracking: …` data line when there is state, since the ids may fall before the cut.
 
 ## 4. Conversational practice
 

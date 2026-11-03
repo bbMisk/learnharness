@@ -61,6 +61,25 @@ export function useLessonTrackerShown(): { shown: boolean; toggle: () => void } 
 	return { shown: shown === true, toggle };
 }
 
+/**
+ * Room for the card (owner, 2026-11-02 — "make room"): while the card
+ * shows and the session area is wide enough for both, the transcript
+ * column's right padding clears the card's lane, so the card sits in the
+ * margin beside a narrower column instead of covering content. 18.25rem =
+ * the card (w-64, 16rem) + its gap from the edge (right-3, 0.75rem) + the
+ * column's own gutter (px-6, 1.5rem). "Wide enough" is a 64rem session
+ * area: the lane plus a reading column as wide as the dock (46rem). Below
+ * that the card overlays, as before. A container query on the session
+ * area (not the viewport), so the sidebar's width counts; both classes
+ * apply only while the card shows — hidden or absent changes nothing.
+ */
+export const TRACKER_ROOM_AREA = "@container/session";
+export const TRACKER_ROOM_COLUMN = "@min-[64rem]/session:pr-[18.25rem]";
+
+export function lessonTrackerRoom(active: boolean): { area: string; column: string } {
+	return active ? { area: TRACKER_ROOM_AREA, column: TRACKER_ROOM_COLUMN } : { area: "", column: "" };
+}
+
 const CHIP =
 	"lh-no-drag flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium uppercase tracking-wide transition-colors";
 

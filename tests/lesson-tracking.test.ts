@@ -38,7 +38,10 @@ const { createProberTools, createTeacherTools } = await import("../src/agent/too
 const { practiceTools } = await import("../src/agent/tools/practice.ts");
 const { lessonTrackingTools } = await import("../src/agent/tools/lesson-tracking.ts");
 const { CRAM_INSTRUCTIONS, CRAM_PROBE_INSTRUCTIONS, withTeachingStyle } = await import("../src/core/cram.ts");
-const { deriveLessonTracking, hasLessonTracking, LESSON_TRACKING_TOOLS } = await import("../src/core/lesson-tracking.ts");
+const { deriveLessonTracking, hasLessonTracking, lessonTrackingLine, LESSON_TRACKING_TOOLS } = await import("../src/core/lesson-tracking.ts");
+const { sessionMarkdown } = await import("../src/core/session-markdown.ts");
+const { activeCompactionOf } = await import("../src/core/compaction.ts");
+const { ensureCompacted } = await import("../src/server/compaction.ts");
 const { projectView } = await import("../src/core/view.ts");
 const { createViewProjector } = await import("../src/core/view-incremental.ts");
 const { handleChatRequest } = await import("../src/server/chat-handler.ts");
@@ -436,5 +439,159 @@ describe("a simulated cram lesson (chat handler + faux engine)", () => {
 		const derived = deriveLessonTracking(chatStore.getChat(chatId)!.messages);
 		assert.equal(derived.problems, null, "problem_list is not in a Teach teacher's registry");
 		assert.deepEqual(derived.mistakes, [{ id: "m1", text: "Mixes up the chain rule order", resolved: false }]);
+	});
+});
+
+// ─── follow-ups: live executions, the compaction line, the export ────────────
+
+describe("live executions fold until their results land", () => {
+	const record: LhMessage[] = [
+		assistant("a1", [call("pl", "problem_list", { problems: [{ id: "q1", label: "Q1" }, { id: "q2", label: "Q2" }] })]),
+		result("r-pl", "pl", "problem_list", { ok: true, problems: [{ id: "q1", label: "Q1" }, { id: "q2", label: "Q2" }] }),
+		assistant("a2", [call("pd", "problem_done", { id: "q1" }), call("nm", "note_mistake", { text: "Sign" }), call("bad", "note_mistake", { text: "" }), call("rd", "read", {})]),
+	];
+	const executions = new Map([
+		["pd", { isError: false, output: { ok: true, id: "q1" } }],
+		["nm", { isError: false, output: { ok: true, id: "m1", text: "Sign" } }],
+		["bad", { isError: false, output: { ok: false, error: "text is empty" } }],
+		["rd", { isError: false, output: { body: "x" } }],
+	]);
+
+	it("an ended execution counts before turn_end; its later result never counts twice", () => {
+		assert.deepEqual(deriveLessonTracking(record).problems?.map((p) => p.done), [false, false], "the record alone: not yet");
+		const live = deriveLessonTracking(record, executions);
+		assert.deepEqual(live.problems?.map((p) => p.done), [true, false]);
+		assert.deepEqual(live.mistakes, [{ id: "m1", text: "Sign", resolved: false }]);
+		const settled = [
+			...record,
+			result("r-pd", "pd", "problem_done", { ok: true, id: "q1" }),
+			result("r-nm", "nm", "note_mistake", { ok: true, id: "m1", text: "Sign" }),
+			result("r-bad", "bad", "note_mistake", { ok: false, error: "text is empty" }),
+			result("r-rd", "rd", "read", { body: "x" }),
+		];
+		assert.deepEqual(deriveLessonTracking(settled, executions), deriveLessonTracking(settled));
+		assert.equal(deriveLessonTracking(settled, executions).mistakes.length, 1);
+		const failed = new Map([["nm", { isError: true, output: { ok: true, id: "m1", text: "Sign" } }]]);
+		assert.equal(deriveLessonTracking(record, failed).mistakes.length, 0, "an errored execution never folds");
+	});
+});
+
+describe("the compaction line", () => {
+	it("formats the owner's line; each part only when it has something", () => {
+		const tracking = (problems: Array<[string, boolean]> | null, mistakes: Array<[string, string, boolean]>) => ({
+			problems: problems && problems.map(([id, done]) => ({ id, label: id.toUpperCase(), done })),
+			mistakes: mistakes.map(([id, text, resolved]) => ({ id, text, resolved })),
+		});
+		assert.equal(
+			lessonTrackingLine(tracking([["q1", true], ["q2", true], ["q3", false], ["q4", false]], [["m1", "dropped the sign of the score", false]])),
+			'Lesson tracking: problems q1 ✓, q2 ✓, q3 open, q4 open; open mistakes m1 "dropped the sign of the score"',
+		);
+		assert.equal(lessonTrackingLine(tracking([["q1", false]], [["m1", "x", true]])), "Lesson tracking: problems q1 open");
+		assert.equal(
+			lessonTrackingLine(tracking(null, [["m1", "a", true], ["m2", "b", false], ["m3", "c", false]])),
+			'Lesson tracking: open mistakes m2 "b", m3 "c"',
+		);
+		assert.equal(lessonTrackingLine(tracking(null, [["m1", "a", true]])), null);
+		assert.equal(lessonTrackingLine(tracking(null, [])), null);
+	});
+
+	it("a compacted lesson whose tracking calls fall before the cut still hands the teacher the state", async () => {
+		const chatId = newChat();
+		chatStore.saveSettings(chatId, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
+		setChatOrganization(chatId, { style: "cram" });
+		const big = (id: string): LhMessage => ({ id, role: "user", content: `${id}: ${"x".repeat(100 * 1024)}`, timestamp: 4 }) as never;
+		const reply = (id: string, text: string) => ({ ...(assistant(id, [{ type: "text", text }]) as object), stopReason: "stop" }) as unknown as LhMessage;
+		chatStore.saveMessages(chatId, [
+			...probeDone,
+			assistant("t1", [
+				call("pl", "problem_list", { problems: [{ id: "q1", label: "Q1" }, { id: "q2", label: "Q2" }, { id: "q7", label: "Q7" }] }),
+				call("pd", "problem_done", { id: "q1" }),
+				call("m1", "note_mistake", { text: "dropped the sign of the score" }),
+				call("m2", "note_mistake", { text: "used n instead of n-1" }),
+				call("r2", "resolve_mistake", { id: "m2" }),
+			]),
+			result("r-pl", "pl", "problem_list", { ok: true, problems: [{ id: "q1", label: "Q1" }, { id: "q2", label: "Q2" }, { id: "q7", label: "Q7" }] }),
+			result("r-pd", "pd", "problem_done", { ok: true, id: "q1" }),
+			result("r-m1", "m1", "note_mistake", { ok: true, id: "m1", text: "dropped the sign of the score" }),
+			result("r-m2", "m2", "note_mistake", { ok: true, id: "m2", text: "used n instead of n-1" }),
+			result("r-r2", "r2", "resolve_mistake", { ok: true, id: "m2" }),
+			reply("t2", "On to Q2."),
+			big("b1"),
+			reply("t3", "Worked example."),
+			big("b2"),
+			reply("t4", "Your turn."),
+			big("b3"),
+			reply("t5", "Close."),
+		]);
+		await ensureCompacted(
+			{
+				chatStore,
+				engine: { model: { provider: "faux", id: "test", contextWindow: 1_000_000 } } as never,
+				modelId: "faux:test",
+				kind: "teach",
+				thresholdTokens: 40_000,
+				systemPromptTokens: 100,
+				summarize: async () => ({
+					summary: "The learner is cramming estimation; Q1 is done.",
+					usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+				}),
+			},
+			chatId,
+		);
+		const record = chatStore.getChat(chatId)!.messages;
+		const marker = activeCompactionOf(record);
+		assert.ok(marker, "the lesson compacted");
+		const kept = record.findIndex((m) => m.id === marker.details.firstKeptMessageId);
+		assert.ok(kept > record.findIndex((m) => m.id === "r-r2"), "every tracking call falls before the cut");
+		const line = 'Lesson tracking: problems q1 ✓, q2 open, q7 open; open mistakes m1 "dropped the sign of the score"';
+		assert.ok(marker.content.endsWith(`The learner is cramming estimation; Q1 is done.\n\n${line}`));
+
+		// The teacher's next request: the condensed head carries the line; the
+		// tracking calls themselves are gone from its context.
+		const lesson = scripted([fauxAssistantMessage([fauxText("Next: Q2.")])]);
+		await turn(chatId, "Ready for Q2.", lesson.engine);
+		const context = lesson.contexts[0]!;
+		assert.ok(context.includes(JSON.stringify(line).slice(1, -1)), "the line reaches the teacher");
+		const history = (JSON.parse(context) as Array<{ role: string }>).filter((m) => m.role !== "system");
+		assert.ok(!JSON.stringify(history).includes("problem_list"), "the tracking calls were condensed away");
+	});
+
+	it("no line when there is nothing to track", async () => {
+		const chatId = newChat();
+		const big = (id: string) => ({ id, role: "user", content: `${id}: ${"x".repeat(100 * 1024)}`, timestamp: 1 }) as never;
+		chatStore.saveMessages(chatId, [big("b1"), big("b2"), big("b3"), { id: "u2", role: "user", content: "recent", timestamp: 2 } as never]);
+		await ensureCompacted(
+			{
+				chatStore,
+				engine: { model: { provider: "faux", id: "test", contextWindow: 1_000_000 } } as never,
+				modelId: "faux:test",
+				kind: "teach",
+				thresholdTokens: 40_000,
+				systemPromptTokens: 100,
+				summarize: async () => ({ summary: "S.", usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } }),
+			},
+			chatId,
+		);
+		const marker = activeCompactionOf(chatStore.getChat(chatId)!.messages);
+		assert.ok(marker);
+		assert.doesNotMatch(marker.content, /Lesson tracking/);
+	});
+});
+
+describe("the Markdown export", () => {
+	it("leaves the tracking results out, as the transcript does; plan_init keeps its line", () => {
+		const md = sessionMarkdown([
+			{ id: "u1", role: "user", content: "cram me", timestamp: 0 } as never,
+			assistant("a1", [{ type: "text", text: "The set." }, call("pl", "problem_list", {}), call("nm", "note_mistake", {}), call("pi", "plan_init", {})]),
+			result("r-pl", "pl", "problem_list", { ok: true, problems: [] }),
+			result("r-nm", "nm", "note_mistake", { ok: true, id: "m1", text: "x" }),
+			result("r-pi", "pi", "plan_init", { ok: true }),
+			assistant("a2", [call("pd", "problem_done", {}), call("rm", "resolve_mistake", {})]),
+			result("r-pd", "pd", "problem_done", { ok: true, id: "q1" }),
+			result("r-rm", "rm", "resolve_mistake", { ok: true, id: "m1" }),
+		]);
+		for (const name of LESSON_TRACKING_TOOLS) assert.ok(!md.includes(name), `${name} stays out of the export`);
+		assert.match(md, /plan_init result delivered/);
+		assert.match(md, /The set\./);
 	});
 });

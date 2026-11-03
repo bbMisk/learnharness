@@ -6,6 +6,7 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { afterEach, it } from "node:test";
 import { parseHTML } from "linkedom";
 import type { LessonTracking } from "../src/core/lesson-tracking.ts";
@@ -38,7 +39,7 @@ Object.assign(globalThis, {
 	IS_REACT_ACT_ENVIRONMENT: true,
 });
 const { createRoot } = await import("react-dom/client");
-const { LessonTrackerCard, LessonTrackerChip, useLessonTrackerShown } = await import("../components/lesson-tracker.tsx");
+const { LessonTrackerCard, LessonTrackerChip, lessonTrackerRoom, useLessonTrackerShown } = await import("../components/lesson-tracker.tsx");
 const { deriveLessonTracking, hasLessonTracking } = await import("../src/core/lesson-tracking.ts");
 
 let root: ReturnType<typeof createRoot> | null = null;
@@ -188,4 +189,25 @@ it("blocked storage costs only the memory", async () => {
 	assert.ok(card(host));
 	await act(async () => chip(host).click());
 	assert.equal(card(host), null);
+});
+
+it("makes room: while shown on a wide session area the column clears the card; otherwise layout is untouched", async () => {
+	assert.deepEqual(lessonTrackerRoom(false), { area: "", column: "" }, "hidden or absent: no layout change");
+	const room = lessonTrackerRoom(true);
+	// The classes compile to a container query on the session area: at
+	// 64rem and up the column's right padding is the card's lane (16rem
+	// card + 0.75rem gap) plus the column's own 1.5rem gutter.
+	const { compile } = await import("tailwindcss");
+	const css = (await compile("@tailwind utilities;", { base: process.cwd() })).build([room.area, room.column]);
+	assert.match(css, /container-type: inline-size;\s*container-name: session;/);
+	assert.match(css, /@container session \(width >= 64rem\) \{[^}]*\{\s*padding-right: 18\.25rem;/);
+	// The card's geometry matches the lane the padding reserves.
+	const host = await mount(<LessonTrackerCard tracking={deriveLessonTracking(record)} bottomReserve={0} />);
+	const cls = host.querySelector('[data-testid="lesson-tracker"]')!.getAttribute("class")!.split(" ");
+	assert.ok(cls.includes("w-64") && cls.includes("right-3"));
+	// The chat applies them: the session area and the transcript column.
+	const chat = fs.readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
+	assert.match(chat, /lessonTrackerRoom\(hasTracking && trackerCard\.shown\)/);
+	assert.match(chat, /className=\{`relative flex min-h-0 flex-1 \$\{trackerRoom\.area\}`\}/);
+	assert.match(chat, /data-session-find-root="" className=\{`\$\{COLUMN\}[^`]*\$\{trackerRoom\.column\}`\}/);
 });

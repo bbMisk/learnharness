@@ -52,7 +52,7 @@ import { TopBar } from "@/components/top-bar";
 import type { JobRecord, Phase3, QuestionAnswerData, QuestionCall, QuestionFormDraft, TurnUsage, SessionPricing } from "@/src/core";
 import { PhaseChip } from "@/components/phase-divider";
 import { CramToggle } from "@/components/cram-toggle";
-import { LessonTrackerCard, LessonTrackerChip, useLessonTrackerShown } from "@/components/lesson-tracker";
+import { LessonTrackerCard, LessonTrackerChip, lessonTrackerRoom, useLessonTrackerShown } from "@/components/lesson-tracker";
 import { CoverageRing } from "@/components/extraction-coverage";
 import { Button } from "@/components/ui/button";
 import {
@@ -67,7 +67,6 @@ import {
 	toolQuestionKind,
 	isTeachingCheck,
 	revealsQuestions,
-	deriveLessonTracking,
 	hasLessonTracking,
 } from "@/src/core";
 import { useGeneralSettings } from "@/components/general-settings";
@@ -240,7 +239,7 @@ export function Chat({
 	// (core/view.ts projectView); sends are ONE explicit input event each
 	// ({chatId, input} — the stash indirection died with the SDK), and the
 	// turn stream is the VERBATIM AgentEvent passthrough the server emits.
-	const { messages, nativeMessages, hasConfirmedConversation, contextTokens, send, continueIfOwed, steer, steerQueue, submitAnswer, dismissQuestion, dismissProblem, questionDraft, saveQuestionDraft, setMessages, adoptRecord, status, error, abortTurn, clearError, resumeStream, setReattachSettled } =
+	const { messages, nativeMessages, hasConfirmedConversation, contextTokens, lessonTracking: tracking, send, continueIfOwed, steer, steerQueue, submitAnswer, dismissQuestion, dismissProblem, questionDraft, saveQuestionDraft, setMessages, adoptRecord, status, error, abortTurn, clearError, resumeStream, setReattachSettled } =
 		useChatSession({ chatId, initialMessages, initialError, initiallyInFlight });
 
 	const sessionFindScopeRef = useRef<HTMLDivElement | null>(null);
@@ -890,11 +889,14 @@ export function Chat({
 	// derives its own from the same transcript).
 	const planTree = useMemo(() => latestTree(messages), [messages]);
 	// The lesson-tracking card (owner, 2026-11-02): the problem set and the
-	// mistake log, derived from the native record (the tracking tools never
-	// render in the transcript view — core/lesson-tracking.ts).
-	const tracking = useMemo(() => deriveLessonTracking(nativeMessages), [nativeMessages]);
+	// mistake log, derived by the session model from the native record and
+	// the live executions (the tracking tools never render in the
+	// transcript view — core/lesson-tracking.ts).
 	const hasTracking = hasLessonTracking(tracking);
 	const trackerCard = useLessonTrackerShown();
+	// Room for the card (owner, "make room"): while it shows on a session
+	// area wide enough for both, the transcript column keeps clear of it.
+	const trackerRoom = lessonTrackerRoom(hasTracking && trackerCard.shown);
 
 	// ── Session usage (wave-4 stats bar) ──
 	// The money channel: the record's turns log and read-time server Pi
@@ -1337,11 +1339,11 @@ export function Chat({
 				</TopBar>
 
 				<SessionFind scopeRef={sessionFindScopeRef} scrollContextRef={scrollContextRef} />
-				<div ref={sessionFindScopeRef} className="relative flex min-h-0 flex-1">
+				<div ref={sessionFindScopeRef} className={`relative flex min-h-0 flex-1 ${trackerRoom.area}`}>
 				<Conversation className="h-full min-w-0 flex-1" initial="instant" contextRef={scrollContextRef}>
 					<SessionMessageNavigation />
 					<ConversationContent className="min-h-full gap-0 p-0">
-						<div data-session-find-root="" className={`${COLUMN} flex flex-1 flex-col gap-4 pt-4`}>
+						<div data-session-find-root="" className={`${COLUMN} flex flex-1 flex-col gap-4 pt-4 ${trackerRoom.column}`}>
 							{messages.length === 0 && !busy && (
 								<ConversationEmptyState
 									title="New session"

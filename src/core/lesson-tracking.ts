@@ -133,11 +133,42 @@ export class LessonTracker {
 	}
 }
 
-/** Fold the record's successful tracking results into a tracker. */
-export function lessonTrackerOf(messages: readonly LhMessage[]): LessonTracker {
+/** A live turn's tool execution outcome (the client's tool_execution_end
+ *  layer — view.ts LiveExecution): `output` is the result's details. */
+export interface LiveTrackingExecution {
+	isError: boolean;
+	output?: unknown;
+}
+
+/** Fold the record's successful tracking results into a tracker.
+ *  `live` (client only): executions that ended before their toolResult
+ *  message arrived (results land at turn_end, after the step's slowest
+ *  tool) fold at their call's position; once the native result exists it
+ *  is the only one that counts, so nothing folds twice. */
+export function lessonTrackerOf(
+	messages: readonly LhMessage[],
+	live?: ReadonlyMap<string, LiveTrackingExecution>,
+): LessonTracker {
 	const tracker = new LessonTracker();
+	let settled: Set<string> | null = null;
+	if (live && live.size > 0) {
+		settled = new Set();
+		for (const m of messages) {
+			const r = m as { role?: string; toolCallId?: unknown };
+			if (r.role === "toolResult" && isString(r.toolCallId)) settled.add(r.toolCallId);
+		}
+	}
 	for (const m of messages) {
-		const r = m as { role?: string; toolName?: unknown; isError?: unknown; details?: unknown };
+		const r = m as { role?: string; toolName?: unknown; isError?: unknown; details?: unknown; content?: unknown };
+		if (settled && r.role === "assistant" && Array.isArray(r.content)) {
+			for (const block of r.content as Array<{ type?: string; id?: unknown; name?: unknown }>) {
+				if (block.type !== "toolCall" || !isString(block.id) || !isString(block.name)) continue;
+				if (!isLessonTrackingTool(block.name) || settled.has(block.id)) continue;
+				const execution = live!.get(block.id);
+				if (execution && !execution.isError) tracker.apply(block.name, execution.output);
+			}
+			continue;
+		}
 		if (r.role !== "toolResult" || r.isError === true || !isString(r.toolName)) continue;
 		if (!isLessonTrackingTool(r.toolName)) continue;
 		tracker.apply(r.toolName, r.details);
@@ -145,9 +176,31 @@ export function lessonTrackerOf(messages: readonly LhMessage[]): LessonTracker {
 	return tracker;
 }
 
-/** The derived tracking state of a record (the card's input). */
-export function deriveLessonTracking(messages: readonly LhMessage[]): LessonTracking {
-	return lessonTrackerOf(messages).snapshot();
+/** The derived tracking state of a record (the card's input), plus — on
+ *  the client, mid-turn — the live layer's ended executions. */
+export function deriveLessonTracking(
+	messages: readonly LhMessage[],
+	live?: ReadonlyMap<string, LiveTrackingExecution>,
+): LessonTracking {
+	return lessonTrackerOf(messages, live).snapshot();
+}
+
+/**
+ * The one pure-data line the compaction marker carries (owner, 2026-11-02):
+ * the tracker ids can fall into the condensed-away history, so the summary
+ * the tutor sees after a cut ends with the state, e.g.
+ *   Lesson tracking: problems q1 ✓, q2 open; open mistakes m1 "dropped the sign of the score"
+ * The problems part needs a list, the mistakes part an open mistake; null
+ * when neither exists.
+ */
+export function lessonTrackingLine(tracking: LessonTracking): string | null {
+	const parts: string[] = [];
+	if (tracking.problems) {
+		parts.push(`problems ${tracking.problems.map((p) => `${p.id} ${p.done ? "✓" : "open"}`).join(", ")}`);
+	}
+	const open = tracking.mistakes.filter((m) => !m.resolved);
+	if (open.length > 0) parts.push(`open mistakes ${open.map((m) => `${m.id} "${m.text}"`).join(", ")}`);
+	return parts.length > 0 ? `Lesson tracking: ${parts.join("; ")}` : null;
 }
 
 /** Anything for the card to show: a problem list or any mistake. */
