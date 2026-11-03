@@ -135,7 +135,7 @@ export function ProjectPage({ initial }: { initial: ProjectView }) {
 	const buttonClass =
 		"inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-xs transition-colors hover:bg-accent disabled:opacity-40";
 	return (
-		<div {...chatDrop.handlers} data-project-page-drop={project.id} className="relative flex h-dvh flex-col">
+		<div {...chatDrop.handlers} data-project-page-drop={project.id} className="relative flex lh-h-screen flex-col">
 			{chatDrop.over && (
 				<div className="pointer-events-none absolute inset-4 z-20 flex items-center justify-center rounded-xl bg-accent/90 text-sm backdrop-blur-sm">
 					Move chat to {project.name}
