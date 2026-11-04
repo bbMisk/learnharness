@@ -211,7 +211,7 @@ function writeFileAtomic(file, text) {
  * whatever its owner file says: the helper may be running before its PID was
  * recorded (round-4 hunt finding).
  * Folders without an owner file are only reclaimed after a day. */
-async function reclaimAbandonedDownloads(tmp, { log = () => {}, isAlive = processAlive, now = Date.now() } = {}) {
+async function reclaimAbandonedDownloads(tmp, { log = () => {}, isAlive = processAlive, now = Date.now(), runningCommands = allProcessCommands } = {}) {
 	let names;
 	try {
 		names = await fs.promises.readdir(tmp);
@@ -229,8 +229,12 @@ async function reclaimAbandonedDownloads(tmp, { log = () => {}, isAlive = proces
 			const valid = owners.length > 0 && owners.every((pid) => Number.isInteger(pid) && pid > 0);
 			const abandoned = valid ? owners.every((pid) => !isAlive(pid)) : now - st.mtimeMs > 24 * 60 * 60 * 1000;
 			if (!abandoned) continue;
-			const script = await fs.promises.lstat(path.join(dir, "install-update.sh")).catch(() => null);
+			const scriptPath = path.join(dir, "install-update.sh");
+			const script = await fs.promises.lstat(scriptPath).catch(() => null);
 			if (script && now - script.mtimeMs < INSTALL_WINDOW_MS) continue;
+			// Older script: a helper whose PID was never recorded may still be
+			// running it, e.g. a long cross-volume copy (round-9 hunt finding).
+			if (script && runningCommands().some((command) => command.includes(scriptPath))) continue;
 			await fs.promises.rm(dir, { recursive: true, force: true });
 			removed.push(dir);
 		} catch (err) {
@@ -383,6 +387,16 @@ function spawnHelper({ workdir, pid, target, newApp, backup, stage, relaunch, lo
 	return child;
 }
 
+/** Every running process's command line; [] if ps fails. */
+function allProcessCommands() {
+	try {
+		const result = spawnSync("/bin/ps", ["-ax", "-o", "command="], { encoding: "utf8", timeout: 5000, maxBuffer: 16 * 1024 * 1024 });
+		return result.status === 0 ? String(result.stdout).split("\n") : [];
+	} catch {
+		return [];
+	}
+}
+
 /** A process's command line, or "" (`ps` is in /bin on every macOS). */
 function processCommand(pid) {
 	try {
@@ -514,18 +528,23 @@ const AFTER_INSTALL_ARG = "--lh-after-install";
  * running, or already replaced this bundle while this OLD process started,
  * step aside: release the single-instance lock, wait for the helper, and
  * relaunch the bundle path — which now holds the installed version (or the
- * restored one). It waits as long as the install window, never less: a
- * shorter timeout would let the flagged relaunch run the old bundle while the
- * helper is still swapping it (round-5 hunt finding).
- * Returns true when this process is exiting. One relaunch at
- * most (AFTER_INSTALL_ARG), so a broken state can never loop. */
-async function yieldToPendingInstall({ app, log = () => {}, execPath = process.execPath, argv = process.argv, readVersion, isAlive = processAlive, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), timeoutMs = INSTALL_WINDOW_MS }) {
+ * restored one). It waits while the install runs (up to an hour per launch;
+ * a helper confirmed alive keeps it running past the 10-minute window), and
+ * a relaunch that finds the install still running waits again, so the old
+ * bundle never runs under the helper (round-5/9 hunt findings).
+ * Returns true when this process is exiting. A stale bundle relaunches at
+ * most once (AFTER_INSTALL_ARG), so a broken state can never loop. */
+async function yieldToPendingInstall({ app, log = () => {}, execPath = process.execPath, argv = process.argv, readVersion, isAlive = processAlive, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), timeoutMs = 6 * INSTALL_WINDOW_MS }) {
 	const bundlePath = bundleFromExecPath(execPath);
 	const markerFile = markerPath(app.getPath("userData"), bundlePath);
 	const settle = () => finishPendingUpdate({ markerFile, bundlePath, version: app.getVersion(), log, readVersion, isAlive });
 	let state = await settle();
 	if (["none", "cleaned", "not-updated", "ignored"].includes(state)) void reclaimStaleStages(bundlePath, log);
-	if ((state !== "installing" && state !== "stale") || argv.includes(AFTER_INSTALL_ARG)) return false;
+	if (state !== "installing" && state !== "stale") return false;
+	// The flag only stops a stale bundle from relaunching in a loop. An install
+	// still running is never skipped: wait (and, past the cap, relaunch to wait
+	// again) rather than run the old app under the helper (round-9 hunt finding).
+	if (state === "stale" && argv.includes(AFTER_INSTALL_ARG)) return false;
 	try { app.releaseSingleInstanceLock?.(); } catch { /* not held */ }
 	for (let waited = 0; state === "installing" && waited < timeoutMs; waited += 200) {
 		// Re-read each time: the helper's PID lands in the marker after spawn.

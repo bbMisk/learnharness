@@ -908,7 +908,22 @@ describe("a launch during the install window (fix 3)", () => {
 			readVersion: async () => "0.4.0", isAlive: () => true, sleep: async () => { polls++; },
 		});
 		assert.ok(polls * 200 > 150 * 1000, `waited past the old 150 s cap (${polls} polls)`);
-		assert.ok(polls * 200 <= 10 * 60 * 1000, "bounded by the install window");
+		assert.ok(polls * 200 > 10 * 60 * 1000, "outlasts the 10-minute window a confirmed helper may exceed");
+		assert.ok(polls * 200 <= 60 * 60 * 1000, "bounded");
+	});
+
+	it("a relaunch that finds the install still running waits again instead of running the old app (round-9 hunt finding)", async () => {
+		const s = scene();
+		s.write({ helperPid: 4242 });
+		const a = fakeApp2(s.userData, "0.4.0");
+		let polls = 0;
+		const exiting = await updater.yieldToPendingInstall({
+			app: a.app, execPath: path.join(s.target, "Contents", "MacOS", "LearnHarness"), argv: ["/x", "--lh-after-install"],
+			readVersion: async () => "0.4.0", isAlive: () => polls < 3, sleep: async () => { polls++; },
+		});
+		assert.equal(exiting, true, "never continues as the old app while the helper runs");
+		assert.equal(polls, 3);
+		assert.deepEqual(a.relaunchArgs[0], ["--lh-after-install"], "the flag is not duplicated");
 	});
 
 	it("a stale old process relaunches at once; never twice", async () => {
@@ -1099,7 +1114,11 @@ describe("abandoned downloads (round 2, fix 3)", () => {
 		fs.writeFileSync(path.join(spawning, "owner.pid"), String(gone.pid));
 		fs.writeFileSync(path.join(spawning, "install-update.sh"), "#!/bin/sh\n");
 		assert.deepEqual(await updater.reclaimAbandonedDownloads(tmp), []);
-		assert.deepEqual(await updater.reclaimAbandonedDownloads(tmp, { now: Date.now() + 11 * 60 * 1000 }), [spawning]);
+		// Round-9 hunt finding: past the window, a process still running the script keeps the folder.
+		const later = Date.now() + 11 * 60 * 1000;
+		const script = path.join(spawning, "install-update.sh");
+		assert.deepEqual(await updater.reclaimAbandonedDownloads(tmp, { now: later, runningCommands: () => ["/sbin/launchd", `/bin/sh ${script} 123 /Applications/LearnHarness.app`] }), []);
+		assert.deepEqual(await updater.reclaimAbandonedDownloads(tmp, { now: later, runningCommands: () => ["/sbin/launchd"] }), [spawning]);
 		// An owner-less folder is only reclaimed once it is a day old.
 		assert.deepEqual(await updater.reclaimAbandonedDownloads(tmp, { now: Date.now() + 25 * 60 * 60 * 1000 }), [unowned]);
 	});
