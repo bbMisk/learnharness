@@ -19,7 +19,7 @@ import path from "node:path";
 const root = path.resolve(import.meta.dirname, "..");
 const require = createRequire(import.meta.url);
 const { parseFeed, verifyFile } = require("../electron/mac-self-updater.cjs");
-const { publishPreflight } = await import("./release-mac-preflight.mjs");
+const { publishPreflight, pinReleaseTag } = await import("./release-mac-preflight.mjs");
 
 const REPO = "bbMisk/learnharness";
 const CONFIG = "electron-builder.unsigned-mac.yml";
@@ -111,13 +111,18 @@ const notes = [
 	"This build is not signed with an Apple Developer ID. The first time you open it, macOS may say it can't check the app: open System Settings → Privacy & Security and choose Open Anyway.",
 	"Copies in Applications update themselves from now on.",
 ].join("\n");
-const ghArgs = ["release", "create", tag, "--repo", REPO, "--target", commit ?? "<HEAD commit>", "--title", `LearnHarness ${version}`, "--notes", notes, "--latest", ...assets];
+const ghArgs = ["release", "create", tag, "--repo", REPO, "--target", commit ?? "<HEAD commit>", "--title", `LearnHarness ${version}`, "--notes", notes, "--latest", "--verify-tag", ...assets];
 
 if (!publish) {
-	console.log(`\nDRY RUN — nothing was uploaded. With --publish this would run:\n  gh ${ghArgs.map((a) => (/[\s<>]/.test(a) ? JSON.stringify(a) : a)).join(" ")}`);
+	console.log(`\nDRY RUN — nothing was uploaded. With --publish this would run:\n  git push origin <HEAD commit>:refs/tags/${tag}\n  gh ${ghArgs.map((a) => (/[\s<>]/.test(a) ? JSON.stringify(a) : a)).join(" ")}`);
 	console.log(`\nTo ship: npm run release:mac -- --publish`);
 	process.exit(0);
 }
 
+try {
+	pinReleaseTag(capture, { tag, commit });
+} catch (err) {
+	fail(err.message);
+}
 run("gh", ghArgs);
 console.log(`\nPublished ${tag}: https://github.com/${REPO}/releases/tag/${tag}`);

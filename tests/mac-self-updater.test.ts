@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -333,7 +334,7 @@ function flow(opts: { feed: string; zip?: Buffer; current?: string; execPath?: s
 	return flowWith(opts);
 }
 
-function flowWith({ feed, zip, current = "0.4.0", execPath, zipResponse }: { feed: string; zip?: Buffer; current?: string; execPath?: string; zipResponse?: () => Response }) {
+function flowWith({ feed, zip, current = "0.4.0", execPath, zipResponse, spawnImpl, log = () => {} }: { feed: string; zip?: Buffer; current?: string; execPath?: string; zipResponse?: () => Response; spawnImpl?: (...args: never[]) => unknown; log?: (line: string) => void }) {
 	const root = tempDir();
 	const userData = path.join(root, "userData");
 	const tmp = path.join(root, "tmp");
@@ -347,7 +348,7 @@ function flowWith({ feed, zip, current = "0.4.0", execPath, zipResponse }: { fee
 	let killed = 0;
 	const u = updater.createMacSelfUpdater({
 		app: { getPath: () => userData, getVersion: () => current, quit: () => quits++ },
-		log: () => {},
+		log,
 		report: (status: string, version: string | null = null) => statuses.push({ status, version }),
 		killServer: () => killed++,
 		env: { LH_UPDATE_FEED: "http://127.0.0.1:9/feed" },
@@ -361,10 +362,10 @@ function flowWith({ feed, zip, current = "0.4.0", execPath, zipResponse }: { fee
 			if (zip && url.endsWith(".zip")) return new Response(new Uint8Array(zip));
 			return new Response("missing", { status: 404 });
 		},
-		spawnImpl: (cmd: string, args: string[], options: { env: Record<string, string>; detached: boolean }) => {
+		spawnImpl: spawnImpl ?? ((cmd: string, args: string[], options: { env: Record<string, string>; detached: boolean }) => {
 			spawned.push({ cmd, args, options });
 			return { pid: 31337, unref() {} };
-		},
+		}),
 	});
 	return { u, root, tmp, userData, target, statuses, requests, spawned, quits: () => quits, killed: () => killed };
 }
@@ -430,11 +431,26 @@ describe("self-updater flow (fake fetch, temp dirs)", () => {
 		assert.equal(call.options.env.PATH, "/usr/bin:/bin:/usr/sbin:/sbin");
 		const marker = JSON.parse(fs.readFileSync(updater.markerPath(f.userData, f.target), "utf8"));
 		const { startedAt, ...rest } = marker;
-		assert.deepEqual(rest, { version: "0.4.1", from: "0.4.0", target: f.target, backup: call.args[4], helperPid: 31337 });
+		assert.deepEqual(rest, { version: "0.4.1", from: "0.4.0", target: f.target, backup: call.args[4], helperPid: 31337, appPid: process.pid });
 		assert.ok(Math.abs(Date.now() - startedAt) < 60_000);
 		assert.ok(updater.isOwnBackup(f.target, marker.backup));
 		// The helper co-owns the staged folder, so another copy's cleanup leaves it alone (round-3 hunt finding).
 		assert.equal(fs.readFileSync(path.join(staged.workdir, "owner.pid"), "utf8"), `${process.pid} 31337`);
+	});
+
+	it("an installer that fails to start is logged, not an unhandled error (round-4 hunt finding)", { skip: !isMac }, async () => {
+		const zip = makeZip(tempDir());
+		const child = new EventEmitter() as EventEmitter & { pid?: number; unref(): void };
+		child.unref = () => {};
+		const lines: string[] = [];
+		const f = flowWith({ feed: feedFor("0.4.1", zip), zip, spawnImpl: () => child, log: (l: string) => lines.push(l) });
+		await f.u.check();
+		assert.equal(f.u.startSwap(), true);
+		const markerFile = updater.markerPath(f.userData, f.target);
+		assert.ok(fs.existsSync(markerFile));
+		child.emit("error", Object.assign(new Error("spawn /bin/sh EAGAIN"), { code: "EAGAIN" }));
+		assert.ok(lines.some((l) => /installer did not start/.test(l)));
+		assert.equal(fs.existsSync(markerFile), false, "no marker for an install that never ran");
 	});
 
 	it("installs on a normal quit without relaunching", { skip: !isMac }, async () => {
@@ -668,6 +684,48 @@ describe("a launch during the install window (fix 3)", () => {
 		}
 	});
 
+	it("before the helper PID is recorded, the live quitting app counts as an install in progress (round-4 hunt finding)", async () => {
+		const s = scene();
+		s.write({ appPid: process.pid });
+		assert.equal(await updater.finishPendingUpdate({ markerFile: s.markerFile, bundlePath: s.target, version: "0.4.0", readVersion: async () => "0.4.0" }), "installing");
+		assert.ok(fs.existsSync(s.markerFile));
+		const gone = spawn("/usr/bin/true");
+		await new Promise((r) => gone.on("exit", r));
+		s.write({ appPid: gone.pid });
+		assert.equal(await updater.finishPendingUpdate({ markerFile: s.markerFile, bundlePath: s.target, version: "0.4.0", readVersion: async () => "0.4.0" }), "not-updated");
+		assert.equal(fs.existsSync(s.markerFile), false);
+	});
+
+	it("a marker rewritten while settling is left alone (round-4 hunt finding)", async () => {
+		const s = scene();
+		const state = await updater.finishPendingUpdate({
+			markerFile: s.markerFile, bundlePath: s.target, version: "0.4.0", isAlive: () => false,
+			// The quitting app records its helper while this launch reads the bundle version.
+			readVersion: async () => { s.write({ helperPid: 4242 }); return "0.4.0"; },
+		});
+		assert.equal(state, "installing");
+		assert.equal(JSON.parse(fs.readFileSync(s.markerFile, "utf8")).helperPid, 4242, "the completed marker survives");
+	});
+
+	it("the stepping-aside launch keeps waiting until the helper PID appears and exits", async () => {
+		const s = scene();
+		s.write({ appPid: 777 });
+		const alive = new Set([777]);
+		let polls = 0;
+		const a = fakeApp2(s.userData, "0.4.0");
+		await updater.yieldToPendingInstall({
+			app: a.app, execPath: path.join(s.target, "Contents", "MacOS", "LearnHarness"), argv: ["/x"],
+			readVersion: async () => "0.4.0", isAlive: (pid: number) => alive.has(pid),
+			sleep: async () => {
+				polls++;
+				if (polls === 2) { s.write({ appPid: 777, helperPid: 888 }); alive.delete(777); alive.add(888); }
+				if (polls === 4) alive.delete(888);
+			},
+		});
+		assert.equal(polls, 4, "waited through the app→helper handoff");
+		assert.deepEqual(a.calls, ["release", "relaunch", "exit 0"]);
+	});
+
 	it("a helper PID from long ago is not trusted (PID reuse)", async () => {
 		const s = scene();
 		s.write({ helperPid: process.pid, startedAt: Date.now() - 60 * 60 * 1000 });
@@ -886,6 +944,13 @@ describe("abandoned downloads (round 2, fix 3)", () => {
 		fs.writeFileSync(path.join(helped, "owner.pid"), `${gone.pid} ${gone.pid}`);
 		assert.deepEqual(await updater.reclaimAbandonedDownloads(tmp), [helped]);
 		fs.rmSync(helping, { recursive: true });
+		// Round-4 hunt finding: a fresh install script protects the folder before the helper's PID is recorded.
+		const spawning = path.join(tmp, "lh-update-spawning");
+		fs.mkdirSync(spawning);
+		fs.writeFileSync(path.join(spawning, "owner.pid"), String(gone.pid));
+		fs.writeFileSync(path.join(spawning, "install-update.sh"), "#!/bin/sh\n");
+		assert.deepEqual(await updater.reclaimAbandonedDownloads(tmp), []);
+		assert.deepEqual(await updater.reclaimAbandonedDownloads(tmp, { now: Date.now() + 11 * 60 * 1000 }), [spawning]);
 		// An owner-less folder is only reclaimed once it is a day old.
 		assert.deepEqual(await updater.reclaimAbandonedDownloads(tmp, { now: Date.now() + 25 * 60 * 60 * 1000 }), [unowned]);
 	});
@@ -948,7 +1013,7 @@ describe("symlink chains (round 2, fix 4)", () => {
 });
 
 describe("release preflight output handling (round 2, fix 5)", async () => {
-	const { publishPreflight, isRepoURL } = await import("../scripts/release-mac-preflight.mjs");
+	const { publishPreflight, isRepoURL, pinReleaseTag } = await import("../scripts/release-mac-preflight.mjs");
 	const HEAD = "c".repeat(40);
 	function capture(overrides: Record<string, { ok: boolean; out: string; err?: string }>) {
 		return (cmd: string, args: string[]) => {
@@ -994,6 +1059,15 @@ describe("release preflight output handling (round 2, fix 5)", async () => {
 		for (const url of ["https://evilgithub.com/bbMisk/learnharness.git", "git@evilgithub.com:bbMisk/learnharness.git", "https://github.com.evil.example/bbMisk/learnharness", "https://evil.example/github.com/bbMisk/learnharness"]) {
 			assert.ok(!isRepoURL(url, "bbMisk/learnharness"), url);
 		}
+	});
+
+	it("pins the tag to the built commit with a plain push (round-4 hunt finding)", () => {
+		const calls: string[][] = [];
+		pinReleaseTag((cmd: string, args: string[]) => { calls.push([cmd, ...args]); return { ok: true, out: "" }; }, { tag: "v0.4.1", commit: HEAD });
+		assert.deepEqual(calls, [["git", "push", "origin", `${HEAD}:refs/tags/v0.4.1`]]);
+		assert.ok(!calls[0]!.some((a) => /force|^-f$|^\+/.test(a)), "never forced");
+		assert.throws(() => pinReleaseTag(() => ({ ok: false, out: "", err: "! [rejected] v0.4.1 -> v0.4.1 (already exists)" }), { tag: "v0.4.1", commit: HEAD }), /could not pin tag v0.4.1.*already exists/);
+		assert.throws(() => pinReleaseTag(() => ({ ok: true, out: "" }), { tag: "v0.4.1", commit: null }), /no commit/);
 	});
 
 	it("refreshes origin before trusting its branches (round-3 hunt finding)", () => {

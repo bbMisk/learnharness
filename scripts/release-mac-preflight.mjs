@@ -55,3 +55,14 @@ export function publishPreflight(capture, { tag, repo }) {
 	if (capture("gh", ["release", "view", tag, "--repo", repo]).ok) throw new Error(`release ${tag} already exists on ${repo}; bump package.json version first`);
 	return commit;
 }
+
+/** Pin the release tag to the built commit right before `gh release create`
+ * (round-4 hunt finding: the tag could be created or moved during the build).
+ * A plain push creates the tag, is a no-op when it already points at commit,
+ * and is rejected when it points elsewhere; never forced. The release is then
+ * created with --verify-tag, so gh uses exactly this tag. */
+export function pinReleaseTag(capture, { tag, commit }) {
+	if (!/^[0-9a-f]{40}$/.test(String(commit))) throw new Error("no commit to tag");
+	const pushed = capture("git", ["push", "origin", `${commit}:refs/tags/${tag}`]);
+	if (!pushed.ok) throw new Error(`could not pin tag ${tag} to ${commit} on origin (it may point at another commit): ${pushed.err || pushed.out}`);
+}

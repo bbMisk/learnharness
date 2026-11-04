@@ -193,6 +193,9 @@ const OWNER_FILE = "owner.pid";
  * The owner file lists every PID that still needs the folder (the app, then
  * also its install helper once quitting); it is abandoned only when ALL are
  * gone (round-3 hunt finding: a quit app's helper was losing its staged copy).
+ * A folder holding an install script younger than the install window is kept
+ * whatever its owner file says: the helper may be running before its PID was
+ * recorded (round-4 hunt finding).
  * Folders without an owner file are only reclaimed after a day. */
 async function reclaimAbandonedDownloads(tmp, { log = () => {}, isAlive = processAlive, now = Date.now() } = {}) {
 	let names;
@@ -212,6 +215,8 @@ async function reclaimAbandonedDownloads(tmp, { log = () => {}, isAlive = proces
 			const valid = owners.length > 0 && owners.every((pid) => Number.isInteger(pid) && pid > 0);
 			const abandoned = valid ? owners.every((pid) => !isAlive(pid)) : now - st.mtimeMs > 24 * 60 * 60 * 1000;
 			if (!abandoned) continue;
+			const script = await fs.promises.lstat(path.join(dir, "install-update.sh")).catch(() => null);
+			if (script && now - script.mtimeMs < INSTALL_WINDOW_MS) continue;
 			await fs.promises.rm(dir, { recursive: true, force: true });
 			removed.push(dir);
 		} catch (err) {
@@ -361,6 +366,15 @@ function processAlive(pid) {
 
 const INSTALL_WINDOW_MS = 10 * 60 * 1000; // helper wait (120 s) + swap, with margin against PID reuse
 
+/** Is a previous run's install still in progress? The helper is running, or
+ * the quitting app that wrote the marker is still alive and about to start it
+ * (no helper PID recorded yet). Only within the install window, against PID reuse. */
+function installRunning(marker, isAlive = processAlive, now = Date.now()) {
+	if (!marker || now - Number(marker.startedAt) >= INSTALL_WINDOW_MS) return false;
+	if (Number.isInteger(marker.helperPid)) return isAlive(marker.helperPid);
+	return Number.isInteger(marker.appPid) && marker.appPid > 0 && isAlive(marker.appPid);
+}
+
 async function bundleVersion(bundlePath) {
 	return readPlistString(path.join(bundlePath, "Contents", "Info.plist"), "CFBundleShortVersionString");
 }
@@ -375,8 +389,10 @@ async function bundleVersion(bundlePath) {
  *  "not-updated" the install never happened or rolled back: marker removed. */
 async function finishPendingUpdate({ markerFile, bundlePath, version, log = () => {}, readVersion = bundleVersion, isAlive = processAlive, now = Date.now() }) {
 	let marker;
+	let raw = null;
 	try {
-		marker = JSON.parse(await fs.promises.readFile(markerFile, "utf8"));
+		raw = await fs.promises.readFile(markerFile, "utf8");
+		marker = JSON.parse(raw);
 	} catch (err) {
 		if (err?.code === "ENOENT") return "none";
 		marker = null;
@@ -399,7 +415,7 @@ async function finishPendingUpdate({ markerFile, bundlePath, version, log = () =
 		await clear();
 		return "cleaned";
 	}
-	if (Number.isInteger(marker.helperPid) && now - Number(marker.startedAt) < INSTALL_WINDOW_MS && isAlive(marker.helperPid)) {
+	if (installRunning(marker, isAlive, now)) {
 		log(`self-update: an install of ${marker.version} is still running`);
 		return "installing";
 	}
@@ -407,6 +423,13 @@ async function finishPendingUpdate({ markerFile, bundlePath, version, log = () =
 	if (onDisk === marker.version) {
 		log(`self-update: ${marker.version} is installed but this process is ${version}; keeping the marker for the new version`);
 		return "stale";
+	}
+	// Only clear the marker this launch judged: a quitting app may have just
+	// rewritten it with its helper's PID (round-4 hunt finding).
+	const current = await fs.promises.readFile(markerFile, "utf8").catch(() => null);
+	if (current !== raw) {
+		log("self-update: the update marker changed while settling; leaving it");
+		return "installing";
 	}
 	log(`self-update: update to ${marker.version} did not complete; running ${version}`);
 	await clear();
@@ -428,10 +451,11 @@ async function yieldToPendingInstall({ app, log = () => {}, execPath = process.e
 	let state = await settle();
 	if ((state !== "installing" && state !== "stale") || argv.includes(AFTER_INSTALL_ARG)) return false;
 	try { app.releaseSingleInstanceLock?.(); } catch { /* not held */ }
-	let helperPid = null;
-	try { helperPid = JSON.parse(await fs.promises.readFile(markerFile, "utf8")).helperPid; } catch { /* gone */ }
 	for (let waited = 0; state === "installing" && waited < timeoutMs; waited += 200) {
-		if (!Number.isInteger(helperPid) || !isAlive(helperPid)) break;
+		// Re-read each time: the helper's PID lands in the marker after spawn.
+		let marker = null;
+		try { marker = JSON.parse(await fs.promises.readFile(markerFile, "utf8")); } catch { /* gone */ }
+		if (!installRunning(marker, isAlive)) break;
 		await sleep(200);
 	}
 	log("self-update: relaunching into the installed version");
@@ -543,11 +567,16 @@ function createMacSelfUpdater(deps) {
 			const { backup, stage } = backupPaths(bundlePath);
 			fs.mkdirSync(path.dirname(markerFile), { recursive: true });
 			fs.mkdirSync(path.dirname(logFile), { recursive: true });
-			const marker = { version: staged.version, from: app.getVersion(), target: bundlePath, backup, startedAt: Date.now() };
+			const marker = { version: staged.version, from: app.getVersion(), target: bundlePath, backup, startedAt: Date.now(), appPid: process.pid };
 			// Marker BEFORE the helper exists (no install without one), then again
 			// with the helper's PID so a racing launch can tell an install is running.
 			fs.writeFileSync(markerFile, JSON.stringify(marker, null, 2));
 			const child = spawnHelper({ workdir: staged.workdir, pid: process.pid, target: bundlePath, newApp: staged.app, backup, stage, relaunch: relaunchOnQuit, logFile, env, spawnImpl: deps.spawnImpl });
+			// A failed spawn reports asynchronously; without a listener it would crash the quitting app (round-4 hunt finding).
+			child?.on?.("error", (err) => {
+				log(`self-update: the installer did not start: ${err?.message ?? err}`);
+				try { fs.rmSync(markerFile, { force: true }); } catch { /* settled as not-updated next launch */ }
+			});
 			if (Number.isInteger(child?.pid)) {
 				fs.writeFileSync(markerFile, JSON.stringify({ ...marker, helperPid: child.pid }, null, 2));
 				// The helper outlives this process: it co-owns the staged folder, so another copy's cleanup leaves it be.
