@@ -120,7 +120,7 @@ if (!publish) {
 }
 
 try {
-	pinReleaseTag(capture, { tag, commit });
+	pinReleaseTag(capture, { tag, commit, repo: REPO });
 } catch (err) {
 	fail(err.message);
 }

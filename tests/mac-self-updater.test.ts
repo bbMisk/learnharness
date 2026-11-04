@@ -454,7 +454,7 @@ describe("self-updater flow (fake fetch, temp dirs)", () => {
 		assert.equal(call.options.env.PATH, "/usr/bin:/bin:/usr/sbin:/sbin");
 		const marker = JSON.parse(fs.readFileSync(updater.markerPath(f.userData, f.target), "utf8"));
 		const { startedAt, ...rest } = marker;
-		assert.deepEqual(rest, { version: "0.4.1", from: "0.4.0", target: f.target, backup: call.args[4], helperPid: 31337, appPid: process.pid });
+		assert.deepEqual(rest, { version: "0.4.1", from: "0.4.0", target: f.target, backup: call.args[4], helperPid: 31337, appPid: process.pid, workdir: staged.workdir });
 		assert.ok(Math.abs(Date.now() - startedAt) < 60_000);
 		assert.ok(updater.isOwnBackup(f.target, marker.backup));
 		// The helper co-owns the staged folder, so another copy's cleanup leaves it alone (round-3 hunt finding).
@@ -742,6 +742,25 @@ describe("a launch during the install window (fix 3)", () => {
 		assert.equal(fs.existsSync(s.markerFile), false);
 	});
 
+	it("with no helper PID recorded, the helper's work folder marks the install in progress (round-6 hunt finding)", async () => {
+		const s = scene();
+		const gone = spawn("/usr/bin/true");
+		await new Promise((r) => gone.on("exit", r));
+		const workdir = tempDir();
+		fs.writeFileSync(path.join(workdir, "install-update.sh"), "#!/bin/sh\n");
+		s.write({ appPid: gone.pid, workdir });
+		assert.equal(await updater.finishPendingUpdate({ markerFile: s.markerFile, bundlePath: s.target, version: "0.4.0", readVersion: async () => "0.4.0" }), "installing");
+		assert.ok(fs.existsSync(s.markerFile));
+		// The helper removes its folder on every exit path: then the install is over.
+		fs.rmSync(workdir, { recursive: true });
+		assert.equal(await updater.finishPendingUpdate({ markerFile: s.markerFile, bundlePath: s.target, version: "0.4.0", readVersion: async () => "0.4.0" }), "not-updated");
+		// A folder left by a killed helper only counts within the install window.
+		fs.mkdirSync(workdir);
+		fs.writeFileSync(path.join(workdir, "install-update.sh"), "#!/bin/sh\n");
+		s.write({ appPid: gone.pid, workdir, startedAt: Date.now() - 11 * 60 * 1000 });
+		assert.equal(await updater.finishPendingUpdate({ markerFile: s.markerFile, bundlePath: s.target, version: "0.4.0", readVersion: async () => "0.4.0" }), "not-updated");
+	});
+
 	it("a marker rewritten while settling is left alone (round-4 hunt finding)", async () => {
 		const s = scene();
 		const state = await updater.finishPendingUpdate({
@@ -854,6 +873,7 @@ describe("release preflight (fix 4)", async () => {
 			if (key === "git status --porcelain") return { ok: true, out: "" };
 			if (key === "git rev-parse HEAD") return { ok: true, out: HEAD };
 			if (key === "git remote get-url origin") return { ok: true, out: "https://github.com/bbMisk/learnharness.git" };
+			if (key === "git remote get-url --push origin") return { ok: true, out: "https://github.com/bbMisk/learnharness.git" };
 			if (key === "git fetch --prune --quiet origin") return { ok: true, out: "" };
 			if (key.startsWith("git branch -r --contains")) return { ok: true, out: "  origin/HEAD -> origin/main\n  origin/main" };
 			if (key.startsWith("git ls-remote")) return { ok: true, out: lsRemote };
@@ -1082,6 +1102,7 @@ describe("release preflight output handling (round 2, fix 5)", async () => {
 			if (key === "git status --porcelain") return { ok: true, out: "" };
 			if (key === "git rev-parse HEAD") return { ok: true, out: HEAD };
 			if (key === "git remote get-url origin") return { ok: true, out: "git@github.com:bbMisk/learnharness.git" };
+			if (key === "git remote get-url --push origin") return { ok: true, out: "git@github.com:bbMisk/learnharness.git" };
 			if (key === "git fetch --prune --quiet origin") return { ok: true, out: "" };
 			if (key.startsWith("git branch -r --contains")) return { ok: true, out: "  origin/main" };
 			if (key.startsWith("git ls-remote")) return { ok: true, out: "" };
@@ -1131,13 +1152,28 @@ describe("release preflight output handling (round 2, fix 5)", async () => {
 		assert.throws(() => publishPreflight(capture({ "gh api": { ok: false, out: "", err: "connection refused" } }), opts), /could not read the current latest release/);
 	});
 
-	it("pins the tag to the built commit with a plain push (round-4 hunt finding)", () => {
+	it("pins the tag to the built commit with a plain push, then re-reads it and the latest release (round-4/6 hunt findings)", () => {
+		const pin = { tag: "v0.4.1", commit: HEAD, repo: "bbMisk/learnharness" };
 		const calls: string[][] = [];
-		pinReleaseTag((cmd: string, args: string[]) => { calls.push([cmd, ...args]); return { ok: true, out: "" }; }, { tag: "v0.4.1", commit: HEAD });
-		assert.deepEqual(calls, [["git", "push", "origin", `${HEAD}:refs/tags/v0.4.1`]]);
+		const tagAt = (sha: string) => (cmd: string, args: string[]) => {
+			calls.push([cmd, ...args]);
+			if (args[0] === "ls-remote") return { ok: true, out: `${sha}\trefs/tags/v0.4.1` };
+			if (args[0] === "api") return { ok: false, out: "", err: "HTTP 404" };
+			return { ok: true, out: "" };
+		};
+		pinReleaseTag(tagAt(HEAD), pin);
+		assert.deepEqual(calls[0], ["git", "push", "origin", `${HEAD}:refs/tags/v0.4.1`]);
 		assert.ok(!calls[0]!.some((a) => /force|^-f$|^\+/.test(a)), "never forced");
-		assert.throws(() => pinReleaseTag(() => ({ ok: false, out: "", err: "! [rejected] v0.4.1 -> v0.4.1 (already exists)" }), { tag: "v0.4.1", commit: HEAD }), /could not pin tag v0.4.1.*already exists/);
-		assert.throws(() => pinReleaseTag(() => ({ ok: true, out: "" }), { tag: "v0.4.1", commit: null }), /no commit/);
+		assert.deepEqual(calls.slice(1).map((c) => c.slice(0, 3)), [["git", "ls-remote", "--tags"], ["gh", "api", "repos/bbMisk/learnharness/releases/latest"]]);
+		assert.match(calls[1]!.join(" "), /https:\/\/github\.com\/bbMisk\/learnharness\.git/, "read back from the release repo itself");
+		assert.throws(() => pinReleaseTag(tagAt("b".repeat(40)), pin), /points at b+, not the built commit/);
+		assert.throws(() => pinReleaseTag((cmd: string, args: string[]) => (args[0] === "api" ? { ok: true, out: "latest.yml" } : tagAt(HEAD)(cmd, args)), pin), /Windows\/Linux/);
+		assert.throws(() => pinReleaseTag(() => ({ ok: false, out: "", err: "! [rejected] v0.4.1 -> v0.4.1 (already exists)" }), pin), /could not pin tag v0.4.1.*already exists/);
+		assert.throws(() => pinReleaseTag(() => ({ ok: true, out: "" }), { ...pin, commit: null }), /no commit/);
+	});
+
+	it("origin must also push to the release repo (round-6 hunt finding)", () => {
+		assert.throws(() => publishPreflight(capture({ "git remote get-url --push": { ok: true, out: "https://github.com/someone/fork.git" } }), opts), /pushes somewhere other than/);
 	});
 
 	it("refreshes origin before trusting its branches (round-3 hunt finding)", () => {

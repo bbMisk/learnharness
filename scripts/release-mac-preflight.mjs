@@ -30,6 +30,13 @@ export function remoteBranches(output, remote) {
 		.filter((l) => l.startsWith(`${remote}/`) && !l.includes(" -> ") && /^[^\s]+$/.test(l));
 }
 
+/** Refuse when the current latest release carries Windows/Linux feeds. */
+function checkLatestIsMacOnly(capture, repo) {
+	const latest = capture("gh", ["api", `repos/${repo}/releases/latest`, "--jq", ".assets[].name"]);
+	if (!latest.ok && !/HTTP 404|Not Found/i.test(`${latest.err}\n${latest.out}`)) throw new Error(`could not read the current latest release of ${repo}`);
+	if (latest.ok && /^latest(-linux)?\.yml$/m.test(latest.out)) throw new Error("the current latest release serves Windows/Linux updates (latest.yml / latest-linux.yml); a macOS-only release marked latest would break them. Ship those platforms' assets in this release too.");
+}
+
 export function publishPreflight(capture, { tag, repo }) {
 	// Every check requires success: a failed command's empty or error output is never evidence.
 	const status = capture("git", ["status", "--porcelain"]);
@@ -40,6 +47,9 @@ export function publishPreflight(capture, { tag, repo }) {
 	if (!head.ok || !/^[0-9a-f]{40}$/.test(commit)) throw new Error("could not resolve HEAD");
 	const origin = capture("git", ["remote", "get-url", "origin"]);
 	if (!origin.ok || !isRepoURL(origin.out, repo)) throw new Error(`git remote "origin" is not github.com/${repo}`);
+	// The tag is pushed to origin: its push URL must be the release repo too (round-6 hunt finding).
+	const pushURL = capture("git", ["remote", "get-url", "--push", "origin"]);
+	if (!pushURL.ok || !isRepoURL(pushURL.out, repo)) throw new Error(`git remote "origin" pushes somewhere other than github.com/${repo}`);
 	// Refresh origin's branches first: a stale tracking ref of a deleted or
 	// force-pushed branch is not evidence that GitHub has HEAD (round-3 hunt finding).
 	if (!capture("git", ["fetch", "--prune", "--quiet", "origin"]).ok) throw new Error("could not fetch origin to confirm HEAD is pushed");
@@ -56,9 +66,7 @@ export function publishPreflight(capture, { tag, repo }) {
 	// follow latest.yml / latest-linux.yml in the latest release; a macOS-only
 	// one would break their update checks (round-5 hunt finding). None exist
 	// yet; refuse once they do, until their assets ship in the same release.
-	const latest = capture("gh", ["api", `repos/${repo}/releases/latest`, "--jq", ".assets[].name"]);
-	if (!latest.ok && !/HTTP 404|Not Found/i.test(`${latest.err}\n${latest.out}`)) throw new Error(`could not read the current latest release of ${repo}`);
-	if (latest.ok && /^latest(-linux)?\.yml$/m.test(latest.out)) throw new Error("the current latest release serves Windows/Linux updates (latest.yml / latest-linux.yml); a macOS-only release marked latest would break them. Ship those platforms' assets in this release too.");
+	checkLatestIsMacOnly(capture, repo);
 	if (capture("gh", ["release", "view", tag, "--repo", repo]).ok) throw new Error(`release ${tag} already exists on ${repo}; bump package.json version first`);
 	return commit;
 }
@@ -68,8 +76,15 @@ export function publishPreflight(capture, { tag, repo }) {
  * A plain push creates the tag, is a no-op when it already points at commit,
  * and is rejected when it points elsewhere; never forced. The release is then
  * created with --verify-tag, so gh uses exactly this tag. */
-export function pinReleaseTag(capture, { tag, commit }) {
+export function pinReleaseTag(capture, { tag, commit, repo }) {
 	if (!/^[0-9a-f]{40}$/.test(String(commit))) throw new Error("no commit to tag");
 	const pushed = capture("git", ["push", "origin", `${commit}:refs/tags/${tag}`]);
 	if (!pushed.ok) throw new Error(`could not pin tag ${tag} to ${commit} on origin (it may point at another commit): ${pushed.err || pushed.out}`);
+	// Then read the tag back from the release repo itself, and re-check that
+	// the latest release is still macOS-only (round-6 hunt finding): the last
+	// checks before gh release create, not the ones from before the build.
+	const tags = capture("git", ["ls-remote", "--tags", `https://github.com/${repo}.git`, `refs/tags/${tag}`, `refs/tags/${tag}^{}`]);
+	const tagged = tags.ok ? remoteTagCommit(tags.out, tag) : null;
+	if (tagged !== commit) throw new Error(`tag ${tag} on ${repo} points at ${tagged ?? "nothing"}, not the built commit ${commit}; not publishing`);
+	checkLatestIsMacOnly(capture, repo);
 }

@@ -393,12 +393,16 @@ function processAlive(pid) {
 const INSTALL_WINDOW_MS = 10 * 60 * 1000; // helper wait (120 s) + swap, with margin against PID reuse
 
 /** Is a previous run's install still in progress? The helper is running, or
- * the quitting app that wrote the marker is still alive and about to start it
- * (no helper PID recorded yet). Only within the install window, against PID reuse. */
+ * — with no helper PID recorded — the quitting app that wrote the marker is
+ * still alive, or the helper's work folder still holds its script (the helper
+ * deletes it on every exit path, so it is durable in-progress state even when
+ * recording the helper's PID failed; round-6 hunt finding). Only within the
+ * install window, against PID reuse and a helper killed mid-way. */
 function installRunning(marker, isAlive = processAlive, now = Date.now()) {
 	if (!marker || now - Number(marker.startedAt) >= INSTALL_WINDOW_MS) return false;
 	if (Number.isInteger(marker.helperPid)) return isAlive(marker.helperPid);
-	return Number.isInteger(marker.appPid) && marker.appPid > 0 && isAlive(marker.appPid);
+	if (Number.isInteger(marker.appPid) && marker.appPid > 0 && isAlive(marker.appPid)) return true;
+	return typeof marker.workdir === "string" && path.isAbsolute(marker.workdir) && fs.existsSync(path.join(marker.workdir, "install-update.sh"));
 }
 
 async function bundleVersion(bundlePath) {
@@ -596,7 +600,7 @@ function createMacSelfUpdater(deps) {
 			const { backup, stage } = backupPaths(bundlePath);
 			fs.mkdirSync(path.dirname(markerFile), { recursive: true });
 			fs.mkdirSync(path.dirname(logFile), { recursive: true });
-			const marker = { version: staged.version, from: app.getVersion(), target: bundlePath, backup, startedAt: Date.now(), appPid: process.pid };
+			const marker = { version: staged.version, from: app.getVersion(), target: bundlePath, backup, startedAt: Date.now(), appPid: process.pid, workdir: staged.workdir };
 			// Marker BEFORE the helper exists (no install without one), then again
 			// with the helper's PID so a racing launch can tell an install is running.
 			writeFileAtomic(markerFile, JSON.stringify(marker, null, 2));
