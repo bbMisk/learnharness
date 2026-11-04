@@ -20,7 +20,7 @@
  * Hard rule: nothing here can take the app down. Every failure is a log line
  * plus the generic "error" status; nothing is installed and temp is cleaned.
  */
-const { spawn, execFile } = require("node:child_process");
+const { spawn, spawnSync, execFile } = require("node:child_process");
 const { createHash } = require("node:crypto");
 // Electron's patched fs treats app.asar as a directory, so a recursive rm of
 // a bundle stops at it (ENOTEMPTY, seen in the 2026-11-03 drill). original-fs
@@ -383,6 +383,16 @@ function spawnHelper({ workdir, pid, target, newApp, backup, stage, relaunch, lo
 	return child;
 }
 
+/** A process's command line, or "" (`ps` is in /bin on every macOS). */
+function processCommand(pid) {
+	try {
+		const result = spawnSync("/bin/ps", ["-p", String(pid), "-o", "command="], { encoding: "utf8", timeout: 2000 });
+		return result.status === 0 ? String(result.stdout) : "";
+	} catch {
+		return "";
+	}
+}
+
 function processAlive(pid) {
 	try {
 		process.kill(pid, 0);
@@ -400,8 +410,14 @@ const INSTALL_WINDOW_MS = 10 * 60 * 1000; // helper wait (120 s) + swap, with ma
  * deletes it on every exit path, so it is durable in-progress state even when
  * recording the helper's PID failed; round-6 hunt finding). Only within the
  * install window, against PID reuse and a helper killed mid-way. */
-function installRunning(marker, isAlive = processAlive, now = Date.now()) {
-	if (!marker || now - Number(marker.startedAt) >= INSTALL_WINDOW_MS) return false;
+function installRunning(marker, isAlive = processAlive, now = Date.now(), commandOf = processCommand) {
+	if (!marker) return false;
+	// A live helper that is provably ours keeps the install open past the window:
+	// a slow cross-volume copy can take longer (round-8 hunt finding). Its
+	// command line names our script in its work folder, which rules out PID reuse.
+	if (Number.isInteger(marker.helperPid) && typeof marker.workdir === "string" && isAlive(marker.helperPid)
+		&& commandOf(marker.helperPid).includes(path.join(marker.workdir, "install-update.sh"))) return true;
+	if (now - Number(marker.startedAt) >= INSTALL_WINDOW_MS) return false;
 	if (Number.isInteger(marker.helperPid)) return isAlive(marker.helperPid);
 	if (Number.isInteger(marker.appPid) && marker.appPid > 0 && isAlive(marker.appPid)) return true;
 	return typeof marker.workdir === "string" && path.isAbsolute(marker.workdir) && fs.existsSync(path.join(marker.workdir, "install-update.sh"));

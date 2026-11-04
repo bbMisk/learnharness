@@ -3,6 +3,9 @@
  * with a fake command runner. Runs before the build; throws instead of exiting.
  * capture(command, args) → { ok, out }.
  */
+import { createRequire } from "node:module";
+
+const { compareVersions } = createRequire(import.meta.url)("../electron/mac-self-updater.cjs");
 
 /** The commit a remote tag points at, from `git ls-remote` output (the peeled
  * `^{}` line wins for annotated tags), or null when the tag doesn't exist. */
@@ -30,11 +33,18 @@ export function remoteBranches(output, remote) {
 		.filter((l) => l.startsWith(`${remote}/`) && !l.includes(" -> ") && /^[^\s]+$/.test(l));
 }
 
-/** Refuse when the current latest release carries Windows/Linux feeds. */
-function checkLatestIsMacOnly(capture, repo) {
-	const latest = capture("gh", ["api", `repos/${repo}/releases/latest`, "--jq", ".assets[].name"]);
+/** Refuse when the current latest release is not older than this one (round-8
+ * hunt finding: `--latest` would make an older build the permanent download and
+ * the update feed), or carries Windows/Linux feeds. */
+function checkLatestRelease(capture, repo, tag) {
+	const latest = capture("gh", ["api", `repos/${repo}/releases/latest`, "--jq", ".tag_name, .assets[].name"]);
 	if (!latest.ok && !/HTTP 404|Not Found/i.test(`${latest.err}\n${latest.out}`)) throw new Error(`could not read the current latest release of ${repo}`);
-	if (latest.ok && /^latest(-linux)?\.yml$/m.test(latest.out)) throw new Error("the current latest release serves Windows/Linux updates (latest.yml / latest-linux.yml); a macOS-only release marked latest would break them. Ship those platforms' assets in this release too.");
+	if (!latest.ok) return; // no latest release yet
+	const [latestTag = ""] = latest.out.split("\n");
+	let newer;
+	try { newer = compareVersions(tag, latestTag.trim()) > 0; } catch { throw new Error(`could not compare ${tag} with the latest release tag "${latestTag.trim()}"`); }
+	if (!newer) throw new Error(`${tag} is not newer than the latest release ${latestTag.trim()}; bump package.json version first`);
+	if (/^latest(-linux)?\.yml$/m.test(latest.out)) throw new Error("the current latest release serves Windows/Linux updates (latest.yml / latest-linux.yml); a macOS-only release marked latest would break them. Ship those platforms' assets in this release too.");
 }
 
 export function publishPreflight(capture, { tag, repo }) {
@@ -66,7 +76,7 @@ export function publishPreflight(capture, { tag, repo }) {
 	// follow latest.yml / latest-linux.yml in the latest release; a macOS-only
 	// one would break their update checks (round-5 hunt finding). None exist
 	// yet; refuse once they do, until their assets ship in the same release.
-	checkLatestIsMacOnly(capture, repo);
+	checkLatestRelease(capture, repo, tag);
 	if (capture("gh", ["release", "view", tag, "--repo", repo]).ok) throw new Error(`release ${tag} already exists on ${repo}; bump package.json version first`);
 	return commit;
 }
@@ -86,5 +96,5 @@ export function pinReleaseTag(capture, { tag, commit, repo }) {
 	const tags = capture("git", ["ls-remote", "--tags", `https://github.com/${repo}.git`, `refs/tags/${tag}`, `refs/tags/${tag}^{}`]);
 	const tagged = tags.ok ? remoteTagCommit(tags.out, tag) : null;
 	if (tagged !== commit) throw new Error(`tag ${tag} on ${repo} points at ${tagged ?? "nothing"}, not the built commit ${commit}; not publishing`);
-	checkLatestIsMacOnly(capture, repo);
+	checkLatestRelease(capture, repo, tag);
 }

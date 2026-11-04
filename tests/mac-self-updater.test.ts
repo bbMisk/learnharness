@@ -795,6 +795,25 @@ describe("a launch during the install window (fix 3)", () => {
 		assert.equal(await updater.finishPendingUpdate({ markerFile: s.markerFile, bundlePath: s.target, version: "0.4.0", readVersion: async () => "0.4.0" }), "not-updated");
 	});
 
+	it("a live helper that is provably ours keeps the install open past the window (round-8 hunt finding)", async () => {
+		const s = scene();
+		const workdir = tempDir();
+		fs.writeFileSync(path.join(workdir, "install-update.sh"), "sleep 5\n");
+		const helper = spawn("/bin/sh", [path.join(workdir, "install-update.sh")]);
+		try {
+			await new Promise((r) => setTimeout(r, 100));
+			const old = Date.now() - 30 * 60 * 1000;
+			s.write({ helperPid: helper.pid, workdir, startedAt: old });
+			assert.equal(await updater.finishPendingUpdate({ markerFile: s.markerFile, bundlePath: s.target, version: "0.4.0", readVersion: async () => "0.4.0" }), "installing");
+			assert.ok(fs.existsSync(s.markerFile));
+			// The same live PID recorded for another work folder is not ours (PID reuse): the window applies.
+			s.write({ helperPid: helper.pid, workdir: tempDir(), startedAt: old });
+			assert.equal(await updater.finishPendingUpdate({ markerFile: s.markerFile, bundlePath: s.target, version: "0.4.0", readVersion: async () => "0.4.0" }), "not-updated");
+		} finally {
+			helper.kill();
+		}
+	});
+
 	it("a marker rewritten while settling is left alone (round-4 hunt finding)", async () => {
 		const s = scene();
 		const state = await updater.finishPendingUpdate({
@@ -1195,11 +1214,19 @@ describe("release preflight output handling (round 2, fix 5)", async () => {
 
 	it("refuses to make a macOS-only release latest once Windows/Linux updates exist (round-5 hunt finding)", () => {
 		assert.equal(publishPreflight(capture({}), opts), HEAD, "no latest release yet (404) is fine");
-		assert.equal(publishPreflight(capture({ "gh api": { ok: true, out: "LearnHarness-0.4.0-arm64.dmg\nlatest-mac.yml" } }), opts), HEAD);
+		assert.equal(publishPreflight(capture({ "gh api": { ok: true, out: "v0.4.0\nLearnHarness-0.4.0-arm64.dmg\nlatest-mac.yml" } }), opts), HEAD);
 		for (const feed of ["latest.yml", "latest-linux.yml"]) {
-			assert.throws(() => publishPreflight(capture({ "gh api": { ok: true, out: `latest-mac.yml\n${feed}` } }), opts), /Windows\/Linux/);
+			assert.throws(() => publishPreflight(capture({ "gh api": { ok: true, out: `v0.4.0\nlatest-mac.yml\n${feed}` } }), opts), /Windows\/Linux/);
 		}
 		assert.throws(() => publishPreflight(capture({ "gh api": { ok: false, out: "", err: "connection refused" } }), opts), /could not read the current latest release/);
+	});
+
+	it("refuses a version that is not newer than the latest release (round-8 hunt finding)", () => {
+		for (const latest of ["v0.4.1", "v2.0.0", "v0.5.0-preview.1"]) {
+			assert.throws(() => publishPreflight(capture({ "gh api": { ok: true, out: `${latest}\nlatest-mac.yml` } }), opts), /not newer than the latest release/, latest);
+		}
+		assert.equal(publishPreflight(capture({ "gh api": { ok: true, out: "v0.4.1-preview.9\nlatest-mac.yml" } }), opts), HEAD, "a release outranks its prereleases");
+		assert.throws(() => publishPreflight(capture({ "gh api": { ok: true, out: "nightly\nlatest-mac.yml" } }), opts), /could not compare/);
 	});
 
 	it("pins the tag to the built commit with a plain push, then re-reads it and the latest release (round-4/6 hunt findings)", () => {
@@ -1217,7 +1244,8 @@ describe("release preflight output handling (round 2, fix 5)", async () => {
 		assert.deepEqual(calls.slice(1).map((c) => c.slice(0, 3)), [["git", "ls-remote", "--tags"], ["gh", "api", "repos/bbMisk/learnharness/releases/latest"]]);
 		assert.match(calls[1]!.join(" "), /https:\/\/github\.com\/bbMisk\/learnharness\.git/, "read back from the release repo itself");
 		assert.throws(() => pinReleaseTag(tagAt("b".repeat(40)), pin), /points at b+, not the built commit/);
-		assert.throws(() => pinReleaseTag((cmd: string, args: string[]) => (args[0] === "api" ? { ok: true, out: "latest.yml" } : tagAt(HEAD)(cmd, args)), pin), /Windows\/Linux/);
+		assert.throws(() => pinReleaseTag((cmd: string, args: string[]) => (args[0] === "api" ? { ok: true, out: "v0.4.0\nlatest.yml" } : tagAt(HEAD)(cmd, args)), pin), /Windows\/Linux/);
+		assert.throws(() => pinReleaseTag((cmd: string, args: string[]) => (args[0] === "api" ? { ok: true, out: "v0.9.0\nlatest-mac.yml" } : tagAt(HEAD)(cmd, args)), pin), /not newer/, "re-checked right before publishing");
 		assert.throws(() => pinReleaseTag(() => ({ ok: false, out: "", err: "! [rejected] v0.4.1 -> v0.4.1 (already exists)" }), pin), /could not pin tag v0.4.1.*already exists/);
 		assert.throws(() => pinReleaseTag(() => ({ ok: true, out: "" }), { ...pin, commit: null }), /no commit/);
 	});
