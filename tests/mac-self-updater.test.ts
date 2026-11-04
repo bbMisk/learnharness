@@ -273,6 +273,40 @@ describe("swap helper (real /bin/sh against fake bundles)", () => {
 		assert.match(fs.readFileSync(scene.logFile, "utf8"), /interrupted; previous version restored/);
 	});
 
+	it("a TERM while staging removes the partial copy and leaves the app alone (round-7 hunt finding)", async () => {
+		const scene = helperScene();
+		const reached = path.join(scene.root, "reached");
+		// Fake mv that stalls on the NEW → STAGE copy after writing part of it.
+		fs.writeFileSync(path.join(scene.bin, "mv"), `#!/bin/sh\nif [ "$2" = "${scene.stage}" ]; then mkdir -p "${scene.stage}"; : > "${reached}"; sleep 5; fi\nexec /bin/mv "$@"\n`, { mode: 0o755 });
+		let helper: ChildProcess | null = null;
+		updater.spawnHelper({
+			workdir: scene.workdir, pid: 999999, target: scene.target, newApp: scene.newApp, backup: scene.backup, stage: scene.stage,
+			relaunch: false, logFile: scene.logFile, searchPath: `${scene.bin}:/usr/bin:/bin:/usr/sbin:/sbin`,
+			spawnImpl: (cmd: string, args: string[], options: object) => (helper = spawn(cmd, args, options)),
+		});
+		const exited = new Promise((resolve) => helper!.on("exit", resolve));
+		for (let i = 0; i < 100 && !fs.existsSync(reached); i++) await new Promise((r) => setTimeout(r, 50));
+		assert.ok(fs.existsSync(reached), "reached the staging copy");
+		process.kill(-helper!.pid!, "SIGTERM");
+		await exited;
+		assert.equal(which(scene.target), "old");
+		assert.equal(fs.existsSync(scene.stage), false, "partial stage removed");
+		assert.equal(fs.existsSync(scene.backup), false);
+		assert.equal(fs.existsSync(scene.workdir), false);
+	});
+
+	it("a later start removes staging folders a killed helper left beside the app", async () => {
+		const scene = helperScene();
+		fakeApp(scene.stage, "partial");
+		const unrelated = path.join(path.dirname(scene.target), ".Other.app.update-new-1");
+		fs.mkdirSync(unrelated);
+		const lines: string[] = [];
+		assert.deepEqual(await updater.reclaimStaleStages(scene.target, (l: string) => lines.push(l)), [scene.stage]);
+		assert.equal(which(scene.target), "old");
+		assert.ok(fs.existsSync(unrelated), "another app's folder is not ours");
+		assert.match(lines.join("\n"), /removed 1 abandoned staging folder/);
+	});
+
 	it("leaves the current app untouched when staging fails", async () => {
 		const scene = helperScene();
 		fs.rmSync(scene.newApp, { recursive: true });
@@ -827,6 +861,22 @@ describe("a launch during the install window (fix 3)", () => {
 		assert.deepEqual(a.relaunchArgs[0], ["--flag", "--lh-after-install"]);
 		assert.ok(slept.length >= 2, "waited for the helper");
 		assert.ok(fs.existsSync(s.markerFile), "marker left for the new version");
+	});
+
+	it("staging folders are only reclaimed once no install marker remains", async () => {
+		const s = scene();
+		const { stage } = updater.backupPaths(s.target, 99);
+		fs.mkdirSync(stage);
+		s.write({ helperPid: 4242 });
+		const execPath = path.join(s.target, "Contents", "MacOS", "LearnHarness");
+		let alive = true;
+		await updater.yieldToPendingInstall({ app: fakeApp2(s.userData, "0.4.0").app, execPath, argv: ["/x"], readVersion: async () => "0.4.0", isAlive: () => alive, sleep: async () => { alive = false; } });
+		await new Promise((r) => setTimeout(r, 50));
+		assert.ok(fs.existsSync(stage), "an install was running: its stage is left alone");
+		fs.rmSync(s.markerFile);
+		await updater.yieldToPendingInstall({ app: fakeApp2(s.userData, "0.4.0").app, execPath, argv: ["/x"], readVersion: async () => "0.4.0", isAlive: () => false });
+		for (let i = 0; i < 40 && fs.existsSync(stage); i++) await new Promise((r) => setTimeout(r, 25));
+		assert.equal(fs.existsSync(stage), false, "no marker: the leftover stage is removed");
 	});
 
 	it("a stalled install is waited out for the whole install window, not 150 s (round-5 hunt finding)", async () => {

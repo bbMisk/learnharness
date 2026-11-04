@@ -323,7 +323,6 @@ while kill -0 "$pid" 2>/dev/null; do
 	waited=$((waited + 1))
 done
 log "installing $new over $target"
-mv "$new" "$stage" || fail "could not stage the new version; nothing changed"
 # Between the two renames the app path is empty. A TERM/INT/HUP there (a
 # shutdown or logout signals before it kills) puts the previous version back
 # (round-5 hunt finding); only SIGKILL or power loss inside that sub-millisecond
@@ -333,7 +332,10 @@ interrupted() {
 	rm -rf "$stage" "$workdir"
 	exit 1
 }
+# Installed before staging too: a NEW → STAGE move across volumes is a copy,
+# and an interrupted copy must not stay beside the app (round-7 hunt finding).
 trap interrupted TERM INT HUP
+mv "$new" "$stage" || { trap - TERM INT HUP; fail "could not stage the new version; nothing changed"; }
 mv "$target" "$backup" || { trap - TERM INT HUP; fail "could not move the current version aside; nothing changed"; }
 if [ -e "$target" ] || ! mv "$stage" "$target"; then
 	log "could not move the new version into place; restoring the previous version"
@@ -466,6 +468,30 @@ async function finishPendingUpdate({ markerFile, bundlePath, version, log = () =
 	return "not-updated";
 }
 
+/** Remove hidden `.<App>.update-new-*` staging folders beside the bundle, left
+ * when a helper was killed outright mid-stage (round-7 hunt finding). Only
+ * called once no install marker remains for this location, so no helper of
+ * ours is using them. */
+async function reclaimStaleStages(bundlePath, log = () => {}) {
+	const dir = path.dirname(bundlePath);
+	const prefix = `.${path.basename(bundlePath)}.update-new-`;
+	let names;
+	try { names = await fs.promises.readdir(dir); } catch { return []; }
+	const removed = [];
+	for (const name of names.filter((n) => n.startsWith(prefix))) {
+		const stage = path.join(dir, name);
+		try {
+			if (!(await fs.promises.lstat(stage)).isDirectory()) continue;
+			await fs.promises.rm(stage, { recursive: true, force: true });
+			removed.push(stage);
+		} catch (err) {
+			log(`self-update: could not remove ${stage}: ${err?.message ?? err}`);
+		}
+	}
+	if (removed.length) log(`self-update: removed ${removed.length} abandoned staging folder(s)`);
+	return removed;
+}
+
 const AFTER_INSTALL_ARG = "--lh-after-install";
 
 /** First thing on launch (before the server starts). If an install is still
@@ -482,6 +508,7 @@ async function yieldToPendingInstall({ app, log = () => {}, execPath = process.e
 	const markerFile = markerPath(app.getPath("userData"), bundlePath);
 	const settle = () => finishPendingUpdate({ markerFile, bundlePath, version: app.getVersion(), log, readVersion, isAlive });
 	let state = await settle();
+	if (["none", "cleaned", "not-updated", "ignored"].includes(state)) void reclaimStaleStages(bundlePath, log);
 	if ((state !== "installing" && state !== "stale") || argv.includes(AFTER_INSTALL_ARG)) return false;
 	try { app.releaseSingleInstanceLock?.(); } catch { /* not held */ }
 	for (let waited = 0; state === "installing" && waited < timeoutMs; waited += 200) {
@@ -669,6 +696,7 @@ module.exports = {
 	finishPendingUpdate,
 	markerPath,
 	reclaimAbandonedDownloads,
+	reclaimStaleStages,
 	yieldToPendingInstall,
 	createMacSelfUpdater,
 };

@@ -138,3 +138,5 @@ Packaged apps check at startup and every 24 hours by default (unsigned macOS bui
 Sources: [`electron/main.cjs`](../electron/main.cjs), [`electron/preload.cjs`](../electron/preload.cjs), and [`update-settings.tsx`](../components/settings/update-settings.tsx).
 
 After a stable release is published, [`.github/workflows/notify-website.yml`](../.github/workflows/notify-website.yml) dispatches `desktop-release-published` with the tag to `amosblomqvist/learnharness-web`, using the separately scoped `WEBSITE_DISPATCH_TOKEN` secret. Drafts and prereleases do not trigger that job. A successful HTTP 204 means the website update was **queued**, not that deployment or public links have been verified.
+
+That job only runs on `amosblomqvist/learnharness`. Releases from `bbMisk/learnharness` with `npm run release:mac` notify nothing: Actions is off there, and the job's repository check would skip it anyway. Their download link, `releases/latest/download/LearnHarness-arm64.dmg`, always serves the newest release, so a page that links there needs no update.
