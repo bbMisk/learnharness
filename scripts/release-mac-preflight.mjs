@@ -16,9 +16,10 @@ export function remoteTagCommit(lsRemoteOutput, tag) {
 	return plain;
 }
 
-/** Does a git remote URL point at github.com/<repo>? (https or ssh form) */
+/** Does a git remote URL point at github.com/<repo>? (https, scp-style ssh or
+ * ssh:// form). The host must be exactly github.com (round-3 hunt finding). */
 export function isRepoURL(url, repo) {
-	const m = /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?\/?$/i.exec(String(url).trim());
+	const m = /^(?:https:\/\/(?:[^@/]+@)?github\.com\/|git@github\.com:|ssh:\/\/git@github\.com(?::\d+)?\/)([^/]+\/[^/]+?)(?:\.git)?\/?$/i.exec(String(url).trim());
 	return !!m && m[1].toLowerCase() === repo.toLowerCase();
 }
 
@@ -39,6 +40,9 @@ export function publishPreflight(capture, { tag, repo }) {
 	if (!head.ok || !/^[0-9a-f]{40}$/.test(commit)) throw new Error("could not resolve HEAD");
 	const origin = capture("git", ["remote", "get-url", "origin"]);
 	if (!origin.ok || !isRepoURL(origin.out, repo)) throw new Error(`git remote "origin" is not github.com/${repo}`);
+	// Refresh origin's branches first: a stale tracking ref of a deleted or
+	// force-pushed branch is not evidence that GitHub has HEAD (round-3 hunt finding).
+	if (!capture("git", ["fetch", "--prune", "--quiet", "origin"]).ok) throw new Error("could not fetch origin to confirm HEAD is pushed");
 	const branches = capture("git", ["branch", "-r", "--contains", commit]);
 	if (!branches.ok || remoteBranches(branches.out, "origin").length === 0) throw new Error(`HEAD ${commit} is not on any origin branch; push it to ${repo} first`);
 	// gh release create reuses an existing tag as-is: artifacts built from HEAD

@@ -60,7 +60,7 @@ function wantsSelfUpdater(platform, packageJson) {
 function parseVersion(value) {
 	const m = /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z.-]+)?$/.exec(String(value ?? "").trim());
 	if (!m) return null;
-	return { core: [Number(m[1]), Number(m[2]), Number(m[3])], pre: m[4] ? m[4].split(".") : [] };
+	return { core: [BigInt(m[1]), BigInt(m[2]), BigInt(m[3])], pre: m[4] ? m[4].split(".") : [] };
 }
 
 /** -1 / 0 / 1 like a sort comparator. Throws on an invalid version. */
@@ -79,7 +79,8 @@ function compareVersions(a, b) {
 		if (p === q) continue;
 		const pn = /^\d+$/.test(p);
 		const qn = /^\d+$/.test(q);
-		if (pn && qn) return Number(p) < Number(q) ? -1 : 1;
+		// BigInt: identifiers past 2^53 must not round together (round-3 hunt finding).
+		if (pn && qn) { const d = BigInt(p) - BigInt(q); if (d !== 0n) return d < 0n ? -1 : 1; continue; }
 		if (pn !== qn) return pn ? -1 : 1; // numeric identifiers sort first
 		return p < q ? -1 : 1;
 	}
@@ -189,6 +190,9 @@ const OWNER_FILE = "owner.pid";
 /** Remove lh-update-* download folders left by a process that is gone (a
  * quit mid-download, a crash). Each folder names its owner PID; folders of a
  * live process — another copy downloading right now — are left alone.
+ * The owner file lists every PID that still needs the folder (the app, then
+ * also its install helper once quitting); it is abandoned only when ALL are
+ * gone (round-3 hunt finding: a quit app's helper was losing its staged copy).
  * Folders without an owner file are only reclaimed after a day. */
 async function reclaimAbandonedDownloads(tmp, { log = () => {}, isAlive = processAlive, now = Date.now() } = {}) {
 	let names;
@@ -203,9 +207,10 @@ async function reclaimAbandonedDownloads(tmp, { log = () => {}, isAlive = proces
 		try {
 			const st = await fs.promises.lstat(dir);
 			if (!st.isDirectory()) continue;
-			let owner = null;
-			try { owner = Number((await fs.promises.readFile(path.join(dir, OWNER_FILE), "utf8")).trim()); } catch { /* none */ }
-			const abandoned = Number.isInteger(owner) && owner > 0 ? !isAlive(owner) : now - st.mtimeMs > 24 * 60 * 60 * 1000;
+			let owners = [];
+			try { owners = (await fs.promises.readFile(path.join(dir, OWNER_FILE), "utf8")).trim().split(/\s+/).map(Number); } catch { /* none */ }
+			const valid = owners.length > 0 && owners.every((pid) => Number.isInteger(pid) && pid > 0);
+			const abandoned = valid ? owners.every((pid) => !isAlive(pid)) : now - st.mtimeMs > 24 * 60 * 60 * 1000;
 			if (!abandoned) continue;
 			await fs.promises.rm(dir, { recursive: true, force: true });
 			removed.push(dir);
@@ -543,7 +548,11 @@ function createMacSelfUpdater(deps) {
 			// with the helper's PID so a racing launch can tell an install is running.
 			fs.writeFileSync(markerFile, JSON.stringify(marker, null, 2));
 			const child = spawnHelper({ workdir: staged.workdir, pid: process.pid, target: bundlePath, newApp: staged.app, backup, stage, relaunch: relaunchOnQuit, logFile, env, spawnImpl: deps.spawnImpl });
-			if (Number.isInteger(child?.pid)) fs.writeFileSync(markerFile, JSON.stringify({ ...marker, helperPid: child.pid }, null, 2));
+			if (Number.isInteger(child?.pid)) {
+				fs.writeFileSync(markerFile, JSON.stringify({ ...marker, helperPid: child.pid }, null, 2));
+				// The helper outlives this process: it co-owns the staged folder, so another copy's cleanup leaves it be.
+				fs.writeFileSync(path.join(staged.workdir, OWNER_FILE), `${process.pid} ${child.pid}`);
+			}
 			log(`self-update: installing ${staged.version} after quit (relaunch: ${relaunchOnQuit})`);
 			return true;
 		} catch (err) {

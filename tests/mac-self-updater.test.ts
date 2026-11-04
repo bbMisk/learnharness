@@ -56,6 +56,10 @@ describe("compareVersions", () => {
 		assert.equal(updater.compareVersions("0.4.0-preview.10", "0.4.0-preview.9"), 1);
 		assert.equal(updater.compareVersions("0.4.0", "0.4.0-preview.2"), 1);
 		assert.equal(updater.compareVersions("0.4.0-preview.2", "0.3.9"), 1);
+		// Round-3 hunt finding: numbers past 2^53 must not round together.
+		assert.equal(updater.compareVersions("1.0.0-9007199254740992", "1.0.0-9007199254740993"), -1);
+		assert.equal(updater.compareVersions("1.0.0-9007199254740993", "1.0.0-9007199254740992"), 1);
+		assert.equal(updater.compareVersions("9007199254740993.0.0", "9007199254740992.0.0"), 1);
 	});
 
 	it("rejects invalid versions", () => {
@@ -429,6 +433,8 @@ describe("self-updater flow (fake fetch, temp dirs)", () => {
 		assert.deepEqual(rest, { version: "0.4.1", from: "0.4.0", target: f.target, backup: call.args[4], helperPid: 31337 });
 		assert.ok(Math.abs(Date.now() - startedAt) < 60_000);
 		assert.ok(updater.isOwnBackup(f.target, marker.backup));
+		// The helper co-owns the staged folder, so another copy's cleanup leaves it alone (round-3 hunt finding).
+		assert.equal(fs.readFileSync(path.join(staged.workdir, "owner.pid"), "utf8"), `${process.pid} 31337`);
 	});
 
 	it("installs on a normal quit without relaunching", { skip: !isMac }, async () => {
@@ -731,6 +737,7 @@ describe("release preflight (fix 4)", async () => {
 			if (key === "git status --porcelain") return { ok: true, out: "" };
 			if (key === "git rev-parse HEAD") return { ok: true, out: HEAD };
 			if (key === "git remote get-url origin") return { ok: true, out: "https://github.com/bbMisk/learnharness.git" };
+			if (key === "git fetch --prune --quiet origin") return { ok: true, out: "" };
 			if (key.startsWith("git branch -r --contains")) return { ok: true, out: "  origin/HEAD -> origin/main\n  origin/main" };
 			if (key.startsWith("git ls-remote")) return { ok: true, out: lsRemote };
 			if (key === "gh auth status") return { ok: true, out: "" };
@@ -870,6 +877,15 @@ describe("abandoned downloads (round 2, fix 3)", () => {
 		const removed = await updater.reclaimAbandonedDownloads(tmp);
 		assert.deepEqual(removed, [dead]);
 		assert.deepEqual(fs.readdirSync(tmp).sort(), ["lh-update-fresh", "lh-update-live", "not-ours"]);
+		// Round-3 hunt finding: a quit app's folder stays while its install helper (second PID) is alive.
+		const helping = path.join(tmp, "lh-update-helping");
+		const helped = path.join(tmp, "lh-update-helped");
+		fs.mkdirSync(helping);
+		fs.mkdirSync(helped);
+		fs.writeFileSync(path.join(helping, "owner.pid"), `${gone.pid} ${process.pid}`);
+		fs.writeFileSync(path.join(helped, "owner.pid"), `${gone.pid} ${gone.pid}`);
+		assert.deepEqual(await updater.reclaimAbandonedDownloads(tmp), [helped]);
+		fs.rmSync(helping, { recursive: true });
 		// An owner-less folder is only reclaimed once it is a day old.
 		assert.deepEqual(await updater.reclaimAbandonedDownloads(tmp, { now: Date.now() + 25 * 60 * 60 * 1000 }), [unowned]);
 	});
@@ -941,6 +957,7 @@ describe("release preflight output handling (round 2, fix 5)", async () => {
 			if (key === "git status --porcelain") return { ok: true, out: "" };
 			if (key === "git rev-parse HEAD") return { ok: true, out: HEAD };
 			if (key === "git remote get-url origin") return { ok: true, out: "git@github.com:bbMisk/learnharness.git" };
+			if (key === "git fetch --prune --quiet origin") return { ok: true, out: "" };
 			if (key.startsWith("git branch -r --contains")) return { ok: true, out: "  origin/main" };
 			if (key.startsWith("git ls-remote")) return { ok: true, out: "" };
 			if (key === "gh auth status") return { ok: true, out: "" };
@@ -971,5 +988,20 @@ describe("release preflight output handling (round 2, fix 5)", async () => {
 		assert.ok(isRepoURL("https://github.com/bbMisk/learnharness.git", "bbMisk/learnharness"));
 		assert.ok(isRepoURL("git@github.com:bbMisk/learnharness", "bbMisk/learnharness"));
 		assert.ok(!isRepoURL("https://github.com/bbMisk/learnharness-web.git", "bbMisk/learnharness"));
+		assert.ok(isRepoURL("ssh://git@github.com/bbMisk/learnharness.git", "bbMisk/learnharness"));
+		assert.ok(isRepoURL("https://token@github.com/bbMisk/learnharness", "bbMisk/learnharness"));
+		// Round-3 hunt finding: the host must be exactly github.com.
+		for (const url of ["https://evilgithub.com/bbMisk/learnharness.git", "git@evilgithub.com:bbMisk/learnharness.git", "https://github.com.evil.example/bbMisk/learnharness", "https://evil.example/github.com/bbMisk/learnharness"]) {
+			assert.ok(!isRepoURL(url, "bbMisk/learnharness"), url);
+		}
+	});
+
+	it("refreshes origin before trusting its branches (round-3 hunt finding)", () => {
+		const calls: string[] = [];
+		const base = capture({});
+		publishPreflight((cmd: string, args: string[]) => { calls.push(`${cmd} ${args.join(" ")}`); return base(cmd, args); }, opts);
+		const fetchAt = calls.indexOf("git fetch --prune --quiet origin");
+		assert.ok(fetchAt >= 0 && fetchAt < calls.findIndex((c) => c.startsWith("git branch -r")), "fetch runs before the containment check");
+		assert.throws(() => publishPreflight(capture({ "git fetch": { ok: false, out: "" } }), opts), /could not fetch origin/);
 	});
 });
