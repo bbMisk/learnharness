@@ -1,0 +1,25 @@
+# Unsigned macOS release (owner design, 2026-11-03) — used by
+# scripts/release-mac.mjs. No Developer ID on the release Mac, so:
+#   - ad-hoc signature ("-") so the app runs on Apple Silicon; no notarization;
+#   - local entitlements (ad-hoc signatures have no Team ID, so library
+#     validation must be off — same as electron-builder.local.yml);
+#   - lhMacUpdater: "self" in the packaged package.json switches the app to
+#     electron/mac-self-updater.cjs (Squirrel.Mac refuses unsigned updates).
+#     A Developer ID build made from electron-builder.yml omits the flag and
+#     goes back to electron-updater.
+# The github publish provider is inherited, so electron-builder still writes
+# latest-mac.yml and the bundle's app-update.yml; the script always passes
+# --publish never and uploads with gh only when given --publish.
+extends: ./electron-builder.yml
+directories:
+  output: dist/release-mac
+extraMetadata:
+  lhMacUpdater: self
+mac:
+  # Icon Composer needs Xcode 26's actool; release-mac.mjs switches back to
+  # build/icon.icon when actool is available.
+  icon: build/icon.icns
+  identity: "-"
+  notarize: false
+  entitlements: build/entitlements.local.mac.plist
+  entitlementsInherit: build/entitlements.local.mac.plist

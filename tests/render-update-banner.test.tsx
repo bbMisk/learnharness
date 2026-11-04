@@ -77,7 +77,61 @@ describe("update banner (Wave C)", () => {
 		assert.ok(button, "restart button exists");
 		button!.click();
 		assert.equal(installed, 1, "Restart asks the shell to quit-and-install");
+		assert.equal(button!.textContent, "Restart to update");
 		root.unmount();
 		host.remove();
+	});
+
+	/* macOS self-updater card states (owner, 2026-11-03). */
+	async function mountWith(state: UpdateState) {
+		let pushed: ((s: UpdateState) => void) | null = null;
+		let installed = 0;
+		(window as { lh?: unknown }).lh = {
+			onUpdateStatus: (cb: (s: UpdateState) => void) => { pushed = cb; return () => {}; },
+			installUpdate: () => { installed += 1; },
+		};
+		const host = document.createElement("div");
+		document.body.appendChild(host);
+		const root = ReactDOMClient.createRoot(host);
+		flushSync(() => root.render(<UpdateBanner />));
+		await new Promise((r) => setTimeout(r, 0));
+		flushSync(() => pushed?.(state));
+		return { host, push: (next: UpdateState) => flushSync(() => pushed?.(next)), installed: () => installed, done: () => { root.unmount(); host.remove(); } };
+	}
+
+	it("asks to move the app to Applications when it can't update in place", async () => {
+		const m = await mountWith({ status: "move-to-applications", version: "0.4.1", revision: 1 });
+		const card = m.host.querySelector("[data-testid='update-banner']");
+		assert.ok(card, "card shows");
+		assert.equal(card!.getAttribute("data-status"), "move-to-applications");
+		assert.ok(card!.textContent!.includes("Move LearnHarness to Applications to get updates"));
+		assert.equal(card!.querySelectorAll("a").length, 0);
+		assert.ok(!card!.textContent!.includes("Restart"));
+		m.done();
+	});
+
+	it("links the permanent installer when the app's folder isn't writable", async () => {
+		const m = await mountWith({ status: "manual-download", version: "0.4.1", revision: 1 });
+		const card = m.host.querySelector("[data-testid='update-banner']")!;
+		assert.ok(card.textContent!.includes("LearnHarness 0.4.1 is available"));
+		const link = card.querySelector("a")!;
+		assert.equal(link.textContent, "Download update");
+		assert.equal(link.getAttribute("href"), "https://github.com/bbMisk/learnharness/releases/latest/download/LearnHarness-arm64.dmg");
+		assert.equal(link.getAttribute("target"), "_blank");
+		assert.equal(m.installed(), 0);
+		m.done();
+	});
+
+	it("stays hidden for in-progress and error states, and dismissal is per state and version", async () => {
+		const m = await mountWith({ status: "downloading", version: "0.4.1", revision: 1 });
+		assert.equal(m.host.innerHTML, "");
+		m.push({ status: "error", version: null, revision: 2 });
+		assert.equal(m.host.innerHTML, "");
+		m.push({ status: "move-to-applications", version: "0.4.1", revision: 3 });
+		flushSync(() => m.host.querySelector<HTMLButtonElement>("[aria-label='Dismiss update notification']")!.click());
+		assert.equal(m.host.innerHTML, "", "dismissed");
+		m.push({ status: "move-to-applications", version: "0.4.2", revision: 4 });
+		assert.ok(m.host.innerHTML.includes("Move LearnHarness"), "a newer version shows again");
+		m.done();
 	});
 });

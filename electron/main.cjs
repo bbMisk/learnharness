@@ -38,6 +38,7 @@ const http = require("node:http");
 const net = require("node:net");
 const path = require("node:path");
 const connection = require(path.join(__dirname, "shared-server.cjs"));
+const macSelfUpdate = require("./mac-self-updater.cjs");
 
 // Mirrors SIDEBAR_AUTOCLOSE in components/sidebar.tsx — keep in sync (the
 // renderer owns the number; this is the IPC widen target).
@@ -452,6 +453,8 @@ const ZOOM_LADDER = [0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
  * and before-quit alone would race the swap. */
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 let autoUpdater = null; // electron-updater's, packaged builds only
+// Unsigned macOS releases: electron/mac-self-updater.cjs replaces Squirrel.Mac.
+let selfUpdater = null;
 // Observational only: this snapshot NEVER gates a check, download or install.
 // The revision lets late subscribers reject an older in-flight IPC snapshot.
 let updateState = { status: "idle", version: null, revision: 0 };
@@ -486,7 +489,7 @@ function automaticUpdatesEnabled() {
 }
 
 function checkForUpdates({ manual = false } = {}) {
-	if (!autoUpdater) {
+	if (!autoUpdater && !selfUpdater) {
 		if (manual) dialog.showMessageBox({ type: "info", message: "Updates unavailable in this preview", detail: "Get new versions at https://github.com/bbMisk/learnharness/releases. Automatic updates will be available in a signed release." });
 		return;
 	}
@@ -494,6 +497,7 @@ function checkForUpdates({ manual = false } = {}) {
 		log("auto-update: automatic check skipped (turned off in Settings)");
 		return;
 	}
+	if (selfUpdater) return void selfUpdater.check();
 	// Do not gate on display state: a stale spinner/error must never disable
 	// future background checks. electron-updater owns its in-flight work.
 	autoUpdater
@@ -516,6 +520,7 @@ function installUpdateNow() {
 	} catch {
 		/* already dead */
 	}
+	if (selfUpdater) return selfUpdater.installNow();
 	autoUpdater?.quitAndInstall();
 }
 
@@ -527,6 +532,16 @@ function setupAutoUpdater() {
 	}
 	if (!fs.existsSync(path.join(process.resourcesPath, "app-update.yml"))) {
 		log("auto-update: no packaged update feed — preview updates are manual");
+		return;
+	}
+	// Unsigned macOS builds (flag baked by electron-builder.unsigned-mac.yml)
+	// update themselves; everything else keeps electron-updater below.
+	let packageJson = null;
+	try { packageJson = require("../package.json"); } catch { /* no flag */ }
+	if (macSelfUpdate.wantsSelfUpdater(process.platform, packageJson)) {
+		selfUpdater = macSelfUpdate.createMacSelfUpdater({ app, log, report: reportUpdateStatus, killServer });
+		void selfUpdater.cleanupPrevious();
+		app.on("will-quit", () => selfUpdater.startSwap());
 		return;
 	}
 	try {
@@ -779,7 +794,10 @@ async function main() {
 	log(`window open: ${url}`);
 	// Startup + 24h checks stay main-owned and read the current preference.
 	// No renderer subscription is required; late loads retrieve the snapshot.
-	if (autoUpdater) {
+	if (selfUpdater) {
+		setTimeout(() => checkForUpdates(), macSelfUpdate.FIRST_CHECK_DELAY_MS);
+		setInterval(() => checkForUpdates(), macSelfUpdate.CHECK_INTERVAL_MS);
+	} else if (autoUpdater) {
 		checkForUpdates();
 		setInterval(() => checkForUpdates(), UPDATE_CHECK_INTERVAL_MS);
 	}

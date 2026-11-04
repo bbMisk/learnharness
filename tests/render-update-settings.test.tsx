@@ -260,3 +260,11 @@ describe("Settings integration", () => {
 		assert.ok(host.textContent!.includes("app"));
 	});
 });
+
+describe("macOS self-updater status text", () => {
+	it("explains the move and manual-download states in plain words", () => {
+		assert.equal(updateStatusText({ status: "move-to-applications", version: "0.4.1", revision: 1 }), "Move LearnHarness to Applications to get updates.");
+		assert.equal(updateStatusText({ status: "manual-download", version: "0.4.1", revision: 1 }), "Version 0.4.1 is available. Download it to update.");
+		assert.equal(updateStatusText({ status: "manual-download", version: null, revision: 1 }), "A new version is available. Download it to update.");
+	});
+});

@@ -7,7 +7,9 @@ import { SettingsRow, Toggle } from "./controls.tsx";
 
 /** Observational snapshot from electron/main.cjs; never updater permission. */
 export type UpdateState = {
-	status: "idle" | "checking" | "downloading" | "up-to-date" | "downloaded" | "error" | "disabled";
+	status: "idle" | "checking" | "downloading" | "up-to-date" | "downloaded" | "error" | "disabled"
+		// macOS self-updater: a newer version exists but this copy can't be replaced in place.
+		| "move-to-applications" | "manual-download";
 	version: string | null;
 	revision: number;
 };
@@ -17,6 +19,9 @@ const HOMEPAGE = process.env.LH_HOMEPAGE ?? "";
 export const MANUAL_UPDATE_HINT = "Checking downloads available updates. Downloaded updates install when you quit the app.";
 export const AUTO_UPDATE_HINT = "Check at startup and every 24 hours. Turning this off does not stop updates already in progress or ready to install.";
 const UPDATE_ERROR = "Couldn’t check for updates. Try again later.";
+export const MOVE_TO_APPLICATIONS = "Move LearnHarness to Applications to get updates.";
+/** Permanent link to the newest macOS installer (scripts/release-mac.mjs uploads it). */
+export const MANUAL_DOWNLOAD_URL = "https://github.com/bbMisk/learnharness/releases/latest/download/LearnHarness-arm64.dmg";
 
 /** Subscribe before requesting the snapshot. IPC replies and pushes can
  * cross; a revision prevents an older reply from hiding a newer event.
@@ -51,6 +56,8 @@ export function updateStatusText(state: UpdateState | null): string | null {
 		case "up-to-date": return "No newer version was found at the last check.";
 		case "downloaded": return `${state.version ? `Version ${state.version}` : "An update"} is ready. It will install when you quit the app.`;
 		case "error": return UPDATE_ERROR;
+		case "move-to-applications": return MOVE_TO_APPLICATIONS;
+		case "manual-download": return `${state.version ? `Version ${state.version}` : "A new version"} is available. Download it to update.`;
 		default: return null;
 	}
 }

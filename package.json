@@ -22,6 +22,7 @@
 		"desktop:dev": "concurrently -k \"npm run dev\" \"LH_DEV_URL=http://localhost:3000 electron .\"",
 		"dev:fresh": "bash scripts/dev-fresh.sh",
 		"desktop:dist": "rm -rf dist .next/standalone && npm run build && node scripts/build-server.mjs && node scripts/smoke-server.mjs && DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer} APPLE_KEYCHAIN_PROFILE=LH_NOTARY APPLE_TEAM_ID=JS6XN22HY6 electron-builder --mac --arm64",
+		"release:mac": "node scripts/release-mac.mjs",
 		"desktop:local": "npm run build && node scripts/build-server.mjs && node scripts/smoke-server.mjs --electron && node scripts/build-local-desktop.mjs",
 		"review:build": "node scripts/build-review.mjs",
 		"review:engine": "node scripts/build-review-engine.mjs",
