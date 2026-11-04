@@ -19,6 +19,7 @@ import path from "node:path";
 const root = path.resolve(import.meta.dirname, "..");
 const require = createRequire(import.meta.url);
 const { parseFeed, verifyFile } = require("../electron/mac-self-updater.cjs");
+const { publishPreflight } = await import("./release-mac-preflight.mjs");
 
 const REPO = "bbMisk/learnharness";
 const CONFIG = "electron-builder.unsigned-mac.yml";
@@ -52,11 +53,11 @@ if (process.platform !== "darwin" || process.arch !== "arm64") fail("build on an
 // ── Publish preflight: fail before a long build, never after a partial upload.
 let commit = null;
 if (publish) {
-	if (capture("git", ["status", "--porcelain"]).out) fail("working tree is not clean; commit or set aside changes first");
-	commit = capture("git", ["rev-parse", "HEAD"]).out;
-	if (!capture("git", ["branch", "-r", "--contains", commit]).out) fail(`HEAD ${commit} is not on any remote branch; push it first`);
-	if (!capture("gh", ["auth", "status"]).ok) fail("gh is not signed in (gh auth login)");
-	if (capture("gh", ["release", "view", tag, "--repo", REPO]).ok) fail(`release ${tag} already exists on ${REPO}; bump package.json version first`);
+	try {
+		commit = publishPreflight(capture, { tag, repo: REPO });
+	} catch (err) {
+		fail(err.message);
+	}
 }
 
 // ── Build (same payload steps as desktop:dist, Electron-runtime smoke like CI).

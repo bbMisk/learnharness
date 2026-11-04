@@ -268,3 +268,24 @@ describe("macOS self-updater status text", () => {
 		assert.equal(updateStatusText({ status: "manual-download", version: null, revision: 1 }), "A new version is available. Download it to update.");
 	});
 });
+
+describe("macOS self-updater rows (review fixes 5, 6)", () => {
+	it("keeps the installer link in Settings while the manual-download state is active", async () => {
+		const b = bridge(state({ status: "manual-download", version: "0.4.1", revision: 1 }));
+		const host = await mount(<UpdateSettings {...props} />);
+		const link = q(host, "update-download") as HTMLAnchorElement | null;
+		assert.ok(link, "Download update link shows");
+		assert.equal(link!.textContent, "Download update");
+		assert.equal(link!.getAttribute("href"), "https://github.com/bbMisk/learnharness/releases/latest/download/LearnHarness-arm64.dmg");
+		assert.equal(link!.getAttribute("target"), "_blank");
+		await b.push(state({ status: "up-to-date", revision: 2 }));
+		assert.equal(q(host, "update-download"), null, "gone once the state changes");
+	});
+
+	it("shows the active updater's check interval", async () => {
+		bridge(state({ checkHours: 4 }));
+		const host = await mount(<UpdateSettings {...props} />);
+		assert.ok(q(host, "row-auto-update")!.textContent!.includes("Check at startup and every 4 hours."));
+		assert.ok(!host.textContent!.includes("every 24 hours"));
+	});
+});

@@ -34,12 +34,14 @@ const fs = (() => {
 })();
 const os = require("node:os");
 const path = require("node:path");
-const { once } = require("node:events");
+const { pipeline } = require("node:stream/promises");
+const { Readable } = require("node:stream");
 
 const DEFAULT_FEED = "https://github.com/bbMisk/learnharness/releases/latest/download/";
 const MANUAL_DOWNLOAD_URL = "https://github.com/bbMisk/learnharness/releases/latest/download/LearnHarness-arm64.dmg";
 const FIRST_CHECK_DELAY_MS = 10 * 1000;
-const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+const CHECK_INTERVAL_HOURS = 4;
+const CHECK_INTERVAL_MS = CHECK_INTERVAL_HOURS * 60 * 60 * 1000;
 const MARKER_NAME = "self-update.json";
 
 /** Build-time switch: only bundles packaged with the unsigned release config
@@ -161,6 +163,21 @@ function run(file, args) {
 	});
 }
 
+async function fetchOk(fetchImpl, url, timeoutMs) {
+	const res = await fetchImpl(url, { redirect: "follow", signal: AbortSignal.timeout(timeoutMs) });
+	if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+	return res;
+}
+
+/** Stream a response body to file. pipeline() attaches error handlers to
+ * both ends up front, so a write failure (disk full, EISDIR) rejects here —
+ * never an unhandled 'error' event that would take the app down. */
+async function downloadToFile(fetchImpl, url, file) {
+	const res = await fetchOk(fetchImpl, url, 30 * 60 * 1000);
+	if (!res.body) throw new Error(`empty response for ${url}`);
+	await pipeline(Readable.fromWeb(res.body), fs.createWriteStream(file));
+}
+
 async function readPlistString(plist, key) {
 	return (await run("/usr/bin/plutil", ["-extract", key, "raw", "-o", "-", plist])).trim();
 }
@@ -172,12 +189,37 @@ async function extractAndVerify(zipFile, dir, { bundleId, version }) {
 	const apps = (await fs.promises.readdir(dir)).filter((name) => name.endsWith(".app"));
 	if (apps.length !== 1) throw new Error(`expected one .app in the zip, found ${apps.length}`);
 	const app = path.join(dir, apps[0]);
+	// lstat, not stat: a symlinked .app would pass the plist checks below, and
+	// the helper would install only the link and delete what it points to.
+	if (!(await fs.promises.lstat(app)).isDirectory()) throw new Error("the zip's app is not a real folder");
+	await assertNoEscapingLinks(app);
 	const plist = path.join(app, "Contents", "Info.plist");
 	const id = await readPlistString(plist, "CFBundleIdentifier");
 	if (id !== bundleId) throw new Error(`bundle id mismatch: ${id}`);
 	const shortVersion = await readPlistString(plist, "CFBundleShortVersionString");
 	if (shortVersion !== version) throw new Error(`bundle version mismatch: ${shortVersion} (feed says ${version})`);
 	return app;
+}
+
+/** Throw if any symlink inside root is absolute or points outside root
+ * (Electron's frameworks use relative links like Versions/Current → A). */
+async function assertNoEscapingLinks(root) {
+	const pending = [root];
+	while (pending.length) {
+		const dir = pending.pop();
+		for (const entry of await fs.promises.readdir(dir, { withFileTypes: true })) {
+			const full = path.join(dir, entry.name);
+			if (entry.isSymbolicLink()) {
+				const target = await fs.promises.readlink(full);
+				const resolved = path.resolve(dir, target);
+				if (path.isAbsolute(target) || (resolved !== root && !resolved.startsWith(root + path.sep))) {
+					throw new Error(`the app contains a link leaving the bundle: ${path.relative(root, full)} → ${target}`);
+				}
+			} else if (entry.isDirectory()) {
+				pending.push(full);
+			}
+		}
+	}
 }
 
 /* ── Swap helper ────────────────────────────────────────────────────────── */
@@ -253,10 +295,30 @@ function spawnHelper({ workdir, pid, target, newApp, backup, stage, relaunch, lo
 	return child;
 }
 
-/** On start: if a previous run swapped bundles, delete the backup once the
- * NEW version is the one running; otherwise leave it. Always clears the
- * marker. Returns what it did (for logs/tests). */
-async function finishPendingUpdate({ markerFile, bundlePath, version, log = () => {} }) {
+function processAlive(pid) {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (err) {
+		return err?.code === "EPERM";
+	}
+}
+
+const INSTALL_WINDOW_MS = 10 * 60 * 1000; // helper wait (120 s) + swap, with margin against PID reuse
+
+async function bundleVersion(bundlePath) {
+	return readPlistString(path.join(bundlePath, "Contents", "Info.plist"), "CFBundleShortVersionString");
+}
+
+/** On start: settle a previous run's install. Returns
+ *  "none"        no marker;
+ *  "ignored"     unrecognized marker (removed, nothing deleted);
+ *  "cleaned"     the NEW version is running: backup + marker removed;
+ *  "installing"  the helper is still running: marker kept, nothing touched;
+ *  "stale"       an OLD process started while the swap ran and the bundle on
+ *                disk is already the new version: marker kept for the new one;
+ *  "not-updated" the install never happened or rolled back: marker removed. */
+async function finishPendingUpdate({ markerFile, bundlePath, version, log = () => {}, readVersion = bundleVersion, isAlive = processAlive, now = Date.now() }) {
 	let marker;
 	try {
 		marker = JSON.parse(await fs.promises.readFile(markerFile, "utf8"));
@@ -270,19 +332,55 @@ async function finishPendingUpdate({ markerFile, bundlePath, version, log = () =
 		await clear();
 		return "ignored";
 	}
-	if (marker.version !== version) {
-		log(`self-update: update to ${marker.version} did not complete; running ${version}`);
+	if (marker.version === version) {
+		try {
+			await fs.promises.rm(marker.backup, { recursive: true, force: true });
+			log(`self-update: now running ${version}; removed the previous version's backup`);
+		} catch (err) {
+			log(`self-update: could not remove backup ${marker.backup}: ${err?.message ?? err}`);
+		}
 		await clear();
-		return "not-updated";
+		return "cleaned";
 	}
-	try {
-		await fs.promises.rm(marker.backup, { recursive: true, force: true });
-		log(`self-update: now running ${version}; removed the previous version's backup`);
-	} catch (err) {
-		log(`self-update: could not remove backup ${marker.backup}: ${err?.message ?? err}`);
+	if (Number.isInteger(marker.helperPid) && now - Number(marker.startedAt) < INSTALL_WINDOW_MS && isAlive(marker.helperPid)) {
+		log(`self-update: an install of ${marker.version} is still running`);
+		return "installing";
 	}
+	const onDisk = await readVersion(bundlePath).catch(() => null);
+	if (onDisk === marker.version) {
+		log(`self-update: ${marker.version} is installed but this process is ${version}; keeping the marker for the new version`);
+		return "stale";
+	}
+	log(`self-update: update to ${marker.version} did not complete; running ${version}`);
 	await clear();
-	return "cleaned";
+	return "not-updated";
+}
+
+const AFTER_INSTALL_ARG = "--lh-after-install";
+
+/** First thing on launch (before the server starts). If an install is still
+ * running, or already replaced this bundle while this OLD process started,
+ * step aside: release the single-instance lock, wait for the helper, and
+ * relaunch the bundle path — which now holds the installed version (or the
+ * restored one). Returns true when this process is exiting. One relaunch at
+ * most (AFTER_INSTALL_ARG), so a broken state can never loop. */
+async function yieldToPendingInstall({ app, log = () => {}, execPath = process.execPath, argv = process.argv, readVersion, isAlive = processAlive, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), timeoutMs = 150 * 1000 }) {
+	const markerFile = path.join(app.getPath("userData"), MARKER_NAME);
+	const bundlePath = bundleFromExecPath(execPath);
+	const settle = () => finishPendingUpdate({ markerFile, bundlePath, version: app.getVersion(), log, readVersion, isAlive });
+	let state = await settle();
+	if ((state !== "installing" && state !== "stale") || argv.includes(AFTER_INSTALL_ARG)) return false;
+	try { app.releaseSingleInstanceLock?.(); } catch { /* not held */ }
+	let helperPid = null;
+	try { helperPid = JSON.parse(await fs.promises.readFile(markerFile, "utf8")).helperPid; } catch { /* gone */ }
+	for (let waited = 0; state === "installing" && waited < timeoutMs; waited += 200) {
+		if (!Number.isInteger(helperPid) || !isAlive(helperPid)) break;
+		await sleep(200);
+	}
+	log("self-update: relaunching into the installed version");
+	app.relaunch({ args: [...argv.slice(1).filter((a) => a !== AFTER_INSTALL_ARG), AFTER_INSTALL_ARG] });
+	app.exit(0);
+	return true;
 }
 
 /* ── The updater ────────────────────────────────────────────────────────── */
@@ -313,28 +411,9 @@ function createMacSelfUpdater(deps) {
 		return readPlistString(path.join(bundlePath, "Contents", "Info.plist"), "CFBundleIdentifier");
 	}
 
-	async function fetchOk(url, timeoutMs) {
-		const res = await fetchImpl(url, { redirect: "follow", signal: AbortSignal.timeout(timeoutMs) });
-		if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-		return res;
-	}
-
-	async function download(url, file) {
-		const res = await fetchOk(url, 30 * 60 * 1000);
-		const out = fs.createWriteStream(file);
-		try {
-			for await (const chunk of res.body) {
-				if (!out.write(chunk)) await once(out, "drain");
-			}
-		} finally {
-			out.end();
-			await once(out, "close").catch(() => {});
-		}
-	}
-
 	async function runCheck() {
 		report("checking");
-		const feed = parseFeed(await (await fetchOk(`${base}latest-mac.yml`, 30 * 1000)).text());
+		const feed = parseFeed(await (await fetchOk(fetchImpl, `${base}latest-mac.yml`, 30 * 1000)).text());
 		const current = app.getVersion();
 		if (compareVersions(feed.version, current) <= 0) {
 			log(`self-update: ${current} is current (feed: ${feed.version})`);
@@ -351,7 +430,7 @@ function createMacSelfUpdater(deps) {
 		const workdir = await fs.promises.mkdtemp(path.join(deps.tmpdir ?? os.tmpdir(), "lh-update-"));
 		try {
 			const zipFile = path.join(workdir, "update.zip");
-			await download(resolveFileURL(base, feed.zip.url), zipFile);
+			await downloadToFile(fetchImpl, resolveFileURL(base, feed.zip.url), zipFile);
 			await verifyFile(zipFile, feed.zip);
 			const extractDir = path.join(workdir, "extracted");
 			await fs.promises.mkdir(extractDir);
@@ -392,8 +471,12 @@ function createMacSelfUpdater(deps) {
 			const { backup, stage } = backupPaths(bundlePath);
 			fs.mkdirSync(path.dirname(markerFile), { recursive: true });
 			fs.mkdirSync(path.dirname(logFile), { recursive: true });
-			fs.writeFileSync(markerFile, JSON.stringify({ version: staged.version, from: app.getVersion(), target: bundlePath, backup }, null, 2));
-			spawnHelper({ workdir: staged.workdir, pid: process.pid, target: bundlePath, newApp: staged.app, backup, stage, relaunch: relaunchOnQuit, logFile, env, spawnImpl: deps.spawnImpl });
+			const marker = { version: staged.version, from: app.getVersion(), target: bundlePath, backup, startedAt: Date.now() };
+			// Marker BEFORE the helper exists (no install without one), then again
+			// with the helper's PID so a racing launch can tell an install is running.
+			fs.writeFileSync(markerFile, JSON.stringify(marker, null, 2));
+			const child = spawnHelper({ workdir: staged.workdir, pid: process.pid, target: bundlePath, newApp: staged.app, backup, stage, relaunch: relaunchOnQuit, logFile, env, spawnImpl: deps.spawnImpl });
+			if (Number.isInteger(child?.pid)) fs.writeFileSync(markerFile, JSON.stringify({ ...marker, helperPid: child.pid }, null, 2));
 			log(`self-update: installing ${staged.version} after quit (relaunch: ${relaunchOnQuit})`);
 			return true;
 		} catch (err) {
@@ -414,20 +497,16 @@ function createMacSelfUpdater(deps) {
 		app.quit();
 	}
 
-	function cleanupPrevious() {
-		return finishPendingUpdate({ markerFile, bundlePath, version: app.getVersion(), log }).catch((err) => {
-			log(`self-update: backup cleanup failed: ${err?.message ?? err}`);
-		});
-	}
-
-	return { check, installNow, startSwap, cleanupPrevious, bundlePath, feedBase: base, get staged() { return staged; } };
+	return { check, installNow, startSwap, bundlePath, feedBase: base, get staged() { return staged; } };
 }
 
 module.exports = {
 	DEFAULT_FEED,
 	MANUAL_DOWNLOAD_URL,
 	FIRST_CHECK_DELAY_MS,
+	CHECK_INTERVAL_HOURS,
 	CHECK_INTERVAL_MS,
+	AFTER_INSTALL_ARG,
 	HELPER_SCRIPT,
 	wantsSelfUpdater,
 	parseVersion,
@@ -436,6 +515,8 @@ module.exports = {
 	feedBase,
 	resolveFileURL,
 	verifyFile,
+	downloadToFile,
+	assertNoEscapingLinks,
 	bundleLocationProblem,
 	bundleFromExecPath,
 	extractAndVerify,
@@ -443,5 +524,6 @@ module.exports = {
 	isOwnBackup,
 	spawnHelper,
 	finishPendingUpdate,
+	yieldToPendingInstall,
 	createMacSelfUpdater,
 };

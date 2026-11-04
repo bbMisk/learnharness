@@ -457,13 +457,15 @@ let autoUpdater = null; // electron-updater's, packaged builds only
 let selfUpdater = null;
 // Observational only: this snapshot NEVER gates a check, download or install.
 // The revision lets late subscribers reject an older in-flight IPC snapshot.
-let updateState = { status: "idle", version: null, revision: 0 };
+// checkHours: the active updater's background interval, shown in Settings.
+let updateCheckHours = UPDATE_CHECK_INTERVAL_MS / 3600000;
+let updateState = { status: "idle", version: null, revision: 0, checkHours: updateCheckHours };
 
 function reportUpdateStatus(status, version = null) {
 	try {
 		// A later check/error must not hide an update already staged for quit.
 		if (updateState.status === "downloaded" && status !== "downloaded") return;
-		updateState = { status, version: typeof version === "string" ? version : null, revision: updateState.revision + 1 };
+		updateState = { status, version: typeof version === "string" ? version : null, revision: updateState.revision + 1, checkHours: updateCheckHours };
 		for (const win of BrowserWindow.getAllWindows()) {
 			try {
 				win.webContents.send("lh:update-status", updateState);
@@ -534,13 +536,12 @@ function setupAutoUpdater() {
 		log("auto-update: no packaged update feed — preview updates are manual");
 		return;
 	}
-	// Unsigned macOS builds (flag baked by electron-builder.unsigned-mac.yml)
-	// update themselves; everything else keeps electron-updater below.
-	let packageJson = null;
-	try { packageJson = require("../package.json"); } catch { /* no flag */ }
-	if (macSelfUpdate.wantsSelfUpdater(process.platform, packageJson)) {
+	// Unsigned macOS builds update themselves; everything else keeps
+	// electron-updater below.
+	if (macSelfUpdateBuild()) {
 		selfUpdater = macSelfUpdate.createMacSelfUpdater({ app, log, report: reportUpdateStatus, killServer });
-		void selfUpdater.cleanupPrevious();
+		updateCheckHours = macSelfUpdate.CHECK_INTERVAL_HOURS;
+		updateState = { ...updateState, checkHours: updateCheckHours };
 		app.on("will-quit", () => selfUpdater.startSwap());
 		return;
 	}
@@ -577,6 +578,15 @@ function setupAutoUpdater() {
 		log(`updater error: ${err?.message ?? err}`);
 		reportUpdateStatus("error");
 	});
+}
+
+/** Packaged macOS build made with electron-builder.unsigned-mac.yml (its
+ * extraMetadata flag)? Those use electron/mac-self-updater.cjs. */
+function macSelfUpdateBuild() {
+	if (!app.isPackaged) return false;
+	let packageJson = null;
+	try { packageJson = require("../package.json"); } catch { /* no flag */ }
+	return macSelfUpdate.wantsSelfUpdater(process.platform, packageJson);
 }
 
 /** One result surface for manual checks. Preload buffers the navigation
@@ -669,6 +679,15 @@ function installMenu() {
 }
 
 async function main() {
+	// Self-updating macOS builds: settle a previous install first — and if this
+	// is an old copy launched mid-install, relaunch into the new one instead.
+	if (macSelfUpdateBuild()) {
+		try {
+			if (await macSelfUpdate.yieldToPendingInstall({ app, log })) return;
+		} catch (err) {
+			log(`self-update: startup check failed: ${err?.message ?? err}`);
+		}
+	}
 	app.on("window-all-closed", () => {
 		chatgpt?.pause();
 		subscriptions?.pause();

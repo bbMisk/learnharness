@@ -12,12 +12,15 @@ export type UpdateState = {
 		| "move-to-applications" | "manual-download";
 	version: string | null;
 	revision: number;
+	/** The active updater's background interval (24 h electron-updater, 4 h macOS self-updater). */
+	checkHours?: number;
 };
 
 export const APP_VERSION = process.env.LH_VERSION ?? "";
 const HOMEPAGE = process.env.LH_HOMEPAGE ?? "";
 export const MANUAL_UPDATE_HINT = "Checking downloads available updates. Downloaded updates install when you quit the app.";
-export const AUTO_UPDATE_HINT = "Check at startup and every 24 hours. Turning this off does not stop updates already in progress or ready to install.";
+export const autoUpdateHint = (hours = 24) => `Check at startup and every ${hours} hours. Turning this off does not stop updates already in progress or ready to install.`;
+export const AUTO_UPDATE_HINT = autoUpdateHint();
 const UPDATE_ERROR = "Couldn’t check for updates. Try again later.";
 export const MOVE_TO_APPLICATIONS = "Move LearnHarness to Applications to get updates.";
 /** Permanent link to the newest macOS installer (scripts/release-mac.mjs uploads it). */
@@ -97,6 +100,7 @@ export function UpdateSettings({
 					<>
 						{status && <span className="block" role="status" data-testid="update-status">{status}</span>}
 						{active && <span className="block">{MANUAL_UPDATE_HINT}</span>}
+						{state?.status === "manual-download" && <a href={MANUAL_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer" className="block underline-offset-2 hover:text-foreground hover:underline" data-testid="update-download">Download update</a>}
 						{releaseNotes && <a href={releaseNotes} target="_blank" rel="noopener noreferrer" className="underline-offset-2 hover:text-foreground hover:underline" data-testid="release-notes">Release notes</a>}
 					</>
 				}
@@ -111,7 +115,7 @@ export function UpdateSettings({
 				))}
 			</SettingsRow>
 			{active && (
-				<SettingsRow label="Automatic updates" hint={AUTO_UPDATE_HINT} testid="row-auto-update">
+				<SettingsRow label="Automatic updates" hint={autoUpdateHint(state.checkHours)} testid="row-auto-update">
 					<Toggle checked={autoUpdate} label="auto update" onChange={onAutoUpdateChange} />
 				</SettingsRow>
 			)}

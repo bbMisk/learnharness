@@ -325,7 +325,11 @@ function feedFor(version: string, zip: Buffer, overrides: { sha512?: string; siz
 	return `version: ${version}\nfiles:\n  - url: LearnHarness-${version}-arm64-mac.zip\n    sha512: ${overrides.sha512 ?? sha512(zip)}\n    size: ${overrides.size ?? zip.length}\n`;
 }
 
-function flow({ feed, zip, current = "0.4.0", execPath }: { feed: string; zip?: Buffer; current?: string; execPath?: string }) {
+function flow(opts: { feed: string; zip?: Buffer; current?: string; execPath?: string }) {
+	return flowWith(opts);
+}
+
+function flowWith({ feed, zip, current = "0.4.0", execPath, zipResponse }: { feed: string; zip?: Buffer; current?: string; execPath?: string; zipResponse?: () => Response }) {
 	const root = tempDir();
 	const userData = path.join(root, "userData");
 	const tmp = path.join(root, "tmp");
@@ -349,12 +353,13 @@ function flow({ feed, zip, current = "0.4.0", execPath }: { feed: string; zip?: 
 		fetchImpl: async (url: string) => {
 			requests.push(url);
 			if (url.endsWith("latest-mac.yml")) return new Response(feed);
+			if (zipResponse && url.endsWith(".zip")) return zipResponse();
 			if (zip && url.endsWith(".zip")) return new Response(new Uint8Array(zip));
 			return new Response("missing", { status: 404 });
 		},
 		spawnImpl: (cmd: string, args: string[], options: { env: Record<string, string>; detached: boolean }) => {
 			spawned.push({ cmd, args, options });
-			return { unref() {} };
+			return { pid: 31337, unref() {} };
 		},
 	});
 	return { u, root, tmp, userData, target, statuses, requests, spawned, quits: () => quits, killed: () => killed };
@@ -420,7 +425,9 @@ describe("self-updater flow (fake fetch, temp dirs)", () => {
 		assert.equal(call.options.env.LH_UPDATE_FEED, "http://127.0.0.1:9/feed");
 		assert.equal(call.options.env.PATH, "/usr/bin:/bin:/usr/sbin:/sbin");
 		const marker = JSON.parse(fs.readFileSync(path.join(f.userData, "self-update.json"), "utf8"));
-		assert.deepEqual(marker, { version: "0.4.1", from: "0.4.0", target: f.target, backup: call.args[4] });
+		const { startedAt, ...rest } = marker;
+		assert.deepEqual(rest, { version: "0.4.1", from: "0.4.0", target: f.target, backup: call.args[4], helperPid: 31337 });
+		assert.ok(Math.abs(Date.now() - startedAt) < 60_000);
 		assert.ok(updater.isOwnBackup(f.target, marker.backup));
 	});
 
@@ -511,5 +518,269 @@ describe("updater selection in main.cjs", () => {
 		assert.equal(selected, false);
 		assert.equal(calls.updaterImports, 1);
 		assert.equal(calls.quitHandlers, 0);
+	});
+});
+
+/* ── Follow-up fixes (review of 56299e6) ─────────────────────────────────── */
+
+/** A body that delivers its bytes only after a delay, so a write-side error
+ * fires while the reader is still waiting. */
+function delayedBody(bytes: Uint8Array, ms = 150) {
+	return new ReadableStream<Uint8Array>({
+		async start(controller) {
+			await new Promise((r) => setTimeout(r, ms));
+			controller.enqueue(bytes);
+			controller.close();
+		},
+	});
+}
+
+describe("download write errors (fix 1)", () => {
+	it("a write failure rejects instead of crashing the process", async () => {
+		const dir = tempDir(); // writing to a directory path → async EISDIR
+		const fetchImpl = async () => new Response(delayedBody(new Uint8Array([1, 2, 3])));
+		await assert.rejects(updater.downloadToFile(fetchImpl, "http://127.0.0.1:9/x.zip", dir), /EISDIR|illegal operation/);
+	});
+
+	it("in the updater flow it becomes the error status with temp cleaned", async () => {
+		const tmpHolder: { tmp?: string } = {};
+		const f = flowWith({
+			feed: feedFor("0.4.1", Buffer.from("abc")),
+			zipResponse: () => {
+				// Turn the download target into a directory just before the body arrives.
+				const work = fs.readdirSync(tmpHolder.tmp!).find((n) => n.startsWith("lh-update-"))!;
+				fs.mkdirSync(path.join(tmpHolder.tmp!, work, "update.zip"));
+				return new Response(delayedBody(new Uint8Array(Buffer.from("abc"))));
+			},
+		});
+		tmpHolder.tmp = f.tmp;
+		await f.u.check();
+		assert.deepEqual(f.statuses.at(-1), { status: "error", version: null });
+		assert.deepEqual(fs.readdirSync(f.tmp), []);
+	});
+});
+
+/** Build a zip with /usr/bin/zip -y so symlinks are stored as links. */
+function zipWithLinks(build: (src: string) => void) {
+	const root = tempDir();
+	const src = path.join(root, "src");
+	fs.mkdirSync(src);
+	build(src);
+	const zip = path.join(root, "out.zip");
+	const r = spawnSync("/usr/bin/zip", ["-qry", zip, "."], { cwd: src });
+	assert.equal(r.status, 0, String(r.stderr));
+	return fs.readFileSync(zip);
+}
+function realApp(dir: string, version = "0.4.1") {
+	fakeApp(dir, "new");
+	fs.writeFileSync(path.join(dir, "Contents", "Info.plist"), plist("com.learnharness.LearnHarness", version));
+}
+
+describe("symlinks in the downloaded zip (fix 2)", { skip: !isMac }, () => {
+	it("refuses a top-level LearnHarness.app that is a symlink", async () => {
+		const zip = zipWithLinks((src) => {
+			realApp(path.join(src, "payload"));
+			fs.symlinkSync("payload", path.join(src, "LearnHarness.app"));
+		});
+		const f = flowWith({ feed: feedFor("0.4.1", zip), zip });
+		await f.u.check();
+		assert.deepEqual(f.statuses.at(-1), { status: "error", version: null });
+		assert.equal(f.u.staged, null);
+		assert.deepEqual(fs.readdirSync(f.tmp), []);
+	});
+
+	it("refuses a bundle holding a link that leaves the bundle", async () => {
+		const zip = zipWithLinks((src) => {
+			realApp(path.join(src, "LearnHarness.app"));
+			fs.mkdirSync(path.join(src, "outside"));
+			fs.symlinkSync("../../outside", path.join(src, "LearnHarness.app", "Contents", "evil"));
+		});
+		const f = flowWith({ feed: feedFor("0.4.1", zip), zip });
+		await f.u.check();
+		assert.deepEqual(f.statuses.at(-1), { status: "error", version: null });
+		assert.equal(f.u.staged, null);
+	});
+
+	it("refuses an absolute link, even one that looks harmless", async () => {
+		const root = tempDir();
+		realApp(path.join(root, "LearnHarness.app"));
+		fs.symlinkSync("/usr", path.join(root, "LearnHarness.app", "Contents", "abs"));
+		await assert.rejects(updater.assertNoEscapingLinks(path.join(root, "LearnHarness.app")), /link leaving the bundle/);
+	});
+
+	it("accepts framework-style relative links inside the bundle", async () => {
+		const zip = zipWithLinks((src) => {
+			const app = path.join(src, "LearnHarness.app");
+			realApp(app);
+			const fw = path.join(app, "Contents", "Frameworks", "X.framework");
+			fs.mkdirSync(path.join(fw, "Versions", "A"), { recursive: true });
+			fs.symlinkSync("A", path.join(fw, "Versions", "Current"));
+			fs.symlinkSync("Versions/Current/X", path.join(fw, "X"));
+		});
+		const f = flowWith({ feed: feedFor("0.4.1", zip), zip });
+		await f.u.check();
+		assert.equal(f.statuses.at(-1)!.status, "downloaded");
+	});
+});
+
+describe("a launch during the install window (fix 3)", () => {
+	function scene() {
+		const root = tempDir();
+		const target = path.join(root, "Applications", "LearnHarness.app");
+		fakeApp(target, "new");
+		const backup = updater.backupPaths(target, 9).backup;
+		fakeApp(backup, "old");
+		const userData = path.join(root, "userData");
+		const markerFile = path.join(userData, "self-update.json");
+		fs.mkdirSync(userData);
+		const write = (extra: object = {}) => fs.writeFileSync(markerFile, JSON.stringify({ version: "0.4.1", from: "0.4.0", target, backup, startedAt: Date.now(), ...extra }));
+		write();
+		return { target, backup, userData, markerFile, write };
+	}
+
+	it("an old process started after the swap keeps the marker (the new version still cleans up)", async () => {
+		const s = scene();
+		const state = await updater.finishPendingUpdate({ markerFile: s.markerFile, bundlePath: s.target, version: "0.4.0", readVersion: async () => "0.4.1", isAlive: () => false });
+		assert.equal(state, "stale");
+		assert.ok(fs.existsSync(s.markerFile), "marker kept");
+		assert.ok(fs.existsSync(s.backup), "backup kept");
+		assert.equal(await updater.finishPendingUpdate({ markerFile: s.markerFile, bundlePath: s.target, version: "0.4.1" }), "cleaned");
+		assert.equal(fs.existsSync(s.backup), false);
+	});
+
+	it("a live helper means an install is running: nothing is cleared", async () => {
+		const s = scene();
+		const helper = spawn("/bin/sleep", ["5"]);
+		try {
+			s.write({ helperPid: helper.pid });
+			const state = await updater.finishPendingUpdate({ markerFile: s.markerFile, bundlePath: s.target, version: "0.4.0", readVersion: async () => "0.4.0" });
+			assert.equal(state, "installing");
+			assert.ok(fs.existsSync(s.markerFile));
+		} finally {
+			helper.kill();
+		}
+	});
+
+	it("a helper PID from long ago is not trusted (PID reuse)", async () => {
+		const s = scene();
+		s.write({ helperPid: process.pid, startedAt: Date.now() - 60 * 60 * 1000 });
+		assert.equal(await updater.finishPendingUpdate({ markerFile: s.markerFile, bundlePath: s.target, version: "0.4.0", readVersion: async () => "0.4.0" }), "not-updated");
+		assert.equal(fs.existsSync(s.markerFile), false);
+	});
+
+	function fakeApp2(userData: string, version: string) {
+		const calls: string[] = [];
+		const relaunchArgs: string[][] = [];
+		return {
+			calls, relaunchArgs,
+			app: {
+				getPath: () => userData, getVersion: () => version,
+				releaseSingleInstanceLock: () => calls.push("release"),
+				relaunch: (o: { args: string[] }) => { calls.push("relaunch"); relaunchArgs.push(o.args); },
+				exit: (code: number) => calls.push(`exit ${code}`),
+			},
+		};
+	}
+
+	it("the old process waits for the helper, then relaunches into the installed version", async () => {
+		const s = scene();
+		let alive = 3; // helper alive for three polls
+		s.write({ helperPid: 4242 });
+		const a = fakeApp2(s.userData, "0.4.0");
+		const slept: number[] = [];
+		const exiting = await updater.yieldToPendingInstall({
+			app: a.app, execPath: path.join(s.target, "Contents", "MacOS", "LearnHarness"), argv: ["/x/LearnHarness", "--flag"],
+			readVersion: async () => "0.4.0", isAlive: () => alive-- > 0, sleep: async (ms: number) => { slept.push(ms); },
+		});
+		assert.equal(exiting, true);
+		assert.deepEqual(a.calls, ["release", "relaunch", "exit 0"]);
+		assert.deepEqual(a.relaunchArgs[0], ["--flag", "--lh-after-install"]);
+		assert.ok(slept.length >= 2, "waited for the helper");
+		assert.ok(fs.existsSync(s.markerFile), "marker left for the new version");
+	});
+
+	it("a stale old process relaunches at once; never twice", async () => {
+		const s = scene();
+		const a = fakeApp2(s.userData, "0.4.0");
+		const execPath = path.join(s.target, "Contents", "MacOS", "LearnHarness");
+		assert.equal(await updater.yieldToPendingInstall({ app: a.app, execPath, argv: ["/x"], readVersion: async () => "0.4.1", isAlive: () => false }), true);
+		const b = fakeApp2(s.userData, "0.4.0");
+		assert.equal(await updater.yieldToPendingInstall({ app: b.app, execPath, argv: ["/x", "--lh-after-install"], readVersion: async () => "0.4.1", isAlive: () => false }), false);
+		assert.deepEqual(b.calls, []);
+	});
+
+	it("the new version just cleans up and carries on", async () => {
+		const s = scene();
+		const a = fakeApp2(s.userData, "0.4.1");
+		assert.equal(await updater.yieldToPendingInstall({ app: a.app, execPath: path.join(s.target, "Contents", "MacOS", "LearnHarness"), argv: ["/x"] }), false);
+		assert.deepEqual(a.calls, []);
+		assert.equal(fs.existsSync(s.backup), false);
+	});
+});
+
+describe("release preflight (fix 4)", async () => {
+	const { publishPreflight, remoteTagCommit } = await import("../scripts/release-mac-preflight.mjs");
+	const HEAD = "a".repeat(40);
+	const OTHER = "b".repeat(40);
+	function runner(lsRemote: string, { releaseExists = false } = {}) {
+		const seen: string[] = [];
+		const capture = (cmd: string, args: string[]) => {
+			const key = `${cmd} ${args.join(" ")}`;
+			seen.push(key);
+			if (key === "git status --porcelain") return { ok: true, out: "" };
+			if (key === "git rev-parse HEAD") return { ok: true, out: HEAD };
+			if (key.startsWith("git branch -r --contains")) return { ok: true, out: "origin/main" };
+			if (key.startsWith("git ls-remote")) return { ok: true, out: lsRemote };
+			if (key === "gh auth status") return { ok: true, out: "" };
+			if (key.startsWith("gh release view")) return { ok: releaseExists, out: "" };
+			throw new Error(`unexpected ${key}`);
+		};
+		return { capture, seen };
+	}
+
+	it("refuses when the remote tag points at another commit", () => {
+		const r = runner(`${OTHER}\trefs/tags/v0.4.1\n`);
+		assert.throws(() => publishPreflight(r.capture, { tag: "v0.4.1", repo: "bbMisk/learnharness" }), /points at b{40}, not HEAD/);
+		assert.ok(!r.seen.some((k) => k.startsWith("gh release")), "stops before touching releases");
+	});
+
+	it("uses the peeled commit of an annotated tag", () => {
+		assert.equal(remoteTagCommit(`${OTHER}\trefs/tags/v1.0.0\n${HEAD}\trefs/tags/v1.0.0^{}\n`, "v1.0.0"), HEAD);
+		assert.equal(publishPreflight(runner(`${OTHER}\trefs/tags/v1.0.0\n${HEAD}\trefs/tags/v1.0.0^{}\n`).capture, { tag: "v1.0.0", repo: "r/r" }), HEAD);
+	});
+
+	it("accepts a missing tag or one at HEAD", () => {
+		assert.equal(publishPreflight(runner("").capture, { tag: "v0.4.1", repo: "r/r" }), HEAD);
+		assert.equal(publishPreflight(runner(`${HEAD}\trefs/tags/v0.4.1\n`).capture, { tag: "v0.4.1", repo: "r/r" }), HEAD);
+	});
+
+	it("still refuses an existing release, and an unreadable tag list", () => {
+		assert.throws(() => publishPreflight(runner("", { releaseExists: true }).capture, { tag: "v0.4.1", repo: "r/r" }), /already exists/);
+		const bad = runner("");
+		const failing = (cmd: string, args: string[]) => (args[0] === "ls-remote" ? { ok: false, out: "" } : bad.capture(cmd, args));
+		assert.throws(() => publishPreflight(failing, { tag: "v0.4.1", repo: "r/r" }), /could not read tags/);
+	});
+});
+
+describe("active check interval reaches Settings (fix 6)", () => {
+	it("main.cjs reports 4 hours for self-updating builds and 24 otherwise", () => {
+		const file = fileURLToPath(new URL("../electron/main.cjs", import.meta.url));
+		const mainRequire = createRequire(file);
+		for (const [flag, hours] of [[true, 4], [false, 24]] as const) {
+			const context = {
+				require: (id: string) => {
+					if (id === "electron") return { app: { isPackaged: true, setName() {}, getPath: () => "/fixture-user-data", getVersion: () => "0.4.0", requestSingleInstanceLock: () => false, quit() {}, on() {} }, dialog: { showMessageBox() {} }, BrowserWindow: { getAllWindows: () => [] } };
+					if (id === "node:fs") return { existsSync: () => true, mkdirSync() {}, appendFileSync() {} };
+					if (id === "electron-updater") return { autoUpdater: { on() {} } };
+					if (id === "../package.json") return { version: "0.4.0", ...(flag ? { lhMacUpdater: "self" } : {}) };
+					return mainRequire(id);
+				},
+				process: { platform: "darwin", resourcesPath: "/fixture/Resources", execPath: "/fixture/LearnHarness.app/Contents/MacOS/LearnHarness", argv: [], env: {}, on() {} },
+				console: { log() {} }, __dirname: path.dirname(file),
+			};
+			runInNewContext(readFileSync(file, "utf8"), context, { filename: file });
+			runInNewContext("setupAutoUpdater(); reportUpdateStatus('checking')", context);
+			assert.equal(runInNewContext("updateState.checkHours", context), hours);
+		}
 	});
 });
