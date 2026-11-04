@@ -42,7 +42,12 @@ const MANUAL_DOWNLOAD_URL = "https://github.com/bbMisk/learnharness/releases/lat
 const FIRST_CHECK_DELAY_MS = 10 * 1000;
 const CHECK_INTERVAL_HOURS = 4;
 const CHECK_INTERVAL_MS = CHECK_INTERVAL_HOURS * 60 * 60 * 1000;
-const MARKER_NAME = "self-update.json";
+/** One marker per installation path: copies sharing a userData folder
+ * (e.g. two install locations) never read or delete each other's marker. */
+function markerPath(userData, bundlePath) {
+	const key = createHash("sha256").update(path.resolve(bundlePath)).digest("hex").slice(0, 16);
+	return path.join(userData, `self-update-${key}.json`);
+}
 
 /** Build-time switch: only bundles packaged with the unsigned release config
  * carry the flag. Anything else (dev, Developer ID, other OSes) → false. */
@@ -163,8 +168,9 @@ function run(file, args) {
 	});
 }
 
-async function fetchOk(fetchImpl, url, timeoutMs) {
-	const res = await fetchImpl(url, { redirect: "follow", signal: AbortSignal.timeout(timeoutMs) });
+async function fetchOk(fetchImpl, url, timeoutMs, signal) {
+	const timeout = AbortSignal.timeout(timeoutMs);
+	const res = await fetchImpl(url, { redirect: "follow", signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
 	if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
 	return res;
 }
@@ -172,10 +178,43 @@ async function fetchOk(fetchImpl, url, timeoutMs) {
 /** Stream a response body to file. pipeline() attaches error handlers to
  * both ends up front, so a write failure (disk full, EISDIR) rejects here —
  * never an unhandled 'error' event that would take the app down. */
-async function downloadToFile(fetchImpl, url, file) {
-	const res = await fetchOk(fetchImpl, url, 30 * 60 * 1000);
+async function downloadToFile(fetchImpl, url, file, signal) {
+	const res = await fetchOk(fetchImpl, url, 30 * 60 * 1000, signal);
 	if (!res.body) throw new Error(`empty response for ${url}`);
-	await pipeline(Readable.fromWeb(res.body), fs.createWriteStream(file));
+	await pipeline(Readable.fromWeb(res.body), fs.createWriteStream(file), ...(signal ? [{ signal }] : []));
+}
+
+const OWNER_FILE = "owner.pid";
+
+/** Remove lh-update-* download folders left by a process that is gone (a
+ * quit mid-download, a crash). Each folder names its owner PID; folders of a
+ * live process — another copy downloading right now — are left alone.
+ * Folders without an owner file are only reclaimed after a day. */
+async function reclaimAbandonedDownloads(tmp, { log = () => {}, isAlive = processAlive, now = Date.now() } = {}) {
+	let names;
+	try {
+		names = await fs.promises.readdir(tmp);
+	} catch {
+		return [];
+	}
+	const removed = [];
+	for (const name of names.filter((n) => n.startsWith("lh-update-"))) {
+		const dir = path.join(tmp, name);
+		try {
+			const st = await fs.promises.lstat(dir);
+			if (!st.isDirectory()) continue;
+			let owner = null;
+			try { owner = Number((await fs.promises.readFile(path.join(dir, OWNER_FILE), "utf8")).trim()); } catch { /* none */ }
+			const abandoned = Number.isInteger(owner) && owner > 0 ? !isAlive(owner) : now - st.mtimeMs > 24 * 60 * 60 * 1000;
+			if (!abandoned) continue;
+			await fs.promises.rm(dir, { recursive: true, force: true });
+			removed.push(dir);
+		} catch (err) {
+			log(`self-update: could not reclaim ${dir}: ${err?.message ?? err}`);
+		}
+	}
+	if (removed.length) log(`self-update: removed ${removed.length} abandoned download folder(s)`);
+	return removed;
 }
 
 async function readPlistString(plist, key) {
@@ -201,9 +240,13 @@ async function extractAndVerify(zipFile, dir, { bundleId, version }) {
 	return app;
 }
 
-/** Throw if any symlink inside root is absolute or points outside root
- * (Electron's frameworks use relative links like Versions/Current → A). */
+/** Throw if any symlink inside root is absolute, dangling, loops, or — after
+ * the filesystem resolves the whole chain — lands outside the real bundle
+ * root. (A lexical check is not enough: b/c → .., a → b/c, x → a/../out
+ * looks inside but resolves outside.) Electron's frameworks use relative
+ * links like Versions/Current → A, which resolve inside. */
 async function assertNoEscapingLinks(root) {
+	const realRoot = await fs.promises.realpath(root);
 	const pending = [root];
 	while (pending.length) {
 		const dir = pending.pop();
@@ -211,9 +254,16 @@ async function assertNoEscapingLinks(root) {
 			const full = path.join(dir, entry.name);
 			if (entry.isSymbolicLink()) {
 				const target = await fs.promises.readlink(full);
-				const resolved = path.resolve(dir, target);
-				if (path.isAbsolute(target) || (resolved !== root && !resolved.startsWith(root + path.sep))) {
-					throw new Error(`the app contains a link leaving the bundle: ${path.relative(root, full)} → ${target}`);
+				const where = path.relative(root, full);
+				if (path.isAbsolute(target)) throw new Error(`the app contains an absolute link: ${where} → ${target}`);
+				let resolved;
+				try {
+					resolved = await fs.promises.realpath(full);
+				} catch (err) {
+					throw new Error(`the app contains a broken link: ${where} → ${target} (${err?.code ?? err})`);
+				}
+				if (resolved !== realRoot && !resolved.startsWith(realRoot + path.sep)) {
+					throw new Error(`the app contains a link leaving the bundle: ${where} → ${target}`);
 				}
 			} else if (entry.isDirectory()) {
 				pending.push(full);
@@ -335,10 +385,12 @@ async function finishPendingUpdate({ markerFile, bundlePath, version, log = () =
 	if (marker.version === version) {
 		try {
 			await fs.promises.rm(marker.backup, { recursive: true, force: true });
-			log(`self-update: now running ${version}; removed the previous version's backup`);
 		} catch (err) {
-			log(`self-update: could not remove backup ${marker.backup}: ${err?.message ?? err}`);
+			// Keep the marker: a later launch retries instead of orphaning the backup.
+			log(`self-update: could not remove backup ${marker.backup} (will retry next launch): ${err?.message ?? err}`);
+			return "cleanup-failed";
 		}
+		log(`self-update: now running ${version}; removed the previous version's backup`);
 		await clear();
 		return "cleaned";
 	}
@@ -365,8 +417,8 @@ const AFTER_INSTALL_ARG = "--lh-after-install";
  * restored one). Returns true when this process is exiting. One relaunch at
  * most (AFTER_INSTALL_ARG), so a broken state can never loop. */
 async function yieldToPendingInstall({ app, log = () => {}, execPath = process.execPath, argv = process.argv, readVersion, isAlive = processAlive, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), timeoutMs = 150 * 1000 }) {
-	const markerFile = path.join(app.getPath("userData"), MARKER_NAME);
 	const bundlePath = bundleFromExecPath(execPath);
+	const markerFile = markerPath(app.getPath("userData"), bundlePath);
 	const settle = () => finishPendingUpdate({ markerFile, bundlePath, version: app.getVersion(), log, readVersion, isAlive });
 	let state = await settle();
 	if ((state !== "installing" && state !== "stale") || argv.includes(AFTER_INSTALL_ARG)) return false;
@@ -397,14 +449,17 @@ function createMacSelfUpdater(deps) {
 	const fetchImpl = deps.fetchImpl ?? globalThis.fetch;
 	const bundlePath = bundleFromExecPath(deps.execPath ?? process.execPath);
 	const base = feedBase(env.LH_UPDATE_FEED);
-	const markerFile = path.join(app.getPath("userData"), MARKER_NAME);
+	const markerFile = markerPath(app.getPath("userData"), bundlePath);
 	const logFile = path.join(app.getPath("userData"), "logs", "update-helper.log");
 	let inFlight = null;
+	let download = null; // { workdir, abort } while a download runs
 	let staged = null; // { version, app, workdir }
 	let relaunchOnQuit = false;
 	let swapStarted = false;
 
+	const tmpdir = deps.tmpdir ?? os.tmpdir();
 	if (env.LH_UPDATE_FEED) log(`self-update: LH_UPDATE_FEED override → ${base}`);
+	void reclaimAbandonedDownloads(tmpdir, { log });
 
 	async function bundleId() {
 		if (deps.bundleId) return deps.bundleId;
@@ -427,10 +482,13 @@ function createMacSelfUpdater(deps) {
 			return;
 		}
 		report("downloading", feed.version);
-		const workdir = await fs.promises.mkdtemp(path.join(deps.tmpdir ?? os.tmpdir(), "lh-update-"));
+		const workdir = await fs.promises.mkdtemp(path.join(tmpdir, "lh-update-"));
+		const controller = new AbortController();
+		download = { workdir, abort: () => controller.abort() };
 		try {
+			await fs.promises.writeFile(path.join(workdir, OWNER_FILE), String(process.pid));
 			const zipFile = path.join(workdir, "update.zip");
-			await downloadToFile(fetchImpl, resolveFileURL(base, feed.zip.url), zipFile);
+			await downloadToFile(fetchImpl, resolveFileURL(base, feed.zip.url), zipFile, controller.signal);
 			await verifyFile(zipFile, feed.zip);
 			const extractDir = path.join(workdir, "extracted");
 			await fs.promises.mkdir(extractDir);
@@ -442,6 +500,8 @@ function createMacSelfUpdater(deps) {
 		} catch (err) {
 			await fs.promises.rm(workdir, { recursive: true, force: true }).catch(() => {});
 			throw err;
+		} finally {
+			download = null;
 		}
 	}
 
@@ -465,6 +525,13 @@ function createMacSelfUpdater(deps) {
 
 	/** Start the detached swap. Called from will-quit; idempotent. */
 	function startSwap() {
+		if (!staged && download) {
+			// Quitting mid-download: stop it and remove the partial files now.
+			download.abort();
+			try { fs.rmSync(download.workdir, { recursive: true, force: true }); } catch { /* reclaimed next launch */ }
+			log("self-update: download cancelled at quit");
+			return false;
+		}
 		if (!staged || swapStarted) return false;
 		swapStarted = true;
 		try {
@@ -524,6 +591,8 @@ module.exports = {
 	isOwnBackup,
 	spawnHelper,
 	finishPendingUpdate,
+	markerPath,
+	reclaimAbandonedDownloads,
 	yieldToPendingInstall,
 	createMacSelfUpdater,
 };

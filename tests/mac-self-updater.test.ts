@@ -424,7 +424,7 @@ describe("self-updater flow (fake fetch, temp dirs)", () => {
 		assert.equal(call.args[7], "1", "relaunch after Restart");
 		assert.equal(call.options.env.LH_UPDATE_FEED, "http://127.0.0.1:9/feed");
 		assert.equal(call.options.env.PATH, "/usr/bin:/bin:/usr/sbin:/sbin");
-		const marker = JSON.parse(fs.readFileSync(path.join(f.userData, "self-update.json"), "utf8"));
+		const marker = JSON.parse(fs.readFileSync(updater.markerPath(f.userData, f.target), "utf8"));
 		const { startedAt, ...rest } = marker;
 		assert.deepEqual(rest, { version: "0.4.1", from: "0.4.0", target: f.target, backup: call.args[4], helperPid: 31337 });
 		assert.ok(Math.abs(Date.now() - startedAt) < 60_000);
@@ -605,7 +605,7 @@ describe("symlinks in the downloaded zip (fix 2)", { skip: !isMac }, () => {
 		const root = tempDir();
 		realApp(path.join(root, "LearnHarness.app"));
 		fs.symlinkSync("/usr", path.join(root, "LearnHarness.app", "Contents", "abs"));
-		await assert.rejects(updater.assertNoEscapingLinks(path.join(root, "LearnHarness.app")), /link leaving the bundle/);
+		await assert.rejects(updater.assertNoEscapingLinks(path.join(root, "LearnHarness.app")), /absolute link/);
 	});
 
 	it("accepts framework-style relative links inside the bundle", async () => {
@@ -614,6 +614,7 @@ describe("symlinks in the downloaded zip (fix 2)", { skip: !isMac }, () => {
 			realApp(app);
 			const fw = path.join(app, "Contents", "Frameworks", "X.framework");
 			fs.mkdirSync(path.join(fw, "Versions", "A"), { recursive: true });
+			fs.writeFileSync(path.join(fw, "Versions", "A", "X"), "binary");
 			fs.symlinkSync("A", path.join(fw, "Versions", "Current"));
 			fs.symlinkSync("Versions/Current/X", path.join(fw, "X"));
 		});
@@ -631,7 +632,7 @@ describe("a launch during the install window (fix 3)", () => {
 		const backup = updater.backupPaths(target, 9).backup;
 		fakeApp(backup, "old");
 		const userData = path.join(root, "userData");
-		const markerFile = path.join(userData, "self-update.json");
+		const markerFile = updater.markerPath(userData, target);
 		fs.mkdirSync(userData);
 		const write = (extra: object = {}) => fs.writeFileSync(markerFile, JSON.stringify({ version: "0.4.1", from: "0.4.0", target, backup, startedAt: Date.now(), ...extra }));
 		write();
@@ -729,7 +730,8 @@ describe("release preflight (fix 4)", async () => {
 			seen.push(key);
 			if (key === "git status --porcelain") return { ok: true, out: "" };
 			if (key === "git rev-parse HEAD") return { ok: true, out: HEAD };
-			if (key.startsWith("git branch -r --contains")) return { ok: true, out: "origin/main" };
+			if (key === "git remote get-url origin") return { ok: true, out: "https://github.com/bbMisk/learnharness.git" };
+			if (key.startsWith("git branch -r --contains")) return { ok: true, out: "  origin/HEAD -> origin/main\n  origin/main" };
 			if (key.startsWith("git ls-remote")) return { ok: true, out: lsRemote };
 			if (key === "gh auth status") return { ok: true, out: "" };
 			if (key.startsWith("gh release view")) return { ok: releaseExists, out: "" };
@@ -746,19 +748,19 @@ describe("release preflight (fix 4)", async () => {
 
 	it("uses the peeled commit of an annotated tag", () => {
 		assert.equal(remoteTagCommit(`${OTHER}\trefs/tags/v1.0.0\n${HEAD}\trefs/tags/v1.0.0^{}\n`, "v1.0.0"), HEAD);
-		assert.equal(publishPreflight(runner(`${OTHER}\trefs/tags/v1.0.0\n${HEAD}\trefs/tags/v1.0.0^{}\n`).capture, { tag: "v1.0.0", repo: "r/r" }), HEAD);
+		assert.equal(publishPreflight(runner(`${OTHER}\trefs/tags/v1.0.0\n${HEAD}\trefs/tags/v1.0.0^{}\n`).capture, { tag: "v1.0.0", repo: "bbMisk/learnharness" }), HEAD);
 	});
 
 	it("accepts a missing tag or one at HEAD", () => {
-		assert.equal(publishPreflight(runner("").capture, { tag: "v0.4.1", repo: "r/r" }), HEAD);
-		assert.equal(publishPreflight(runner(`${HEAD}\trefs/tags/v0.4.1\n`).capture, { tag: "v0.4.1", repo: "r/r" }), HEAD);
+		assert.equal(publishPreflight(runner("").capture, { tag: "v0.4.1", repo: "bbMisk/learnharness" }), HEAD);
+		assert.equal(publishPreflight(runner(`${HEAD}\trefs/tags/v0.4.1\n`).capture, { tag: "v0.4.1", repo: "bbMisk/learnharness" }), HEAD);
 	});
 
 	it("still refuses an existing release, and an unreadable tag list", () => {
-		assert.throws(() => publishPreflight(runner("", { releaseExists: true }).capture, { tag: "v0.4.1", repo: "r/r" }), /already exists/);
+		assert.throws(() => publishPreflight(runner("", { releaseExists: true }).capture, { tag: "v0.4.1", repo: "bbMisk/learnharness" }), /already exists/);
 		const bad = runner("");
 		const failing = (cmd: string, args: string[]) => (args[0] === "ls-remote" ? { ok: false, out: "" } : bad.capture(cmd, args));
-		assert.throws(() => publishPreflight(failing, { tag: "v0.4.1", repo: "r/r" }), /could not read tags/);
+		assert.throws(() => publishPreflight(failing, { tag: "v0.4.1", repo: "bbMisk/learnharness" }), /could not read tags/);
 	});
 });
 
@@ -782,5 +784,192 @@ describe("active check interval reaches Settings (fix 6)", () => {
 			runInNewContext("setupAutoUpdater(); reportUpdateStatus('checking')", context);
 			assert.equal(runInNewContext("updateState.checkHours", context), hours);
 		}
+	});
+});
+
+/* ── Round 2 (review of efa7229) ─────────────────────────────────────────── */
+
+describe("copies sharing a userData folder (round 2, fix 1)", () => {
+	it("another installation's start leaves this installation's marker alone", { skip: !isMac }, async () => {
+		const zip = makeZip(tempDir());
+		const f = flow({ feed: feedFor("0.4.1", zip), zip });
+		await f.u.check();
+		assert.equal(f.u.startSwap(), true);
+		const mine = () => fs.readdirSync(f.userData).filter((n) => n.startsWith("self-update")).map((n) => JSON.parse(fs.readFileSync(path.join(f.userData, n), "utf8")).target);
+		assert.deepEqual(mine(), [f.target]);
+		// A second copy elsewhere, same userData, starts (any version).
+		const other = path.join(f.root, "Elsewhere", "LearnHarness.app");
+		fs.mkdirSync(other, { recursive: true });
+		const app = { getPath: () => f.userData, getVersion: () => "0.4.0", releaseSingleInstanceLock() {}, relaunch() {}, exit() {} };
+		assert.equal(await updater.yieldToPendingInstall({ app, execPath: path.join(other, "Contents", "MacOS", "LearnHarness"), argv: ["/x"], readVersion: async () => "0.4.0", isAlive: () => false }), false);
+		assert.deepEqual(mine(), [f.target], "marker for the first copy survives");
+	});
+
+	it("markers are keyed by installation path", () => {
+		assert.notEqual(updater.markerPath("/u", "/Applications/LearnHarness.app"), updater.markerPath("/u", "/Users/me/Applications/LearnHarness.app"));
+		assert.equal(updater.markerPath("/u", "/Applications/LearnHarness.app"), updater.markerPath("/u", "/Applications/LearnHarness.app"));
+		assert.match(path.basename(updater.markerPath("/u", "/A.app")), /^self-update-[0-9a-f]{16}\.json$/);
+	});
+});
+
+describe("backup removal failure (round 2, fix 2)", { skip: process.getuid?.() === 0 }, () => {
+	it("keeps the marker and retries on a later launch", async () => {
+		const root = tempDir();
+		const apps = path.join(root, "Applications");
+		const target = path.join(apps, "LearnHarness.app");
+		fakeApp(target, "new");
+		const backup = updater.backupPaths(target, 3).backup;
+		fakeApp(backup, "old");
+		const markerFile = updater.markerPath(path.join(root, "u"), target);
+		fs.mkdirSync(path.dirname(markerFile));
+		fs.writeFileSync(markerFile, JSON.stringify({ version: "0.4.1", target, backup, startedAt: Date.now() }));
+		fs.chmodSync(apps, 0o555); // the backup's folder entry can't be removed
+		try {
+			assert.equal(await updater.finishPendingUpdate({ markerFile, bundlePath: target, version: "0.4.1" }), "cleanup-failed");
+			assert.ok(fs.existsSync(markerFile), "marker kept for a retry");
+		} finally {
+			fs.chmodSync(apps, 0o755);
+		}
+		assert.equal(await updater.finishPendingUpdate({ markerFile, bundlePath: target, version: "0.4.1" }), "cleaned");
+		assert.equal(fs.existsSync(backup), false);
+		assert.equal(fs.existsSync(markerFile), false);
+	});
+});
+
+describe("abandoned downloads (round 2, fix 3)", () => {
+	it("quitting mid-download cancels it and removes the partial files", async () => {
+		const tmpHolder: { tmp?: string } = {};
+		let opened = false;
+		const f = flowWith({
+			feed: feedFor("0.4.1", Buffer.from("abc")),
+			// A body that sends one chunk and then never finishes.
+			zipResponse: () => new Response(new ReadableStream<Uint8Array>({ start(c) { c.enqueue(new Uint8Array([1, 2, 3])); opened = true; } })),
+		});
+		tmpHolder.tmp = f.tmp;
+		const done = f.u.check();
+		for (let i = 0; i < 100 && !(opened && fs.readdirSync(f.tmp).length); i++) await new Promise((r) => setTimeout(r, 10));
+		assert.equal(fs.readdirSync(f.tmp).length, 1, "download in progress");
+		assert.equal(f.u.startSwap(), false, "nothing to install");
+		assert.deepEqual(fs.readdirSync(f.tmp), [], "partial download removed at quit");
+		await done; // the cancelled check settles instead of hanging
+		assert.equal(f.u.staged, null);
+	});
+
+	it("a later launch reclaims folders whose owner is gone, never a live one", async () => {
+		const tmp = tempDir();
+		const gone = spawn("/usr/bin/true");
+		await new Promise((r) => gone.on("exit", r));
+		const dead = path.join(tmp, "lh-update-dead");
+		const live = path.join(tmp, "lh-update-live");
+		const unowned = path.join(tmp, "lh-update-fresh");
+		const other = path.join(tmp, "not-ours");
+		for (const d of [dead, live, unowned, other]) fs.mkdirSync(d);
+		fs.writeFileSync(path.join(dead, "owner.pid"), String(gone.pid));
+		fs.writeFileSync(path.join(dead, "update.zip"), "partial");
+		fs.writeFileSync(path.join(live, "owner.pid"), String(process.pid));
+		const removed = await updater.reclaimAbandonedDownloads(tmp);
+		assert.deepEqual(removed, [dead]);
+		assert.deepEqual(fs.readdirSync(tmp).sort(), ["lh-update-fresh", "lh-update-live", "not-ours"]);
+		// An owner-less folder is only reclaimed once it is a day old.
+		assert.deepEqual(await updater.reclaimAbandonedDownloads(tmp, { now: Date.now() + 25 * 60 * 60 * 1000 }), [unowned]);
+	});
+
+	it("each download folder records its owner", { skip: !isMac }, async () => {
+		let seen: string | null = null;
+		const tmpHolder: { tmp?: string } = {};
+		const zip = makeZip(tempDir());
+		const f = flowWith({
+			feed: feedFor("0.4.1", zip),
+			zipResponse: () => {
+				const work = fs.readdirSync(tmpHolder.tmp!).find((n) => n.startsWith("lh-update-"))!;
+				seen = fs.readFileSync(path.join(tmpHolder.tmp!, work, "owner.pid"), "utf8");
+				return new Response(new Uint8Array(zip));
+			},
+		});
+		tmpHolder.tmp = f.tmp;
+		await f.u.check();
+		assert.equal(seen, String(process.pid));
+	});
+});
+
+describe("symlink chains (round 2, fix 4)", () => {
+	function bundle() {
+		const root = tempDir();
+		const app = path.join(root, "LearnHarness.app");
+		fakeApp(app, "new");
+		fs.mkdirSync(path.join(root, "outside"));
+		return { root, app };
+	}
+
+	it("rejects a chain that looks inside but resolves outside", async () => {
+		const { app } = bundle();
+		fs.mkdirSync(path.join(app, "b"));
+		fs.symlinkSync("..", path.join(app, "b", "c"));
+		fs.symlinkSync("b/c", path.join(app, "a"));
+		fs.symlinkSync("a/../outside", path.join(app, "escape"));
+		await assert.rejects(updater.assertNoEscapingLinks(app), /leaving the bundle: escape/);
+	});
+
+	it("rejects dangling links and loops", async () => {
+		const dangling = bundle();
+		fs.symlinkSync("Contents/missing", path.join(dangling.app, "gone"));
+		await assert.rejects(updater.assertNoEscapingLinks(dangling.app), /broken link: gone.*ENOENT/);
+		const loop = bundle();
+		fs.symlinkSync("y", path.join(loop.app, "x"));
+		fs.symlinkSync("x", path.join(loop.app, "y"));
+		await assert.rejects(updater.assertNoEscapingLinks(loop.app), /broken link.*ELOOP/);
+	});
+
+	it("accepts chained links that stay inside", async () => {
+		const { app } = bundle();
+		const fw = path.join(app, "Contents", "Frameworks", "X.framework");
+		fs.mkdirSync(path.join(fw, "Versions", "A", "Resources"), { recursive: true });
+		fs.symlinkSync("A", path.join(fw, "Versions", "Current"));
+		fs.symlinkSync("Versions/Current/Resources", path.join(fw, "Resources"));
+		fs.symlinkSync("Resources/../Resources", path.join(fw, "Again"));
+		await updater.assertNoEscapingLinks(app);
+	});
+});
+
+describe("release preflight output handling (round 2, fix 5)", async () => {
+	const { publishPreflight, isRepoURL } = await import("../scripts/release-mac-preflight.mjs");
+	const HEAD = "c".repeat(40);
+	function capture(overrides: Record<string, { ok: boolean; out: string; err?: string }>) {
+		return (cmd: string, args: string[]) => {
+			const key = `${cmd} ${args.join(" ")}`;
+			for (const [prefix, value] of Object.entries(overrides)) if (key.startsWith(prefix)) return value;
+			if (key === "git status --porcelain") return { ok: true, out: "" };
+			if (key === "git rev-parse HEAD") return { ok: true, out: HEAD };
+			if (key === "git remote get-url origin") return { ok: true, out: "git@github.com:bbMisk/learnharness.git" };
+			if (key.startsWith("git branch -r --contains")) return { ok: true, out: "  origin/main" };
+			if (key.startsWith("git ls-remote")) return { ok: true, out: "" };
+			if (key === "gh auth status") return { ok: true, out: "" };
+			if (key.startsWith("gh release view")) return { ok: false, out: "" };
+			throw new Error(`unexpected ${key}`);
+		};
+	}
+	const opts = { tag: "v0.4.1", repo: "bbMisk/learnharness" };
+
+	it("a failing branch lookup is not evidence that HEAD was pushed", () => {
+		assert.throws(() => publishPreflight(capture({ "git branch -r": { ok: false, out: "fatal: malformed object name", err: "" } }), opts), /not on any origin branch/);
+		assert.throws(() => publishPreflight(capture({ "git branch -r": { ok: false, out: "", err: "fatal: malformed object name" } }), opts), /not on any origin branch/);
+	});
+
+	it("only a branch on origin counts, and origin must be the release repo", () => {
+		assert.throws(() => publishPreflight(capture({ "git branch -r": { ok: true, out: "  upstream/main" } }), opts), /not on any origin branch/);
+		assert.throws(() => publishPreflight(capture({ "git branch -r": { ok: true, out: "  origin/HEAD -> origin/main" } }), opts), /not on any origin branch/);
+		assert.throws(() => publishPreflight(capture({ "git remote get-url": { ok: true, out: "https://github.com/amosblomqvist/learnharness.git" } }), opts), /origin" is not github.com\/bbMisk\/learnharness/);
+		assert.equal(publishPreflight(capture({}), opts), HEAD);
+	});
+
+	it("failed status/HEAD commands stop the release", () => {
+		assert.throws(() => publishPreflight(capture({ "git status": { ok: false, out: "" } }), opts), /could not read git status/);
+		assert.throws(() => publishPreflight(capture({ "git rev-parse": { ok: false, out: "fatal: not a git repository" } }), opts), /could not resolve HEAD/);
+	});
+
+	it("recognizes the repo in https and ssh remotes", () => {
+		assert.ok(isRepoURL("https://github.com/bbMisk/learnharness.git", "bbMisk/learnharness"));
+		assert.ok(isRepoURL("git@github.com:bbMisk/learnharness", "bbMisk/learnharness"));
+		assert.ok(!isRepoURL("https://github.com/bbMisk/learnharness-web.git", "bbMisk/learnharness"));
 	});
 });

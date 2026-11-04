@@ -16,10 +16,31 @@ export function remoteTagCommit(lsRemoteOutput, tag) {
 	return plain;
 }
 
+/** Does a git remote URL point at github.com/<repo>? (https or ssh form) */
+export function isRepoURL(url, repo) {
+	const m = /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?\/?$/i.exec(String(url).trim());
+	return !!m && m[1].toLowerCase() === repo.toLowerCase();
+}
+
+/** Remote-tracking branches of `remote` in `git branch -r` output (skips the
+ * symbolic "origin/HEAD -> origin/main" line). */
+export function remoteBranches(output, remote) {
+	return String(output).split("\n").map((l) => l.trim().replace(/^\* /, ""))
+		.filter((l) => l.startsWith(`${remote}/`) && !l.includes(" -> ") && /^[^\s]+$/.test(l));
+}
+
 export function publishPreflight(capture, { tag, repo }) {
-	if (capture("git", ["status", "--porcelain"]).out) throw new Error("working tree is not clean; commit or set aside changes first");
-	const commit = capture("git", ["rev-parse", "HEAD"]).out;
-	if (!capture("git", ["branch", "-r", "--contains", commit]).out) throw new Error(`HEAD ${commit} is not on any remote branch; push it first`);
+	// Every check requires success: a failed command's empty or error output is never evidence.
+	const status = capture("git", ["status", "--porcelain"]);
+	if (!status.ok) throw new Error("could not read git status");
+	if (status.out) throw new Error("working tree is not clean; commit or set aside changes first");
+	const head = capture("git", ["rev-parse", "HEAD"]);
+	const commit = head.out;
+	if (!head.ok || !/^[0-9a-f]{40}$/.test(commit)) throw new Error("could not resolve HEAD");
+	const origin = capture("git", ["remote", "get-url", "origin"]);
+	if (!origin.ok || !isRepoURL(origin.out, repo)) throw new Error(`git remote "origin" is not github.com/${repo}`);
+	const branches = capture("git", ["branch", "-r", "--contains", commit]);
+	if (!branches.ok || remoteBranches(branches.out, "origin").length === 0) throw new Error(`HEAD ${commit} is not on any origin branch; push it to ${repo} first`);
 	// gh release create reuses an existing tag as-is: artifacts built from HEAD
 	// must never land on a tag that points at another commit.
 	const tags = capture("git", ["ls-remote", "--tags", `https://github.com/${repo}.git`, `refs/tags/${tag}`, `refs/tags/${tag}^{}`]);

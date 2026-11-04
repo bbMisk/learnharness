@@ -44,7 +44,8 @@ function run(command, commandArgs, options = {}) {
 }
 function capture(command, commandArgs) {
 	const result = spawnSync(command, commandArgs, { cwd: root, encoding: "utf8" });
-	return { ok: !result.error && result.status === 0, out: `${result.stdout ?? ""}${result.stderr ?? ""}`.trim() };
+	// stdout and stderr stay separate: an error message must never pass as output.
+	return { ok: !result.error && result.status === 0, out: String(result.stdout ?? "").trim(), err: String(result.stderr ?? "").trim() };
 }
 const mb = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
@@ -87,8 +88,9 @@ assets.push(permanentDmg);
 
 const appBundle = path.join(OUT, "mac-arm64", "LearnHarness.app");
 const signature = capture("/usr/bin/codesign", ["-dv", "--verbose=2", appBundle]);
-console.log(`\ncodesign -dv ${path.relative(root, appBundle)}:\n${signature.out}`);
-if (!signature.ok || !/^Signature=adhoc$/m.test(signature.out)) fail("the app is not ad-hoc signed");
+const signatureText = `${signature.out}\n${signature.err}`.trim(); // codesign -dv prints to stderr
+console.log(`\ncodesign -dv ${path.relative(root, appBundle)}:\n${signatureText}`);
+if (!signature.ok || !/^Signature=adhoc$/m.test(signatureText)) fail("the app is not ad-hoc signed");
 run("/usr/bin/codesign", ["--verify", "--deep", "--strict", appBundle]);
 if (!fs.existsSync(path.join(appBundle, "Contents", "Resources", "app-update.yml"))) fail("app-update.yml missing from the bundle");
 const packaged = JSON.parse(require("@electron/asar").extractFile(path.join(appBundle, "Contents", "Resources", "app.asar"), "package.json").toString("utf8"));
