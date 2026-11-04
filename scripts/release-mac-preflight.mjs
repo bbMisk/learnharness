@@ -52,6 +52,13 @@ export function publishPreflight(capture, { tag, repo }) {
 	const tagged = remoteTagCommit(tags.out, tag);
 	if (tagged && tagged !== commit) throw new Error(`tag ${tag} on ${repo} points at ${tagged}, not HEAD ${commit}; refusing to upload HEAD's build under it`);
 	if (!capture("gh", ["auth", "status"]).ok) throw new Error("gh is not signed in (gh auth login)");
+	// This release becomes "latest" for every platform. Windows/Linux copies
+	// follow latest.yml / latest-linux.yml in the latest release; a macOS-only
+	// one would break their update checks (round-5 hunt finding). None exist
+	// yet; refuse once they do, until their assets ship in the same release.
+	const latest = capture("gh", ["api", `repos/${repo}/releases/latest`, "--jq", ".assets[].name"]);
+	if (!latest.ok && !/HTTP 404|Not Found/i.test(`${latest.err}\n${latest.out}`)) throw new Error(`could not read the current latest release of ${repo}`);
+	if (latest.ok && /^latest(-linux)?\.yml$/m.test(latest.out)) throw new Error("the current latest release serves Windows/Linux updates (latest.yml / latest-linux.yml); a macOS-only release marked latest would break them. Ship those platforms' assets in this release too.");
 	if (capture("gh", ["release", "view", tag, "--repo", repo]).ok) throw new Error(`release ${tag} already exists on ${repo}; bump package.json version first`);
 	return commit;
 }

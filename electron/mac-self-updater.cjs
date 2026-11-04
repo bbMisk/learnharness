@@ -187,6 +187,20 @@ async function downloadToFile(fetchImpl, url, file, signal) {
 
 const OWNER_FILE = "owner.pid";
 
+/** Replace a small file atomically (temp file + rename in the same folder): a
+ * failed write — a full disk — leaves the previous contents intact, never a
+ * truncated file (round-5 hunt finding). */
+function writeFileAtomic(file, text) {
+	const tmp = `${file}.tmp-${process.pid}`;
+	try {
+		fs.writeFileSync(tmp, text);
+		fs.renameSync(tmp, file);
+	} catch (err) {
+		try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
+		throw err;
+	}
+}
+
 /** Remove lh-update-* download folders left by a process that is gone (a
  * quit mid-download, a crash). Each folder names its owner PID; folders of a
  * live process — another copy downloading right now — are left alone.
@@ -310,14 +324,26 @@ while kill -0 "$pid" 2>/dev/null; do
 done
 log "installing $new over $target"
 mv "$new" "$stage" || fail "could not stage the new version; nothing changed"
-mv "$target" "$backup" || fail "could not move the current version aside; nothing changed"
+# Between the two renames the app path is empty. A TERM/INT/HUP there (a
+# shutdown or logout signals before it kills) puts the previous version back
+# (round-5 hunt finding); only SIGKILL or power loss inside that sub-millisecond
+# gap can leave it in $backup.
+interrupted() {
+	if [ ! -e "$target" ] && [ -e "$backup" ] && mv "$backup" "$target"; then log "interrupted; previous version restored"; else log "interrupted"; fi
+	rm -rf "$stage" "$workdir"
+	exit 1
+}
+trap interrupted TERM INT HUP
+mv "$target" "$backup" || { trap - TERM INT HUP; fail "could not move the current version aside; nothing changed"; }
 if [ -e "$target" ] || ! mv "$stage" "$target"; then
 	log "could not move the new version into place; restoring the previous version"
 	if [ ! -e "$target" ] && mv "$backup" "$target"; then log "previous version restored"; else log "RESTORE FAILED: previous version left at $backup"; fi
+	trap - TERM INT HUP
 	rm -rf "$stage" "$workdir"
 	launch "$target"
 	exit 1
 fi
+trap - TERM INT HUP
 xattr -dr com.apple.quarantine "$target" 2>/dev/null || true
 rm -rf "$workdir"
 log "installed; previous version kept at $backup until the new version starts"
@@ -442,9 +468,12 @@ const AFTER_INSTALL_ARG = "--lh-after-install";
  * running, or already replaced this bundle while this OLD process started,
  * step aside: release the single-instance lock, wait for the helper, and
  * relaunch the bundle path — which now holds the installed version (or the
- * restored one). Returns true when this process is exiting. One relaunch at
+ * restored one). It waits as long as the install window, never less: a
+ * shorter timeout would let the flagged relaunch run the old bundle while the
+ * helper is still swapping it (round-5 hunt finding).
+ * Returns true when this process is exiting. One relaunch at
  * most (AFTER_INSTALL_ARG), so a broken state can never loop. */
-async function yieldToPendingInstall({ app, log = () => {}, execPath = process.execPath, argv = process.argv, readVersion, isAlive = processAlive, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), timeoutMs = 150 * 1000 }) {
+async function yieldToPendingInstall({ app, log = () => {}, execPath = process.execPath, argv = process.argv, readVersion, isAlive = processAlive, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), timeoutMs = INSTALL_WINDOW_MS }) {
 	const bundlePath = bundleFromExecPath(execPath);
 	const markerFile = markerPath(app.getPath("userData"), bundlePath);
 	const settle = () => finishPendingUpdate({ markerFile, bundlePath, version: app.getVersion(), log, readVersion, isAlive });
@@ -570,7 +599,7 @@ function createMacSelfUpdater(deps) {
 			const marker = { version: staged.version, from: app.getVersion(), target: bundlePath, backup, startedAt: Date.now(), appPid: process.pid };
 			// Marker BEFORE the helper exists (no install without one), then again
 			// with the helper's PID so a racing launch can tell an install is running.
-			fs.writeFileSync(markerFile, JSON.stringify(marker, null, 2));
+			writeFileAtomic(markerFile, JSON.stringify(marker, null, 2));
 			const child = spawnHelper({ workdir: staged.workdir, pid: process.pid, target: bundlePath, newApp: staged.app, backup, stage, relaunch: relaunchOnQuit, logFile, env, spawnImpl: deps.spawnImpl });
 			// A failed spawn reports asynchronously; without a listener it would crash the quitting app (round-4 hunt finding).
 			child?.on?.("error", (err) => {
@@ -578,9 +607,14 @@ function createMacSelfUpdater(deps) {
 				try { fs.rmSync(markerFile, { force: true }); } catch { /* settled as not-updated next launch */ }
 			});
 			if (Number.isInteger(child?.pid)) {
-				fs.writeFileSync(markerFile, JSON.stringify({ ...marker, helperPid: child.pid }, null, 2));
+				// The helper is running from here on: a failed bookkeeping write must not report failure or lose the marker.
+				try {
+					writeFileAtomic(markerFile, JSON.stringify({ ...marker, helperPid: child.pid }, null, 2));
+				} catch (err) {
+					log(`self-update: could not record the installer PID (the marker without it stays valid): ${err?.message ?? err}`);
+				}
 				// The helper outlives this process: it co-owns the staged folder, so another copy's cleanup leaves it be.
-				fs.writeFileSync(path.join(staged.workdir, OWNER_FILE), `${process.pid} ${child.pid}`);
+				try { writeFileAtomic(path.join(staged.workdir, OWNER_FILE), `${process.pid} ${child.pid}`); } catch { /* the fresh install script still protects it */ }
 			}
 			log(`self-update: installing ${staged.version} after quit (relaunch: ${relaunchOnQuit})`);
 			return true;

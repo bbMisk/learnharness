@@ -250,6 +250,29 @@ describe("swap helper (real /bin/sh against fake bundles)", () => {
 		assert.deepEqual(fs.readFileSync(scene.opened, "utf8").trim().split("\n").at(-1), scene.target, "relaunches the old app");
 	});
 
+	it("a TERM between the two renames (shutdown) puts the previous version back (round-5 hunt finding)", async () => {
+		const scene = helperScene();
+		const reached = path.join(scene.root, "reached");
+		// Fake mv that stalls on the final STAGE → TARGET move: the app path is empty while it sleeps.
+		fs.writeFileSync(path.join(scene.bin, "mv"), `#!/bin/sh\nif [ "$1" = "${scene.stage}" ]; then : > "${reached}"; sleep 5; fi\nexec /bin/mv "$@"\n`, { mode: 0o755 });
+		let helper: ChildProcess | null = null;
+		updater.spawnHelper({
+			workdir: scene.workdir, pid: 999999, target: scene.target, newApp: scene.newApp, backup: scene.backup, stage: scene.stage,
+			relaunch: false, logFile: scene.logFile, searchPath: `${scene.bin}:/usr/bin:/bin:/usr/sbin:/sbin`,
+			spawnImpl: (cmd: string, args: string[], options: object) => (helper = spawn(cmd, args, options)),
+		});
+		const exited = new Promise<number | null>((resolve) => helper!.on("exit", (code) => resolve(code)));
+		for (let i = 0; i < 100 && !fs.existsSync(reached); i++) await new Promise((r) => setTimeout(r, 50));
+		assert.ok(fs.existsSync(reached), "reached the gap");
+		assert.equal(fs.existsSync(scene.target), false, "app path empty inside the gap");
+		process.kill(-helper!.pid!, "SIGTERM"); // the whole detached group, as a shutdown would
+		await exited;
+		assert.equal(which(scene.target), "old", "previous version back in place");
+		assert.equal(fs.existsSync(scene.backup), false);
+		assert.equal(fs.existsSync(scene.workdir), false);
+		assert.match(fs.readFileSync(scene.logFile, "utf8"), /interrupted; previous version restored/);
+	});
+
 	it("leaves the current app untouched when staging fails", async () => {
 		const scene = helperScene();
 		fs.rmSync(scene.newApp, { recursive: true });
@@ -451,6 +474,29 @@ describe("self-updater flow (fake fetch, temp dirs)", () => {
 		child.emit("error", Object.assign(new Error("spawn /bin/sh EAGAIN"), { code: "EAGAIN" }));
 		assert.ok(lines.some((l) => /installer did not start/.test(l)));
 		assert.equal(fs.existsSync(markerFile), false, "no marker for an install that never ran");
+	});
+
+	it("a failed helper-PID write keeps the first marker intact and the install going (round-5 hunt finding)", { skip: !isMac }, async () => {
+		const zip = makeZip(tempDir());
+		let markerDir = "";
+		const f = flowWith({
+			feed: feedFor("0.4.1", zip), zip,
+			// Once the helper is spawned, the marker folder stops accepting writes (as a full disk would).
+			spawnImpl: () => { fs.chmodSync(markerDir, 0o500); return { pid: 31337, unref() {}, on() {} }; },
+		});
+		await f.u.check();
+		const markerFile = updater.markerPath(f.userData, f.target);
+		markerDir = path.dirname(markerFile);
+		try {
+			assert.equal(f.u.startSwap(), true, "the helper is running: not reported as a failure");
+			const marker = JSON.parse(fs.readFileSync(markerFile, "utf8"));
+			assert.equal(marker.version, "0.4.1");
+			assert.equal(marker.appPid, process.pid);
+			assert.equal(marker.helperPid, undefined);
+			assert.deepEqual(fs.readdirSync(markerDir).filter((n) => n.includes(".tmp-")), [], "no temp file left");
+		} finally {
+			fs.chmodSync(markerDir, 0o700);
+		}
 	});
 
 	it("installs on a normal quit without relaunching", { skip: !isMac }, async () => {
@@ -764,6 +810,19 @@ describe("a launch during the install window (fix 3)", () => {
 		assert.ok(fs.existsSync(s.markerFile), "marker left for the new version");
 	});
 
+	it("a stalled install is waited out for the whole install window, not 150 s (round-5 hunt finding)", async () => {
+		const s = scene();
+		s.write({ helperPid: 4242 });
+		const a = fakeApp2(s.userData, "0.4.0");
+		let polls = 0;
+		await updater.yieldToPendingInstall({
+			app: a.app, execPath: path.join(s.target, "Contents", "MacOS", "LearnHarness"), argv: ["/x"],
+			readVersion: async () => "0.4.0", isAlive: () => true, sleep: async () => { polls++; },
+		});
+		assert.ok(polls * 200 > 150 * 1000, `waited past the old 150 s cap (${polls} polls)`);
+		assert.ok(polls * 200 <= 10 * 60 * 1000, "bounded by the install window");
+	});
+
 	it("a stale old process relaunches at once; never twice", async () => {
 		const s = scene();
 		const a = fakeApp2(s.userData, "0.4.0");
@@ -799,6 +858,7 @@ describe("release preflight (fix 4)", async () => {
 			if (key.startsWith("git branch -r --contains")) return { ok: true, out: "  origin/HEAD -> origin/main\n  origin/main" };
 			if (key.startsWith("git ls-remote")) return { ok: true, out: lsRemote };
 			if (key === "gh auth status") return { ok: true, out: "" };
+			if (key.startsWith("gh api repos/bbMisk/learnharness/releases/latest")) return { ok: false, out: "", err: "gh: Not Found (HTTP 404)" };
 			if (key.startsWith("gh release view")) return { ok: releaseExists, out: "" };
 			throw new Error(`unexpected ${key}`);
 		};
@@ -1026,6 +1086,7 @@ describe("release preflight output handling (round 2, fix 5)", async () => {
 			if (key.startsWith("git branch -r --contains")) return { ok: true, out: "  origin/main" };
 			if (key.startsWith("git ls-remote")) return { ok: true, out: "" };
 			if (key === "gh auth status") return { ok: true, out: "" };
+			if (key.startsWith("gh api repos/bbMisk/learnharness/releases/latest")) return { ok: false, out: "", err: "gh: Not Found (HTTP 404)" };
 			if (key.startsWith("gh release view")) return { ok: false, out: "" };
 			throw new Error(`unexpected ${key}`);
 		};
@@ -1059,6 +1120,15 @@ describe("release preflight output handling (round 2, fix 5)", async () => {
 		for (const url of ["https://evilgithub.com/bbMisk/learnharness.git", "git@evilgithub.com:bbMisk/learnharness.git", "https://github.com.evil.example/bbMisk/learnharness", "https://evil.example/github.com/bbMisk/learnharness"]) {
 			assert.ok(!isRepoURL(url, "bbMisk/learnharness"), url);
 		}
+	});
+
+	it("refuses to make a macOS-only release latest once Windows/Linux updates exist (round-5 hunt finding)", () => {
+		assert.equal(publishPreflight(capture({}), opts), HEAD, "no latest release yet (404) is fine");
+		assert.equal(publishPreflight(capture({ "gh api": { ok: true, out: "LearnHarness-0.4.0-arm64.dmg\nlatest-mac.yml" } }), opts), HEAD);
+		for (const feed of ["latest.yml", "latest-linux.yml"]) {
+			assert.throws(() => publishPreflight(capture({ "gh api": { ok: true, out: `latest-mac.yml\n${feed}` } }), opts), /Windows\/Linux/);
+		}
+		assert.throws(() => publishPreflight(capture({ "gh api": { ok: false, out: "", err: "connection refused" } }), opts), /could not read the current latest release/);
 	});
 
 	it("pins the tag to the built commit with a plain push (round-4 hunt finding)", () => {
