@@ -49,7 +49,7 @@ it("round-2 hunt findings: dock answers, failed calls, rewrites after Accept", (
 	const plan = (id: string) => ({ role: "assistant", content: [{ type: "toolCall", name: "plan_init", id }] });
 	const planResult = (id: string, isError = false) => ({ role: "toolResult", toolName: "plan_init", toolCallId: id, isError, details: isError ? null : { ok: true, tree: { nodes: [], edges: [] } } });
 	const ask = { role: "assistant", content: [{ type: "toolCall", name: "ask_user_question", id: "q" }] };
-	const answer = { role: "toolResult", toolName: "ask_user_question", toolCallId: "q", isError: false };
+	const answer = { role: "toolResult", toolName: "ask_user_question", toolCallId: "q", isError: false, details: { kind: "ask", answers: [{ index: 1, label: "Accept the plan" }] } };
 	const accept = { role: "user", content: [{ type: "text", text: PLAN_ACCEPT_TEXT }] };
 	const typed = { role: "user", content: "drop the Cantor set" };
 	assert.equal(awaitingPlanReply([plan("p1"), planResult("p1"), ask, answer]), false, "answered through the question dock");
@@ -62,6 +62,9 @@ it("round-2 hunt findings: dock answers, failed calls, rewrites after Accept", (
 	assert.equal(awaitingPlanReply([plan("p1"), planResult("p1"), ask, failedAsk]), true, "a failed question is not a reply");
 	const dismissed = { role: "toolResult", toolName: "ask_user_question", toolCallId: "q", isError: false, details: { kind: "ask", dismissed: true } };
 	assert.equal(awaitingPlanReply([plan("p1"), planResult("p1"), ask, dismissed]), true, "a dismissed question is not a reply (round-4 hunt finding)");
+	const placeholder = { role: "toolResult", toolName: "ask_user_question", toolCallId: "q", isError: false, details: null };
+	assert.equal(awaitingPlanReply([plan("p1"), planResult("p1"), ask, placeholder]), true, "a streamed placeholder is not a reply (round-12 hunt finding)");
+	assert.equal(awaitingPlanReply([plan("p1"), planResult("p1"), ask, placeholder, dismissed]), true, "placeholder then dismissal: still awaiting");
 	assert.equal(awaitingPlanReply([plan("p1"), planResult("p1"), accept, ask, answer, plan("p2"), planResult("p2")]), true, "a dock answer after Accept can ask for changes (round-5 hunt finding)");
 	// Round-10 hunt finding: an invalid map returns { ok: false } without isError and presents nothing.
 	const invalid = { role: "toolResult", toolName: "plan_init", toolCallId: "p2", isError: false, details: { ok: false, error: "Line 3: bad edge" } };

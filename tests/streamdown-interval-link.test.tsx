@@ -72,6 +72,10 @@ it("a price or a code span before a streaming link doesn't hide it (round-2 hunt
 		"Price $5. See [source](https://example.com/part\n```\necho $HOME\n```",
 		"Price $5. See [source](https://example.com/part `echo $HOME`",
 		"Price $5. See [source](https://example.com/part\n~~~\necho $HOME\n~~~",
+		// Round-12 hunt finding: a heading, list item or quote starts a new block.
+		"Price $5. See [source](https://example.com/part\n# Total $10",
+		"Price $5. See [source](https://example.com/part\n- item $10",
+		"Price $5. See [source](https://example.com/part\n> quoted $10",
 	]) {
 		assert.match(remend(text, streamdownRemend), /\[source\]\(streamdown:incomplete-link\)/, text);
 		assert.doesNotMatch(renderToStaticMarkup(<MessageResponse>{text}</MessageResponse>), /href="https:\/\/example\.com\/part"/, text);

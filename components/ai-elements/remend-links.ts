@@ -111,13 +111,16 @@ function paragraphEnd(text: string, from: number): number {
 }
 
 /** Where a math span opened at `from` must close by: inline math ends with
- *  its paragraph (a blank line), and no math crosses into a fenced code
- *  block (round-11 hunt finding). -1 when the scope runs to the end of the
- *  text, where math may still be streaming. */
+ *  its block — a blank line, or a line that starts a new block (heading,
+ *  list item, quote, fence; round-12 hunt finding) — and no math crosses
+ *  into a fenced code block (round-11). -1 when the scope runs to the end
+ *  of the text, where math may still be streaming. */
 function mathScopeEnd(text: string, from: number, inline: boolean): number {
 	const fence = /\n {0,3}(?:`{3,}|~{3,})/g;
 	fence.lastIndex = from;
-	const ends = [fence.exec(text)?.index ?? -1, inline ? paragraphEnd(text, from) : -1].filter((n) => n !== -1);
+	const block = /\n {0,3}(?:#{1,6}(?:[ \t]|$)|[-*+][ \t]|\d{1,9}[.)][ \t]|>)/gm;
+	block.lastIndex = from;
+	const ends = [fence.exec(text)?.index ?? -1, inline ? paragraphEnd(text, from) : -1, inline ? (block.exec(text)?.index ?? -1) : -1].filter((n) => n !== -1);
 	return ends.length ? Math.min(...ends) : -1;
 }
 

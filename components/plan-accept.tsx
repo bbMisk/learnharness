@@ -67,8 +67,10 @@ export function awaitingPlanReply(messages: readonly ScanMessage[]): boolean {
 			accepted = learnerText(m.content).trim() === PLAN_ACCEPT_TEXT;
 		} else if (
 			m.role === "toolResult" && !m.isError && (QUESTION_TOOLS as readonly string[]).includes(m.toolName ?? "") &&
-			// A dismissed question was not answered (round-4 hunt finding).
-			(m.details as { dismissed?: unknown } | undefined)?.dismissed !== true
+			// A streamed placeholder (details null) isn't an answer yet (round-12
+			// hunt finding), and a dismissed question was not answered (round 4).
+			m.details != null && typeof m.details === "object" &&
+			(m.details as { dismissed?: unknown }).dismissed !== true
 		) {
 			awaiting = false;
 			// An answer may be a change request too: a revised plan after it asks again (round-5 hunt finding).
