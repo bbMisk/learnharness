@@ -62,7 +62,7 @@ export function JobDetails({ job, compact = false }: { job: JobRecord; compact?:
 
 function JobResult({ job }: { job: JobRecord }) {
 	return job.kind === "visual" ? (
-		<VisualOutputCard output={job.result} />
+		<VisualOutputCard output={job.result} chatId={job.chatId} />
 	) : job.kind === "demo" ? (
 		<DemoOutputCard output={job.result} />
 	) : job.kind === "pdf" ? (

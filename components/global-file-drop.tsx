@@ -9,7 +9,7 @@ type DropTarget = {
 	element: () => HTMLElement | null;
 	activate: () => void;
 	canReveal: () => boolean;
-	add: (files: File[]) => Promise<void>;
+	add: (files: File[], directories?: ReadonlySet<File>) => Promise<void>;
 };
 const targets = new Map<string, DropTarget>();
 let focused: string | null = null;
@@ -44,6 +44,22 @@ function destination(event: DragEvent) {
 	}
 	const available = [...targets.values()].sort((a, b) => b.priority() - a.priority());
 	return available.find((t) => t.id === focused && visible(t)) ?? available.find((t) => visible(t) || t.canReveal());
+}
+
+/** Positively known folders among the dropped files (upstream 0.5.0's folder
+ *  attachments): only the item's type is inspected, never its entries. An
+ *  item whose metadata is unavailable stays a file, not a guess. */
+export function droppedDirectories(transfer: DataTransfer | null | undefined, files: File[]): Set<File> {
+	const directories = new Set<File>();
+	const items = Array.from(transfer?.items || []).filter((item) => item.kind === "file");
+	files.forEach((file, index) => {
+		try {
+			if (items[index]?.webkitGetAsEntry?.()?.isDirectory === true) directories.add(file);
+		} catch {
+			/* Unknown type stays unmarked. */
+		}
+	});
+	return directories;
 }
 
 /** A single drop owner prevents browser navigation and duplicate attachment. */
@@ -85,7 +101,8 @@ export function GlobalFileDrop() {
 				return;
 			}
 			target.activate();
-			void target.add(Array.from(event.dataTransfer?.files || [])).then(() => {
+			const dropped = Array.from(event.dataTransfer?.files || []);
+			void target.add(dropped, droppedDirectories(event.dataTransfer, dropped)).then(() => {
 				const element = target.element();
 				const input = element?.matches("textarea,input") ? element : element?.querySelector("textarea,input:not([type=file])");
 				(input as HTMLElement | null)?.focus();

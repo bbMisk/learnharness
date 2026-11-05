@@ -8,17 +8,18 @@
  */
 
 import * as fs from "node:fs";
-import { writeFileAtomic } from "./write-file.ts";
 import * as path from "node:path";
+import { createHash } from "node:crypto";
 import { PATHS } from "../../config.ts";
 import { mergeLearningEvents } from "../core/learning-history.ts";
 import { emit } from "../core/events.ts";
 import type { ChatStore } from "../core/ports.ts";
-import type { ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, PlanTree, TurnUsage } from "../core/contracts.ts";
+import type { ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, ImageSnapshot, PlanTree, TurnUsage } from "../core/contracts.ts";
 import { CURRENT_CHAT_VERSION } from "../core/contracts.ts";
 import type { LhMessage } from "../core/native-messages.ts";
 import { activeProblemOf, danglingQuestionOf } from "../core/native-messages.ts";
 import { phaseAt3Lh } from "../core/phases.ts";
+import { removeLeftoverTemps, writeFileAtomicSync } from "./atomic-write.ts";
 
 function chatFile(id: string): string {
 	if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error(`Invalid chat id: ${id}`);
@@ -63,7 +64,7 @@ function writeChat(record: ChatRecord): void {
 	const json = JSON.stringify(stamped, null, "\t");
 	const previous = recordCache.get(record.id)?.record;
 	forgetRecord(record.id);
-	writeFileAtomic(file, json);
+	writeFileAtomicSync(file, json, { allowInPlaceFallback: true });
 	let stat: fs.Stats;
 	try {
 		stat = fs.statSync(file);
@@ -195,7 +196,7 @@ function summaryOf(id: string): ChatSummary | null {
 	// Archived chats are listed, not kept in memory: they are rarely opened,
 	// and a cold list would otherwise hold every one of them parsed.
 	if (record.archived) forgetRecord(id);
-	const { messages, tree, turns, extractions, learningEvents, ...summary } = record;
+	const { messages, tree, turns, extractions, learningEvents, imageSnapshots: _imageSnapshots, ...summary } = record;
 	// Per-record isolation (Wave B): a record whose messages fail the
 	// projection (e.g. pre-Wave-B UIMessage-format scratch — the
 	// zero-back-compat wipe makes these "corrupt") must not blank the
@@ -211,14 +212,17 @@ function summaryOf(id: string): ChatSummary | null {
 			messageCount: messages.length,
 			// Record-derived status for the session picker: phase from the
 			// transcript's explicit events (probe_done concluded / verdict
-			// accepted — docs/probe-teach-split.md §4), pending question
+			// accepted — docs/archive/probe-teach-split.md §4), pending question
 			// from the native dangling-call scan. Wave D: both folds read
 			// the NATIVE record (core/phases.ts phaseAt3Lh +
 			// native-messages.ts danglingQuestionOf). Liveness (busy) is
 			// NOT record-derived — the API route merges it (ChatListItem).
 			phase: phaseAt3Lh(messages),
 			pendingQuestion: danglingQuestionOf(messages) !== null,
-			// Existing gap kept as-is: pendingProblem (activeProblemOf) is never projected.
+			// Practice: a posed problem with no conclude (the sidebar's
+			// "Problem waiting"); false on teaching sessions, which
+			// have no problem tool.
+			pendingProblem: activeProblemOf(messages) !== null,
 		} as ChatSummary;
 	} catch (err) {
 		console.error(`[chat ${summary.id}] summary projection failed:`, err);
@@ -296,6 +300,20 @@ export function captureChatLearningHistory(id: string): number {
 	return added;
 }
 
+/** A synchronous read/merge/write keeps concurrent worker and turn writes from losing snapshots. */
+function saveImageSnapshot(id: string, snapshotId: string, image: ImageSnapshot): void {
+	if (!/^[a-f0-9]{64}$/.test(snapshotId) || createHash("sha256").update(Buffer.from(image.data, "base64")).digest("hex") !== snapshotId) {
+		throw new Error("Invalid image snapshot identity");
+	}
+	const record = getChat(id);
+	if (!record) throw new Error(`Chat not found: ${id}`);
+	if (record.imageSnapshots?.[snapshotId]) return;
+	record.imageSnapshots = { ...record.imageSnapshots, [snapshotId]: {
+		mimeType: image.mimeType, data: image.data, width: image.width, height: image.height,
+	} };
+	writeChat(record);
+}
+
 /** Append one usage entry to the record's turn log — idempotent per
  * turn id: each REQUEST carries its own id, so a replay of the same turn's
  * persist appends once, while continuation turns (which share a response
@@ -356,6 +374,7 @@ function deleteChat(id: string): boolean {
 	try {
 		forgetRecord(id);
 		fs.unlinkSync(chatFile(id));
+		removeLeftoverTemps(chatFile(id));
 		emit("chats-changed", {}); // only a real removal — the present-entry law
 		return true;
 	} catch {
@@ -378,6 +397,7 @@ export const chatStore: ChatStore = {
 	getChat,
 	listChats,
 	saveMessages,
+	saveImageSnapshot,
 	saveTree,
 	saveSettings,
 	renameChat,
