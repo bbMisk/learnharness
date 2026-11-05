@@ -1,7 +1,6 @@
 "use client";
 
-import type { Phase3 } from "@/src/core";
-import { QUESTION_TOOLS } from "@/src/core/pending";
+import { QUESTION_TOOLS, type Phase3 } from "@/src/core";
 
 /** The go-ahead "Accept plan" sends (the wording of the retired Teach button). */
 export const PLAN_ACCEPT_TEXT = "The plan looks good. Teach it.";
