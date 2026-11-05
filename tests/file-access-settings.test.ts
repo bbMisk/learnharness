@@ -36,6 +36,28 @@ after(async () => {
 });
 const blocked = /File-access configuration.*blocked/;
 
+describe("restricted mode keeps the learner's own uploads readable (merge review P1)", () => {
+	it("an uploaded file reads under restriction; other data-folder files and outside paths stay blocked", async () => {
+		const uploads = path.join(data, "uploads", "u1", "file");
+		await fs.mkdir(uploads, { recursive: true });
+		await fs.writeFile(path.join(uploads, "AA_Ch3.pdf"), "synthetic upload\n");
+		await fs.writeFile(path.join(data, "settings-like.json"), "{}\n");
+		try {
+			await stored({ version: 1, agent: { fileAccess: { restricted: true, folders: ["~/Study"] } } });
+			assert.equal(resolveSourcePath(path.join(uploads, "AA_Ch3.pdf")), path.join(uploads, "AA_Ch3.pdf"));
+			assert.equal(resolveSourcePath("Study/notes.md"), path.join(a, "notes.md"));
+			assert.throws(() => resolveSourcePath(path.join(data, "settings-like.json")), /allowed folders|Access denied/);
+			assert.throws(() => resolveSourcePath(path.join(b, "notes.md")), /allowed folders/);
+			// Unrestricted: the policy lists no folders at all.
+			await stored({ version: 1, agent: { fileAccess: { restricted: false, folders: ["~/Study"] } } });
+			assert.deepEqual(fileAccessPolicy().folders, [a]);
+		} finally {
+			await fs.rm(path.join(data, "uploads"), { recursive: true, force: true });
+			await fs.rm(path.join(data, "settings-like.json"), { force: true });
+		}
+	});
+});
+
 describe("strict persisted file-access policy", () => {
 	it("genuinely absent preferences default OFF, including a not-yet-created data folder", async () => {
 		assert.deepEqual(readFileAccessSettings(), { ok: true, settings: { restricted: false, folders: [] } });
