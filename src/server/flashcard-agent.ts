@@ -5,16 +5,26 @@ import { parseLabeledFlashcardTriage, parseFlashcardTriage, type FlashcardTriage
 import { cardProjectIds, UNASSIGNED_REVIEW_PROJECT, studyDay, type Flashcard, type ReviewQuestion } from "../core/review.ts";
 import { teacherProseBlocks } from "../core/coverage.ts";
 import { resolveRoleSpec } from "../core/settings-resolution.ts";
-import { projectReservations, readFlashcardCuration, updateFlashcardCuration } from "../store/flashcard-curation.ts";
+import { projectReservations, readFlashcardCuration, updateFlashcardCuration, type FlashcardCuration } from "../store/flashcard-curation.ts";
 import { projectStore } from "../store/projects.ts";
 import { readQuestionCache } from "../store/review-questions.ts";
 import { readReviewArchive } from "../store/review.ts";
 import { stores } from "./stores.ts";
 import { reviewCandidates, reviewSnapshot } from "./review.ts";
-import { curatorSubmit, questionFor, refreshQuestion, wordyQuestion } from "./review-questions.ts";
+import { curatorSubmit, questionFor, QUESTION_RULES, refreshQuestion, staleQuestion } from "./review-questions.ts";
 
 /** Cached long-option questions rewritten per curator run. */
 const REFRESH_PER_RUN = 10;
+/** At most this many old-rules questions are rewritten per study day, however
+ *  many runs chain (round-1 hunt finding: each run's activity event schedules
+ *  the next, so a per-run limit alone didn't bound the migration). */
+export const REWRITES_PER_DAY = 40;
+
+type Rewrites = NonNullable<FlashcardCuration["rewrites"]>;
+function rewritesToday(state: FlashcardCuration, day: string): Rewrites {
+	const r = state.rewrites;
+	return r && r.day === day && Number.isInteger(r.done) && Array.isArray(r.failed) ? r : { day, done: 0, failed: [] };
+}
 
 export interface FlashcardAgentRun {
 	id: string;
@@ -215,24 +225,31 @@ export async function runFlashcardCuration(force = false, deps: FlashcardAgentDe
 	const allCandidates = deps.candidates();
 	const candidates = allCandidates.filter((card) => !reviewed.has(card.id));
 	const day = String(studyDay(deps.now()));
+	const saved = readFlashcardCuration();
+	// Old-rules questions still to rewrite today: none once the daily cap is
+	// reached, and never a card that already failed today.
+	const rewritable = (state: FlashcardCuration) => {
+		const r = rewritesToday(state, day);
+		return r.done >= REWRITES_PER_DAY ? [] : allCandidates.filter((card) => staleQuestion(card) && !r.failed.includes(card.revision));
+	};
 	const signature = createHash("sha256")
 		.update(
 			JSON.stringify([
-				3,
+				4,
+				QUESTION_RULES,
 				day,
 				options,
 				deps.signatureSettings(),
 				candidates.map((card) => [card.revision, cardProjectIds(card)]),
-				allCandidates.filter(wordyQuestion).length,
+				rewritable(saved).length,
 			]),
 		)
 		.digest("hex");
-	const saved = readFlashcardCuration();
 	if (!force && saved.lastSignature === signature) return;
 	const budget = projectReservations(saved, day, allCandidates);
 	const canPrepare = (card: Flashcard, counts: Record<string, string[]>, limit: number) =>
 		cardProjectIds(card).every((id) => counts[id]?.includes(card.revision) || (counts[id]?.length ?? 0) < limit);
-	if (!candidates.some((card) => !card.mcq && canPrepare(card, budget, options.dailyLimit)) && !allCandidates.some(wordyQuestion)) return;
+	if (!candidates.some((card) => !card.mcq && canPrepare(card, budget, options.dailyLimit)) && rewritable(saved).length === 0) return;
 	const run: FlashcardAgentRun = {
 		id: "flashcard-curator",
 		startedAt: deps.now(),
@@ -248,6 +265,49 @@ export async function runFlashcardCuration(force = false, deps: FlashcardAgentDe
 		emit("activity-changed", {});
 	};
 	progress("Triaging concepts");
+	let newCardError: unknown;
+	const rewriteOldQuestions = async () => {
+		// Questions written under older rules (paragraph-length options, 2026-11-01;
+		// the answer repeated in every option, 2026-11-05) are rewritten a few per
+		// run, outside the daily new-card budget and within REWRITES_PER_DAY. A
+		// failing card keeps its old question, is skipped (and retried the next
+		// day) instead of blocking the rest, and the run reports it.
+		const before = readFlashcardCuration();
+		const room = Math.max(0, REWRITES_PER_DAY - rewritesToday(before, day).done);
+		const current = new Set(deps.candidates().map((card) => card.revision));
+		const stale = rewritable(before).filter((card) => current.has(card.revision)).slice(0, Math.min(REFRESH_PER_RUN, room));
+		for (const [index, card] of stale.entries()) {
+			signal.throwIfAborted();
+			// Charge the attempt to the CURRENT study day before calling the model
+			// (round-2 hunt findings: failures count toward the cap, and a run that
+			// crosses the day boundary uses the new day's allowance).
+			const today = String(studyDay(deps.now()));
+			let allowed = false;
+			updateFlashcardCuration((next) => {
+				const r = rewritesToday(next, today);
+				if (r.done >= REWRITES_PER_DAY) return;
+				next.rewrites = { ...r, done: r.done + 1 };
+				allowed = true;
+			});
+			if (!allowed) break;
+			progress(`Rewriting questions ${index + 1}/${stale.length}`);
+			try {
+				await deps.refresh(card, options.instructions, signal);
+			} catch (error) {
+				if (signal.aborted) throw error;
+				updateFlashcardCuration((next) => {
+					const r = rewritesToday(next, today);
+					next.rewrites = { ...r, failed: [...r.failed, card.revision] };
+				});
+			}
+		}
+		// Today's failures stay visible across chained runs until they are
+		// retried the next day (round-2 hunt finding: a later run cleared them).
+		updateFlashcardCuration((next) => {
+			const failed = rewritesToday(next, String(studyDay(deps.now()))).failed.length;
+			if (failed) next.lastError = `${failed} flashcard question${failed === 1 ? "" : "s"} could not be rewritten; the old ${failed === 1 ? "one stays" : "ones stay"} in use and will be retried tomorrow.`;
+		});
+	};
 	try {
 		updateFlashcardCuration((next) => {
 			(next.projectDays ??= {})[day] ??= projectReservations(next, day, allCandidates);
@@ -352,20 +412,22 @@ export async function runFlashcardCuration(force = false, deps: FlashcardAgentDe
 			await deps.prepare(card, options.instructions, signal);
 			run.prepared++;
 		}
-		// Questions written before long answers were condensed (owner, 2026-11-01) are
-		// rewritten a few per run, outside the daily new-card budget. A failure keeps the
-		// old question and stops the rewrites until the next run.
-		const wordy = deps.candidates().filter(wordyQuestion).slice(0, REFRESH_PER_RUN);
-		for (const [index, card] of wordy.entries()) {
-			signal.throwIfAborted();
-			progress(`Shortening answers ${index + 1}/${wordy.length}`);
-			try {
-				await deps.refresh(card, options.instructions, signal);
-			} catch (error) {
-				if (signal.aborted) throw error;
-				break;
-			}
-		}
+	} catch (error) {
+		if (signal.aborted) {
+			updateFlashcardCuration((next) => {
+				next.lastError = "Stopped by you.";
+			});
+		} else newCardError = error;
+	}
+	// The rewrites run even when new-card work (triage or preparation) failed,
+	// which is reported afterwards (round-4/5 hunt findings).
+	try {
+		if (!signal.aborted) await rewriteOldQuestions();
+		if (newCardError)
+			updateFlashcardCuration((next) => {
+				const message = newCardError instanceof Error ? newCardError.message : "Flashcard preparation failed.";
+				next.lastError = next.lastError ? `${message} ${next.lastError}` : message;
+			});
 	} catch (error) {
 		updateFlashcardCuration((next) => {
 			next.lastError = signal.aborted ? "Stopped by you." : error instanceof Error ? error.message : "Flashcard preparation failed.";

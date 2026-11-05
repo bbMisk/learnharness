@@ -15,6 +15,10 @@ export interface FlashcardCuration {
 	days: Record<string, string[]>;
 	projectDays?: Record<string, Record<string, string[]>>;
 	lastSignature?: string;
+	/** Rewrites of questions written under older rules, per study day (owner,
+	 *  2026-11-05): a daily cap bounds the migration's cost across chained runs,
+	 *  and a card that fails is skipped until the next day. */
+	rewrites?: { day: string; done: number; failed: string[] };
 	lastRunAt?: number;
 	lastError?: string;
 }

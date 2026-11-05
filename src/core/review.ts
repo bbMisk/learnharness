@@ -14,6 +14,9 @@ export interface ReviewQuestion {
 	options: string[];
 	correctIndex: number;
 	explanation: string;
+	/** The question rules it was written under (server/review-questions.ts
+	 *  QUESTION_RULES); absent on older questions. */
+	rules?: number;
 }
 export interface Flashcard {
 	mcq?: ReviewQuestion;

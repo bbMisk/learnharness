@@ -18,7 +18,7 @@ process.env.LH_DATA_DIR = temp;
 process.env.LH_AUTH_FILE = path.join(temp, "auth.json");
 const { stores } = await import("../src/server/stores.ts");
 const { piModels } = await import("../src/agent/models.ts");
-const { questionFor, questionProblem, SHORT_ANSWER_CHARS } = await import("../src/server/review-questions.ts");
+const { questionFor, questionProblem, sharedOptionWording, visibleLength, SHORT_ANSWER_CHARS, QUESTION_RULES } = await import("../src/server/review-questions.ts");
 const { triageFlashcards } = await import("../src/server/flashcard-agent.ts");
 const { bgLlmSlots } = await import("../src/agent/subagents/bg-llm-semaphore.ts");
 const { chatGPTStatus } = await import("../src/agent/chatgpt-bridge.ts");
@@ -51,12 +51,14 @@ function card(revision: string): Flashcard {
 		active: true,
 	};
 }
-const question = (answer: string) => ({
+const question = (answer: string, explanation = "The instantaneous rate of change. A derivative is a limit of difference quotients; the distractors describe integrals, averages and extrema.") => ({
 	prompt: "What does a derivative measure?",
 	options: [answer, "The area under a curve", "The average of a function", "The maximum of a function"],
 	correctIndex: 0,
-	explanation: "A derivative is a limit of difference quotients; the distractors describe integrals, averages and extrema.",
+	explanation,
 });
+/** As saved and served: marked with the current question rules. */
+const saved = (q: ReturnType<typeof question>) => ({ ...q, rules: QUESTION_RULES });
 
 beforeEach(() => {
 	stores.settingsStore.writeSettings({ version: 1, models: { cheap: { model: { provider: "faux-curator", id: "curator-1" } } } });
@@ -79,7 +81,7 @@ it("prepares a question through the configured model's submit tool inside a back
 		},
 	]);
 	const result = await questionFor(card("valid-question"));
-	assert.deepEqual(result, question(answer));
+	assert.deepEqual(result, saved(question(answer)));
 	assert.deepEqual(readQuestionCache()["valid-question"], result);
 	assert.equal(contexts.length, 1);
 	assert.match(JSON.stringify(contexts[0]!.messages), /multiple-choice question/);
@@ -92,18 +94,31 @@ it("retries a schema-invalid question and accepts the corrected submission", asy
 		submit("submit_question", { ...question(answer), options: [answer, "Only", "Three"] }),
 		submit("submit_question", question(answer)),
 	]);
-	assert.deepEqual(await questionFor(card("invalid-then-valid")), question(answer));
+	assert.deepEqual(await questionFor(card("invalid-then-valid")), saved(question(answer)));
 	assert.equal(contexts.length, 2);
 	assert.match(feedback(1), /options/);
 });
 
-it("retries when the correct option is not the card's answer, and fails cleanly if it never matches", async () => {
-	respond([submit("submit_question", question("A rate of change")), submit("submit_question", question(answer))]);
-	assert.deepEqual(await questionFor(card("mismatch-then-valid")), question(answer));
-	assert.equal(contexts.length, 2);
-	assert.match(feedback(1), /source answer copied exactly/);
+it("puts the card's answer into an explanation that doesn't quote it, and fails cleanly on repeated invalid submissions", async () => {
+	// Round-1 hunt finding: an exact quote is ensured by the code, never a reason to reject.
+	const unquoted = question(answer, "Derivatives measure change; the distractors describe other things.");
+	respond([submit("submit_question", unquoted)]);
+	const result = await questionFor(card("unquoted"));
+	assert.equal(contexts.length, 1, "no retry for a missing quote");
+	assert.equal(result.explanation, `${answer}\n\nDerivatives measure change; the distractors describe other things.`);
+	// Whitespace differences still count as quoted: kept as written.
+	const spaced = question(answer, "The instantaneous   rate\nof change. Derivatives measure change.");
+	respond([submit("submit_question", spaced)]);
+	assert.equal((await questionFor(card("spaced"))).explanation, spaced.explanation);
+	// Round-4 hunt finding: a short answer inside another number isn't a quote.
+	const { withSourceAnswer } = await import("../src/server/review-questions.ts");
+	const one: Flashcard = { ...card("one"), back: "1" };
+	assert.equal(withSourceAnswer(one, "The answer is 10 when n = 3."), "1\n\nThe answer is 10 when n = 3.");
+	assert.equal(withSourceAnswer(one, "1. Because the limit is one."), "1. Because the limit is one.");
+	assert.equal(withSourceAnswer(one, "10 is the answer."), "1\n\n10 is the answer.", "round-5 hunt finding: a longer number isn't the answer");
 
-	respond(Array.from({ length: 4 }, () => submit("submit_question", question("A rate of change"))));
+	const repeated = { ...question(answer), options: ["It is the instantaneous rate of change: A", "It is the instantaneous rate of change: B", "It is the instantaneous rate of change: C", "It is the instantaneous rate of change: D"] };
+	respond(Array.from({ length: 4 }, () => submit("submit_question", repeated)));
 	await assert.rejects(questionFor(card("always-mismatched")), {
 		name: "ReviewError",
 		status: 409,
@@ -196,35 +211,85 @@ const longCard = (revision: string): Flashcard => ({
 	back: longBack,
 });
 const shortQuestion = (explanation = `${longBack} The distractors drop the weighting or the terminal values.`) => ({
-	prompt: "In a finite-state pattern race, a nonterminal state's win probability is…",
-	options: [
-		"The probability-weighted average of the next states' win probabilities",
-		"The largest of the next states' win probabilities",
-		"The unweighted average of the next states' win probabilities",
-		"The smallest of the next states' win probabilities",
-	],
+	prompt: "In a finite-state pattern race, a nonterminal state's win probability is which function of the next states' win probabilities?",
+	options: ["Their probability-weighted average", "Their largest value", "Their unweighted average", "Their smallest value"],
 	correctIndex: 0,
 	explanation,
 });
 
 it("condenses a long source answer: short options, and the explanation quotes the full answer", () => {
 	assert.ok(longBack.length > SHORT_ANSWER_CHARS);
-	assert.equal(questionProblem(longCard("long-ok"), shortQuestion()), null);
+	assert.equal(questionProblem(shortQuestion()), null);
 	const wordy = { ...shortQuestion(), options: [longBack, ...shortQuestion().options.slice(1)] };
-	assert.match(questionProblem(longCard("long-wordy"), wordy)!, /Option 1 has \d+ characters/);
-	assert.match(
-		questionProblem(longCard("long-unquoted"), shortQuestion("Weighted by transition probability."))!,
-		/full source answer copied exactly/,
-	);
-	// A short answer keeps the exact-copy rule.
-	assert.equal(questionProblem(card("short-ok"), question(answer)), null);
-	assert.match(questionProblem(card("short-reworded"), question("A rate of change"))!, /source answer copied exactly/);
+	assert.match(questionProblem(wordy)!, /Option 1 has \d+ characters/);
+	assert.equal(questionProblem(shortQuestion("Weighted by transition probability.")), null, "the code adds the quote");
+	// Owner, 2026-11-05: a short answer no longer has to be the correct option verbatim
+	// (that forced the whole sentence into every option); the explanation quotes it instead.
+	assert.equal(questionProblem(question(answer)), null);
+	assert.equal(questionProblem(question("A rate of change")), null);
+
+});
+
+it("rejects options that repeat a shared lead-in or formula (the owner's LEC 3 card)", () => {
+	const back = "An infinite intersection of open subsets of $\\mathbb{R}$ need not be open: $\\bigcap_{n=1}^\\infty(-1/n,1+1/n)=[0,1]$.";
+	const lec3: Flashcard = { ...card("lec3"), front: "Explain: infinite intersection of open sets", back };
+	const repeated = {
+		prompt: "What does the example of an infinite intersection of open subsets of $\\mathbb{R}$ show?",
+		options: [
+			"An infinite intersection of open subsets of $\\mathbb{R}$ can include 0 but exclude 1: $[0,1)$.",
+			"An infinite intersection of open subsets of $\\mathbb{R}$ need not be open: $[0,1]$.",
+			"An infinite intersection of open subsets of $\\mathbb{R}$ is always open: $(0,1)$.",
+			"An infinite intersection of open subsets of $\\mathbb{R}$ can exclude 0 but include 1: $(0,1]$.",
+		],
+		correctIndex: 1,
+		explanation: `${back} The other sets get an endpoint wrong.`,
+	};
+	assert.match(questionProblem(repeated)!, /All four options repeat "An infinite intersection of open subsets of/);
+	const better = {
+		prompt: "$\\bigcap_{n=1}^\\infty\\left(-\\tfrac1n,\\ 1+\\tfrac1n\\right) = \\;?$",
+		options: ["$[0,1)$", "$[0,1]$", "$(0,1)$", "$(0,1]$"],
+		correctIndex: 1,
+		explanation: `${back} $0$ and $1$ lie in every interval; anything outside $[0,1]$ is excluded by some $n$.`,
+	};
+	assert.equal(questionProblem(better), null);
+	// Shared endings count too; short shared bits (a "$", a unit) don't.
+	assert.ok(sharedOptionWording(["a, so the set is closed and bounded", "b, so the set is closed and bounded", "c, so the set is closed and bounded", "d, so the set is closed and bounded"]));
+	assert.equal(sharedOptionWording(["$[0,1)$", "$[0,1]$", "$(0,1)$", "$(0,1]$"]), null);
+	assert.equal(sharedOptionWording(["5 m/s", "10 m/s", "15 m/s", "20 m/s"]), null);
+	assert.equal(sharedOptionWording(["The intersection is empty", "The intersection is one point", "The intersection is open", "The intersection is closed"]), null, "a short shared lead-in is fine");
+	// Round-1 hunt finding: the same formula in the middle of every option.
+	const formula = " so $\\bigcap_{n=1}^\\infty(-1/n,1+1/n)$ is ";
+	assert.ok(sharedOptionWording([`1${formula}a`, `2${formula}b`, `3${formula}c`, `4${formula}d`]));
+	// Round-3 hunt finding: shared notation that shows as a few symbols is not shared wording.
+	const partials = ["x", "y", "z", "t"].map((v) => `\\(\\frac{\\partial^2 f}{\\partial ${v}^2}\\)`);
+	assert.equal(sharedOptionWording(partials), null);
+	assert.equal(sharedOptionWording(["$\\mathbb{E}[X \\mid \\mathcal{F}_1]$", "$\\mathbb{E}[X \\mid \\mathcal{F}_2]$", "$\\mathbb{E}[X \\mid \\mathcal{F}_3]$", "$\\mathbb{E}[X \\mid \\mathcal{F}_4]$"]), null);
+	assert.equal(visibleLength("\\frac{\\partial^2 f}{\\partial "), 6);
+	// Round-5 hunt finding: a shared formula with no spaces still counts as a shared lead-in.
+	const sum = "$x_1+x_2+x_3+x_4+x_5+x_6+x_7$";
+	assert.ok(sharedOptionWording([`${sum} is 1`, `${sum} is 2`, `${sum} is 3`, `${sum} is 4`]));
+	const nospace = "$x_1+x_2+x_3+x_4+x_5+x_6+x_7+";
+	assert.ok(sharedOptionWording([`${nospace}a$`, `${nospace}b$`, `${nospace}c$`, `${nospace}d$`]), "a shared formula with no spaces");
+});
+
+it("a rewrite must keep the correct option where the old question had it (offline reviews; round 1–2 hunt findings)", async () => {
+	const { refreshQuestion } = await import("../src/server/review-questions.ts");
+	const old: Flashcard = { ...card("rewrite-keeps-index"), mcq: { ...question(answer), correctIndex: 3, options: ["B", "C", "D", answer] } };
+	const atThree = { ...question(answer), options: ["The area under a curve", "The average of a function", "The maximum of a function", answer], correctIndex: 3 };
+	// The model first ignores the position: sent back, not swapped behind its explanation's back.
+	respond([submit("submit_question", question(answer)), submit("submit_question", atThree)]);
+	const rewritten = await refreshQuestion(old);
+	assert.equal(contexts.length, 2);
+	assert.match(feedback(1), /Put the correct option at correctIndex 3/);
+	assert.deepEqual(rewritten, { ...atThree, rules: QUESTION_RULES });
+	assert.match(JSON.stringify(contexts[0]!.messages), /Put the correct option at correctIndex 3/);
 });
 
 it("asks the model to condense long answers and retries until the options are short", async () => {
 	const wordy = { ...shortQuestion(), options: [longBack, ...shortQuestion().options.slice(1)] };
 	respond([submit("submit_question", wordy), submit("submit_question", shortQuestion())]);
-	assert.deepEqual(await questionFor(longCard("long-retry")), shortQuestion());
-	assert.match(JSON.stringify(contexts[0]!.messages), /condensed restatement/);
+	assert.deepEqual(await questionFor(longCard("long-retry")), { ...shortQuestion(), rules: QUESTION_RULES });
+	assert.match(JSON.stringify(contexts[0]!.messages), /states the whole problem/);
+	assert.match(JSON.stringify(contexts[0]!.messages), /only what differs between them/);
 	assert.match(feedback(1), /Keep every option under 120 characters/);
 });

@@ -7,7 +7,7 @@ import type { Flashcard } from "../src/core/review.ts";
 const temp = fs.mkdtempSync(path.join(os.tmpdir(),"lh-flashcard-agent-"));
 process.env.LH_DATA_DIR=temp;
 process.env.LH_AUTH_FILE=path.join(temp,"auth.json");
-const {runFlashcardCuration,abortFlashcardAgent,flashcardAgentActivity}=await import("../src/server/flashcard-agent.ts");
+const {runFlashcardCuration,abortFlashcardAgent,flashcardAgentActivity,REWRITES_PER_DAY}=await import("../src/server/flashcard-agent.ts");
 const {readFlashcardCuration,updateFlashcardCuration}=await import("../src/store/flashcard-curation.ts");
 const {saveReviewQuestion}=await import("../src/store/review-questions.ts");
 const {parseFlashcardTriage}=await import("../src/core/flashcard-curation.ts");
@@ -23,8 +23,8 @@ function harness(count=4,limit=2){
     let clock=at,syncs=0,enabled=true;
     const deps:FlashcardAgentDeps={options:()=>({enabled,dailyLimit:limit,instructions:"Prioritize conceptual errors."}),candidates:()=>records,reviewed:()=>new Set(),signatureSettings:()=>"fixture",now:()=>clock,
         async triage(cards){triaged.push(cards.map(c=>c.revision));return cards.map((c,i)=>({revision:c.revision,keep:true,priority:100-i,reason:"Useful concept"}));},
-        async prepare(c){prepared.push(c.revision);const question={prompt:c.front,options:[c.back,"B","C","D"],correctIndex:0,explanation:"The source supports the first statement."};saveReviewQuestion(c.revision,question);c.mcq=question;return question;},
-        async refresh(c){refreshed.push(c.revision);const question={prompt:c.front,options:["Short A","B","C","D"],correctIndex:0,explanation:c.back};saveReviewQuestion(c.revision,question);c.mcq=question;return question;},
+        async prepare(c){prepared.push(c.revision);const question={prompt:c.front,options:[c.back,"B","C","D"],correctIndex:0,explanation:"The source supports the first statement.",rules:2};saveReviewQuestion(c.revision,question);c.mcq=question;return question;},
+        async refresh(c){refreshed.push(c.revision);const question={prompt:c.front,options:["Short A","B","C","D"],correctIndex:0,explanation:c.back,rules:2};saveReviewQuestion(c.revision,question);c.mcq=question;return question;},
         async sync(){syncs++;},
     };
     return {deps,records,prepared,triaged,refreshed,setClock:(value:number)=>{clock=value;},disable:()=>{enabled=false;},syncs:()=>syncs};
@@ -137,7 +137,7 @@ it("a failed save never leaves the curator marked running",async()=>{
     finally{fs.chmodSync(temp,0o700);}
     assert.deepEqual(flashcardAgentActivity(),[],"no run is left behind");
 });
-it("rewrites long-option questions a few per run, outside the daily budget, keeping the old one on failure",async()=>{
+it("rewrites questions written under older rules a few per run, outside the daily budget, keeping the old one on failure",async()=>{
     const long="L".repeat(200);
     const h=harness(12,1);
     for(const c of h.records){c.back=long+c.revision;c.mcq={prompt:c.front,options:[c.back,"B".repeat(150),"C","D"],correctIndex:0,explanation:"Old"};}
@@ -146,10 +146,63 @@ it("rewrites long-option questions a few per run, outside the daily budget, keep
     assert.equal(readFlashcardCuration().lastError,undefined);
     await runFlashcardCuration(false,h.deps);
     assert.equal(h.refreshed.length,12,"the next run picks up the rest");
-    const f=harness(2,1);let calls=0;
+    // Round-1 hunt finding: a failing card is skipped and reported, not a block on the rest;
+    // it waits for the next study day.
+    const f=harness(3,1);const tried:string[]=[];
     for(const c of f.records){c.back=long+c.revision;c.mcq={prompt:c.front,options:[c.back,"B","C","D"],correctIndex:0,explanation:"Old"};}
-    f.deps.refresh=async()=>{calls++;throw new Error("model unavailable");};
+    const realRefresh=f.deps.refresh;
+    f.deps.refresh=async(c,i,s)=>{tried.push(c.revision);if(c===f.records[0])throw new Error("model unavailable");return realRefresh(c,i,s);};
     await runFlashcardCuration(false,f.deps);
-    assert.equal(calls,1,"stops at the first failure");assert.equal(f.records[0]!.mcq!.explanation,"Old");
-    assert.equal(readFlashcardCuration().lastError,undefined);
+    assert.deepEqual(tried,f.records.map(c=>c.revision),"the others are still rewritten");
+    assert.equal(f.records[0]!.mcq!.explanation,"Old","the failed card keeps its old question");
+    assert.match(readFlashcardCuration().lastError??"",/1 flashcard question could not be rewritten/);
+    await runFlashcardCuration(true,f.deps);
+    assert.equal(tried.length,3,"not retried the same day");
+    assert.match(readFlashcardCuration().lastError??"",/1 flashcard question could not be rewritten/,"still reported after a later run (round-2 hunt finding)");
+    f.setClock(at+86400000);await runFlashcardCuration(false,f.deps);
+    assert.equal(tried.length,4,"retried the next day");
+    // Owner, 2026-11-05: any question without the current rules mark is rewritten (the
+    // answer repeated in every option), not only paragraph-length ones; current ones stay.
+    const r=harness(3,1);
+    r.records[0]!.mcq={prompt:"What does the example show?",options:["An intersection of open sets need not be open: [0,1]","An intersection of open sets is always open: (0,1)","C","D"],correctIndex:0,explanation:"Old"};
+    r.records[1]!.mcq={prompt:"q",options:["[0,1]","(0,1)","[0,1)","(0,1]"],correctIndex:0,explanation:"New",rules:2};
+    r.records[2]!.mcq={prompt:"q",options:["[0,1]","(0,1)","[0,1)","(0,1]"],correctIndex:0,explanation:"New",rules:2};
+    await runFlashcardCuration(false,r.deps);
+    assert.deepEqual(r.refreshed,[r.records[0]!.revision]);
+});
+
+it("caps old-rules rewrites per study day across chained runs (round-1 hunt finding)",async()=>{
+    const h=harness(60,1);
+    for(const c of h.records)c.mcq={prompt:c.front,options:["A","B","C","D"],correctIndex:0,explanation:"Old"};
+    for(let run=0;run<10;run++)await runFlashcardCuration(false,h.deps);
+    assert.equal(h.refreshed.length,REWRITES_PER_DAY,"at most the daily cap, however many runs");
+    h.setClock(at+86400000);
+    for(let run=0;run<10;run++)await runFlashcardCuration(false,h.deps);
+    assert.equal(h.refreshed.length,60,"the rest the next day");
+});
+
+it("a new card that fails to prepare doesn't block rewrites (round-4 hunt finding)",async()=>{
+    const h=harness(4,4);
+    for(const c of h.records.slice(0,2))c.mcq={prompt:c.front,options:["A","B","C","D"],correctIndex:0,explanation:"Old"};
+    h.deps.prepare=async()=>{throw new Error("question generation failed");};
+    await runFlashcardCuration(false,h.deps);
+    assert.equal(h.refreshed.length,2,"stale questions still rewritten");
+    assert.match(readFlashcardCuration().lastError??"",/question generation failed/,"the preparation failure is still reported");
+});
+
+it("a failing triage doesn't block rewrites (round-5 hunt finding)",async()=>{
+    const h=harness(4,4);
+    for(const c of h.records.slice(0,2))c.mcq={prompt:c.front,options:["A","B","C","D"],correctIndex:0,explanation:"Old"};
+    h.deps.triage=async()=>{throw new Error("triage failed");};
+    await runFlashcardCuration(false,h.deps);
+    assert.equal(h.refreshed.length,2,"stale questions still rewritten");
+    assert.match(readFlashcardCuration().lastError??"",/triage failed/);
+});
+
+it("failed rewrites count toward the daily cap (round-2 hunt finding)",async()=>{
+    const h=harness(60,1);let attempts=0;
+    for(const c of h.records)c.mcq={prompt:c.front,options:["A","B","C","D"],correctIndex:0,explanation:"Old"};
+    h.deps.refresh=async()=>{attempts++;throw new Error("provider outage");};
+    for(let run=0;run<10;run++)await runFlashcardCuration(false,h.deps);
+    assert.equal(attempts,REWRITES_PER_DAY,"an outage can't burn through the whole backlog in a day");
 });
