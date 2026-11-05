@@ -55,6 +55,10 @@ it("round-2 hunt findings: dock answers, failed calls, rewrites after Accept", (
 	assert.equal(awaitingPlanReply([plan("p1"), planResult("p1"), accept, plan("p2"), planResult("p2")]), false, "a rewrite after Accept doesn't ask again");
 	assert.equal(awaitingPlanReply([plan("p1"), planResult("p1"), typed, plan("p2"), planResult("p2")]), true, "a revision after a change request does");
 	assert.equal(awaitingPlanReply([plan("p1"), planResult("p1"), typed, plan("p2"), planResult("p2", true)]), false, "a failed revision presents nothing");
+	// Round-3 hunt findings.
+	assert.equal(awaitingPlanReply([plan("p1"), planResult("p1"), accept, typed, plan("p2"), planResult("p2")]), true, "a change request after Accept gets its revision offered");
+	const failedAsk = { role: "toolResult", toolName: "ask_user_question", toolCallId: "q", isError: true };
+	assert.equal(awaitingPlanReply([plan("p1"), planResult("p1"), ask, failedAsk]), true, "a failed question is not a reply");
 });
 
 it("Accept sends the go-ahead; Change hands over the composer", async () => {

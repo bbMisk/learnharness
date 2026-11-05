@@ -39,10 +39,11 @@ function learnerText(content: unknown): string {
  *  2026-11-05). Phase stays "plan" until the first tagged check, so the phase
  *  alone can't tell (hunt findings, rounds 1–2):
  *  - a successful plan_init call presents a plan (a failed one doesn't);
- *  - a learner message, or an answer to a question asked after the plan,
- *    is a reply;
- *  - once the learner has clicked Accept, later plan_init calls (a rewrite
- *    while teaching gets going) don't ask again. */
+ *  - a learner message, or a (successful) answer to a question asked after
+ *    the plan, is a reply;
+ *  - right after the learner clicks Accept, later plan_init calls (a rewrite
+ *    while teaching gets going) don't ask again; a typed message after that
+ *    may be a change request, so the next plan asks again. */
 export function awaitingPlanReply(messages: readonly ScanMessage[]): boolean {
 	const failed = new Set<string>();
 	for (const m of messages) {
@@ -58,8 +59,10 @@ export function awaitingPlanReply(messages: readonly ScanMessage[]): boolean {
 			if (presents && !accepted) awaiting = true;
 		} else if (m.role === "user") {
 			awaiting = false;
-			if (learnerText(m.content).trim() === PLAN_ACCEPT_TEXT) accepted = true;
-		} else if (m.role === "toolResult" && (QUESTION_TOOLS as readonly string[]).includes(m.toolName ?? "")) {
+			// The Accept button's text accepts; anything else typed may be a
+			// change request, whose revised plan asks again (round-3 hunt finding).
+			accepted = learnerText(m.content).trim() === PLAN_ACCEPT_TEXT;
+		} else if (m.role === "toolResult" && !m.isError && (QUESTION_TOOLS as readonly string[]).includes(m.toolName ?? "")) {
 			awaiting = false;
 		}
 	}

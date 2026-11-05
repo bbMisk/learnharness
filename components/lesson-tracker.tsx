@@ -132,6 +132,27 @@ function Row({ symbol, status, text, className, symbolClassName = "", textClassN
 	);
 }
 
+/** One archived mistake: a single struck-through line; a tap, click or
+ *  Enter/Space unfolds the full text (round-3 hunt finding: hover alone left
+ *  touch and keyboard users with a cut-off line). */
+function ResolvedMistake({ text }: { text: string }) {
+	const [open, setOpen] = useState(false);
+	return (
+		<li data-status="resolved" className="text-[10.5px] leading-snug text-muted-foreground/60">
+			<button
+				type="button"
+				aria-expanded={open}
+				title={text}
+				onClick={() => setOpen((o) => !o)}
+				className="flex w-full cursor-pointer gap-2 rounded-sm text-left hover:text-muted-foreground focus-visible:outline-1 focus-visible:outline-ring"
+			>
+				<span aria-hidden data-testid="lesson-tracker-symbol" className="w-3 shrink-0 text-center text-green-500/60">✓</span>
+				<span className={`min-w-0 line-through decoration-muted-foreground/60 ${open ? "break-words" : "truncate"}`}>{text}</span>
+			</button>
+		</li>
+	);
+}
+
 /** Mistakes (owner, 2026-11-05): open ones first, full text with room to
  *  read; a resolved one is archived below them — one dimmed, smaller,
  *  struck-through line, the full text on hover. */
@@ -150,10 +171,7 @@ function MistakeList({ mistakes }: { mistakes: LessonTracking["mistakes"] }) {
 			{resolved.length > 0 && (
 				<ul data-testid="lesson-tracker-resolved-mistakes" className={`flex flex-col gap-1 ${open.length > 0 ? "mt-2.5 border-t border-border/60 pt-2" : ""}`}>
 					{resolved.map((m) => (
-						<li key={m.id} data-status="resolved" title={m.text} className="flex gap-2 text-[10.5px] leading-snug text-muted-foreground/60">
-							<span aria-hidden data-testid="lesson-tracker-symbol" className="w-3 shrink-0 text-center text-green-500/60">✓</span>
-							<span className="min-w-0 truncate line-through decoration-muted-foreground/60">{m.text}</span>
-						</li>
+						<ResolvedMistake key={m.id} text={m.text} />
 					))}
 				</ul>
 			)}

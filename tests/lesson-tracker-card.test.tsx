@@ -129,7 +129,16 @@ it("renders both sections with symbols and counts", async () => {
 	assert.match(resolvedText, /\btruncate\b/, "one line");
 	assert.match(resolved.getAttribute("class")!, /text-\[10\.5px\]/, "smaller");
 	assert.match(resolved.getAttribute("class")!, /text-muted-foreground\/60/, "dimmed");
-	assert.equal(resolved.getAttribute("title"), "Variance taken as the standard deviation", "full text on hover");
+	const unfold = resolved.querySelector("button")!;
+	assert.equal(unfold.getAttribute("title"), "Variance taken as the standard deviation", "full text on hover");
+	// Touch and keyboard: the row is a button that unfolds the full text (round-3 hunt finding).
+	assert.equal(unfold.getAttribute("aria-expanded"), "false");
+	await act(async () => unfold.click());
+	assert.equal(unfold.getAttribute("aria-expanded"), "true");
+	assert.doesNotMatch(resolved.querySelectorAll("span")[1]!.getAttribute("class")!, /\btruncate\b/, "unfolded");
+	assert.match(resolved.querySelectorAll("span")[1]!.getAttribute("class")!, /\bline-through\b/, "still crossed out");
+	await act(async () => unfold.click());
+	assert.match(resolved.querySelectorAll("span")[1]!.getAttribute("class")!, /\btruncate\b/, "folds again");
 	for (const open of host.querySelectorAll('[data-testid="lesson-tracker-mistakes"] li[data-status="open"]')) {
 		assert.doesNotMatch(open.getAttribute("class")!, /line-through|truncate/);
 	}
