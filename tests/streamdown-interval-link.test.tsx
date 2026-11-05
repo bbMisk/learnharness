@@ -71,6 +71,7 @@ it("a price or a code span before a streaming link doesn't hide it (round-2 hunt
 	for (const text of [
 		"Price $5. See [source](https://example.com/part\n```\necho $HOME\n```",
 		"Price $5. See [source](https://example.com/part `echo $HOME`",
+		"Price $5. See [source](https://example.com/part\n~~~\necho $HOME\n~~~",
 	]) {
 		assert.match(remend(text, streamdownRemend), /\[source\]\(streamdown:incomplete-link\)/, text);
 		assert.doesNotMatch(renderToStaticMarkup(<MessageResponse>{text}</MessageResponse>), /href="https:\/\/example\.com\/part"/, text);
