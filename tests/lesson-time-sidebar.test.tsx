@@ -91,3 +91,16 @@ it("with the switch off, record-changed costs no list fetch", async () => {
 	await settle();
 	assert.equal(served.lists, before);
 });
+
+it("switching back on refetches figures that went stale while off", async () => {
+	// Still off from the step above, and the rows still carry the figure from
+	// before: a question dismissed elsewhere now changes the record unheard.
+	chatStore.saveMessages(timed.id, [...timed.lesson, ...steps(11, 2, 160 * MIN), ...steps(13, 2, 180 * MIN)]);
+	await act(async () => emit("record-changed", { chatId: timed.id }));
+	await settle();
+	const before = served.lists;
+	await setGeneral({ showLessonTime: true }, false);
+	await settle();
+	assert.equal(served.lists, before + 1, "one list fetch for the switch");
+	assert.deepEqual(figures(), ["Time spent: 2h 10m"]);
+});

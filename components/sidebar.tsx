@@ -506,16 +506,22 @@ function SessionsSidebar() {
 	// now would leave them stale once the read says on. Off stays quiet.
 	const refreshList = useChatListRefresh({ chats, setChats, setProjects, recordChanges: general === undefined || showTime });
 	const refresh = useCallback(() => refreshList(), [refreshList]);
-	// Time spent is on but the list shown was fetched while it was off (it was
-	// just switched on, here or in another window, or switched on between this
-	// page's first list and its first settings read): fetch the list again.
-	// While on, the route sends timeSpentMs on every row, so a non-empty list
-	// without it was fetched with the switch off. One refetch per settings
-	// read: if the server still says off, the next settings read settles it.
+	// Fetch the list again when time spent turns on, here or in another
+	// window: record changes were ignored while it was off, so figures the
+	// rows still carry from before may be stale. Also when it is on but the
+	// list shown was fetched while it was off (switched on between this page's
+	// first list and its first settings read): while on, the route sends
+	// timeSpentMs on every row, so a non-empty list without it was fetched
+	// with the switch off. One refetch per settings read: if the server still
+	// says off, the next settings read settles it.
 	const timeAskedRef = useRef<GeneralSettings | null>(null);
+	const timeWasOnRef = useRef<boolean | null>(null);
 	useEffect(() => {
-		if (!general || !showTime || !chats || chats.length === 0) return;
-		if (chats.some((c) => c.timeSpentMs !== undefined) || timeAskedRef.current === general) return;
+		if (!general) return;
+		const wasOn = timeWasOnRef.current;
+		timeWasOnRef.current = showTime;
+		if (!showTime || !chats || chats.length === 0 || timeAskedRef.current === general) return;
+		if (wasOn !== false && chats.some((c) => c.timeSpentMs !== undefined)) return;
 		timeAskedRef.current = general;
 		void refresh();
 	}, [general, showTime, chats, refresh]);
