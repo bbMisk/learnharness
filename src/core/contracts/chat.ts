@@ -316,6 +316,10 @@ export interface ChatSummary {
 	/** Practice sessions (2026-10-04): a posed problem with no conclude —
 	 *  the sidebar meta's "Problem waiting". False on teaching sessions. */
 	pendingProblem: boolean;
+	/** Active lesson time in ms, measured from the record (core/lesson-time.ts;
+	 *  owner, 2026-11-05), on every list row; Settings → General only decides
+	 *  whether the sidebar shows it. */
+	timeSpentMs?: number;
 	/** The record's model-control settings — rides the list payload via the
 	 *  summary spread (the picker never needs it from here; the full record
 	 *  is its source). */

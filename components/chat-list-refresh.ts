@@ -39,7 +39,8 @@ export type ListEvent =
 	| { type: "turn-started"; chatId: string }
 	| { type: "turn-settled"; chatId: string }
 	| { type: "compaction-changed" }
-	| { type: "chats-changed" };
+	| { type: "chats-changed" }
+	| { type: "record-changed"; chatId: string };
 
 export interface ChatListRefreshDeps {
 	fetchList(): Promise<ChatListItem[]>;
@@ -175,6 +176,7 @@ export function createChatListRefresher(deps: ChatListRefreshDeps) {
 					settled.add(event.chatId);
 					break;
 				case "compaction-changed":
+				case "record-changed":
 					force = true;
 					break;
 				case "chats-changed":
@@ -255,6 +257,9 @@ export function useChatListRefresh({
 	useServerEvent("turn-started", ({ chatId }) => refresher.event({ type: "turn-started", chatId }));
 	useServerEvent("turn-settled", ({ chatId }) => refresher.event({ type: "turn-settled", chatId }));
 	useServerEvent("compaction-changed", () => refresher.event({ type: "compaction-changed" }));
+	// The silent writes (a dismissal, a parallel answer's write-ahead, a
+	// compaction) change a row's time spent (owner, 2026-11-05).
+	useServerEvent("record-changed", ({ chatId }) => refresher.event({ type: "record-changed", chatId }));
 	useServerResync(() => void refresher.resync());
 
 	/* INSTANT TURN-STATE (owner, sidebar round 2026-10-02): the open
