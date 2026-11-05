@@ -157,6 +157,10 @@ export function parseGeneralSettingsBody(body: unknown): SettingsBodyResult<Gene
 		if (typeof raw.sharedHandoffPrefix !== "boolean") return { ok: false, error: "sharedHandoffPrefix must be a boolean" };
 		settings.sharedHandoffPrefix = raw.sharedHandoffPrefix;
 	}
+	if (raw.showLessonTime !== undefined) {
+		if (typeof raw.showLessonTime !== "boolean") return { ok: false, error: "showLessonTime must be a boolean" };
+		settings.showLessonTime = raw.showLessonTime;
+	}
 	if (raw.revealQuestions !== undefined) {
 		if (!(REVEAL_QUESTIONS as readonly unknown[]).includes(raw.revealQuestions))
 			return { ok: false, error: `revealQuestions must be one of ${REVEAL_QUESTIONS.join(", ")}` };

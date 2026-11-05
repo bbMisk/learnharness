@@ -463,6 +463,18 @@ export function SettingsDialogBody({
 										/>
 									</SettingsRow>
 									<SettingsRow
+										label="Show time spent on lessons"
+										hint="The sidebar shows about how long you've worked on each lesson."
+										testid="row-show-lesson-time"
+									>
+										<Toggle
+											checked={record.general?.showLessonTime ?? false}
+											label="show time spent on lessons"
+											disabled={savingGeneral}
+											onChange={(on) => void writeGeneral({ showLessonTime: on })}
+										/>
+									</SettingsRow>
+									<SettingsRow
 										label="Cards from imported knowledge"
 										hint="Also make flashcards from imported material, not just chat history. Review history is kept."
 										testid="row-flashcard-sources"

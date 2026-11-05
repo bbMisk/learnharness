@@ -374,6 +374,8 @@ export interface GeneralSettings {
 	 *  probe stays cached (agent/shared-handoff.ts). Models that cannot take that update
 	 *  keep today's teacher request. */
 	sharedHandoffPrefix?: boolean;
+	/** Show each lesson's time spent in the sidebar (default OFF; owner, 2026-11-05). */
+	showLessonTime?: boolean;
 }
 
 /** One app-wide dictation preference, shared by every composer. */
@@ -556,7 +558,7 @@ export interface FactorySettings {
 
 export const FACTORY_SETTINGS: FactorySettings = {
 	version: CURRENT_SETTINGS_VERSION,
-	general: { autoUpdate: true, showReadingThinking: false, keepThinkingFocus: true, flashcardSources: "chats", hiddenModes: [], revealQuestions: "cram", cramShortProbe: true, sharedHandoffPrefix: false },
+	general: { autoUpdate: true, showReadingThinking: false, keepThinkingFocus: true, flashcardSources: "chats", hiddenModes: [], revealQuestions: "cram", cramShortProbe: true, sharedHandoffPrefix: false, showLessonTime: false },
 	dictation: { language: "en" },
 	appearance: {
 		mode: "dark",
@@ -622,6 +624,8 @@ function sanitizeGeneral(raw: Record<string, unknown>): GeneralSettings {
 	if (cramShortProbe !== undefined) out.cramShortProbe = cramShortProbe;
 	const sharedHandoffPrefix = boolOrDrop(raw.sharedHandoffPrefix);
 	if (sharedHandoffPrefix !== undefined) out.sharedHandoffPrefix = sharedHandoffPrefix;
+	const showLessonTime = boolOrDrop(raw.showLessonTime);
+	if (showLessonTime !== undefined) out.showLessonTime = showLessonTime;
 	return out;
 }
 

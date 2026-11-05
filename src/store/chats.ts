@@ -19,6 +19,7 @@ import { CURRENT_CHAT_VERSION } from "../core/contracts.ts";
 import type { LhMessage } from "../core/native-messages.ts";
 import { activeProblemOf, danglingQuestionOf } from "../core/native-messages.ts";
 import { phaseAt3Lh } from "../core/phases.ts";
+import { lessonTimeMs } from "../core/lesson-time.ts";
 
 function chatFile(id: string): string {
 	if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error(`Invalid chat id: ${id}`);
@@ -219,6 +220,9 @@ function summaryOf(id: string): ChatSummary | null {
 			phase: phaseAt3Lh(messages),
 			pendingQuestion: danglingQuestionOf(messages) !== null,
 			// Existing gap kept as-is: pendingProblem (activeProblemOf) is never projected.
+			// Time spent (owner, 2026-11-05): one pass over the record already in
+			// hand, cached with the summary until the file changes.
+			timeSpentMs: lessonTimeMs(messages),
 		} as ChatSummary;
 	} catch (err) {
 		console.error(`[chat ${summary.id}] summary projection failed:`, err);

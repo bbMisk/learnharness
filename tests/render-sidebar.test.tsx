@@ -14,7 +14,7 @@ import React from "react";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { SessionRow, timeAgo } from "../components/sidebar.tsx";
+import { RenameRow, SessionRow, timeAgo } from "../components/sidebar.tsx";
 import type { ChatListItem } from "../src/core/index.ts";
 
 function item(overrides: Partial<ChatListItem>): ChatListItem {
@@ -164,5 +164,44 @@ describe("SessionRow practice badge (practice sessions, 2026-10-04)", () => {
 	it("a practice row with a posed problem says the problem is waiting", () => {
 		const html = render(item({ kind: "practice", pendingProblem: true }));
 		assert.match(html, /Problem waiting ·/);
+	});
+});
+
+describe("SessionRow time spent (owner, 2026-11-05)", () => {
+	const timed = item({ timeSpentMs: 80 * 60_000, pendingQuestion: true });
+	const withTime = (chat: ChatListItem, showTime: boolean) =>
+		renderToStaticMarkup(<SessionRow chat={chat} active={false} onOpen={() => {}} onArchive={async () => {}} showTime={showTime} />);
+
+	it("off (the default): the row is exactly as before, whatever the payload carries", () => {
+		const html = render(timed);
+		assert.doesNotMatch(html, /session-time/);
+		assert.doesNotMatch(html, /1h 20m/);
+		assert.equal(html, render(item({ pendingQuestion: true })), "no trace of the figure");
+		assert.doesNotMatch(withTime(timed, false), /1h 20m/);
+	});
+
+	it("on: a muted figure at the meta line's end, the title line untouched", () => {
+		const html = withTime(timed, true);
+		assert.match(html, /data-testid="session-time"[^>]*>(<span class="sr-only">Time spent: <\/span>)1h 20m</);
+		assert.match(html, /Waiting for input ·/, "the meta stays");
+		assert.match(html, /class="block truncate font-prose[^"]*">Test session<\/span>/, "the title line carries no figure");
+		assert.match(html, /flex items-baseline gap-2 text-xs text-muted-foreground -mr-7/, "the meta line takes the archive gutter");
+	});
+
+	it("on, a practice row keeps the dumbbell's corner", () => {
+		const html = withTime({ ...timed, kind: "practice" }, true);
+		assert.match(html, /1h 20m/);
+		assert.doesNotMatch(html, /-mr-7/);
+	});
+
+	it("on, nothing for a lesson with no measurable time; <10m for a few minutes", () => {
+		for (const timeSpentMs of [undefined, 0]) assert.doesNotMatch(withTime(item({ timeSpentMs }), true), /session-time/);
+		assert.match(withTime(item({ timeSpentMs: 3 * 60_000 }), true), /&lt;10m/);
+	});
+
+	it("the rename row keeps the figure where it was", () => {
+		const html = renderToStaticMarkup(<RenameRow chat={timed} onCommit={() => {}} onCancel={() => {}} showTime />);
+		assert.match(html, /1h 20m/);
+		assert.doesNotMatch(renderToStaticMarkup(<RenameRow chat={timed} onCommit={() => {}} onCancel={() => {}} />), /1h 20m/);
 	});
 });
