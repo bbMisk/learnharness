@@ -59,11 +59,13 @@ export function hideMathBrackets(text: string): string {
 	let i = 0;
 	while (i < text.length) {
 		const ch = text[i]!;
-		if (ch === "`") {
+		if (ch === "`" && !escaped(text, i)) {
 			let run = 1;
 			while (text[i + run] === "`") run++;
 			const close = text.indexOf("`".repeat(run), i + run);
-			const end = close === -1 ? text.length : close + run;
+			// An unmatched run is literal backticks in Markdown, not a code span
+			// (round-5 hunt finding: an escaped or lone backtick hid later math).
+			const end = close === -1 ? i + run : close + run;
 			out += text.slice(i, end);
 			i = end;
 			continue;

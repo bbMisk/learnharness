@@ -61,6 +61,7 @@ it("round-2 hunt findings: dock answers, failed calls, rewrites after Accept", (
 	assert.equal(awaitingPlanReply([plan("p1"), planResult("p1"), ask, failedAsk]), true, "a failed question is not a reply");
 	const dismissed = { role: "toolResult", toolName: "ask_user_question", toolCallId: "q", isError: false, details: { kind: "ask", dismissed: true } };
 	assert.equal(awaitingPlanReply([plan("p1"), planResult("p1"), ask, dismissed]), true, "a dismissed question is not a reply (round-4 hunt finding)");
+	assert.equal(awaitingPlanReply([plan("p1"), planResult("p1"), accept, ask, answer, plan("p2"), planResult("p2")]), true, "a dock answer after Accept can ask for changes (round-5 hunt finding)");
 });
 
 it("Accept sends the go-ahead; Change hands over the composer", async () => {

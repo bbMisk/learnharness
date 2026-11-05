@@ -59,6 +59,14 @@ it("a price or a code span before a streaming link doesn't hide it (round-2 hunt
 	// Still streaming math keeps its interval: no link shape after the `[`.
 	assert.equal(remend("so $[n,\\infty", streamdownRemend), "so $[n,\\infty");
 	assert.equal(remendLinks.hideMathBrackets("`$x` [a]"), "`$x` [a]", "code spans open no math");
+	// Round-5 hunt finding: an escaped or unmatched backtick is not a code span.
+	for (const text of ["Type \\` for a backtick. The interval is $[0,1)$.", "a lone ` then $[0,1)$ here"]) {
+		assert.doesNotMatch(remend(text, streamdownRemend), /incomplete-link/, text);
+	}
+	// An escaped backtick before a real code span, and an unmatched double run, leave the interval alone.
+	for (const text of ["Type \\` then $[0,1)$ and `x` here.", "a `` b $[0,1)$ and `c` d"]) {
+		assert.equal(remend(text, streamdownRemend), text, text);
+	}
 	// Round-4 hunt finding: a price before an unfinished image keeps the library's image handling.
 	const image = "Price $5 ![diagram";
 	assert.equal(remend(image, streamdownRemend), remend(image, { htmlTags: false }));

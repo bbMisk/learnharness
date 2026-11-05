@@ -68,6 +68,8 @@ export function awaitingPlanReply(messages: readonly ScanMessage[]): boolean {
 			(m.details as { dismissed?: unknown } | undefined)?.dismissed !== true
 		) {
 			awaiting = false;
+			// An answer may be a change request too: a revised plan after it asks again (round-5 hunt finding).
+			accepted = false;
 		}
 	}
 	return awaiting;
