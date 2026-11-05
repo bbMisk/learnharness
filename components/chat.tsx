@@ -54,6 +54,7 @@ import { TopBar } from "@/components/top-bar";
 import type { JobRecord, Phase3, QuestionAnswerData, QuestionCall, QuestionFormDraft, TurnUsage, SessionPricing } from "@/src/core";
 import { PhaseChip } from "@/components/phase-divider";
 import { CramToggle, useLessonCram } from "@/components/cram-toggle";
+import { PLAN_ACCEPT_TEXT, PlanAcceptBar, offersPlanAccept } from "@/components/plan-accept";
 import { recordSyncVerdict } from "@/components/record-sync";
 import { QuestionTypeChip, showsQuestionTypeChip, useLessonQuestionType } from "@/components/question-type-chip";
 import { LessonTrackerCard, LessonTrackerChip, lessonTrackerRoom, useLessonTrackerShown } from "@/components/lesson-tracker";
@@ -1484,7 +1485,12 @@ export function Chat({
 					dictationCancel={dictation.cancel}
 					queuedSteers={visibleQueuedSteers(steerQueue, nativeMessages)}
 					setupCta={
-						zeroKeys ? (
+						offersPlanAccept({ kind, phase: phases.at(-1), hasPlan: !!planTree && planTree.nodes.length > 0, sendAllowed, busy, retryable }) && !zeroKeys && configured ? (
+							<PlanAcceptBar
+								onAccept={() => void send({ type: "text", text: PLAN_ACCEPT_TEXT })}
+								onChange={() => composerInputRef.current?.focus()}
+							/>
+						) : zeroKeys ? (
 							<ZeroKeysPill onOpen={() => setSetupOpen(true)} />
 						) : (
 							!configured && (
