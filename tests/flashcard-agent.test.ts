@@ -23,8 +23,8 @@ function harness(count=4,limit=2){
     let clock=at,syncs=0,enabled=true;
     const deps:FlashcardAgentDeps={options:()=>({enabled,dailyLimit:limit,instructions:"Prioritize conceptual errors."}),candidates:()=>records,reviewed:()=>new Set(),signatureSettings:()=>"fixture",now:()=>clock,
         async triage(cards){triaged.push(cards.map(c=>c.revision));return cards.map((c,i)=>({revision:c.revision,keep:true,priority:100-i,reason:"Useful concept"}));},
-        async prepare(c){prepared.push(c.revision);const question={prompt:c.front,options:[c.back,"B","C","D"],correctIndex:0,explanation:"The source supports the first statement."};saveReviewQuestion(c.revision,question);c.mcq=question;return question;},
-        async refresh(c){refreshed.push(c.revision);const question={prompt:c.front,options:["Short A","B","C","D"],correctIndex:0,explanation:c.back};saveReviewQuestion(c.revision,question);c.mcq=question;return question;},
+        async prepare(c){prepared.push(c.revision);const question={prompt:c.front,options:[c.back,"B","C","D"],correctIndex:0,explanation:"The source supports the first statement.",rules:2};saveReviewQuestion(c.revision,question);c.mcq=question;return question;},
+        async refresh(c){refreshed.push(c.revision);const question={prompt:c.front,options:["Short A","B","C","D"],correctIndex:0,explanation:c.back,rules:2};saveReviewQuestion(c.revision,question);c.mcq=question;return question;},
         async sync(){syncs++;},
     };
     return {deps,records,prepared,triaged,refreshed,setClock:(value:number)=>{clock=value;},disable:()=>{enabled=false;},syncs:()=>syncs};
@@ -137,7 +137,7 @@ it("a failed save never leaves the curator marked running",async()=>{
     finally{fs.chmodSync(temp,0o700);}
     assert.deepEqual(flashcardAgentActivity(),[],"no run is left behind");
 });
-it("rewrites long-option questions a few per run, outside the daily budget, keeping the old one on failure",async()=>{
+it("rewrites questions written under older rules a few per run, outside the daily budget, keeping the old one on failure",async()=>{
     const long="L".repeat(200);
     const h=harness(12,1);
     for(const c of h.records){c.back=long+c.revision;c.mcq={prompt:c.front,options:[c.back,"B".repeat(150),"C","D"],correctIndex:0,explanation:"Old"};}
@@ -152,4 +152,12 @@ it("rewrites long-option questions a few per run, outside the daily budget, keep
     await runFlashcardCuration(false,f.deps);
     assert.equal(calls,1,"stops at the first failure");assert.equal(f.records[0]!.mcq!.explanation,"Old");
     assert.equal(readFlashcardCuration().lastError,undefined);
+    // Owner, 2026-11-05: any question without the current rules mark is rewritten (the
+    // answer repeated in every option), not only paragraph-length ones; current ones stay.
+    const r=harness(3,1);
+    r.records[0]!.mcq={prompt:"What does the example show?",options:["An intersection of open sets need not be open: [0,1]","An intersection of open sets is always open: (0,1)","C","D"],correctIndex:0,explanation:"Old"};
+    r.records[1]!.mcq={prompt:"q",options:["[0,1]","(0,1)","[0,1)","(0,1]"],correctIndex:0,explanation:"New",rules:2};
+    r.records[2]!.mcq={prompt:"q",options:["[0,1]","(0,1)","[0,1)","(0,1]"],correctIndex:0,explanation:"New",rules:2};
+    await runFlashcardCuration(false,r.deps);
+    assert.deepEqual(r.refreshed,[r.records[0]!.revision]);
 });

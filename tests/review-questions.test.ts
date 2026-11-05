@@ -18,7 +18,7 @@ process.env.LH_DATA_DIR = temp;
 process.env.LH_AUTH_FILE = path.join(temp, "auth.json");
 const { stores } = await import("../src/server/stores.ts");
 const { piModels } = await import("../src/agent/models.ts");
-const { questionFor, questionProblem, SHORT_ANSWER_CHARS } = await import("../src/server/review-questions.ts");
+const { questionFor, questionProblem, sharedOptionWording, SHORT_ANSWER_CHARS, QUESTION_RULES } = await import("../src/server/review-questions.ts");
 const { triageFlashcards } = await import("../src/server/flashcard-agent.ts");
 const { bgLlmSlots } = await import("../src/agent/subagents/bg-llm-semaphore.ts");
 const { chatGPTStatus } = await import("../src/agent/chatgpt-bridge.ts");
@@ -51,12 +51,14 @@ function card(revision: string): Flashcard {
 		active: true,
 	};
 }
-const question = (answer: string) => ({
+const question = (answer: string, explanation = "The instantaneous rate of change. A derivative is a limit of difference quotients; the distractors describe integrals, averages and extrema.") => ({
 	prompt: "What does a derivative measure?",
 	options: [answer, "The area under a curve", "The average of a function", "The maximum of a function"],
 	correctIndex: 0,
-	explanation: "A derivative is a limit of difference quotients; the distractors describe integrals, averages and extrema.",
+	explanation,
 });
+/** As saved and served: marked with the current question rules. */
+const saved = (q: ReturnType<typeof question>) => ({ ...q, rules: QUESTION_RULES });
 
 beforeEach(() => {
 	stores.settingsStore.writeSettings({ version: 1, models: { cheap: { model: { provider: "faux-curator", id: "curator-1" } } } });
@@ -79,7 +81,7 @@ it("prepares a question through the configured model's submit tool inside a back
 		},
 	]);
 	const result = await questionFor(card("valid-question"));
-	assert.deepEqual(result, question(answer));
+	assert.deepEqual(result, saved(question(answer)));
 	assert.deepEqual(readQuestionCache()["valid-question"], result);
 	assert.equal(contexts.length, 1);
 	assert.match(JSON.stringify(contexts[0]!.messages), /multiple-choice question/);
@@ -92,18 +94,19 @@ it("retries a schema-invalid question and accepts the corrected submission", asy
 		submit("submit_question", { ...question(answer), options: [answer, "Only", "Three"] }),
 		submit("submit_question", question(answer)),
 	]);
-	assert.deepEqual(await questionFor(card("invalid-then-valid")), question(answer));
+	assert.deepEqual(await questionFor(card("invalid-then-valid")), saved(question(answer)));
 	assert.equal(contexts.length, 2);
 	assert.match(feedback(1), /options/);
 });
 
-it("retries when the correct option is not the card's answer, and fails cleanly if it never matches", async () => {
-	respond([submit("submit_question", question("A rate of change")), submit("submit_question", question(answer))]);
-	assert.deepEqual(await questionFor(card("mismatch-then-valid")), question(answer));
+it("retries when the explanation doesn't quote the card's answer, and fails cleanly if it never does", async () => {
+	const unquoted = question(answer, "Derivatives measure change; the distractors describe other things.");
+	respond([submit("submit_question", unquoted), submit("submit_question", question(answer))]);
+	assert.deepEqual(await questionFor(card("mismatch-then-valid")), saved(question(answer)));
 	assert.equal(contexts.length, 2);
-	assert.match(feedback(1), /source answer copied exactly/);
+	assert.match(feedback(1), /full source answer copied exactly/);
 
-	respond(Array.from({ length: 4 }, () => submit("submit_question", question("A rate of change"))));
+	respond(Array.from({ length: 4 }, () => submit("submit_question", unquoted)));
 	await assert.rejects(questionFor(card("always-mismatched")), {
 		name: "ReviewError",
 		status: 409,
@@ -196,13 +199,8 @@ const longCard = (revision: string): Flashcard => ({
 	back: longBack,
 });
 const shortQuestion = (explanation = `${longBack} The distractors drop the weighting or the terminal values.`) => ({
-	prompt: "In a finite-state pattern race, a nonterminal state's win probability is…",
-	options: [
-		"The probability-weighted average of the next states' win probabilities",
-		"The largest of the next states' win probabilities",
-		"The unweighted average of the next states' win probabilities",
-		"The smallest of the next states' win probabilities",
-	],
+	prompt: "In a finite-state pattern race, a nonterminal state's win probability is which function of the next states' win probabilities?",
+	options: ["Their probability-weighted average", "Their largest value", "Their unweighted average", "Their smallest value"],
 	correctIndex: 0,
 	explanation,
 });
@@ -216,15 +214,47 @@ it("condenses a long source answer: short options, and the explanation quotes th
 		questionProblem(longCard("long-unquoted"), shortQuestion("Weighted by transition probability."))!,
 		/full source answer copied exactly/,
 	);
-	// A short answer keeps the exact-copy rule.
+	// Owner, 2026-11-05: a short answer no longer has to be the correct option verbatim
+	// (that forced the whole sentence into every option); the explanation quotes it instead.
 	assert.equal(questionProblem(card("short-ok"), question(answer)), null);
-	assert.match(questionProblem(card("short-reworded"), question("A rate of change"))!, /source answer copied exactly/);
+	assert.equal(questionProblem(card("short-reworded"), question("A rate of change")), null);
+	assert.match(questionProblem(card("short-unquoted"), question(answer, "No quote here."))!, /full source answer copied exactly/);
+});
+
+it("rejects options that repeat a shared lead-in or formula (the owner's LEC 3 card)", () => {
+	const back = "An infinite intersection of open subsets of $\\mathbb{R}$ need not be open: $\\bigcap_{n=1}^\\infty(-1/n,1+1/n)=[0,1]$.";
+	const lec3: Flashcard = { ...card("lec3"), front: "Explain: infinite intersection of open sets", back };
+	const repeated = {
+		prompt: "What does the example of an infinite intersection of open subsets of $\\mathbb{R}$ show?",
+		options: [
+			"An infinite intersection of open subsets of $\\mathbb{R}$ can include 0 but exclude 1: $[0,1)$.",
+			"An infinite intersection of open subsets of $\\mathbb{R}$ need not be open: $[0,1]$.",
+			"An infinite intersection of open subsets of $\\mathbb{R}$ is always open: $(0,1)$.",
+			"An infinite intersection of open subsets of $\\mathbb{R}$ can exclude 0 but include 1: $(0,1]$.",
+		],
+		correctIndex: 1,
+		explanation: `${back} The other sets get an endpoint wrong.`,
+	};
+	assert.match(questionProblem(lec3, repeated)!, /All four options begin with "An infinite intersection of open subsets of/);
+	const better = {
+		prompt: "$\\bigcap_{n=1}^\\infty\\left(-\\tfrac1n,\\ 1+\\tfrac1n\\right) = \\;?$",
+		options: ["$[0,1)$", "$[0,1]$", "$(0,1)$", "$(0,1]$"],
+		correctIndex: 1,
+		explanation: `${back} $0$ and $1$ lie in every interval; anything outside $[0,1]$ is excluded by some $n$.`,
+	};
+	assert.equal(questionProblem(lec3, better), null);
+	// Shared endings count too; short shared bits (a "$", a unit) don't.
+	assert.deepEqual(sharedOptionWording(["a, so the set is closed and bounded", "b, so the set is closed and bounded", "c, so the set is closed and bounded", "d, so the set is closed and bounded"])?.where, "end");
+	assert.equal(sharedOptionWording(["$[0,1)$", "$[0,1]$", "$(0,1)$", "$(0,1]$"]), null);
+	assert.equal(sharedOptionWording(["5 m/s", "10 m/s", "15 m/s", "20 m/s"]), null);
+	assert.equal(sharedOptionWording(["The intersection is empty", "The intersection is one point", "The intersection is open", "The intersection is closed"]), null, "a short shared lead-in is fine");
 });
 
 it("asks the model to condense long answers and retries until the options are short", async () => {
 	const wordy = { ...shortQuestion(), options: [longBack, ...shortQuestion().options.slice(1)] };
 	respond([submit("submit_question", wordy), submit("submit_question", shortQuestion())]);
-	assert.deepEqual(await questionFor(longCard("long-retry")), shortQuestion());
-	assert.match(JSON.stringify(contexts[0]!.messages), /condensed restatement/);
+	assert.deepEqual(await questionFor(longCard("long-retry")), { ...shortQuestion(), rules: QUESTION_RULES });
+	assert.match(JSON.stringify(contexts[0]!.messages), /states the whole problem/);
+	assert.match(JSON.stringify(contexts[0]!.messages), /only what differs between them/);
 	assert.match(feedback(1), /Keep every option under 120 characters/);
 });
