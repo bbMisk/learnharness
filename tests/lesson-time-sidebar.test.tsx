@@ -53,6 +53,12 @@ it("follows the switch flipped in another window (the server's settings-changed 
 	await settle();
 	assert.deepEqual(figures(), ["Time spent: 1h 30m"]);
 	assert.equal(served.settingsReads, reads + 1, "every General reader hears the event; one read serves them all");
+	// Another General change while on: the list already carries the figures, so no list fetch.
+	const lists = served.lists;
+	await setGeneral({ showLessonTime: true, cramShortProbe: false }, false);
+	await settle();
+	assert.equal(served.lists, lists);
+	assert.deepEqual(figures(), ["Time spent: 1h 30m"]);
 	await setGeneral({ showLessonTime: false }, false);
 	await settle();
 	assert.deepEqual(figures(), []);
