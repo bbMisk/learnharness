@@ -121,13 +121,13 @@ function SectionHeader({ title, count }: { title: string; count: string }) {
 	);
 }
 
-function Row({ symbol, status, text, className, symbolClassName = "", textClassName = "break-words" }: { symbol: string; status: string; text: string; className: string; symbolClassName?: string; textClassName?: string }) {
+function Row({ symbol, status, text, className, symbolClassName = "" }: { symbol: string; status: string; text: string; className: string; symbolClassName?: string }) {
 	return (
 		<li data-status={status} className={`flex gap-2 leading-snug ${className}`}>
 			<span aria-hidden data-testid="lesson-tracker-symbol" className={`w-3 shrink-0 text-center ${symbolClassName}`}>
 				{symbol}
 			</span>
-			<span className={`min-w-0 ${textClassName}`}>{text}</span>
+			<span className="min-w-0 break-words">{text}</span>
 		</li>
 	);
 }
