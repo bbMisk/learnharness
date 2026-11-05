@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { ListChecksIcon } from "lucide-react";
 import { Hint } from "@/components/ui/hint";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
-import { correctProblemCount, type LessonTracking, type TrackedProblem } from "@/src/core";
+import { correctProblemCount, type LessonTracking, type PlanProgress, type PlanStepProgress, type TrackedProblem } from "@/src/core";
 
 /**
  * The lesson-tracking card (owner, 2026-11-02): a floating panel in the
@@ -12,6 +12,8 @@ import { correctProblemCount, type LessonTracking, type TrackedProblem } from "@
  * (src/core/lesson-tracking.ts — derived from the record, so it follows the
  * tool calls live and survives reloads). The header chip toggles it; the
  * choice is remembered per device. Phone-width layouts start hidden.
+ * Since 2026-11-05 (owner) it also carries a normal teach lesson's plan —
+ * where the lesson is and each step's check score (src/core/plan-progress.ts).
  */
 
 const STORAGE_KEY = "lh:lesson-tracker";
@@ -70,14 +72,22 @@ export function useLessonTrackerShown(): { shown: boolean; toggle: () => void } 
  * column's own gutter (px-6, 1.5rem). "Wide enough" is a 64rem session
  * area: the lane plus a reading column as wide as the dock (46rem). Below
  * that the card overlays, as before. A container query on the session
- * area (not the viewport), so the sidebar's width counts; both classes
+ * area (not the viewport), so the sidebar's width counts; the classes
  * apply only while the card shows — hidden or absent changes nothing.
+ *
+ * The dock follows (owner, 2026-11-05): the question card, composer,
+ * reading field, queued steers, setup/plan-accept bar and footer row centre
+ * on the column, not the whole pane, so a question never slides under the
+ * card. The dock block takes the column's own padding box at the same
+ * breakpoint — the column's px-6 left (1.5rem) and its room-making right —
+ * so the 46rem dock centres in exactly the column's content box.
  */
 export const TRACKER_ROOM_AREA = "@container/session";
 export const TRACKER_ROOM_COLUMN = "@min-[64rem]/session:pr-[18.25rem]";
+export const TRACKER_ROOM_DOCK = "@min-[64rem]/session:pl-[1.5rem] @min-[64rem]/session:pr-[18.25rem]";
 
-export function lessonTrackerRoom(active: boolean): { area: string; column: string } {
-	return active ? { area: TRACKER_ROOM_AREA, column: TRACKER_ROOM_COLUMN } : { area: "", column: "" };
+export function lessonTrackerRoom(active: boolean): { area: string; column: string; dock: string } {
+	return active ? { area: TRACKER_ROOM_AREA, column: TRACKER_ROOM_COLUMN, dock: TRACKER_ROOM_DOCK } : { area: "", column: "", dock: "" };
 }
 
 const CHIP =
@@ -121,13 +131,18 @@ function SectionHeader({ title, count }: { title: string; count: string }) {
 	);
 }
 
-function Row({ symbol, status, text, className, symbolClassName = "" }: { symbol: string; status: string; text: string; className: string; symbolClassName?: string }) {
+/** `statusLabel`: the status the aria-hidden symbol shows, for screen
+ *  readers (visually hidden — sr-only is out of flow, so the row's layout
+ *  is unchanged). */
+function Row({ symbol, status, text, className, symbolClassName = "", aside, statusLabel }: { symbol: string; status: string; text: string; className: string; symbolClassName?: string; aside?: ReactNode; statusLabel?: string }) {
 	return (
 		<li data-status={status} className={`flex gap-2 leading-snug ${className}`}>
 			<span aria-hidden data-testid="lesson-tracker-symbol" className={`w-3 shrink-0 text-center ${symbolClassName}`}>
 				{symbol}
 			</span>
+			{statusLabel && <span className="sr-only">{`${statusLabel}: `}</span>}
 			<span className="min-w-0 break-words">{text}</span>
+			{aside}
 		</li>
 	);
 }
@@ -196,22 +211,75 @@ function ProblemRow({ problem: p }: { problem: TrackedProblem }) {
 	}
 }
 
+/** A plan step's check score (owner, 2026-11-05): right/answered,
+ *  right-aligned — green when the step's latest answered check was right,
+ *  red when wrong; nothing while the step has no graded check (an
+ *  ungraded explain answer counts for nothing). The colour and the slash
+ *  are visual only, so screen readers get the words instead (Codex round 1,
+ *  2026-11-05): "1 of 2 checks right, latest wrong". */
+const SCORE_TONE = { right: "text-green-500", wrong: "text-red-500" } as const;
+
+function StepScore({ step }: { step: PlanStepProgress }) {
+	if (step.answered === 0 || !step.latest) return null;
+	return (
+		<span
+			data-testid="lesson-tracker-score"
+			data-latest={step.latest}
+			className={`ml-auto shrink-0 pl-1 font-normal tabular-nums ${SCORE_TONE[step.latest]}`}
+		>
+			<span aria-hidden>
+				{step.right}/{step.answered}
+			</span>
+			<span className="sr-only">{`, ${step.right} of ${step.answered} ${step.answered === 1 ? "check" : "checks"} right, latest ${step.latest}`}</span>
+		</span>
+	);
+}
+
+/** One plan step (owner, 2026-11-05) in the problem rows' conventions:
+ *  ▸ + bold the current step, a muted ✓ for a step moved past, ○ upcoming;
+ *  each status also in words for screen readers (Codex round 1). */
+function PlanStepRow({ step }: { step: PlanStepProgress }) {
+	const score = <StepScore step={step} />;
+	switch (step.status) {
+		case "current":
+			return <Row symbol="▸" status="current" statusLabel="Current step" text={step.title} className="font-semibold text-foreground" aside={score} />;
+		case "visited":
+			return <Row symbol="✓" status="covered" statusLabel="Covered" text={step.title} className="text-muted-foreground" aside={score} />;
+		default:
+			return <Row symbol="○" status="upcoming" statusLabel="Not started" text={step.title} className="text-muted-foreground" aside={score} />;
+	}
+}
+
 /**
- * The card: "Problems correct/total" (one ProblemRow each) when a list
+ * The card: "Plan covered/total" (one PlanStepRow each) for a teach lesson
+ * with a plan (`plan`, null in cram and practice), "Problems correct/total" (one ProblemRow each) when a list
  * exists, "Mistakes K open · J fixed" (○ open, archived ✓ resolved) when any mistake
- * exists. `bottomReserve` is the dock's height — the card never reaches the
- * composer; it scrolls instead.
+ * exists — in that order. Height (owner, 2026-11-05: "why doesn't it get
+ * longer"): while the area makes room (wide layouts) the dock sits left of the
+ * card's lane, so the card may run the pane's full height; otherwise it stops
+ * above the dock (`bottomReserve`: the dock's height, without its fade). A
+ * longer card scrolls.
  */
-export function LessonTrackerCard({ tracking, bottomReserve }: { tracking: LessonTracking; bottomReserve: number }) {
+export function LessonTrackerCard({ tracking, plan = null, bottomReserve }: { tracking: LessonTracking; plan?: PlanProgress | null; bottomReserve: number }) {
 	const { problems, mistakes } = tracking;
 	const openMistakes = mistakes.filter((m) => !m.resolved).length;
 	return (
 		<aside
 			data-testid="lesson-tracker"
 			aria-label="Lesson progress"
-			className="absolute right-3 top-3 z-20 flex w-64 max-w-[calc(100%-1.5rem)] flex-col gap-4 overflow-y-auto rounded-xl border border-border/80 bg-card/95 px-3.5 py-3 font-ui text-xs text-foreground shadow-sm backdrop-blur-sm"
-			style={{ maxHeight: `calc(100% - ${bottomReserve + 24}px)` }}
+			className="absolute right-3 top-3 z-20 flex max-h-[calc(100%-var(--lh-card-reserve))] w-64 max-w-[calc(100%-1.5rem)] flex-col gap-4 overflow-y-auto rounded-xl border border-border/80 bg-card/95 px-3.5 py-3 font-ui text-xs text-foreground shadow-sm backdrop-blur-sm @min-[64rem]/session:max-h-[calc(100%-1.5rem)]"
+			style={{ "--lh-card-reserve": `${bottomReserve + 24}px` } as CSSProperties}
 		>
+			{plan && (
+				<section data-testid="lesson-tracker-plan">
+					<SectionHeader title="Plan" count={`${plan.covered}/${plan.total}`} />
+					<ul className="flex flex-col gap-1">
+						{plan.steps.map((step) => (
+							<PlanStepRow key={step.id} step={step} />
+						))}
+					</ul>
+				</section>
+			)}
 			{problems && (
 				<section data-testid="lesson-tracker-problems">
 					<SectionHeader title="Problems" count={`${correctProblemCount(problems)}/${problems.length}`} />
