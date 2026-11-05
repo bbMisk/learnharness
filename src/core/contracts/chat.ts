@@ -315,8 +315,8 @@ export interface ChatSummary {
 	 *  the sidebar meta's "Problem waiting". Absent on teaching sessions. */
 	pendingProblem: boolean;
 	/** Active lesson time in ms, measured from the record (core/lesson-time.ts;
-	 *  owner, 2026-11-05). The store always projects it; the list route sends
-	 *  it only while Settings → General shows time spent. */
+	 *  owner, 2026-11-05), on every list row; Settings → General only decides
+	 *  whether the sidebar shows it. */
 	timeSpentMs?: number;
 	/** The record's model-control settings — rides the list payload via the
 	 *  summary spread (the picker never needs it from here; the full record
