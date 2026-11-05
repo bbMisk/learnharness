@@ -31,6 +31,37 @@ it("a rendered message with an interval shows no link marker", () => {
 	}
 });
 
+it("streaming in chunks gives exactly the whole-text result at every step", () => {
+	const { completeLinksOutsideMath, resetLinkRepairCache } = remendLinks;
+	const samples = [
+		"Intro with $[0,1)$.\n\n- outer\n  - inner\n\n    See [source](https://example.com/pa)\n\n```\ncode $x [y\n\nmore\n```\n\nPrice $5 and $[n,\\infty)$ then [link](https://e.com/x).",
+		"<pre>\nCost: $5\n\n[n, infinity)\n</pre>\n\nAfter [a](https://b.c/d) and $$\nx\n\n[0,1)\n$$\n\n| a | b |\n| --- | --- |\n| $5 | [s](https://e.com/$10) |",
+		"Use `$$` here.\n\n<!-- c $5\n\n[n\n-->\n\n> quote $1\n\n> more [q](https://q.q/p)\n\nEnd.",
+	];
+	for (const text of samples) {
+		resetLinkRepairCache();
+		for (let k = 1; k <= text.length; k++) {
+			const prefix = text.slice(0, k);
+			const streamed = completeLinksOutsideMath(prefix);
+			resetLinkRepairCache();
+			const whole = completeLinksOutsideMath(prefix);
+			assert.equal(streamed, whole, `differs at ${k}: ${JSON.stringify(prefix)}`);
+			// Re-prime the cache with the streamed history up to here.
+			resetLinkRepairCache();
+			for (let j = Math.max(1, k - 40); j <= k; j++) completeLinksOutsideMath(text.slice(0, j));
+		}
+	}
+});
+
+it("a text that doesn't extend the previous one is parsed whole", () => {
+	const { completeLinksOutsideMath, resetLinkRepairCache } = remendLinks;
+	const other = "Some intro.\n\nAnother paragraph.\n\nAnd a third with $x$.";
+	const text = "<pre>\nCost: $5\n\n[n, infinity)\n</pre>";
+	resetLinkRepairCache();
+	completeLinksOutsideMath(other + " [x");
+	assert.equal(completeLinksOutsideMath(text), text, "a different message must not reuse the cached block start");
+});
+
 it("other streaming repairs still run (an unclosed bold closes)", () => {
 	assert.equal(remend("a **bold", streamdownRemend), "a **bold**");
 });
@@ -99,29 +130,20 @@ it("a price or a code span before a streaming link doesn't hide it (round-2 hunt
 	assert.match(remend(table, streamdownRemend), /streamdown:incomplete-link/);
 	assert.doesNotMatch(renderToStaticMarkup(<MessageResponse>{table}</MessageResponse>), /href="https:\/\/example\.com\/\$10"/);
 	assert.equal(remend("| a | b |\n| --- | --- |\n| $[0,1)$ | $[2,3)$ |", streamdownRemend), "| a | b |\n| --- | --- |\n| $[0,1)$ | $[2,3)$ |");
-	// Only the final region is parsed: blank lines inside fences and $$ display math don't start it.
-	const { finalRegionStart } = remendLinks;
-	assert.equal(finalRegionStart("a\n\nb"), 3);
-	assert.equal(finalRegionStart("a\n\n```\nx\n\ny\n```\nz"), 3, "a blank line inside a fence is not a boundary");
-	assert.equal(finalRegionStart("a\n\n$$\nx\n\ny\n$$\nz"), 3, "nor one inside display math");
-	assert.equal(finalRegionStart("a\n\n```\nstill streaming\n\n"), 3, "an open fence keeps its blank lines");
-	assert.equal(finalRegionStart("no blank line"), 0);
-	// Round-17 hunt finding: an indented paragraph after a blank line continues its list item.
+	// Round-16–19 cases (blocks spanning blank lines) now go through the exact incremental parse.
+	for (const text of [
+		"- Example:\n    ```text\n  first\n\n  [n, infinity)\n    ```",
+		"<pre>\nCost: $5\n\n[n, infinity)\n</pre>",
+		"Use `$$` for display math.\n\n$$\n\\begin{aligned}\n\n[0,1)",
+		"<!-- cost $5\n\n[n, infinity)\n-->",
+	]) {
+		remendLinks.resetLinkRepairCache();
+		assert.doesNotMatch(remend(text, streamdownRemend), /incomplete-link/, text);
+	}
 	const listed = "- outer\n  - inner\n\n    See [source](https://example.com/pa";
-	assert.equal(finalRegionStart(listed), 0);
-	assert.doesNotMatch(renderToStaticMarkup(<MessageResponse>{listed}</MessageResponse>), /href="https:\/\/example\.com\/pa"/);
+	remendLinks.resetLinkRepairCache();
 	assert.match(remend(listed, streamdownRemend), /streamdown:incomplete-link/);
-	assert.equal(finalRegionStart("- a\n\nNext paragraph"), 5, "a non-indented line after a blank starts the region");
-	// Round-18 hunt finding: a <pre> block spans blank lines.
-	const pre = "<pre>\nCost: $5\n\n[n, infinity)\n</pre>";
-	assert.equal(finalRegionStart(pre), 0);
-	assert.doesNotMatch(remend(pre, streamdownRemend), /incomplete-link/);
-	assert.equal(finalRegionStart("<pre>x</pre>\n\nAfter"), 14, "a one-line <pre> doesn't swallow later text");
-	// Round-16 hunt finding: a fence nested in a list, indented 4 spaces, keeps its blank lines.
-	const nested = "- Example:\n    ```text\n  first\n\n  [n, infinity)\n    ```";
-	assert.equal(finalRegionStart(nested), 0);
-	assert.doesNotMatch(remend(nested, streamdownRemend), /incomplete-link/);
-	assert.doesNotMatch(renderToStaticMarkup(<MessageResponse>{nested}</MessageResponse>), /incomplete-link/);
+	assert.doesNotMatch(renderToStaticMarkup(<MessageResponse>{listed}</MessageResponse>), /href="https:\/\/example\.com\/pa"/);
 	// Round-9 hunt finding: a code span closes only on a backtick run of its own length.
 	const ticks = "A `` literal [source](https://example.com/pa ``` end";
 	assert.match(remend(ticks, streamdownRemend), /streamdown:incomplete-link/);
