@@ -1,4 +1,7 @@
 import remend, { type RemendHandler } from "remend";
+import { fromMarkdown } from "mdast-util-from-markdown";
+import { mathFromMarkdown } from "mdast-util-math";
+import { math } from "micromark-extension-math";
 
 /**
  * Link completion that leaves math alone (owner, 2026-11-05). Remend's own
@@ -34,160 +37,75 @@ function escaped(text: string, i: number): boolean {
 	return slashes % 2 === 1;
 }
 
-/** Length of the run of `$` starting at `i`. */
-function dollarRun(text: string, i: number): number {
-	let n = 0;
-	while (text[i + n] === "$") n++;
-	return n;
-}
-
-/** The next run of exactly `size` `ch` characters at or after `from` (a
- *  code span closes only on a backtick run of its own length; round-9 hunt
- *  finding). -1 if none. */
-function nextRun(text: string, ch: string, size: number, from: number): number {
-	for (let i = text.indexOf(ch, from); i !== -1; ) {
-		let run = 0;
-		while (text[i + run] === ch) run++;
-		if (run === size) return i;
-		i = text.indexOf(ch, i + run);
-	}
-	return -1;
-}
-
-/** The next unescaped run of exactly `size` dollars at or after `from`, as
- *  the Markdown math parser pairs them (like code-span backticks): a `$`
- *  never closes on half of a `$$` (round-8 hunt finding). -1 if none. */
-function nextDelimiter(text: string, size: number, from: number, limit: number): number {
-	for (let i = from; i < limit; ) {
-		const ch = text[i];
-		if (ch === "`" && !escaped(text, i)) {
-			// A code span inside the scope can't hold the closer (round-11 hunt finding).
-			let run = 1;
-			while (text[i + run] === "`") run++;
-			const close = nextRun(text, "`", run, i + run);
-			i = close !== -1 && close < limit ? close + run : i + run;
-			continue;
-		}
-		if (ch === "$") {
-			const run = dollarRun(text, i);
-			if (run === size && !escaped(text, i)) return i;
-			i += run;
-			continue;
-		}
-		i++;
-	}
-	return -1;
-}
-
-/** In math that hasn't closed yet (still streaming, or a lone `$` like a
- *  price), hide every `[` except one that starts a link (`[text](`): that
- *  shape is a link, and a link still streaming must keep remend's hardened
- *  placeholder (round-2 hunt finding: "$5. See [source](https://ex…"), nor
- *  the `[` of an image (`![`), which remend drops until it completes
- *  (round-4 hunt finding). */
+/** In math that hasn't closed yet (still streaming), hide every `[` except
+ *  one that starts a link (`[text](`): that shape is a link, and a link still
+ *  streaming must keep remend's hardened placeholder (round-2 hunt finding:
+ *  "$5. See [source](https://ex…"), nor the `[` of an image (`![`), which
+ *  remend drops until it completes (round-4). */
 function hideUnclosed(tail: string): string {
 	return tail.replace(/(?<!!)\[(?![^\]\n]*\]\()/g, HIDDEN);
 }
 
-/** A fenced code block opening at line start `i` (up to 3 spaces, then 3+
- *  backticks or tildes): the index just past its closing fence line, or the
- *  end of the text while the fence is still open (streaming). -1 if none. */
-function fenceEnd(text: string, i: number): number {
-	const open = /^ {0,3}(`{3,}|~{3,})/.exec(text.slice(i, i + 64));
-	if (!open) return -1;
-	const fence = open[1]!;
-	const closing = new RegExp(`\\n {0,3}${fence[0] === "`" ? "`" : "~"}{${fence.length},}[ \\t]*(?=\\n|$)`, "g");
-	closing.lastIndex = i + open[0].length;
-	const close = closing.exec(text);
-	return close ? close.index + close[0].length : text.length;
+type MdNode = { type: string; position?: { start: { offset?: number }; end: { offset?: number } }; children?: MdNode[] };
+
+/** Math and code ranges exactly as the renderer's parser sees them (owner,
+ *  2026-11-05, after rounds 2–13 of hand-written delimiter rules kept
+ *  disagreeing with Markdown): the same micromark math extension Streamdown's
+ *  math plugin uses (singleDollarTextMath), so pairing, paragraphs, blocks,
+ *  code spans and fences all follow the real rules. */
+function parse(text: string): { ranges: Array<[number, number]>; lastBlockStart: number } {
+	const ranges: Array<[number, number]> = [];
+	const tree = fromMarkdown(text, { extensions: [math({ singleDollarTextMath: true })], mdastExtensions: [mathFromMarkdown()] }) as MdNode;
+	const walk = (node: MdNode) => {
+		if (node.type === "inlineMath" || node.type === "math" || node.type === "inlineCode" || node.type === "code") {
+			const from = node.position?.start.offset;
+			const to = node.position?.end.offset;
+			if (typeof from === "number" && typeof to === "number") ranges.push([from, to]);
+			return;
+		}
+		for (const child of node.children ?? []) walk(child);
+	};
+	walk(tree);
+	return { ranges, lastBlockStart: tree.children?.at(-1)?.position?.start.offset ?? 0 };
 }
 
-/** The end of the paragraph containing `from` (a blank line), or -1 if it
- *  runs to the end of the text. */
-function paragraphEnd(text: string, from: number): number {
-	const blank = /\n[ \t]*\n/g;
-	blank.lastIndex = from;
-	return blank.exec(text)?.index ?? -1;
-}
-
-/** Where a math span opened at `from` must close by: inline math ends with
- *  its block — a blank line, or a line that starts a new block (heading,
- *  list item, quote, fence; round-12 hunt finding) — and no math crosses
- *  into a fenced code block (round-11). -1 when the scope runs to the end
- *  of the text, where math may still be streaming. */
-function mathScopeEnd(text: string, from: number, inline: boolean): number {
-	const fence = /\n {0,3}(?:`{3,}|~{3,})/g;
-	fence.lastIndex = from;
-	const block = /\n {0,3}(?:#{1,6}(?:[ \t]|$)|[-*+][ \t]|\d{1,9}[.)][ \t]|>)/gm;
-	block.lastIndex = from;
-	const ends = [fence.exec(text)?.index ?? -1, inline ? paragraphEnd(text, from) : -1, inline ? (block.exec(text)?.index ?? -1) : -1].filter((n) => n !== -1);
-	return ends.length ? Math.min(...ends) : -1;
-}
-
-/** `[` inside $…$ and $$…$$ → HIDDEN, following Markdown's boundaries
- *  (hunt findings, rounds 2–6): code spans and fenced code (``` or ~~~,
- *  even while still streaming) open no math, and their brackets are hidden
- *  too (no link exists inside code); inline $…$ must close within
- *  its paragraph, else that `$` is literal (a price), except in the last
- *  paragraph, where it may be math still streaming. */
-export function hideMathBrackets(text: string): string {
-	let out = "";
-	let i = 0;
-	while (i < text.length) {
-		const ch = text[i]!;
-		if ((ch === "`" || ch === "~" || ch === " ") && (i === 0 || text[i - 1] === "\n")) {
-			const end = fenceEnd(text, i);
-			if (end !== -1) {
-				// No link exists inside code; remend doesn't know ~~~ fences (round-6 hunt finding).
-				out += text.slice(i, end).replaceAll("[", HIDDEN);
-				i = end;
-				continue;
-			}
+/** `[` inside math or code → HIDDEN (no link exists there; remend's link
+ *  completion would otherwise read the `[` of $[n,\infty)$ as a link). While
+ *  a message streams, the parser sees an unclosed `$` as plain text: if the
+ *  last block still holds an unpaired `$` outside math and code, what
+ *  follows it may be math still arriving, so its brackets are hidden too
+ *  (links and images excepted, above). */
+function prepare(text: string): { hidden: string; lastBlockStart: number } {
+	const { ranges, lastBlockStart } = parse(text);
+	// One pass marks covered positions (linear; a per-character range scan was quadratic).
+	const mask = new Uint8Array(text.length);
+	for (const [from, to] of ranges) mask.fill(1, Math.max(0, from), Math.min(text.length, to));
+	// Parser offsets are UTF-16 code units, the same units as string indexes.
+	let hidden = "";
+	for (let i = 0; i < text.length; i++) hidden += text[i] === "[" && mask[i] === 1 ? HIDDEN : text[i];
+	// The streaming tail: the last unpaired `$` in the final block.
+	for (let i = text.length - 1; i >= lastBlockStart; i--) {
+		if (text[i] === "$" && !escaped(text, i) && mask[i] !== 1) {
+			return { hidden: hidden.slice(0, i + 1) + hideUnclosed(hidden.slice(i + 1)), lastBlockStart };
 		}
-		if (ch === "`" && !escaped(text, i)) {
-			let run = 1;
-			while (text[i + run] === "`") run++;
-			const close = nextRun(text, "`", run, i + run);
-			// An unmatched run is literal backticks in Markdown, not a code span
-			// (round-5 hunt finding: an escaped or lone backtick hid later math).
-			const end = close === -1 ? i + run : close + run;
-			out += text.slice(i, end).replaceAll("[", HIDDEN);
-			i = end;
-			continue;
-		}
-		if (ch === "$" && !escaped(text, i)) {
-			const size = dollarRun(text, i);
-			if (size > 2) {
-				out += text.slice(i, i + size);
-				i += size;
-				continue;
-			}
-			const delim = "$".repeat(size);
-			const start = i + size;
-			const scope = mathScopeEnd(text, start, size === 1);
-			const close = nextDelimiter(text, size, start, scope === -1 ? text.length : scope);
-			if (close === -1) {
-				// The scope runs to the end: math may still be streaming. Otherwise a literal `$`.
-				if (scope === -1) return out + text.slice(i, start) + hideUnclosed(text.slice(start));
-				out += text.slice(i, start);
-				i = start;
-				continue;
-			}
-			out += text.slice(i, start) + text.slice(start, close).replaceAll("[", HIDDEN) + delim;
-			i = close + delim.length;
-			continue;
-		}
-		out += ch;
-		i++;
 	}
-	return out;
+	return { hidden, lastBlockStart };
 }
 
+export function hideMathBrackets(text: string): string {
+	return prepare(text).hidden;
+}
+
+/** Only the final block can end in a link still streaming: earlier blocks are
+ *  finished, so link repair runs on the final block alone. That is faster
+ *  (remend's link scan is slow on long texts) and right: an unmatched `[`
+ *  in an earlier paragraph is plain text, never an unfinished link. */
 export function completeLinksOutsideMath(text: string): string {
 	if (!text.includes("[")) return text;
 	// The marker character already in the text would be turned into "[": fall back to plain completion.
 	if (text.includes(HIDDEN)) return remend(text, LINKS_ONLY);
-	return remend(hideMathBrackets(text), LINKS_ONLY).replaceAll(HIDDEN, "[");
+	const { hidden, lastBlockStart } = prepare(text);
+	return (hidden.slice(0, lastBlockStart) + remend(hidden.slice(lastBlockStart), LINKS_ONLY)).replaceAll(HIDDEN, "[");
 }
 
 /** Runs where remend's own link handler would (priority 20, before bold/italic). */

@@ -69,17 +69,31 @@ it("a price or a code span before a streaming link doesn't hide it (round-2 hunt
 	assert.ok(remend("The cost is $5.\n\nSee [partial", streamdownRemend).endsWith(marker), "a price's `$` is literal once its paragraph ends");
 	// Round-11 hunt finding: math never pairs across a code fence or with a `$` inside code.
 	for (const text of [
-		"Price $5. See [source](https://example.com/part\n```\necho $HOME\n```",
-		"Price $5. See [source](https://example.com/part `echo $HOME`",
-		"Price $5. See [source](https://example.com/part\n~~~\necho $HOME\n~~~",
+		"```\necho $HOME\n```\nPrice $5. See [source](https://example.com/part",
+		"~~~\necho $HOME\n~~~\nPrice $5. See [source](https://example.com/part",
 		// Round-12 hunt finding: a heading, list item or quote starts a new block.
-		"Price $5. See [source](https://example.com/part\n# Total $10",
-		"Price $5. See [source](https://example.com/part\n- item $10",
-		"Price $5. See [source](https://example.com/part\n> quoted $10",
+		"# Total $10\nPrice $5. See [source](https://example.com/part",
+		"- item $10\n\nPrice $5. See [source](https://example.com/part",
+		"> quoted $10\n\nPrice $5. See [source](https://example.com/part",
 	]) {
 		assert.match(remend(text, streamdownRemend), /\[source\]\(streamdown:incomplete-link\)/, text);
 		assert.doesNotMatch(renderToStaticMarkup(<MessageResponse>{text}</MessageResponse>), /href="https:\/\/example\.com\/part"/, text);
 	}
+	// Where the renderer's own parser makes math of a span, a link inside it is plain math text:
+	// nothing clickable either way (round-11 case with a code span after the price).
+	assert.doesNotMatch(renderToStaticMarkup(<MessageResponse>{"Price $5. See [source](https://example.com/part `echo $HOME`"}</MessageResponse>), /href="https:\/\/example\.com\/part"/);
+	// Round-13 hunt finding: backtick runs never pair across paragraphs.
+	const paras = "A ``literal backtick.\n\nSee [source](https://example.com/pa then ``here`";
+	assert.doesNotMatch(renderToStaticMarkup(<MessageResponse>{paras}</MessageResponse>), /href="https:\/\/example\.com\/pa"/);
+	assert.match(remend(paras, streamdownRemend), /streamdown:incomplete-link/);
+	// Only the final block can hold a link still streaming: an unmatched `[` in a finished
+	// earlier paragraph is plain text and puts no marker at the end of the message, and a
+	// malformed link there no longer swallows the rest of the message (the library default
+	// replaces everything after it with the placeholder).
+	const malformed = "See [source](https://example.com/part and more.\n\nNext paragraph with words.";
+	assert.equal(remend(malformed, { htmlTags: false }), "See [source](streamdown:incomplete-link)", "library default drops the rest");
+	assert.match(renderToStaticMarkup(<MessageResponse>{malformed}</MessageResponse>), /Next paragraph with words\./);
+	assert.equal(remend("A stray [note here.\n\nThe interval is $[0,1)$.", streamdownRemend), "A stray [note here.\n\nThe interval is $[0,1)$.");
 	// Round-9 hunt finding: a code span closes only on a backtick run of its own length.
 	const ticks = "A `` literal [source](https://example.com/pa ``` end";
 	assert.match(remend(ticks, streamdownRemend), /streamdown:incomplete-link/);
@@ -90,8 +104,11 @@ it("a price or a code span before a streaming link doesn't hide it (round-2 hunt
 	assert.doesNotMatch(renderToStaticMarkup(<MessageResponse>{display}</MessageResponse>), /href="https:\/\/example\.com\/pa"/);
 	assert.equal(remend("so $$\\bigcup [0,1)$$ and $[2,3)$ here", streamdownRemend), "so $$\\bigcup [0,1)$$ and $[2,3)$ here");
 	const across = "The cost is $5.\n\nSee [source](https://example.com/pa\n\nThe equation is $x$.";
-	assert.match(remend(across, streamdownRemend), /\[source\]\(streamdown:incomplete-link\)/, "the unfinished link is still hardened");
-	assert.doesNotMatch(renderToStaticMarkup(<MessageResponse>{across}</MessageResponse>), /href="https:\/\/example\.com\/pa"/);
+	// A malformed link in a finished middle paragraph: nothing after it is lost, and the
+	// price never pairs with the later equation (the renderer's parser keeps them apart).
+	const acrossHtml = renderToStaticMarkup(<MessageResponse>{across}</MessageResponse>);
+	assert.match(acrossHtml, /The equation is/);
+	assert.doesNotMatch(remend(across, streamdownRemend), /incomplete-link/);
 	for (const text of [
 		"~~~sh\necho $HOME\n~~~\n\nThe interval is $[0,1)$.",
 		"```sh\necho $HOME\n```\n\nThe interval is $[0,1)$.",
@@ -119,5 +136,6 @@ it("brackets inside math never count as links, closed or still streaming", () =>
 	const { hideMathBrackets } = remendLinks;
 	assert.equal(hideMathBrackets("a [x] $[y)$ b"), "a [x] $\uE000y)$ b");
 	assert.equal(hideMathBrackets("\\$[x] $[y"), "\\$[x] $\uE000y", "an escaped dollar opens no math");
-	assert.equal(hideMathBrackets("$p = \\$ [q$ then [r"), "$p = \\$ \uE000q$ then [r", "an escaped dollar doesn't close math either");
+	// Inside math a backslash escapes nothing (the renderer's parser): `\$` closes it.
+	assert.equal(hideMathBrackets("$p = \\$ [q$ then [r](x"), "$p = \\$ [q$ then [r](x");
 });
