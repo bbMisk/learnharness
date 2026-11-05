@@ -1,8 +1,10 @@
 /**
  * Time spent in the real sidebar (owner, 2026-11-05): the mounted app shell
- * against the real chat-list and settings routes (temp data dir). Off by
- * default the rows show no figure; switching it on in Settings → General
- * brings the figure in without a reload; switching it off takes it away.
+ * against the real chat-list and settings routes (temp data dir), with the
+ * events channel fed by the server's own bus. Off by default the rows show
+ * no figure; switching it on in Settings → General — in this window or
+ * another, or while disconnected — brings the figure in without a reload;
+ * a silent record write (a dismissal) updates it; off takes it away.
  */
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
@@ -54,14 +56,28 @@ const { PathnameContext } = await import("next/dist/shared/lib/hooks-client-cont
 const { createRoot } = await import("react-dom/client");
 const { AppShell, SidebarProvider } = await import("../components/sidebar.tsx");
 const { ServerEventsProvider } = await import("../components/server-events.tsx");
+const { EVENT_REFRESH_MS } = await import("../components/chat-list-refresh.ts");
 const { notifySettingsSaved } = await import("../components/settings-signal.ts");
+const { emit, subscribe } = await import("../src/core/events.ts");
+const { writeSettings } = await import("../src/store/settings.ts");
 const { chatStore } = await import("../src/store/chats.ts");
 const listing = await import("../app/api/chats/route.ts");
 const settingsRoute = await import("../app/api/settings/route.ts");
 const settingsSection = await import("../app/api/settings/[section]/route.ts");
+import type { LhMessage } from "../src/core/native-messages.ts";
 
 const router = { push() {}, replace() {}, refresh() {}, back() {}, forward() {}, prefetch() {} };
-const quietChannel = () => ({ close() {}, onOpen() {}, onEvent() {} });
+/** The events channel, fed by the server's bus (what /api/events streams). */
+let reopen: (() => void) | undefined;
+const busChannel = () => {
+	const handlers = new Map<string, (raw: string) => void>();
+	const off = subscribe(({ type, ...payload }) => handlers.get(type)?.(JSON.stringify(payload)));
+	return {
+		close: () => void off(),
+		onOpen: (cb: () => void) => void (reopen = cb),
+		onEvent: (name: string, cb: (raw: string) => void) => void handlers.set(name, cb),
+	};
+};
 const realFetch = globalThis.fetch;
 let root: Root | undefined;
 after(async () => {
@@ -71,47 +87,61 @@ after(async () => {
 });
 
 const listFetches: string[] = [];
+let settingsReads = 0;
 globalThis.fetch = (async (input: RequestInfo | URL) => {
 	const url = String(input);
 	if (url === "/api/chats") {
 		listFetches.push(url);
 		return listing.GET(new Request("http://test/api/chats"));
 	}
-	if (url === "/api/settings") return settingsRoute.GET();
+	if (url === "/api/settings") {
+		settingsReads++;
+		return settingsRoute.GET();
+	}
 	return new Response("{}", { status: 404 });
 }) as typeof fetch;
 
-async function setGeneral(general: Record<string, unknown>) {
-	const response = await settingsSection.PUT(
-		new Request("http://test/api/settings/general", { method: "PUT", body: JSON.stringify(general) }),
-		{ params: Promise.resolve({ section: "general" }) },
-	);
-	assert.equal(response.status, 200);
-	// What the settings dialog does after a save (settings-signal).
-	await act(async () => notifySettingsSaved("general"));
+/** Save the General section through the real route (it emits settings-changed).
+ *  `here`: this window saved it, so its settings dialog also signals locally. */
+async function setGeneral(general: Record<string, unknown>, here: boolean) {
+	await act(async () => {
+		const response = await settingsSection.PUT(
+			new Request("http://test/api/settings/general", { method: "PUT", body: JSON.stringify(general) }),
+			{ params: Promise.resolve({ section: "general" }) },
+		);
+		assert.equal(response.status, 200);
+		if (here) notifySettingsSaved("general");
+	});
 }
 
-async function settle() {
-	for (let i = 0; i < 20; i++) await act(async () => new Promise((resolve) => setTimeout(resolve, 5)));
+/** Long enough for the list's trailing debounce and the fetches it starts. */
+async function settle(ms = EVENT_REFRESH_MS + 150) {
+	const until = Date.now() + ms;
+	while (Date.now() < until) await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
 }
 
 const MIN = 60_000;
 const rowsText = () => [...document.querySelectorAll('[data-testid="session-row"]')].map((row) => row.textContent ?? "");
+const figures = () => [...document.querySelectorAll('[data-testid="session-time"]')].map((el) => el.textContent);
 
-it("the sidebar shows each lesson's time spent only while the General switch is on", async () => {
-	const timed = chatStore.createChat("Timed lesson");
-	chatStore.saveMessages(timed.id, [
-		{ id: "u1", role: "user", content: "hi", timestamp: 0 },
-		{ id: "u2", role: "user", content: "again", timestamp: 80 * MIN },
-		...Array.from({ length: 8 }, (_, i) => ({
-			id: `u${i + 3}`,
-			role: "user" as const,
-			content: "more",
-			timestamp: 80 * MIN + (i + 1) * 10 * MIN,
-		})),
-	]);
-	chatStore.createChat("Empty lesson");
+const steps = (from: number, count: number, startAt: number): LhMessage[] =>
+	Array.from({ length: count }, (_, i) => ({
+		id: `u${from + i}`,
+		role: "user" as const,
+		content: "more",
+		timestamp: startAt + (i + 1) * 10 * MIN,
+	}));
+const timed = chatStore.createChat("Timed lesson");
+// 10 (the first gap, capped) + 8 × 10 = 90 minutes.
+const lesson: LhMessage[] = [
+	{ id: "u1", role: "user", content: "hi", timestamp: 0 },
+	{ id: "u2", role: "user", content: "again", timestamp: 80 * MIN },
+	...steps(3, 8, 80 * MIN),
+];
+chatStore.saveMessages(timed.id, lesson);
+chatStore.createChat("Empty lesson");
 
+it("off by default: no figure on any row", async () => {
 	const host = document.createElement("div");
 	document.body.append(host);
 	root = createRoot(host);
@@ -119,7 +149,7 @@ it("the sidebar shows each lesson's time spent only while the General switch is 
 		root!.render(
 			<AppRouterContext.Provider value={router as never}>
 				<PathnameContext.Provider value="/">
-					<ServerEventsProvider connect={quietChannel}>
+					<ServerEventsProvider connect={busChannel}>
 						<SidebarProvider>
 							<AppShell>
 								<div />
@@ -132,18 +162,56 @@ it("the sidebar shows each lesson's time spent only while the General switch is 
 	);
 	await settle();
 	assert.equal(rowsText().length, 2, "both lessons are listed");
-	assert.equal(document.querySelectorAll('[data-testid="session-time"]').length, 0, "off by default: no figure");
+	assert.deepEqual(figures(), []);
 	assert.ok(!rowsText().some((text) => text.includes("1h 30m")));
-	const fetchesBefore = listFetches.length;
+});
 
-	await setGeneral({ showLessonTime: true });
+it("switching on in this window shows the figure without a reload; off takes it away", async () => {
+	const before = listFetches.length;
+	await setGeneral({ showLessonTime: true }, true);
 	await settle();
-	assert.ok(listFetches.length > fetchesBefore, "switching on refetches the list");
-	const figures = [...document.querySelectorAll('[data-testid="session-time"]')].map((el) => el.textContent);
-	// 10 (first gap, capped) + 8 × 10 = 90 minutes; the empty lesson shows nothing.
-	assert.deepEqual(figures, ["Time spent: 1h 30m"]);
+	assert.ok(listFetches.length > before, "switching on refetches the list");
+	assert.deepEqual(figures(), ["Time spent: 1h 30m"], "the empty lesson shows nothing");
+	await setGeneral({ showLessonTime: false }, true);
+	await settle();
+	assert.deepEqual(figures(), []);
+});
 
-	await setGeneral({ showLessonTime: false });
+it("follows the switch flipped in another window (the server's settings-changed event)", async () => {
+	const reads = settingsReads;
+	await setGeneral({ showLessonTime: true }, false);
 	await settle();
-	assert.equal(document.querySelectorAll('[data-testid="session-time"]').length, 0, "off again: gone");
+	assert.deepEqual(figures(), ["Time spent: 1h 30m"]);
+	assert.equal(settingsReads, reads + 1, "every General reader hears the event; one read serves them all");
+	await setGeneral({ showLessonTime: false }, false);
+	await settle();
+	assert.deepEqual(figures(), []);
+});
+
+it("catches a switch flipped while disconnected on the reconnect", async () => {
+	writeSettings({ version: 1, general: { showLessonTime: true } }); // no event reaches this window
+	await settle();
+	assert.deepEqual(figures(), [], "nothing told this window yet");
+	await act(async () => reopen!());
+	await settle();
+	assert.deepEqual(figures(), ["Time spent: 1h 30m"]);
+});
+
+it("a silent record write (a dismissal's record-changed) updates the figure", async () => {
+	const before = listFetches.length;
+	chatStore.saveMessages(timed.id, [...lesson, ...steps(11, 2, 160 * MIN)]);
+	await act(async () => emit("record-changed", { chatId: timed.id }));
+	await settle();
+	assert.equal(listFetches.length, before + 1, "one debounced list fetch");
+	assert.deepEqual(figures(), ["Time spent: 1h 50m"]);
+});
+
+it("with the switch off, record-changed costs no list fetch", async () => {
+	await setGeneral({ showLessonTime: false }, false);
+	await settle();
+	assert.deepEqual(figures(), []);
+	const before = listFetches.length;
+	await act(async () => emit("record-changed", { chatId: timed.id }));
+	await settle();
+	assert.equal(listFetches.length, before);
 });

@@ -501,7 +501,7 @@ function SessionsSidebar() {
 	// the same-window lh:turn-state instants (components/chat-list-refresh.ts):
 	// one change costs one list fetch; projects ride only when they may
 	// have changed.
-	const refreshList = useChatListRefresh({ chats, setChats, setProjects });
+	const refreshList = useChatListRefresh({ chats, setChats, setProjects, recordChanges: showTime });
 	const refresh = useCallback(() => refreshList(), [refreshList]);
 	// Switching time spent on in this page: the snapshot was fetched without
 	// it. A page that loads with it on already got it with its first list.
