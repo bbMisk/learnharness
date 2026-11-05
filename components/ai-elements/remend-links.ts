@@ -106,9 +106,16 @@ export function finalRegionStart(text: string): number {
 	let start = 0;
 	let pos = 0;
 	let afterBlank = false;
+	let html: string | null = null;
 	for (const line of text.split("\n")) {
 		const lineStart = pos;
 		pos += line.length + 1;
+		// The HTML blocks that span blank lines (CommonMark type 1: pre,
+		// script, style, textarea) run to their closing tag (round-18 hunt finding).
+		if (html) {
+			if (line.toLowerCase().includes(`</${html}>`)) html = null;
+			continue;
+		}
 		// Any indentation: a fence nested in a list may sit 4+ spaces in (round-16
 		// hunt finding). Over-detecting only widens the parsed region, which is safe.
 		const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
@@ -125,6 +132,11 @@ export function finalRegionStart(text: string): number {
 		// item's next paragraph, nested lists, indented code; round-17 hunt finding).
 		if (afterBlank && !/^\s/.test(line)) start = lineStart;
 		afterBlank = false;
+		const open = /^ {0,3}<(pre|script|style|textarea)(?=[\s>]|$)/i.exec(line)?.[1]?.toLowerCase();
+		if (open && !line.toLowerCase().includes(`</${open}>`)) {
+			html = open;
+			continue;
+		}
 		if (marker) {
 			fence = marker;
 			continue;

@@ -112,6 +112,11 @@ it("a price or a code span before a streaming link doesn't hide it (round-2 hunt
 	assert.doesNotMatch(renderToStaticMarkup(<MessageResponse>{listed}</MessageResponse>), /href="https:\/\/example\.com\/pa"/);
 	assert.match(remend(listed, streamdownRemend), /streamdown:incomplete-link/);
 	assert.equal(finalRegionStart("- a\n\nNext paragraph"), 5, "a non-indented line after a blank starts the region");
+	// Round-18 hunt finding: a <pre> block spans blank lines.
+	const pre = "<pre>\nCost: $5\n\n[n, infinity)\n</pre>";
+	assert.equal(finalRegionStart(pre), 0);
+	assert.doesNotMatch(remend(pre, streamdownRemend), /incomplete-link/);
+	assert.equal(finalRegionStart("<pre>x</pre>\n\nAfter"), 14, "a one-line <pre> doesn't swallow later text");
 	// Round-16 hunt finding: a fence nested in a list, indented 4 spaces, keeps its blank lines.
 	const nested = "- Example:\n    ```text\n  first\n\n  [n, infinity)\n    ```";
 	assert.equal(finalRegionStart(nested), 0);
