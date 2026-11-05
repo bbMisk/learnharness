@@ -211,7 +211,7 @@ function ProblemRow({ problem: p }: { problem: TrackedProblem }) {
  *  right-aligned — green when the step's latest answered check was right,
  *  red when wrong, muted when it carries no grade (an explain answer);
  *  nothing before the step has an answered check. */
-const SCORE_TONE = { right: "text-green-500", wrong: "text-red-500", neutral: "text-muted-foreground" } as const;
+const SCORE_TONE = { right: "text-green-500", wrong: "text-red-500" } as const;
 
 function StepScore({ step }: { step: PlanStepProgress }) {
 	if (step.answered === 0 || !step.latest) return null;

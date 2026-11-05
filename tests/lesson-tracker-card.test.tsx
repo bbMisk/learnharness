@@ -336,13 +336,10 @@ it("plan: a teach lesson with a plan shows the section — covered/total, one ro
 	assert.match(score(fisherRow!)!.getAttribute("class")!, /\btext-red-500\b/);
 	assert.equal(score(planRow(host, "current")), null, "no answered check: no score");
 	assert.equal(score(planRow(host, "upcoming")), null);
-	// An ungraded (explain) latest answer: a muted score.
+	// An ungraded (explain) answer: no score at all, not a grey "0/1".
 	const explainView: ViewMessage[] = [{ parts: [{ type: "tool-explain", state: "output-available", input: { nodeId: "score" }, output: { kind: "explain", dontKnow: false, answers: [], text: "x", questionText: "q", answeredAt: "t" } }] }];
 	await act(async () => root!.render(<PlanHarness view={explainView} />));
-	const neutral = score(planRow(host, "current"))!;
-	assert.equal(neutral.textContent, "0/1");
-	assert.match(neutral.getAttribute("class")!, /\btext-muted-foreground\b/);
-	assert.doesNotMatch(neutral.getAttribute("class")!, /text-(green|red)-500/);
+	assert.equal(score(planRow(host, "current")), null);
 });
 
 it("plan: updates live as tagged checks stream in and answers land", async () => {

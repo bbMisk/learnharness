@@ -21,10 +21,12 @@
  *             output in the view), a failed call, an untagged call, and a
  *             nodeId not in the current tree (a rewrite may drop a node).
  *             "I don't know" is answered and not right.
- *   latest  — the step's most recent answered check: "right" (green),
- *             "wrong" (red: graded incorrect or "I don't know"), or
- *             "neutral" when it carries no grade — an explain answer: the
- *             model grades it in prose, the record has no `correct`.
+ *   latest  — the step's most recent answered check: "right" (green) or
+ *             "wrong" (red: graded incorrect or "I don't know"). An answer
+ *             with no grade (an explain answer: the tutor grades it in
+ *             prose, the record has no `correct`) counts for nothing, so an
+ *             explain-mode lesson shows no scores rather than grey "0/3"s
+ *             that read as failures (owner review, 2026-11-05).
  *
  * Shown only for a teach lesson with a plan (a tree with nodes) and never
  * in cram (the card keeps Problems + Mistakes there) or practice.
@@ -41,7 +43,7 @@ export interface PlanProgressMessage {
 }
 
 /** The verdict of one answered check. */
-export type PlanCheckVerdict = "right" | "wrong" | "neutral";
+export type PlanCheckVerdict = "right" | "wrong";
 
 export interface PlanStepProgress {
 	id: string;
@@ -111,7 +113,7 @@ export function planCheckVerdict(answer: unknown): PlanCheckVerdict | null {
 	if (a.dontKnow === true) return "wrong";
 	if (a.correct === true) return "right";
 	if (a.correct === false) return "wrong";
-	return "neutral";
+	return null; // ungraded: not a score either way
 }
 
 /** The plan section's state for a tree and the transcript view. */

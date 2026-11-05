@@ -101,11 +101,11 @@ describe("derivePlanProgress", () => {
 		]);
 	});
 
-	it("explain checks count: an ungraded answer is answered, not right, and neutral", () => {
+	it("an ungraded (explain) answer counts for nothing; graded ones and \"I don't know\" still count", () => {
 		const p = derivePlanProgress(ABC, [msg(check("a", right, "explain"), check("a", explained, "explain")), msg(check("b", explained, "explain"), check("b", dontKnow, "explain"))]);
 		assert.deepEqual(view(p), [
-			["a", "visited", "1/2", "neutral"],
-			["b", "current", "0/2", "wrong"],
+			["a", "visited", "1/1", "right"],
+			["b", "current", "0/1", "wrong"],
 			["c", "upcoming", "0/0", null],
 		]);
 	});
@@ -155,12 +155,12 @@ describe("planStepOrder", () => {
 });
 
 describe("planCheckVerdict", () => {
-	it("maps an answer to right / wrong / neutral, or null for a non-answer", () => {
+	it("maps an answer to right / wrong, or null for a non-answer or an ungraded one", () => {
 		assert.equal(planCheckVerdict(right), "right");
 		assert.equal(planCheckVerdict(wrong), "wrong");
 		assert.equal(planCheckVerdict(dontKnow), "wrong");
 		assert.equal(planCheckVerdict({ ...dontKnow, correct: undefined }), "wrong", "I don't know without a grade");
-		assert.equal(planCheckVerdict(explained), "neutral");
+		assert.equal(planCheckVerdict(explained), null, "ungraded");
 		assert.equal(planCheckVerdict(dismissed), null);
 		assert.equal(planCheckVerdict(null), null);
 		assert.equal(planCheckVerdict(undefined), null);
