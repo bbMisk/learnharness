@@ -134,14 +134,14 @@ function SectionHeader({ title, count }: { title: string; count: string }) {
 /** `statusLabel`: the status the aria-hidden symbol shows, for screen
  *  readers (visually hidden — sr-only is out of flow, so the row's layout
  *  is unchanged). */
-function Row({ symbol, status, text, className, symbolClassName = "", textClassName = "break-words", aside, statusLabel }: { symbol: string; status: string; text: string; className: string; symbolClassName?: string; textClassName?: string; aside?: ReactNode; statusLabel?: string }) {
+function Row({ symbol, status, text, className, symbolClassName = "", aside, statusLabel }: { symbol: string; status: string; text: string; className: string; symbolClassName?: string; aside?: ReactNode; statusLabel?: string }) {
 	return (
 		<li data-status={status} className={`flex gap-2 leading-snug ${className}`}>
 			<span aria-hidden data-testid="lesson-tracker-symbol" className={`w-3 shrink-0 text-center ${symbolClassName}`}>
 				{symbol}
 			</span>
 			{statusLabel && <span className="sr-only">{`${statusLabel}: `}</span>}
-			<span className={`min-w-0 ${textClassName}`}>{text}</span>
+			<span className="min-w-0 break-words">{text}</span>
 			{aside}
 		</li>
 	);
