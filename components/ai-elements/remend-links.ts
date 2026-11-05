@@ -95,6 +95,33 @@ function prepare(text: string): { hidden: string; lastBlockStart: number } {
 	return { hidden, lastBlockStart };
 }
 
+/** Where the final region starts: just after the last blank line that is
+ *  outside fenced code and $$ display math. Everything before it is
+ *  finished blocks, so a streaming render parses only the tail (the
+ *  renderer re-runs this on every chunk; parsing the whole reply each time
+ *  cost several ms on long replies). 0 when there is no such line. */
+export function finalRegionStart(text: string): number {
+	let fence: string | null = null;
+	let display = false;
+	let start = 0;
+	let pos = 0;
+	for (const line of text.split("\n")) {
+		pos += line.length + 1;
+		const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+		if (fence) {
+			if (marker && marker[0] === fence[0] && marker.length >= fence.length && line.trim() === marker) fence = null;
+			continue;
+		}
+		if (marker) {
+			fence = marker;
+			continue;
+		}
+		if ((line.match(/\$\$/g) ?? []).length % 2 === 1) display = !display;
+		if (!display && line.trim() === "") start = pos;
+	}
+	return Math.min(start, text.length);
+}
+
 export function hideMathBrackets(text: string): string {
 	return prepare(text).hidden;
 }
@@ -107,8 +134,11 @@ export function completeLinksOutsideMath(text: string): string {
 	if (!text.includes("[")) return text;
 	// The marker character already in the text would be turned into "[": fall back to plain completion.
 	if (text.includes(HIDDEN)) return remend(text, LINKS_ONLY);
-	const { hidden, lastBlockStart } = prepare(text);
-	return (hidden.slice(0, lastBlockStart) + remend(hidden.slice(lastBlockStart), LINKS_ONLY)).replaceAll(HIDDEN, "[");
+	const region = finalRegionStart(text);
+	const tail = text.slice(region);
+	if (!tail.includes("[")) return text;
+	const { hidden, lastBlockStart } = prepare(tail);
+	return text.slice(0, region) + (hidden.slice(0, lastBlockStart) + remend(hidden.slice(lastBlockStart), LINKS_ONLY)).replaceAll(HIDDEN, "[");
 }
 
 /** Runs where remend's own link handler would (priority 20, before bold/italic). */

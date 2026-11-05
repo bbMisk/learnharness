@@ -99,6 +99,13 @@ it("a price or a code span before a streaming link doesn't hide it (round-2 hunt
 	assert.match(remend(table, streamdownRemend), /streamdown:incomplete-link/);
 	assert.doesNotMatch(renderToStaticMarkup(<MessageResponse>{table}</MessageResponse>), /href="https:\/\/example\.com\/\$10"/);
 	assert.equal(remend("| a | b |\n| --- | --- |\n| $[0,1)$ | $[2,3)$ |", streamdownRemend), "| a | b |\n| --- | --- |\n| $[0,1)$ | $[2,3)$ |");
+	// Only the final region is parsed: blank lines inside fences and $$ display math don't start it.
+	const { finalRegionStart } = remendLinks;
+	assert.equal(finalRegionStart("a\n\nb"), 3);
+	assert.equal(finalRegionStart("a\n\n```\nx\n\ny\n```\nz"), 3, "a blank line inside a fence is not a boundary");
+	assert.equal(finalRegionStart("a\n\n$$\nx\n\ny\n$$\nz"), 3, "nor one inside display math");
+	assert.equal(finalRegionStart("a\n\n```\nstill streaming\n\n"), 3, "an open fence keeps its blank lines");
+	assert.equal(finalRegionStart("no blank line"), 0);
 	// Round-9 hunt finding: a code span closes only on a backtick run of its own length.
 	const ticks = "A `` literal [source](https://example.com/pa ``` end";
 	assert.match(remend(ticks, streamdownRemend), /streamdown:incomplete-link/);
