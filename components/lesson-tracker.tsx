@@ -112,7 +112,7 @@ export function LessonTrackerChip({ shown, onToggle }: { shown: boolean; onToggl
 
 function SectionHeader({ title, count }: { title: string; count: string }) {
 	return (
-		<h3 className="mb-1.5 flex items-baseline justify-between gap-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+		<h3 className="mb-2 flex items-baseline justify-between gap-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
 			<span>{title}</span>
 			<span data-testid="lesson-tracker-count" className="tabular-nums normal-case">
 				{count}
@@ -129,6 +129,53 @@ function Row({ symbol, status, text, className, symbolClassName = "" }: { symbol
 			</span>
 			<span className="min-w-0 break-words">{text}</span>
 		</li>
+	);
+}
+
+/** One archived mistake: a single struck-through line; a tap, click or
+ *  Enter/Space unfolds the full text (round-3 hunt finding: hover alone left
+ *  touch and keyboard users with a cut-off line). */
+function ResolvedMistake({ text }: { text: string }) {
+	const [open, setOpen] = useState(false);
+	return (
+		<li data-status="resolved" className="text-[10.5px] leading-snug text-muted-foreground/60">
+			<button
+				type="button"
+				aria-expanded={open}
+				title={text}
+				onClick={() => setOpen((o) => !o)}
+				className="flex w-full cursor-pointer gap-2 rounded-sm text-left hover:text-muted-foreground focus-visible:outline-1 focus-visible:outline-ring"
+			>
+				<span aria-hidden data-testid="lesson-tracker-symbol" className="w-3 shrink-0 text-center text-green-500/60">✓</span>
+				<span className={`min-w-0 line-through decoration-muted-foreground/60 ${open ? "break-words" : "truncate"}`}>{text}</span>
+			</button>
+		</li>
+	);
+}
+
+/** Mistakes (owner, 2026-11-05): open ones first, full text with room to
+ *  read; a resolved one is archived below them — one dimmed, smaller,
+ *  struck-through line, the full text on hover. */
+function MistakeList({ mistakes }: { mistakes: LessonTracking["mistakes"] }) {
+	const open = mistakes.filter((m) => !m.resolved);
+	const resolved = mistakes.filter((m) => m.resolved);
+	return (
+		<>
+			{open.length > 0 && (
+				<ul data-testid="lesson-tracker-open-mistakes" className="flex flex-col gap-2">
+					{open.map((m) => (
+						<Row key={m.id} symbol="○" status="open" text={m.text} className="leading-relaxed text-foreground" />
+					))}
+				</ul>
+			)}
+			{resolved.length > 0 && (
+				<ul data-testid="lesson-tracker-resolved-mistakes" className={`flex flex-col gap-1 ${open.length > 0 ? "mt-2.5 border-t border-border/60 pt-2" : ""}`}>
+					{resolved.map((m) => (
+						<ResolvedMistake key={m.id} text={m.text} />
+					))}
+				</ul>
+			)}
+		</>
 	);
 }
 
@@ -151,7 +198,7 @@ function ProblemRow({ problem: p }: { problem: TrackedProblem }) {
 
 /**
  * The card: "Problems correct/total" (one ProblemRow each) when a list
- * exists, "Mistakes K open" (○ open, ✓ resolved) when any mistake
+ * exists, "Mistakes K open · J fixed" (○ open, archived ✓ resolved) when any mistake
  * exists. `bottomReserve` is the dock's height — the card never reaches the
  * composer; it scrolls instead.
  */
@@ -162,7 +209,7 @@ export function LessonTrackerCard({ tracking, bottomReserve }: { tracking: Lesso
 		<aside
 			data-testid="lesson-tracker"
 			aria-label="Lesson progress"
-			className="absolute right-3 top-3 z-20 flex w-64 max-w-[calc(100%-1.5rem)] flex-col gap-3 overflow-y-auto rounded-xl border border-border/80 bg-card/95 p-3 font-ui text-xs text-foreground shadow-sm backdrop-blur-sm"
+			className="absolute right-3 top-3 z-20 flex w-64 max-w-[calc(100%-1.5rem)] flex-col gap-4 overflow-y-auto rounded-xl border border-border/80 bg-card/95 px-3.5 py-3 font-ui text-xs text-foreground shadow-sm backdrop-blur-sm"
 			style={{ maxHeight: `calc(100% - ${bottomReserve + 24}px)` }}
 		>
 			{problems && (
@@ -177,16 +224,8 @@ export function LessonTrackerCard({ tracking, bottomReserve }: { tracking: Lesso
 			)}
 			{mistakes.length > 0 && (
 				<section data-testid="lesson-tracker-mistakes">
-					<SectionHeader title="Mistakes" count={`${openMistakes} open`} />
-					<ul className="flex flex-col gap-1">
-						{mistakes.map((m) =>
-							m.resolved ? (
-								<Row key={m.id} symbol="✓" status="resolved" text={m.text} className="text-muted-foreground" />
-							) : (
-								<Row key={m.id} symbol="○" status="open" text={m.text} className="text-foreground" />
-							),
-						)}
-					</ul>
+					<SectionHeader title="Mistakes" count={`${openMistakes} open${mistakes.length > openMistakes ? ` · ${mistakes.length - openMistakes} fixed` : ""}`} />
+					<MistakeList mistakes={mistakes} />
 				</section>
 			)}
 		</aside>

@@ -306,6 +306,7 @@ const TranscriptRow = memo(function TranscriptRow({
 									pi={pi}
 									teachBoundary={teachBoundary}
 									reasoningStreaming={streamingLast && pi === m.parts.length - 1 && (activeReasoningId === undefined || part.id === activeReasoningId)}
+									textStreaming={streamingLast && pi === m.parts.length - 1}
 									anchored={part.type === "text" && !!part.id && anchored.has(part.id)}
 									malformed={malformed}
 									questionPending={malformed ? questionPending : false}
@@ -339,6 +340,8 @@ interface PartProps {
 	teachBoundary: boolean;
 	/** The live turn streams and this is the transcript's last part. */
 	reasoningStreaming: boolean;
+	/** This text part is still arriving (the live turn's last part). */
+	textStreaming: boolean;
 	/** This text part carries its native message's DOM anchor. */
 	anchored: boolean;
 	malformed: QuestionCall | undefined;
@@ -353,6 +356,7 @@ const TranscriptPart = memo(function TranscriptPart({
 	pi,
 	teachBoundary,
 	reasoningStreaming,
+	textStreaming,
 	anchored,
 	malformed,
 	questionPending,
@@ -376,7 +380,7 @@ const TranscriptPart = memo(function TranscriptPart({
 			const anchor = sourceId && anchored ? messageAnchorId(sourceId) : undefined;
 			return (
 				<div id={anchor} data-source-message-id={sourceId ?? undefined} className="lh-source-passage">
-					<MessageResponse>{part.text}</MessageResponse>
+					<MessageResponse streaming={textStreaming}>{part.text}</MessageResponse>
 				</div>
 			);
 		}

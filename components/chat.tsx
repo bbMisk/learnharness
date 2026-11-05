@@ -54,6 +54,7 @@ import { TopBar } from "@/components/top-bar";
 import type { JobRecord, Phase3, QuestionAnswerData, QuestionCall, QuestionFormDraft, TurnUsage, SessionPricing } from "@/src/core";
 import { PhaseChip } from "@/components/phase-divider";
 import { CramToggle, useLessonCram } from "@/components/cram-toggle";
+import { PLAN_ACCEPT_TEXT, PlanAcceptBar, awaitingPlanReply, offersPlanAccept } from "@/components/plan-accept";
 import { recordSyncVerdict } from "@/components/record-sync";
 import { QuestionTypeChip, showsQuestionTypeChip, useLessonQuestionType } from "@/components/question-type-chip";
 import { LessonTrackerCard, LessonTrackerChip, lessonTrackerRoom, useLessonTrackerShown } from "@/components/lesson-tracker";
@@ -1200,6 +1201,26 @@ export function Chat({
 		void send({ type: "text", text: t });
 	};
 
+	// "Accept plan" (plan-accept.tsx): the same preflight as an ordinary send
+	// (hunt finding: an unavailable selected model opens the picker first),
+	// with the fixed go-ahead text and the learner's draft left alone.
+	const acceptPlan = () => {
+		if (busy || pending || compacting) return;
+		if (zeroKeys) {
+			setSetupOpen(true);
+			return;
+		}
+		if (selectedModelUnavailable(catalog, selectedModel)) {
+			openModelPicker();
+			return;
+		}
+		// Nothing of the learner's to restore if the send is refused: clear the
+		// replay slot so a refusal can't put an older sent message over the
+		// current draft (round-2 hunt finding).
+		draftRef.current = null;
+		void send({ type: "text", text: PLAN_ACCEPT_TEXT });
+	};
+
 	// New input interrupts a busy response; idle input uses ordinary Send.
 	const doSteerOrSend = () => {
 		if (pending || compacting) return;
@@ -1484,7 +1505,9 @@ export function Chat({
 					dictationCancel={dictation.cancel}
 					queuedSteers={visibleQueuedSteers(steerQueue, nativeMessages)}
 					setupCta={
-						zeroKeys ? (
+						offersPlanAccept({ kind, cram, phase: phases.at(-1), hasPlan: !!planTree && planTree.nodes.length > 0, awaitingReply: awaitingPlanReply(nativeMessages as never), sendAllowed, busy, retryable }) && !zeroKeys && configured ? (
+							<PlanAcceptBar onAccept={acceptPlan} onChange={() => composerInputRef.current?.focus()} />
+						) : zeroKeys ? (
 							<ZeroKeysPill onOpen={() => setSetupOpen(true)} />
 						) : (
 							!configured && (

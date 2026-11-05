@@ -116,12 +116,32 @@ it("renders both sections with symbols and counts", async () => {
 	for (const status of ["correct", "incorrect", "skipped", "todo"]) {
 		assert.doesNotMatch(problemRow(status).getAttribute("class")!, /font-semibold/, `${status} is not bold`);
 	}
-	assert.equal(count(host, "mistakes"), "2 open");
+	assert.equal(count(host, "mistakes"), "2 open · 1 fixed");
+	// Open first; a resolved mistake is archived below them (owner, 2026-11-05).
 	assert.deepEqual(rows(host, "mistakes"), [
-		["resolved", "✓Variance taken as the standard deviation"],
 		["open", "○Drops the n in the Fisher information"],
 		["open", "○Forgets the regularity conditions"],
+		["resolved", "✓Variance taken as the standard deviation"],
 	]);
+	const resolved = host.querySelector('[data-testid="lesson-tracker-mistakes"] li[data-status="resolved"]')!;
+	const resolvedText = resolved.querySelectorAll("span")[1]!.getAttribute("class")!;
+	assert.match(resolvedText, /\bline-through\b/, "crossed out");
+	assert.match(resolvedText, /\btruncate\b/, "one line");
+	assert.match(resolved.getAttribute("class")!, /text-\[10\.5px\]/, "smaller");
+	assert.match(resolved.getAttribute("class")!, /text-muted-foreground\/60/, "dimmed");
+	const unfold = resolved.querySelector("button")!;
+	assert.equal(unfold.getAttribute("title"), "Variance taken as the standard deviation", "full text on hover");
+	// Touch and keyboard: the row is a button that unfolds the full text (round-3 hunt finding).
+	assert.equal(unfold.getAttribute("aria-expanded"), "false");
+	await act(async () => unfold.click());
+	assert.equal(unfold.getAttribute("aria-expanded"), "true");
+	assert.doesNotMatch(resolved.querySelectorAll("span")[1]!.getAttribute("class")!, /\btruncate\b/, "unfolded");
+	assert.match(resolved.querySelectorAll("span")[1]!.getAttribute("class")!, /\bline-through\b/, "still crossed out");
+	await act(async () => unfold.click());
+	assert.match(resolved.querySelectorAll("span")[1]!.getAttribute("class")!, /\btruncate\b/, "folds again");
+	for (const open of host.querySelectorAll('[data-testid="lesson-tracker-mistakes"] li[data-status="open"]')) {
+		assert.doesNotMatch(open.getAttribute("class")!, /line-through|truncate/);
+	}
 	// Never reaches the composer: the dock's reserve bounds its height.
 	assert.match(card.getAttribute("style") ?? "", /max-height:\s*calc\(100% - 224px\)/);
 });
@@ -194,7 +214,7 @@ it("updates live as tracking results arrive; no chip or card before any", async 
 	await act(async () => root!.render(<Harness messages={record.slice(0, 3)} />));
 	assert.equal(count(host, "problems"), "1/5");
 	await act(async () => root!.render(<Harness messages={record} />));
-	assert.equal(count(host, "mistakes"), "2 open");
+	assert.equal(count(host, "mistakes"), "2 open · 1 fixed");
 });
 
 it("phone width starts hidden and opens from the chip", async () => {
