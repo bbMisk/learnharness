@@ -148,10 +148,6 @@ describe("planStepOrder", () => {
 		assert.deepEqual(derivePlanProgress(t, []).steps.map((s) => s.id), ["a", "b", "c", "x"], "the section reads in that order");
 	});
 
-	it("never loses a node (dangling edges ignored; a cycle keeps tree order at the end)", () => {
-		const t = tree(["a", "b", "c"], [["b", "a"], ["a", "b"], ["c", "ghost"]]);
-		assert.deepEqual(planStepOrder(t).map((n) => n.id), ["c", "a", "b"]);
-	});
 });
 
 describe("planCheckVerdict", () => {

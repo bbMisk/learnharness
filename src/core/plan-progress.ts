@@ -74,33 +74,24 @@ const CHECK_PARTS = new Set(["tool-quiz", "tool-explain"]);
  * the steps that need it. A plan's mermaid can mention a step before its
  * prerequisite (`b --> c` then `a --> b`), so node order alone is not a
  * reading order: Kahn's algorithm, always taking the earliest ready node in
- * tree order — the identity on an already-topological tree. Edges to unknown
- * nodes are ignored, and a cycle (createTree forbids one) keeps its nodes
- * in tree order at the end rather than losing them.
+ * tree order — the identity on an already-topological tree. The tree is
+ * valid (createTree rejects unknown endpoints, self-loops and cycles).
  */
 export function planStepOrder(tree: PlanTree): PlanNode[] {
 	const index = new Map(tree.nodes.map((n, i) => [n.id, i]));
 	const indegree = tree.nodes.map(() => 0);
 	const next = tree.nodes.map((): number[] => []);
 	for (const e of tree.edges) {
-		const from = index.get(e.from);
-		const to = index.get(e.to);
-		if (from === undefined || to === undefined || from === to) continue;
-		next[from]!.push(to);
-		indegree[to]!++;
+		next[index.get(e.from)!]!.push(index.get(e.to)!);
+		indegree[index.get(e.to)!]!++;
 	}
 	const placed = tree.nodes.map(() => false);
 	const order: PlanNode[] = [];
-	for (;;) {
-		const ready = indegree.findIndex((d, i) => d === 0 && !placed[i]);
-		if (ready < 0) break;
+	for (let ready = indegree.indexOf(0); ready >= 0; ready = indegree.findIndex((d, i) => d === 0 && !placed[i])) {
 		placed[ready] = true;
 		order.push(tree.nodes[ready]!);
 		for (const to of next[ready]!) indegree[to]!--;
 	}
-	tree.nodes.forEach((n, i) => {
-		if (!placed[i]) order.push(n);
-	});
 	return order;
 }
 
