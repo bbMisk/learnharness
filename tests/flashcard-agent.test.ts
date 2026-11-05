@@ -181,6 +181,15 @@ it("caps old-rules rewrites per study day across chained runs (round-1 hunt find
     assert.equal(h.refreshed.length,60,"the rest the next day");
 });
 
+it("a new card that fails to prepare doesn't block rewrites (round-4 hunt finding)",async()=>{
+    const h=harness(4,4);
+    for(const c of h.records.slice(0,2))c.mcq={prompt:c.front,options:["A","B","C","D"],correctIndex:0,explanation:"Old"};
+    h.deps.prepare=async()=>{throw new Error("question generation failed");};
+    await runFlashcardCuration(false,h.deps);
+    assert.equal(h.refreshed.length,2,"stale questions still rewritten");
+    assert.match(readFlashcardCuration().lastError??"",/question generation failed/,"the preparation failure is still reported");
+});
+
 it("failed rewrites count toward the daily cap (round-2 hunt finding)",async()=>{
     const h=harness(60,1);let attempts=0;
     for(const c of h.records)c.mcq={prompt:c.front,options:["A","B","C","D"],correctIndex:0,explanation:"Old"};

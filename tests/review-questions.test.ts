@@ -110,6 +110,11 @@ it("puts the card's answer into an explanation that doesn't quote it, and fails 
 	const spaced = question(answer, "The instantaneous   rate\nof change. Derivatives measure change.");
 	respond([submit("submit_question", spaced)]);
 	assert.equal((await questionFor(card("spaced"))).explanation, spaced.explanation);
+	// Round-4 hunt finding: a short answer inside another number isn't a quote.
+	const { withSourceAnswer } = await import("../src/server/review-questions.ts");
+	const one: Flashcard = { ...card("one"), back: "1" };
+	assert.equal(withSourceAnswer(one, "The answer is 10 when n = 3."), "1\n\nThe answer is 10 when n = 3.");
+	assert.equal(withSourceAnswer(one, "1. Because the limit is one."), "1. Because the limit is one.");
 
 	const repeated = { ...question(answer), options: ["It is the instantaneous rate of change: A", "It is the instantaneous rate of change: B", "It is the instantaneous rate of change: C", "It is the instantaneous rate of change: D"] };
 	respond(Array.from({ length: 4 }, () => submit("submit_question", repeated)));

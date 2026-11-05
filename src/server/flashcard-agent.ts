@@ -344,6 +344,9 @@ export async function runFlashcardCuration(force = false, deps: FlashcardAgentDe
 			return true;
 		});
 		run.total = toPrepare.length;
+		// A new card that fails to prepare is reported at the end of the run but
+		// doesn't stop the rewrites below (round-4 hunt finding).
+		let prepareError: unknown;
 		for (const card of toPrepare) {
 			signal.throwIfAborted();
 			const currentOptions = deps.options();
@@ -366,7 +369,13 @@ export async function runFlashcardCuration(force = false, deps: FlashcardAgentDe
 			});
 			if (!permitted) continue;
 			progress(`Preparing ${run.prepared + 1}/${run.total}`);
-			await deps.prepare(card, options.instructions, signal);
+			try {
+				await deps.prepare(card, options.instructions, signal);
+			} catch (error) {
+				if (signal.aborted) throw error;
+				prepareError = error;
+				break;
+			}
 			run.prepared++;
 		}
 		// Questions written under older rules (paragraph-length options, 2026-11-01;
@@ -410,6 +419,7 @@ export async function runFlashcardCuration(force = false, deps: FlashcardAgentDe
 			const failed = rewritesToday(next, String(studyDay(deps.now()))).failed.length;
 			if (failed) next.lastError = `${failed} flashcard question${failed === 1 ? "" : "s"} could not be rewritten; the old ${failed === 1 ? "one stays" : "ones stay"} in use and will be retried tomorrow.`;
 		});
+		if (prepareError) throw prepareError;
 	} catch (error) {
 		updateFlashcardCuration((next) => {
 			next.lastError = signal.aborted ? "Stopped by you." : error instanceof Error ? error.message : "Flashcard preparation failed.";

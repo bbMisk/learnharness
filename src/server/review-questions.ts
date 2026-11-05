@@ -146,11 +146,13 @@ export function questionProblem(card: Flashcard, value: ReviewQuestion): string 
 
 const squash = (text: string) => text.replace(/\s+/g, " ").trim();
 
-/** The explanation always carries the full source answer: kept as written when
- *  the model quoted it (whitespace aside), else put first by the code — an exact
- *  quote is never a reason to reject a question (round-1 hunt finding). */
+/** The explanation always begins with the full source answer: kept as written
+ *  when the model began with it (whitespace aside), else put first by the code —
+ *  an exact quote is never a reason to reject a question (round-1 hunt finding).
+ *  "Begins with", not "contains": a short answer like "1" would otherwise match
+ *  inside "10" (round-4 hunt finding). */
 export function withSourceAnswer(card: Flashcard, explanation: string): string {
-	return squash(explanation).includes(squash(card.back)) ? explanation : `${card.back}\n\n${explanation}`;
+	return squash(explanation).startsWith(squash(card.back)) ? explanation : `${card.back}\n\n${explanation}`;
 }
 
 
