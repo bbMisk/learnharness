@@ -1214,6 +1214,10 @@ export function Chat({
 			openModelPicker();
 			return;
 		}
+		// Nothing of the learner's to restore if the send is refused: clear the
+		// replay slot so a refusal can't put an older sent message over the
+		// current draft (round-2 hunt finding).
+		draftRef.current = null;
 		void send({ type: "text", text: PLAN_ACCEPT_TEXT });
 	};
 

@@ -1,6 +1,7 @@
 "use client";
 
 import type { Phase3 } from "@/src/core";
+import { QUESTION_TOOLS } from "@/src/core/pending";
 
 /** The go-ahead "Accept plan" sends (the wording of the retired Teach button). */
 export const PLAN_ACCEPT_TEXT = "The plan looks good. Teach it.";
@@ -27,17 +28,43 @@ export function offersPlanAccept(s: {
 	return s.kind === "teach" && !s.cram && s.phase === "plan" && s.hasPlan && s.awaitingReply && s.sendAllowed && !s.busy && !s.retryable;
 }
 
-/** True while the latest plan (its plan_init call) has no learner message
- *  after it: once the learner accepts or asks for a change, the bar stays
- *  away until the tutor presents a plan again (hunt finding: phase stays
- *  "plan" until the first tagged check, so accepting alone didn't hide it). */
-export function awaitingPlanReply(messages: ReadonlyArray<{ role?: string; content?: unknown }>): boolean {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const m = messages[i]!;
-		if (m.role === "user") return false;
-		if (m.role === "assistant" && Array.isArray(m.content) && (m.content as Array<{ type?: string; name?: string }>).some((b) => b.type === "toolCall" && b.name === "plan_init")) return true;
+type ScanMessage = { role?: string; content?: unknown; toolName?: string; toolCallId?: string; isError?: boolean };
+
+function learnerText(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return (content as Array<{ type?: string; text?: string }>).filter((b) => b.type === "text").map((b) => b.text ?? "").join("");
+}
+
+/** True while the latest plan presentation has no reply yet (owner,
+ *  2026-11-05). Phase stays "plan" until the first tagged check, so the phase
+ *  alone can't tell (hunt findings, rounds 1–2):
+ *  - a successful plan_init call presents a plan (a failed one doesn't);
+ *  - a learner message, or an answer to a question asked after the plan,
+ *    is a reply;
+ *  - once the learner has clicked Accept, later plan_init calls (a rewrite
+ *    while teaching gets going) don't ask again. */
+export function awaitingPlanReply(messages: readonly ScanMessage[]): boolean {
+	const failed = new Set<string>();
+	for (const m of messages) {
+		if (m.role === "toolResult" && m.toolName === "plan_init" && m.isError && m.toolCallId) failed.add(m.toolCallId);
 	}
-	return false;
+	let awaiting = false;
+	let accepted = false;
+	for (const m of messages) {
+		if (m.role === "assistant" && Array.isArray(m.content)) {
+			const presents = (m.content as Array<{ type?: string; name?: string; id?: string }>).some(
+				(b) => b.type === "toolCall" && b.name === "plan_init" && !(b.id && failed.has(b.id)),
+			);
+			if (presents && !accepted) awaiting = true;
+		} else if (m.role === "user") {
+			awaiting = false;
+			if (learnerText(m.content).trim() === PLAN_ACCEPT_TEXT) accepted = true;
+		} else if (m.role === "toolResult" && (QUESTION_TOOLS as readonly string[]).includes(m.toolName ?? "")) {
+			awaiting = false;
+		}
+	}
+	return awaiting;
 }
 
 /** Two buttons above the composer: Accept sends the go-ahead; Change hands

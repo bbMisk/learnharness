@@ -42,28 +42,43 @@ function nextDelimiter(text: string, delim: string, from: number): number {
 	return -1;
 }
 
-/** `[` inside $…$ and $$…$$ (and an unclosed trailing span, while it streams) → HIDDEN. */
+/** In math that hasn't closed yet (still streaming, or a lone `$` like a
+ *  price), hide every `[` except one that starts a link (`[text](`): that
+ *  shape is a link, and a link still streaming must keep remend's hardened
+ *  placeholder (round-2 hunt finding: "$5. See [source](https://ex…"). */
+function hideUnclosed(tail: string): string {
+	return tail.replace(/\[(?![^\]\n]*\]\()/g, HIDDEN);
+}
+
+/** `[` inside $…$ and $$…$$ → HIDDEN. Code spans and fences are copied
+ *  through untouched (a `$HOME` in code opens no math). */
 export function hideMathBrackets(text: string): string {
 	let out = "";
 	let i = 0;
 	while (i < text.length) {
-		const open = text.indexOf("$", i);
-		if (open === -1) break;
-		if (escaped(text, open)) {
-			out += text.slice(i, open + 1);
-			i = open + 1;
+		const ch = text[i]!;
+		if (ch === "`") {
+			let run = 1;
+			while (text[i + run] === "`") run++;
+			const close = text.indexOf("`".repeat(run), i + run);
+			const end = close === -1 ? text.length : close + run;
+			out += text.slice(i, end);
+			i = end;
 			continue;
 		}
-		const delim = text[open + 1] === "$" ? "$$" : "$";
-		const start = open + delim.length;
-		const close = nextDelimiter(text, delim, start);
-		const end = close === -1 ? text.length : close;
-		out += text.slice(i, start) + text.slice(start, end).replaceAll("[", HIDDEN);
-		if (close === -1) return out;
-		out += delim;
-		i = close + delim.length;
+		if (ch === "$" && !escaped(text, i)) {
+			const delim = text[i + 1] === "$" ? "$$" : "$";
+			const start = i + delim.length;
+			const close = nextDelimiter(text, delim, start);
+			if (close === -1) return out + text.slice(i, start) + hideUnclosed(text.slice(start));
+			out += text.slice(i, start) + text.slice(start, close).replaceAll("[", HIDDEN) + delim;
+			i = close + delim.length;
+			continue;
+		}
+		out += ch;
+		i++;
 	}
-	return out + text.slice(i);
+	return out;
 }
 
 export function completeLinksOutsideMath(text: string): string {

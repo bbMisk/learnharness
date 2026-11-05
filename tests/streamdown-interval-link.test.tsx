@@ -45,6 +45,22 @@ it("a link still streaming outside math keeps the hardened placeholder (hunt fin
 	assert.equal(remend("done: [a link](https://example.com).", streamdownRemend), "done: [a link](https://example.com).");
 });
 
+it("a price or a code span before a streaming link doesn't hide it (round-2 hunt finding)", () => {
+	const marker = "](streamdown:incomplete-link)";
+	for (const text of [
+		"The cost is $5. See [source](https://example.com/pa",
+		"Run `echo $HOME` and see [source](https://example.com/pa",
+		"```sh\necho $PATH\n```\nThen [source](https://example.com/pa",
+	]) {
+		assert.ok(remend(text, streamdownRemend).endsWith(marker), text);
+		const html = renderToStaticMarkup(<MessageResponse>{text}</MessageResponse>);
+		assert.doesNotMatch(html, /href="https:\/\/example\.com\/pa"/, `no clickable truncated URL: ${text}`);
+	}
+	// Still streaming math keeps its interval: no link shape after the `[`.
+	assert.equal(remend("so $[n,\\infty", streamdownRemend), "so $[n,\\infty");
+	assert.equal(remendLinks.hideMathBrackets("`$x` [a]"), "`$x` [a]", "code spans open no math");
+});
+
 it("brackets inside math never count as links, closed or still streaming", () => {
 	const keep = [
 		"$$\\bigcap_n [0, \\tfrac1n] \\cup [2,\\infty)$$ is the set.",
