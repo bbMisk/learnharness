@@ -74,9 +74,9 @@ const questionSchema = Type.Object({
 	explanation: Type.String({ description: "Why the correct answer holds and why each distractor fails." }),
 });
 
-/** Source answers longer than this are condensed for the options (owner, 2026-11-01):
- *  four paragraph-length options do not fit a phone screen. Shorter answers are
- *  still copied exactly. Options may run a little over for LaTeX markup. */
+/** Options stay under this many characters (owner, 2026-11-01): four
+ *  paragraph-length options do not fit a phone screen. Options may run a
+ *  little over for LaTeX markup (OPTION_MAX_CHARS). */
 export const SHORT_ANSWER_CHARS = 120;
 const OPTION_MAX_CHARS = 140;
 
@@ -108,11 +108,10 @@ export function sharedOptionWording(options: readonly string[]): string | null {
 	return null;
 }
 
-/** Why a submitted question breaks the contract for this card, or null. Options
- *  stay short and carry only what differs; the explanation quotes the source
- *  answer in full (owner, 2026-11-05: the correct option no longer has to be the
- *  source answer verbatim, which forced the whole sentence into every option). */
-export function questionProblem(card: Flashcard, value: ReviewQuestion): string | null {
+/** Why a submitted question breaks the contract, or null: options stay short
+ *  and carry only what differs (owner, 2026-11-05). The source answer is put
+ *  into the explanation afterwards (withSourceAnswer). */
+export function questionProblem(value: ReviewQuestion): string | null {
 	try {
 		assertReviewQuestion(value);
 	} catch {
@@ -189,7 +188,7 @@ async function generate(card: Flashcard, options: { signal?: AbortSignal; instru
 		// swap afterwards could contradict an explanation that names options by
 		// position (round-2 hunt finding), so the model is asked to fix it instead.
 		validate: (value) =>
-			questionProblem(card, value) ??
+			questionProblem(value) ??
 			(options.keepCorrectIndex !== undefined && value.correctIndex !== options.keepCorrectIndex
 				? `Put the correct option at correctIndex ${options.keepCorrectIndex} (reorder the options), keeping the explanation consistent with that order.`
 				: null),

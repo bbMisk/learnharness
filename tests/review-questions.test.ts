@@ -219,14 +219,14 @@ const shortQuestion = (explanation = `${longBack} The distractors drop the weigh
 
 it("condenses a long source answer: short options, and the explanation quotes the full answer", () => {
 	assert.ok(longBack.length > SHORT_ANSWER_CHARS);
-	assert.equal(questionProblem(longCard("long-ok"), shortQuestion()), null);
+	assert.equal(questionProblem(shortQuestion()), null);
 	const wordy = { ...shortQuestion(), options: [longBack, ...shortQuestion().options.slice(1)] };
-	assert.match(questionProblem(longCard("long-wordy"), wordy)!, /Option 1 has \d+ characters/);
-	assert.equal(questionProblem(longCard("long-unquoted"), shortQuestion("Weighted by transition probability.")), null, "the code adds the quote");
+	assert.match(questionProblem(wordy)!, /Option 1 has \d+ characters/);
+	assert.equal(questionProblem(shortQuestion("Weighted by transition probability.")), null, "the code adds the quote");
 	// Owner, 2026-11-05: a short answer no longer has to be the correct option verbatim
 	// (that forced the whole sentence into every option); the explanation quotes it instead.
-	assert.equal(questionProblem(card("short-ok"), question(answer)), null);
-	assert.equal(questionProblem(card("short-reworded"), question("A rate of change")), null);
+	assert.equal(questionProblem(question(answer)), null);
+	assert.equal(questionProblem(question("A rate of change")), null);
 
 });
 
@@ -244,14 +244,14 @@ it("rejects options that repeat a shared lead-in or formula (the owner's LEC 3 c
 		correctIndex: 1,
 		explanation: `${back} The other sets get an endpoint wrong.`,
 	};
-	assert.match(questionProblem(lec3, repeated)!, /All four options repeat "An infinite intersection of open subsets of/);
+	assert.match(questionProblem(repeated)!, /All four options repeat "An infinite intersection of open subsets of/);
 	const better = {
 		prompt: "$\\bigcap_{n=1}^\\infty\\left(-\\tfrac1n,\\ 1+\\tfrac1n\\right) = \\;?$",
 		options: ["$[0,1)$", "$[0,1]$", "$(0,1)$", "$(0,1]$"],
 		correctIndex: 1,
 		explanation: `${back} $0$ and $1$ lie in every interval; anything outside $[0,1]$ is excluded by some $n$.`,
 	};
-	assert.equal(questionProblem(lec3, better), null);
+	assert.equal(questionProblem(better), null);
 	// Shared endings count too; short shared bits (a "$", a unit) don't.
 	assert.ok(sharedOptionWording(["a, so the set is closed and bounded", "b, so the set is closed and bounded", "c, so the set is closed and bounded", "d, so the set is closed and bounded"]));
 	assert.equal(sharedOptionWording(["$[0,1)$", "$[0,1]$", "$(0,1)$", "$(0,1]$"]), null);
