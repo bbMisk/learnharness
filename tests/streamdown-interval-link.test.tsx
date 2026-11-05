@@ -63,6 +63,20 @@ it("a price or a code span before a streaming link doesn't hide it (round-2 hunt
 	for (const text of ["Type \\` for a backtick. The interval is $[0,1)$.", "a lone ` then $[0,1)$ here"]) {
 		assert.doesNotMatch(remend(text, streamdownRemend), /incomplete-link/, text);
 	}
+	// Round-6 hunt findings: a price never pairs with math in a later paragraph,
+	// and tilde (or backtick) fences hide their dollars, even while still open.
+	assert.ok(remend("The cost is $5.\n\nSee [source](https://example.com/pa", streamdownRemend).endsWith(marker));
+	assert.ok(remend("The cost is $5.\n\nSee [partial", streamdownRemend).endsWith(marker), "a price's `$` is literal once its paragraph ends");
+	const across = "The cost is $5.\n\nSee [source](https://example.com/pa\n\nThe equation is $x$.";
+	assert.match(remend(across, streamdownRemend), /\[source\]\(streamdown:incomplete-link\)/, "the unfinished link is still hardened");
+	assert.doesNotMatch(renderToStaticMarkup(<MessageResponse>{across}</MessageResponse>), /href="https:\/\/example\.com\/pa"/);
+	for (const text of [
+		"~~~sh\necho $HOME\n~~~\n\nThe interval is $[0,1)$.",
+		"```sh\necho $HOME\n```\n\nThe interval is $[0,1)$.",
+		"Still streaming:\n~~~sh\necho $HOME [x\n",
+	]) {
+		assert.doesNotMatch(remend(text, streamdownRemend), /incomplete-link/, text);
+	}
 	// An escaped backtick before a real code span, and an unmatched double run, leave the interval alone.
 	for (const text of ["Type \\` then $[0,1)$ and `x` here.", "a `` b $[0,1)$ and `c` d"]) {
 		assert.equal(remend(text, streamdownRemend), text, text);

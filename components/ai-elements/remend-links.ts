@@ -52,13 +52,47 @@ function hideUnclosed(tail: string): string {
 	return tail.replace(/(?<!!)\[(?![^\]\n]*\]\()/g, HIDDEN);
 }
 
-/** `[` inside $…$ and $$…$$ → HIDDEN. Code spans and fences are copied
- *  through untouched (a `$HOME` in code opens no math). */
+/** A fenced code block opening at line start `i` (up to 3 spaces, then 3+
+ *  backticks or tildes): the index just past its closing fence line, or the
+ *  end of the text while the fence is still open (streaming). -1 if none. */
+function fenceEnd(text: string, i: number): number {
+	const open = /^ {0,3}(`{3,}|~{3,})/.exec(text.slice(i, i + 64));
+	if (!open) return -1;
+	const fence = open[1]!;
+	const closing = new RegExp(`\\n {0,3}${fence[0] === "`" ? "`" : "~"}{${fence.length},}[ \\t]*(?=\\n|$)`, "g");
+	closing.lastIndex = i + open[0].length;
+	const close = closing.exec(text);
+	return close ? close.index + close[0].length : text.length;
+}
+
+/** The end of the paragraph containing `from` (a blank line), or -1 if it
+ *  runs to the end of the text. */
+function paragraphEnd(text: string, from: number): number {
+	const blank = /\n[ \t]*\n/g;
+	blank.lastIndex = from;
+	return blank.exec(text)?.index ?? -1;
+}
+
+/** `[` inside $…$ and $$…$$ → HIDDEN, following Markdown's boundaries
+ *  (hunt findings, rounds 2–6): code spans and fenced code (``` or ~~~,
+ *  even while still streaming) open no math, and their brackets are hidden
+ *  too (no link exists inside code); inline $…$ must close within
+ *  its paragraph, else that `$` is literal (a price), except in the last
+ *  paragraph, where it may be math still streaming. */
 export function hideMathBrackets(text: string): string {
 	let out = "";
 	let i = 0;
 	while (i < text.length) {
 		const ch = text[i]!;
+		if ((ch === "`" || ch === "~" || ch === " ") && (i === 0 || text[i - 1] === "\n")) {
+			const end = fenceEnd(text, i);
+			if (end !== -1) {
+				// No link exists inside code; remend doesn't know ~~~ fences (round-6 hunt finding).
+				out += text.slice(i, end).replaceAll("[", HIDDEN);
+				i = end;
+				continue;
+			}
+		}
 		if (ch === "`" && !escaped(text, i)) {
 			let run = 1;
 			while (text[i + run] === "`") run++;
@@ -66,15 +100,23 @@ export function hideMathBrackets(text: string): string {
 			// An unmatched run is literal backticks in Markdown, not a code span
 			// (round-5 hunt finding: an escaped or lone backtick hid later math).
 			const end = close === -1 ? i + run : close + run;
-			out += text.slice(i, end);
+			out += text.slice(i, end).replaceAll("[", HIDDEN);
 			i = end;
 			continue;
 		}
 		if (ch === "$" && !escaped(text, i)) {
 			const delim = text[i + 1] === "$" ? "$$" : "$";
 			const start = i + delim.length;
-			const close = nextDelimiter(text, delim, start);
-			if (close === -1) return out + text.slice(i, start) + hideUnclosed(text.slice(start));
+			let close = nextDelimiter(text, delim, start);
+			const para = delim === "$" ? paragraphEnd(text, start) : -1;
+			if (para !== -1 && close > para) close = -1;
+			if (close === -1) {
+				// Last paragraph: math may still be streaming. Earlier: a literal `$`.
+				if (para === -1) return out + text.slice(i, start) + hideUnclosed(text.slice(start));
+				out += text.slice(i, start);
+				i = start;
+				continue;
+			}
 			out += text.slice(i, start) + text.slice(start, close).replaceAll("[", HIDDEN) + delim;
 			i = close + delim.length;
 			continue;
