@@ -47,13 +47,16 @@ export function VisualOutputCard({
 	output,
 	messageId,
 	initialInverted = false,
+	chatId,
 }: {
 	output: unknown;
 	messageId?: string;
 	initialInverted?: boolean;
+	/** The figure's chat when rendered outside its chat page (activity dock). */
+	chatId?: string;
 }) {
 	const result = output as VisualResult | undefined;
-	const snapshot = useImageSnapshot(result?.image?.snapshotId);
+	const snapshot = useImageSnapshot(result?.image?.snapshotId, chatId);
 	const svg = result?.image && snapshot.image ? embedLearnerImage(result.svg, snapshot.image) : result?.svg ?? "";
 	const overlay = useSessionMermaid();
 	const actions = useContext(ChatActionsContext);

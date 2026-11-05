@@ -4,8 +4,11 @@ import { useContext, useEffect, useState } from "react";
 import { ChatActionsContext } from "@/components/chat";
 import type { ImageSnapshot } from "@/src/core";
 
-export function useImageSnapshot(snapshotId?: string): { image?: ImageSnapshot; failed: boolean } {
-	const chatId = useContext(ChatActionsContext)?.chatId;
+/** `chatIdOverride`: surfaces outside a chat page (the activity dock's job
+ *  preview) name the job's chat themselves (merge review finding). */
+export function useImageSnapshot(snapshotId?: string, chatIdOverride?: string): { image?: ImageSnapshot; failed: boolean } {
+	const contextChatId = useContext(ChatActionsContext)?.chatId;
+	const chatId = chatIdOverride ?? contextChatId;
 	const key = chatId && snapshotId ? `${chatId}/${snapshotId}` : undefined;
 	const [loaded, setLoaded] = useState<{ key: string; image?: ImageSnapshot; failed: boolean }>();
 	useEffect(() => {
