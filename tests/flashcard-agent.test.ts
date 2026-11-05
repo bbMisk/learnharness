@@ -7,7 +7,7 @@ import type { Flashcard } from "../src/core/review.ts";
 const temp = fs.mkdtempSync(path.join(os.tmpdir(),"lh-flashcard-agent-"));
 process.env.LH_DATA_DIR=temp;
 process.env.LH_AUTH_FILE=path.join(temp,"auth.json");
-const {runFlashcardCuration,abortFlashcardAgent,flashcardAgentActivity}=await import("../src/server/flashcard-agent.ts");
+const {runFlashcardCuration,abortFlashcardAgent,flashcardAgentActivity,REWRITES_PER_DAY}=await import("../src/server/flashcard-agent.ts");
 const {readFlashcardCuration,updateFlashcardCuration}=await import("../src/store/flashcard-curation.ts");
 const {saveReviewQuestion}=await import("../src/store/review-questions.ts");
 const {parseFlashcardTriage}=await import("../src/core/flashcard-curation.ts");
@@ -146,12 +146,20 @@ it("rewrites questions written under older rules a few per run, outside the dail
     assert.equal(readFlashcardCuration().lastError,undefined);
     await runFlashcardCuration(false,h.deps);
     assert.equal(h.refreshed.length,12,"the next run picks up the rest");
-    const f=harness(2,1);let calls=0;
+    // Round-1 hunt finding: a failing card is skipped and reported, not a block on the rest;
+    // it waits for the next study day.
+    const f=harness(3,1);const tried:string[]=[];
     for(const c of f.records){c.back=long+c.revision;c.mcq={prompt:c.front,options:[c.back,"B","C","D"],correctIndex:0,explanation:"Old"};}
-    f.deps.refresh=async()=>{calls++;throw new Error("model unavailable");};
+    const realRefresh=f.deps.refresh;
+    f.deps.refresh=async(c,i,s)=>{tried.push(c.revision);if(c===f.records[0])throw new Error("model unavailable");return realRefresh(c,i,s);};
     await runFlashcardCuration(false,f.deps);
-    assert.equal(calls,1,"stops at the first failure");assert.equal(f.records[0]!.mcq!.explanation,"Old");
-    assert.equal(readFlashcardCuration().lastError,undefined);
+    assert.deepEqual(tried,f.records.map(c=>c.revision),"the others are still rewritten");
+    assert.equal(f.records[0]!.mcq!.explanation,"Old","the failed card keeps its old question");
+    assert.match(readFlashcardCuration().lastError??"",/1 flashcard question could not be rewritten/);
+    await runFlashcardCuration(true,f.deps);
+    assert.equal(tried.length,3,"not retried the same day");
+    f.setClock(at+86400000);await runFlashcardCuration(false,f.deps);
+    assert.equal(tried.length,4,"retried the next day");
     // Owner, 2026-11-05: any question without the current rules mark is rewritten (the
     // answer repeated in every option), not only paragraph-length ones; current ones stay.
     const r=harness(3,1);
@@ -160,4 +168,14 @@ it("rewrites questions written under older rules a few per run, outside the dail
     r.records[2]!.mcq={prompt:"q",options:["[0,1]","(0,1)","[0,1)","(0,1]"],correctIndex:0,explanation:"New",rules:2};
     await runFlashcardCuration(false,r.deps);
     assert.deepEqual(r.refreshed,[r.records[0]!.revision]);
+});
+
+it("caps old-rules rewrites per study day across chained runs (round-1 hunt finding)",async()=>{
+    const h=harness(60,1);
+    for(const c of h.records)c.mcq={prompt:c.front,options:["A","B","C","D"],correctIndex:0,explanation:"Old"};
+    for(let run=0;run<10;run++)await runFlashcardCuration(false,h.deps);
+    assert.equal(h.refreshed.length,REWRITES_PER_DAY,"at most the daily cap, however many runs");
+    h.setClock(at+86400000);
+    for(let run=0;run<10;run++)await runFlashcardCuration(false,h.deps);
+    assert.equal(h.refreshed.length,60,"the rest the next day");
 });

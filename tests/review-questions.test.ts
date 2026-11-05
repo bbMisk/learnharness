@@ -99,14 +99,20 @@ it("retries a schema-invalid question and accepts the corrected submission", asy
 	assert.match(feedback(1), /options/);
 });
 
-it("retries when the explanation doesn't quote the card's answer, and fails cleanly if it never does", async () => {
+it("puts the card's answer into an explanation that doesn't quote it, and fails cleanly on repeated invalid submissions", async () => {
+	// Round-1 hunt finding: an exact quote is ensured by the code, never a reason to reject.
 	const unquoted = question(answer, "Derivatives measure change; the distractors describe other things.");
-	respond([submit("submit_question", unquoted), submit("submit_question", question(answer))]);
-	assert.deepEqual(await questionFor(card("mismatch-then-valid")), saved(question(answer)));
-	assert.equal(contexts.length, 2);
-	assert.match(feedback(1), /full source answer copied exactly/);
+	respond([submit("submit_question", unquoted)]);
+	const result = await questionFor(card("unquoted"));
+	assert.equal(contexts.length, 1, "no retry for a missing quote");
+	assert.equal(result.explanation, `${answer}\n\nDerivatives measure change; the distractors describe other things.`);
+	// Whitespace differences still count as quoted: kept as written.
+	const spaced = question(answer, "The instantaneous   rate\nof change. Derivatives measure change.");
+	respond([submit("submit_question", spaced)]);
+	assert.equal((await questionFor(card("spaced"))).explanation, spaced.explanation);
 
-	respond(Array.from({ length: 4 }, () => submit("submit_question", unquoted)));
+	const repeated = { ...question(answer), options: ["It is the instantaneous rate of change: A", "It is the instantaneous rate of change: B", "It is the instantaneous rate of change: C", "It is the instantaneous rate of change: D"] };
+	respond(Array.from({ length: 4 }, () => submit("submit_question", repeated)));
 	await assert.rejects(questionFor(card("always-mismatched")), {
 		name: "ReviewError",
 		status: 409,
@@ -210,15 +216,12 @@ it("condenses a long source answer: short options, and the explanation quotes th
 	assert.equal(questionProblem(longCard("long-ok"), shortQuestion()), null);
 	const wordy = { ...shortQuestion(), options: [longBack, ...shortQuestion().options.slice(1)] };
 	assert.match(questionProblem(longCard("long-wordy"), wordy)!, /Option 1 has \d+ characters/);
-	assert.match(
-		questionProblem(longCard("long-unquoted"), shortQuestion("Weighted by transition probability."))!,
-		/full source answer copied exactly/,
-	);
+	assert.equal(questionProblem(longCard("long-unquoted"), shortQuestion("Weighted by transition probability.")), null, "the code adds the quote");
 	// Owner, 2026-11-05: a short answer no longer has to be the correct option verbatim
 	// (that forced the whole sentence into every option); the explanation quotes it instead.
 	assert.equal(questionProblem(card("short-ok"), question(answer)), null);
 	assert.equal(questionProblem(card("short-reworded"), question("A rate of change")), null);
-	assert.match(questionProblem(card("short-unquoted"), question(answer, "No quote here."))!, /full source answer copied exactly/);
+
 });
 
 it("rejects options that repeat a shared lead-in or formula (the owner's LEC 3 card)", () => {
@@ -248,6 +251,24 @@ it("rejects options that repeat a shared lead-in or formula (the owner's LEC 3 c
 	assert.equal(sharedOptionWording(["$[0,1)$", "$[0,1]$", "$(0,1)$", "$(0,1]$"]), null);
 	assert.equal(sharedOptionWording(["5 m/s", "10 m/s", "15 m/s", "20 m/s"]), null);
 	assert.equal(sharedOptionWording(["The intersection is empty", "The intersection is one point", "The intersection is open", "The intersection is closed"]), null, "a short shared lead-in is fine");
+	// Round-1 hunt finding: the same formula in the middle of every option.
+	const formula = " so $\\bigcap_{n=1}^\\infty(-1/n,1+1/n)$ is ";
+	assert.equal(sharedOptionWording([`1${formula}a`, `2${formula}b`, `3${formula}c`, `4${formula}d`])?.where, "contain");
+});
+
+it("a rewrite keeps the correct option where the old question had it (round-1 hunt finding: offline reviews)", async () => {
+	const { atCorrectIndex } = await import("../src/server/review-questions.ts");
+	const q = { prompt: "p", options: ["right", "w1", "w2", "w3"], correctIndex: 0, explanation: "e" };
+	assert.deepEqual(atCorrectIndex(q, 2), { ...q, options: ["w2", "w1", "right", "w3"], correctIndex: 2 });
+	assert.equal(atCorrectIndex(q, 0), q);
+	assert.equal(atCorrectIndex(q, undefined), q);
+	const { refreshQuestion } = await import("../src/server/review-questions.ts");
+	const old: Flashcard = { ...card("rewrite-keeps-index"), mcq: { ...question(answer), correctIndex: 3, options: ["B", "C", "D", answer] } };
+	respond([submit("submit_question", question(answer))]);
+	const rewritten = await refreshQuestion(old);
+	assert.equal(rewritten.correctIndex, 3);
+	assert.equal(rewritten.options[3], answer);
+	assert.match(JSON.stringify(contexts[0]!.messages), /Put the correct option at correctIndex 3/);
 });
 
 it("asks the model to condense long answers and retries until the options are short", async () => {
