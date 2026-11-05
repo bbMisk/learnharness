@@ -59,6 +59,9 @@ it("a price or a code span before a streaming link doesn't hide it (round-2 hunt
 	// Still streaming math keeps its interval: no link shape after the `[`.
 	assert.equal(remend("so $[n,\\infty", streamdownRemend), "so $[n,\\infty");
 	assert.equal(remendLinks.hideMathBrackets("`$x` [a]"), "`$x` [a]", "code spans open no math");
+	// Round-4 hunt finding: a price before an unfinished image keeps the library's image handling.
+	const image = "Price $5 ![diagram";
+	assert.equal(remend(image, streamdownRemend), remend(image, { htmlTags: false }));
 });
 
 it("brackets inside math never count as links, closed or still streaming", () => {

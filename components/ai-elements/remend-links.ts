@@ -45,9 +45,11 @@ function nextDelimiter(text: string, delim: string, from: number): number {
 /** In math that hasn't closed yet (still streaming, or a lone `$` like a
  *  price), hide every `[` except one that starts a link (`[text](`): that
  *  shape is a link, and a link still streaming must keep remend's hardened
- *  placeholder (round-2 hunt finding: "$5. See [source](https://ex…"). */
+ *  placeholder (round-2 hunt finding: "$5. See [source](https://ex…"), nor
+ *  the `[` of an image (`![`), which remend drops until it completes
+ *  (round-4 hunt finding). */
 function hideUnclosed(tail: string): string {
-	return tail.replace(/\[(?![^\]\n]*\]\()/g, HIDDEN);
+	return tail.replace(/(?<!!)\[(?![^\]\n]*\]\()/g, HIDDEN);
 }
 
 /** `[` inside $…$ and $$…$$ → HIDDEN. Code spans and fences are copied

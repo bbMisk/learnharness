@@ -27,7 +27,7 @@ export function offersPlanAccept(s: {
 	return s.kind === "teach" && !s.cram && s.phase === "plan" && s.hasPlan && s.awaitingReply && s.sendAllowed && !s.busy && !s.retryable;
 }
 
-type ScanMessage = { role?: string; content?: unknown; toolName?: string; toolCallId?: string; isError?: boolean };
+type ScanMessage = { role?: string; content?: unknown; toolName?: string; toolCallId?: string; isError?: boolean; details?: unknown };
 
 function learnerText(content: unknown): string {
 	if (typeof content === "string") return content;
@@ -39,8 +39,8 @@ function learnerText(content: unknown): string {
  *  2026-11-05). Phase stays "plan" until the first tagged check, so the phase
  *  alone can't tell (hunt findings, rounds 1–2):
  *  - a successful plan_init call presents a plan (a failed one doesn't);
- *  - a learner message, or a (successful) answer to a question asked after
- *    the plan, is a reply;
+ *  - a learner message, or a (successful, not dismissed) answer to a
+ *    question asked after the plan, is a reply;
  *  - right after the learner clicks Accept, later plan_init calls (a rewrite
  *    while teaching gets going) don't ask again; a typed message after that
  *    may be a change request, so the next plan asks again. */
@@ -62,7 +62,11 @@ export function awaitingPlanReply(messages: readonly ScanMessage[]): boolean {
 			// The Accept button's text accepts; anything else typed may be a
 			// change request, whose revised plan asks again (round-3 hunt finding).
 			accepted = learnerText(m.content).trim() === PLAN_ACCEPT_TEXT;
-		} else if (m.role === "toolResult" && !m.isError && (QUESTION_TOOLS as readonly string[]).includes(m.toolName ?? "")) {
+		} else if (
+			m.role === "toolResult" && !m.isError && (QUESTION_TOOLS as readonly string[]).includes(m.toolName ?? "") &&
+			// A dismissed question was not answered (round-4 hunt finding).
+			(m.details as { dismissed?: unknown } | undefined)?.dismissed !== true
+		) {
 			awaiting = false;
 		}
 	}
