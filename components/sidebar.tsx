@@ -77,6 +77,8 @@ declare global {
 			openConnection?: () => Promise<void>;
 			/** Resolve an OS-backed File without copying/uploading its contents. */
 			getPathForFile?: (file: File) => string;
+			/** Choose one original directory path, without reading its contents. */
+			chooseAttachmentFolder?: () => Promise<string | null>;
 			/** External Next desktop-dev uses the server's web connections. */
 			subscriptionTransport?: "desktop" | "web";
 			openSubscriptionBrowser?: (action: string) => Promise<void>;

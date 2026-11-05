@@ -220,7 +220,7 @@ export function SideTutor({ chatId, selectedText, onClose }: { chatId: string; s
 						))}
 						{reply && (
 							<div data-testid="side-reply" className="min-w-0 text-sm">
-								<MessageResponse>{reply}</MessageResponse>
+								<MessageResponse streaming={busy}>{reply}</MessageResponse>
 							</div>
 						)}
 						{busy && !reply && (
