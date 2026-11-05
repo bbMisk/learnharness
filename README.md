@@ -42,7 +42,7 @@ Instead of just giving you an explanation, it uses your answers and thinking to 
 
 **Think out loud.** The thinking fields let you explain your reasoning, uncertainties, and reactions in your own words. This is how the agent gets a detailed picture rather than just a record of right and wrong answers. You can type or use dictation.
 
-**Bring your files.** In the desktop app, attach PDFs, photos, or any other file with the paperclip, or drag them in. The file stays where it is: the message carries its path, and the agent reads it from there.
+**Bring your files.** Attach PDFs, photos, or any other file with the paperclip, or drag them in. Photos and pasted screenshots, and anything you attach from the iPad or through the shared host, are uploaded: the app keeps a copy in its data folder and the agent reads that copy. Other files attached in the desktop app stay where they are: the message carries their path, and the agent reads them from there.
 
 The agent can also research questions in the background, create visual explanations, show your own images in the lesson and mark them up with arrows and labels, and build interactive demonstrations.
 
