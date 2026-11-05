@@ -53,7 +53,7 @@ it("round-2 hunt findings: dock answers, failed calls, rewrites after Accept", (
 	const accept = { role: "user", content: [{ type: "text", text: PLAN_ACCEPT_TEXT }] };
 	const typed = { role: "user", content: "drop the Cantor set" };
 	assert.equal(awaitingPlanReply([plan("p1"), planResult("p1"), ask, answer]), false, "answered through the question dock");
-	assert.equal(awaitingPlanReply([plan("p1"), planResult("p1"), accept, plan("p2"), planResult("p2")]), false, "a rewrite after Accept doesn't ask again");
+	assert.equal(awaitingPlanReply([plan("p1"), planResult("p1"), accept, plan("p2"), planResult("p2")]), true, "a rewrite after Accept asks again (accepting twice is harmless)");
 	assert.equal(awaitingPlanReply([plan("p1"), planResult("p1"), typed, plan("p2"), planResult("p2")]), true, "a revision after a change request does");
 	assert.equal(awaitingPlanReply([plan("p1"), planResult("p1"), typed, plan("p2"), planResult("p2", true)]), false, "a failed revision presents nothing");
 	// Round-3 hunt findings.
