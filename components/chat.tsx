@@ -73,6 +73,7 @@ import {
 	isTeachingCheck,
 	revealsQuestions,
 	hasLessonTracking,
+	lessonPlanProgress,
 } from "@/src/core";
 import { useGeneralSettings } from "@/components/general-settings";
 import { rememberRevealed, wasRevealed } from "@/components/revealed-questions";
@@ -918,8 +919,12 @@ export function Chat({
 	// The lesson-tracking card (owner, 2026-11-02): the problem set and the
 	// mistake log, derived by the session model from the native record and
 	// the live executions (the tracking tools never render in the
-	// transcript view — core/lesson-tracking.ts).
-	const hasTracking = hasLessonTracking(tracking);
+	// transcript view — core/lesson-tracking.ts). Since 2026-11-05 (owner)
+	// it also carries a teach lesson's plan — each step's position and check
+	// score, from the same transcript as the plan chip (core/plan-progress.ts);
+	// never in cram or practice. The chip shows while any section exists.
+	const planProgress = useMemo(() => lessonPlanProgress(planTree, messages, { cram, practice: kind === "practice" }), [planTree, messages, cram, kind]);
+	const hasTracking = hasLessonTracking(tracking) || planProgress !== null;
 	const trackerCard = useLessonTrackerShown();
 	// Room for the card (owner, "make room"): while it shows on a session
 	// area wide enough for both, the transcript column keeps clear of it.
@@ -1568,7 +1573,7 @@ export function Chat({
 				</Conversation>
 				{/* The tracking card: top-right over the transcript, below the
 				    session-scoped focuses (z-40) and clear of the dock. */}
-				{hasTracking && trackerCard.shown && <LessonTrackerCard tracking={tracking} bottomReserve={dockReserve} />}
+				{hasTracking && trackerCard.shown && <LessonTrackerCard tracking={tracking} plan={planProgress} bottomReserve={dockReserve} />}
 
 				{/* The session-scoped focuses (chrome-melt wave, 2026-09-19): mounted
 				    INSIDE the session area — absolute inset-0 siblings of the scroller,

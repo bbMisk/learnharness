@@ -255,3 +255,147 @@ it("makes room: while shown on a wide session area the column clears the card; o
 	assert.match(chat, /className=\{`relative flex min-h-0 flex-1 \$\{trackerRoom\.area\}`\}/);
 	assert.match(chat, /data-session-find-root="" className=\{`\$\{COLUMN\}[^`]*\$\{trackerRoom\.column\}`\}/);
 });
+
+// ─── the Plan section (owner, 2026-11-05 — src/core/plan-progress.ts) ─────────
+
+const { lessonPlanProgress } = await import("../src/core/plan-progress.ts");
+type PlanTree = import("../src/core/contracts.ts").PlanTree;
+type ViewMessage = import("../src/core/plan-progress.ts").PlanProgressMessage;
+
+const planTree: PlanTree = {
+	nodes: [
+		{ id: "score", title: "The score function" },
+		{ id: "fisher", title: "Fisher information" },
+		{ id: "crlb", title: "The Cramér-Rao bound" },
+		{ id: "efficiency", title: "Efficiency" },
+	],
+	edges: [
+		{ from: "score", to: "fisher" },
+		{ from: "fisher", to: "crlb" },
+		{ from: "crlb", to: "efficiency" },
+	],
+	version: 1,
+};
+const graded = (correct: boolean) => ({ kind: "quiz", dontKnow: false, correct, answers: [], questionText: "q", answeredAt: "t" });
+const tagged = (nodeId: string, answer?: unknown) =>
+	answer === undefined
+		? { type: "tool-quiz", state: "input-available", input: { nodeId } }
+		: { type: "tool-quiz", state: "output-available", input: { nodeId }, output: answer };
+/** The transcript view: score 1/2 (latest right), fisher 1/2 (latest wrong), crlb current and unanswered. */
+const planView: ViewMessage[] = [
+	{ parts: [tagged("score", graded(false)), tagged("score", graded(true))] },
+	{ parts: [tagged("fisher", graded(true)), tagged("fisher", graded(false))] },
+	{ parts: [tagged("crlb")] },
+];
+
+/** The chat's wiring with the plan (components/chat.tsx): the section only
+ *  in a non-cram teach lesson with a plan; the chip while any section exists. */
+function PlanHarness({ messages = [], tree = planTree, view = planView, cram = false }: { messages?: LhMessage[]; tree?: PlanTree | null; view?: ViewMessage[]; cram?: boolean }) {
+	const tracking = deriveLessonTracking(messages);
+	const plan = lessonPlanProgress(tree, view, { cram, practice: false });
+	const { shown, toggle } = useLessonTrackerShown();
+	if (!hasLessonTracking(tracking) && plan === null) return <div data-testid="empty" />;
+	return (
+		<>
+			<LessonTrackerChip shown={shown} onToggle={toggle} />
+			{shown && <LessonTrackerCard tracking={tracking} plan={plan} bottomReserve={160} />}
+		</>
+	);
+}
+
+const planRow = (host: Element, status: string) => host.querySelector(`[data-testid="lesson-tracker-plan"] li[data-status="${status}"]`)!;
+const score = (li: Element) => li.querySelector('[data-testid="lesson-tracker-score"]');
+
+it("plan: a teach lesson with a plan shows the section — covered/total, one row per step, scores", async () => {
+	const host = await mount(<PlanHarness />);
+	assert.ok(chip(host), "a plan-only lesson gets the chip");
+	assert.ok(card(host), "and the card, shown by default");
+	assert.equal(count(host, "plan"), "2/4", "covered excludes the current step");
+	assert.deepEqual(rows(host, "plan"), [
+		["covered", "✓The score function1/2"],
+		["covered", "✓Fisher information1/2"],
+		["current", "▸The Cramér-Rao bound"],
+		["upcoming", "○Efficiency"],
+	]);
+	// Symbols as the problem rows: bold current; ✓ and ○ muted (moved past is not "correct").
+	assert.match(planRow(host, "current").getAttribute("class")!, /\bfont-semibold\b/);
+	for (const status of ["covered", "upcoming"]) {
+		const li = host.querySelectorAll(`[data-testid="lesson-tracker-plan"] li[data-status="${status}"]`);
+		for (const row of li) {
+			assert.match(row.getAttribute("class")!, /\btext-muted-foreground\b/);
+			assert.doesNotMatch(row.getAttribute("class")!, /font-semibold/);
+			assert.doesNotMatch(row.querySelector('[data-testid="lesson-tracker-symbol"]')!.getAttribute("class")!, /text-(green|red)-500/);
+		}
+	}
+	// Scores: right-aligned, tabular; green when the latest answer was right, red when wrong; none unanswered.
+	const [scoreRow, fisherRow] = host.querySelectorAll('[data-testid="lesson-tracker-plan"] li[data-status="covered"]');
+	assert.equal(score(scoreRow!)!.textContent, "1/2");
+	assert.match(score(scoreRow!)!.getAttribute("class")!, /\btext-green-500\b/);
+	assert.match(score(scoreRow!)!.getAttribute("class")!, /\bml-auto\b.*\btabular-nums\b/);
+	assert.equal(score(fisherRow!)!.textContent, "1/2");
+	assert.match(score(fisherRow!)!.getAttribute("class")!, /\btext-red-500\b/);
+	assert.equal(score(planRow(host, "current")), null, "no answered check: no score");
+	assert.equal(score(planRow(host, "upcoming")), null);
+	// An ungraded (explain) latest answer: a muted score.
+	const explainView: ViewMessage[] = [{ parts: [{ type: "tool-explain", state: "output-available", input: { nodeId: "score" }, output: { kind: "explain", dontKnow: false, answers: [], text: "x", questionText: "q", answeredAt: "t" } }] }];
+	await act(async () => root!.render(<PlanHarness view={explainView} />));
+	const neutral = score(planRow(host, "current"))!;
+	assert.equal(neutral.textContent, "0/1");
+	assert.match(neutral.getAttribute("class")!, /\btext-muted-foreground\b/);
+	assert.doesNotMatch(neutral.getAttribute("class")!, /text-(green|red)-500/);
+});
+
+it("plan: updates live as tagged checks stream in and answers land", async () => {
+	const host = await mount(<PlanHarness view={[]} />);
+	assert.equal(count(host, "plan"), "0/4");
+	assert.deepEqual(rows(host, "plan").map((r) => r[0]), ["upcoming", "upcoming", "upcoming", "upcoming"]);
+	await act(async () => root!.render(<PlanHarness view={[{ parts: [tagged("score")] }]} />));
+	assert.equal(rows(host, "plan")[0]![0], "current");
+	assert.equal(score(planRow(host, "current")), null, "posed, not answered");
+	await act(async () => root!.render(<PlanHarness view={[{ parts: [tagged("score", graded(true))] }]} />));
+	assert.equal(score(planRow(host, "current"))!.textContent, "1/1");
+	await act(async () => root!.render(<PlanHarness view={[{ parts: [tagged("score", graded(true))] }, { parts: [tagged("fisher")] }]} />));
+	assert.equal(count(host, "plan"), "1/4");
+	assert.deepEqual(rows(host, "plan").map((r) => r[0]), ["covered", "current", "upcoming", "upcoming"]);
+});
+
+it("plan: none in cram (Problems + Mistakes only), none without a plan", async () => {
+	// Cram with a problem list: the card keeps Problems + Mistakes, no Plan.
+	let host = await mount(<PlanHarness cram messages={record} />);
+	assert.ok(card(host));
+	assert.equal(host.querySelector('[data-testid="lesson-tracker-plan"]'), null, "no plan section in cram");
+	assert.ok(host.querySelector('[data-testid="lesson-tracker-problems"]'));
+	assert.ok(host.querySelector('[data-testid="lesson-tracker-mistakes"]'));
+	// Cram with a plan and nothing else tracked: no chip, no card.
+	await act(async () => root!.render(<PlanHarness cram />));
+	assert.ok(host.querySelector('[data-testid="empty"]'));
+	assert.equal(chip(host), null);
+	await act(async () => root!.unmount());
+	// No plan (none, or an empty tree): no section; nothing else → no chip.
+	host = await mount(<PlanHarness tree={null} />);
+	assert.equal(chip(host), null);
+	await act(async () => root!.render(<PlanHarness tree={{ nodes: [], edges: [], version: 1 }} />));
+	assert.equal(chip(host), null);
+	await act(async () => root!.render(<PlanHarness tree={null} messages={[record[3]!]} />));
+	assert.ok(card(host));
+	assert.equal(host.querySelector('[data-testid="lesson-tracker-plan"]'), null);
+});
+
+it("plan: Plan first, then Mistakes; a long plan scrolls inside the card, bounded by the dock", async () => {
+	const host = await mount(<PlanHarness messages={record.slice(3, 7)} />);
+	const sections = [...card(host)!.querySelectorAll("section")].map((s) => s.getAttribute("data-testid"));
+	assert.deepEqual(sections, ["lesson-tracker-plan", "lesson-tracker-mistakes"]);
+	const long: PlanTree = { nodes: Array.from({ length: 40 }, (_, i) => ({ id: `n${i}`, title: `Step ${i}` })), edges: [], version: 1 };
+	await act(async () => root!.render(<PlanHarness tree={long} view={[]} />));
+	assert.equal(rows(host, "plan").length, 40);
+	assert.match(card(host)!.getAttribute("class")!, /\boverflow-y-auto\b/);
+	assert.match(card(host)!.getAttribute("style") ?? "", /max-height:\s*calc\(100% - 184px\)/);
+});
+
+it("plan: the chat wires the section with the cram/practice gate and counts it for the chip", () => {
+	const chat = fs.readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
+	assert.match(chat, /lessonPlanProgress\(planTree, messages, \{ cram, practice: kind === "practice" \}\)/);
+	assert.match(chat, /const hasTracking = hasLessonTracking\(tracking\) \|\| planProgress !== null;/);
+	assert.match(chat, /\{hasTracking && <LessonTrackerChip /);
+	assert.match(chat, /<LessonTrackerCard tracking=\{tracking\} plan=\{planProgress\} /);
+});

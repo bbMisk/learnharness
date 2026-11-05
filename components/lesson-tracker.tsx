@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { ListChecksIcon } from "lucide-react";
 import { Hint } from "@/components/ui/hint";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
-import { correctProblemCount, type LessonTracking, type TrackedProblem } from "@/src/core";
+import { correctProblemCount, type LessonTracking, type PlanProgress, type PlanStepProgress, type TrackedProblem } from "@/src/core";
 
 /**
  * The lesson-tracking card (owner, 2026-11-02): a floating panel in the
@@ -12,6 +12,8 @@ import { correctProblemCount, type LessonTracking, type TrackedProblem } from "@
  * (src/core/lesson-tracking.ts — derived from the record, so it follows the
  * tool calls live and survives reloads). The header chip toggles it; the
  * choice is remembered per device. Phone-width layouts start hidden.
+ * Since 2026-11-05 (owner) it also carries a normal teach lesson's plan —
+ * where the lesson is and each step's check score (src/core/plan-progress.ts).
  */
 
 const STORAGE_KEY = "lh:lesson-tracker";
@@ -121,13 +123,14 @@ function SectionHeader({ title, count }: { title: string; count: string }) {
 	);
 }
 
-function Row({ symbol, status, text, className, symbolClassName = "", textClassName = "break-words" }: { symbol: string; status: string; text: string; className: string; symbolClassName?: string; textClassName?: string }) {
+function Row({ symbol, status, text, className, symbolClassName = "", textClassName = "break-words", aside }: { symbol: string; status: string; text: string; className: string; symbolClassName?: string; textClassName?: string; aside?: ReactNode }) {
 	return (
 		<li data-status={status} className={`flex gap-2 leading-snug ${className}`}>
 			<span aria-hidden data-testid="lesson-tracker-symbol" className={`w-3 shrink-0 text-center ${symbolClassName}`}>
 				{symbol}
 			</span>
 			<span className={`min-w-0 ${textClassName}`}>{text}</span>
+			{aside}
 		</li>
 	);
 }
@@ -196,13 +199,47 @@ function ProblemRow({ problem: p }: { problem: TrackedProblem }) {
 	}
 }
 
+/** A plan step's check score (owner, 2026-11-05): right/answered,
+ *  right-aligned — green when the step's latest answered check was right,
+ *  red when wrong, muted when it carries no grade (an explain answer);
+ *  nothing before the step has an answered check. */
+const SCORE_TONE = { right: "text-green-500", wrong: "text-red-500", neutral: "text-muted-foreground" } as const;
+
+function StepScore({ step }: { step: PlanStepProgress }) {
+	if (step.answered === 0 || !step.latest) return null;
+	return (
+		<span
+			data-testid="lesson-tracker-score"
+			data-latest={step.latest}
+			className={`ml-auto shrink-0 pl-1 font-normal tabular-nums ${SCORE_TONE[step.latest]}`}
+		>
+			{step.right}/{step.answered}
+		</span>
+	);
+}
+
+/** One plan step (owner, 2026-11-05) in the problem rows' conventions:
+ *  ▸ + bold the current step, a muted ✓ for a step moved past, ○ upcoming. */
+function PlanStepRow({ step }: { step: PlanStepProgress }) {
+	const score = <StepScore step={step} />;
+	switch (step.status) {
+		case "current":
+			return <Row symbol="▸" status="current" text={step.title} className="font-semibold text-foreground" aside={score} />;
+		case "visited":
+			return <Row symbol="✓" status="covered" text={step.title} className="text-muted-foreground" aside={score} />;
+		default:
+			return <Row symbol="○" status="upcoming" text={step.title} className="text-muted-foreground" aside={score} />;
+	}
+}
+
 /**
- * The card: "Problems correct/total" (one ProblemRow each) when a list
+ * The card: "Plan covered/total" (one PlanStepRow each) for a teach lesson
+ * with a plan (`plan`, null in cram and practice), "Problems correct/total" (one ProblemRow each) when a list
  * exists, "Mistakes K open · J fixed" (○ open, archived ✓ resolved) when any mistake
- * exists. `bottomReserve` is the dock's height — the card never reaches the
- * composer; it scrolls instead.
+ * exists — in that order. `bottomReserve` is the dock's height — the card
+ * never reaches the composer; it scrolls instead (a long plan too).
  */
-export function LessonTrackerCard({ tracking, bottomReserve }: { tracking: LessonTracking; bottomReserve: number }) {
+export function LessonTrackerCard({ tracking, plan = null, bottomReserve }: { tracking: LessonTracking; plan?: PlanProgress | null; bottomReserve: number }) {
 	const { problems, mistakes } = tracking;
 	const openMistakes = mistakes.filter((m) => !m.resolved).length;
 	return (
@@ -212,6 +249,16 @@ export function LessonTrackerCard({ tracking, bottomReserve }: { tracking: Lesso
 			className="absolute right-3 top-3 z-20 flex w-64 max-w-[calc(100%-1.5rem)] flex-col gap-4 overflow-y-auto rounded-xl border border-border/80 bg-card/95 px-3.5 py-3 font-ui text-xs text-foreground shadow-sm backdrop-blur-sm"
 			style={{ maxHeight: `calc(100% - ${bottomReserve + 24}px)` }}
 		>
+			{plan && (
+				<section data-testid="lesson-tracker-plan">
+					<SectionHeader title="Plan" count={`${plan.covered}/${plan.total}`} />
+					<ul className="flex flex-col gap-1">
+						{plan.steps.map((step) => (
+							<PlanStepRow key={step.id} step={step} />
+						))}
+					</ul>
+				</section>
+			)}
 			{problems && (
 				<section data-testid="lesson-tracker-problems">
 					<SectionHeader title="Problems" count={`${correctProblemCount(problems)}/${problems.length}`} />
