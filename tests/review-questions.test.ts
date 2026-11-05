@@ -244,7 +244,7 @@ it("rejects options that repeat a shared lead-in or formula (the owner's LEC 3 c
 		correctIndex: 1,
 		explanation: `${back} The other sets get an endpoint wrong.`,
 	};
-	assert.match(questionProblem(lec3, repeated)!, /All four options begin with "An infinite intersection of open subsets of/);
+	assert.match(questionProblem(lec3, repeated)!, /All four options repeat "An infinite intersection of open subsets of/);
 	const better = {
 		prompt: "$\\bigcap_{n=1}^\\infty\\left(-\\tfrac1n,\\ 1+\\tfrac1n\\right) = \\;?$",
 		options: ["$[0,1)$", "$[0,1]$", "$(0,1)$", "$(0,1]$"],
@@ -253,13 +253,13 @@ it("rejects options that repeat a shared lead-in or formula (the owner's LEC 3 c
 	};
 	assert.equal(questionProblem(lec3, better), null);
 	// Shared endings count too; short shared bits (a "$", a unit) don't.
-	assert.deepEqual(sharedOptionWording(["a, so the set is closed and bounded", "b, so the set is closed and bounded", "c, so the set is closed and bounded", "d, so the set is closed and bounded"])?.where, "end");
+	assert.ok(sharedOptionWording(["a, so the set is closed and bounded", "b, so the set is closed and bounded", "c, so the set is closed and bounded", "d, so the set is closed and bounded"]));
 	assert.equal(sharedOptionWording(["$[0,1)$", "$[0,1]$", "$(0,1)$", "$(0,1]$"]), null);
 	assert.equal(sharedOptionWording(["5 m/s", "10 m/s", "15 m/s", "20 m/s"]), null);
 	assert.equal(sharedOptionWording(["The intersection is empty", "The intersection is one point", "The intersection is open", "The intersection is closed"]), null, "a short shared lead-in is fine");
 	// Round-1 hunt finding: the same formula in the middle of every option.
 	const formula = " so $\\bigcap_{n=1}^\\infty(-1/n,1+1/n)$ is ";
-	assert.equal(sharedOptionWording([`1${formula}a`, `2${formula}b`, `3${formula}c`, `4${formula}d`])?.where, "contain");
+	assert.ok(sharedOptionWording([`1${formula}a`, `2${formula}b`, `3${formula}c`, `4${formula}d`]));
 	// Round-3 hunt finding: shared notation that shows as a few symbols is not shared wording.
 	const partials = ["x", "y", "z", "t"].map((v) => `\\(\\frac{\\partial^2 f}{\\partial ${v}^2}\\)`);
 	assert.equal(sharedOptionWording(partials), null);
@@ -267,9 +267,9 @@ it("rejects options that repeat a shared lead-in or formula (the owner's LEC 3 c
 	assert.equal(visibleLength("\\frac{\\partial^2 f}{\\partial "), 6);
 	// Round-5 hunt finding: a shared formula with no spaces still counts as a shared lead-in.
 	const sum = "$x_1+x_2+x_3+x_4+x_5+x_6+x_7$";
-	assert.equal(sharedOptionWording([`${sum} is 1`, `${sum} is 2`, `${sum} is 3`, `${sum} is 4`])?.where, "begin");
+	assert.ok(sharedOptionWording([`${sum} is 1`, `${sum} is 2`, `${sum} is 3`, `${sum} is 4`]));
 	const nospace = "$x_1+x_2+x_3+x_4+x_5+x_6+x_7+";
-	assert.equal(sharedOptionWording([`${nospace}a$`, `${nospace}b$`, `${nospace}c$`, `${nospace}d$`])?.where, "begin", "no spaces at all: cut at the +");
+	assert.ok(sharedOptionWording([`${nospace}a$`, `${nospace}b$`, `${nospace}c$`, `${nospace}d$`]), "a shared formula with no spaces");
 });
 
 it("a rewrite must keep the correct option where the old question had it (offline reviews; round 1–2 hunt findings)", async () => {

@@ -84,48 +84,26 @@ const OPTION_MAX_CHARS = 140;
  *  2 = the prompt states the whole problem and options carry only what differs.
  *  Questions from older rules are rewritten a few per curator run. */
 export const QUESTION_RULES = 2;
-/** A run of shared wording this long at the start or end of all four options
- *  belongs in the prompt (the owner's card repeated its stem and formula in
- *  every option). */
-const SHARED_RUN_CHARS = 20;
-const SHARED_INTERIOR_CHARS = 24;
+/** Wording or a formula this long (as shown on screen) repeated in all four
+ *  options belongs in the prompt (the owner's card repeated its stem and
+ *  formula in every option). */
+const SHARED_CHARS = 20;
 
-/** The lead-in or ending all four options share, cut at a word boundary, when
- *  it is at least SHARED_RUN_CHARS long; else null. */
-/** How much of `text` shows on screen: a LaTeX command is one symbol, and
- *  braces, `^`, `_`, `$` and backslashes show nothing (round-3 hunt finding:
- *  options like \frac{\partial^2 f}{\partial x^2} share 20+ characters of
- *  notation but almost nothing a reader would call shared wording). */
+/** How much of `text` shows on screen: a LaTeX command is one symbol; braces,
+ *  ^, _, $ and backslashes show nothing (so options like \frac{\partial^2 f}
+ *  {\partial x^2}, … y, z, t don't count as repeating themselves). */
 export function visibleLength(text: string): number {
 	return text.replace(/\\[a-zA-Z]+/g, "•").replace(/[{}$^_\\]/g, "").replace(/\s+/g, " ").trim().length;
 }
 
-export function sharedOptionWording(options: readonly string[]): { where: "begin" | "end" | "contain"; text: string } | null {
+/** The longest stretch all four options share, if it shows as SHARED_CHARS or more. */
+export function sharedOptionWording(options: readonly string[]): string | null {
 	const trimmed = options.map((o) => o.trim());
-	const common = (list: string[]) => {
-		let n = 0;
-		while (list.every((o) => n < o.length && o[n] === list[0]![n])) n++;
-		const run = list[0]!.slice(0, n);
-		// Whole words or math tokens only: a shared first letter or a half word
-		// isn't a lead-in, but a formula like $x_1+x_2+…$ splits at + - = , ( ) $ { }
-		// as well as spaces (round-5 hunt finding).
-		const boundary = /[\s+\-=,;:()[\]{}$]/;
-		if (list.every((o) => o.length === n || boundary.test(o[n]!))) return run;
-		for (let cut = n - 1; cut >= 0; cut--) if (boundary.test(run[cut]!)) return run.slice(0, cut + 1);
-		return "";
-	};
-	const begin = common(trimmed).trim();
-	if (visibleLength(begin) >= SHARED_RUN_CHARS) return { where: "begin", text: begin };
-	const reversed = (s: string) => [...s].reverse().join("");
-	const end = reversed(common(trimmed.map(reversed))).trim();
-	if (visibleLength(end) >= SHARED_RUN_CHARS) return { where: "end", text: end };
-	// The same formula or phrase in the middle of every option (round-1 hunt
-	// finding). Longer threshold: incidental shared notation stays allowed.
 	const shortest = trimmed.reduce((a, b) => (a.length <= b.length ? a : b));
-	for (let length = shortest.length; length >= SHARED_INTERIOR_CHARS; length--)
+	for (let length = shortest.length; length > 0; length--)
 		for (let start = 0; start + length <= shortest.length; start++) {
 			const run = shortest.slice(start, start + length);
-			if (visibleLength(run) >= SHARED_INTERIOR_CHARS && trimmed.every((o) => o.includes(run))) return { where: "contain", text: run.trim() };
+			if (visibleLength(run) >= SHARED_CHARS && trimmed.every((o) => o.includes(run))) return run.trim();
 		}
 	return null;
 }
@@ -144,8 +122,7 @@ export function questionProblem(card: Flashcard, value: ReviewQuestion): string 
 	if (long !== -1)
 		return `Option ${long + 1} has ${value.options[long]!.length} characters. Keep every option under ${SHORT_ANSWER_CHARS} characters; move shared context into the prompt.`;
 	const shared = sharedOptionWording(value.options);
-	if (shared)
-		return `All four options ${shared.where === "begin" ? "begin with" : shared.where === "end" ? "end with" : "contain"} ${JSON.stringify(shared.text)}. Move what the options share into the prompt; each option should be only its distinct answer.`;
+	if (shared) return `All four options repeat ${JSON.stringify(shared)}. Move what the options share into the prompt; each option should be only its distinct answer.`;
 	return null;
 }
 

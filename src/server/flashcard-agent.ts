@@ -387,9 +387,6 @@ export async function runFlashcardCuration(force = false, deps: FlashcardAgentDe
 			return true;
 		});
 		run.total = toPrepare.length;
-		// A new card that fails to prepare is reported at the end of the run but
-		// doesn't stop the rewrites below (round-4 hunt finding).
-		let prepareError: unknown;
 		for (const card of toPrepare) {
 			signal.throwIfAborted();
 			const currentOptions = deps.options();
@@ -412,16 +409,9 @@ export async function runFlashcardCuration(force = false, deps: FlashcardAgentDe
 			});
 			if (!permitted) continue;
 			progress(`Preparing ${run.prepared + 1}/${run.total}`);
-			try {
-				await deps.prepare(card, options.instructions, signal);
-			} catch (error) {
-				if (signal.aborted) throw error;
-				prepareError = error;
-				break;
-			}
+			await deps.prepare(card, options.instructions, signal);
 			run.prepared++;
 		}
-		if (prepareError) throw prepareError;
 	} catch (error) {
 		if (signal.aborted) {
 			updateFlashcardCuration((next) => {
