@@ -41,6 +41,19 @@ function dollarRun(text: string, i: number): number {
 	return n;
 }
 
+/** The next run of exactly `size` `ch` characters at or after `from` (a
+ *  code span closes only on a backtick run of its own length; round-9 hunt
+ *  finding). -1 if none. */
+function nextRun(text: string, ch: string, size: number, from: number): number {
+	for (let i = text.indexOf(ch, from); i !== -1; ) {
+		let run = 0;
+		while (text[i + run] === ch) run++;
+		if (run === size) return i;
+		i = text.indexOf(ch, i + run);
+	}
+	return -1;
+}
+
 /** The next unescaped run of exactly `size` dollars at or after `from`, as
  *  the Markdown math parser pairs them (like code-span backticks): a `$`
  *  never closes on half of a `$$` (round-8 hunt finding). -1 if none. */
@@ -107,7 +120,7 @@ export function hideMathBrackets(text: string): string {
 		if (ch === "`" && !escaped(text, i)) {
 			let run = 1;
 			while (text[i + run] === "`") run++;
-			const close = text.indexOf("`".repeat(run), i + run);
+			const close = nextRun(text, "`", run, i + run);
 			// An unmatched run is literal backticks in Markdown, not a code span
 			// (round-5 hunt finding: an escaped or lone backtick hid later math).
 			const end = close === -1 ? i + run : close + run;

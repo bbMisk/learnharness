@@ -67,6 +67,10 @@ it("a price or a code span before a streaming link doesn't hide it (round-2 hunt
 	// and tilde (or backtick) fences hide their dollars, even while still open.
 	assert.ok(remend("The cost is $5.\n\nSee [source](https://example.com/pa", streamdownRemend).endsWith(marker));
 	assert.ok(remend("The cost is $5.\n\nSee [partial", streamdownRemend).endsWith(marker), "a price's `$` is literal once its paragraph ends");
+	// Round-9 hunt finding: a code span closes only on a backtick run of its own length.
+	const ticks = "A `` literal [source](https://example.com/pa ``` end";
+	assert.match(remend(ticks, streamdownRemend), /streamdown:incomplete-link/);
+	assert.doesNotMatch(renderToStaticMarkup(<MessageResponse>{ticks}</MessageResponse>), /href="https:\/\/example\.com\/pa"/);
 	// Round-8 hunt finding: a single `$` never closes on half of a `$$`.
 	const display = "Price $5. See [source](https://example.com/pa\n$$x$$";
 	assert.match(remend(display, streamdownRemend), /\[source\]\(streamdown:incomplete-link\)/);
