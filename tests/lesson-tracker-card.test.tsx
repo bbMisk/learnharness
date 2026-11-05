@@ -152,7 +152,10 @@ it("renders both sections with symbols and counts", async () => {
 		assert.doesNotMatch(open.getAttribute("class")!, /line-through|truncate/);
 	}
 	// Never reaches the composer: the dock's reserve bounds its height.
-	assert.match(card.getAttribute("style") ?? "", /max-height:\s*calc\(100% - 224px\)/);
+	// Narrow: stops above the dock (its height + a margin); wide (room made): the pane's full height.
+	assert.match(card.getAttribute("style") ?? "", /--lh-card-reserve:\s*224px/);
+	assert.match(card.getAttribute("class")!, /max-h-\[calc\(100%-var\(--lh-card-reserve\)\)\]/);
+	assert.match(card.getAttribute("class")!, /@min-\[64rem\]\/session:max-h-\[calc\(100%-1\.5rem\)\]/, "the room breakpoint the dock uses");
 });
 
 it("shows only the sections that exist", async () => {
@@ -395,7 +398,7 @@ it("plan: Plan first, then Mistakes; a long plan scrolls inside the card, bounde
 	await act(async () => root!.render(<PlanHarness tree={long} view={[]} />));
 	assert.equal(rows(host, "plan").length, 40);
 	assert.match(card(host)!.getAttribute("class")!, /\boverflow-y-auto\b/);
-	assert.match(card(host)!.getAttribute("style") ?? "", /max-height:\s*calc\(100% - 184px\)/);
+	assert.match(card(host)!.getAttribute("style") ?? "", /--lh-card-reserve:\s*184px/);
 });
 
 it("plan: the chat wires the section with the cram/practice gate and counts it for the chip", () => {

@@ -1569,7 +1569,7 @@ export function Chat({
 				</Conversation>
 				{/* The tracking card: top-right over the transcript, below the
 				    session-scoped focuses (z-40) and clear of the dock. */}
-				{hasTracking && trackerCard.shown && <LessonTrackerCard tracking={tracking} plan={planProgress} bottomReserve={dockReserve} />}
+				{hasTracking && trackerCard.shown && <LessonTrackerCard tracking={tracking} plan={planProgress} bottomReserve={Math.max(0, dockReserve - GRADIENT_H)} />}
 
 				{/* The session-scoped focuses (chrome-melt wave, 2026-09-19): mounted
 				    INSIDE the session area — absolute inset-0 siblings of the scroller,

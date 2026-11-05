@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { ListChecksIcon } from "lucide-react";
 import { Hint } from "@/components/ui/hint";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
@@ -254,8 +254,11 @@ function PlanStepRow({ step }: { step: PlanStepProgress }) {
  * The card: "Plan covered/total" (one PlanStepRow each) for a teach lesson
  * with a plan (`plan`, null in cram and practice), "Problems correct/total" (one ProblemRow each) when a list
  * exists, "Mistakes K open · J fixed" (○ open, archived ✓ resolved) when any mistake
- * exists — in that order. `bottomReserve` is the dock's height — the card
- * never reaches the composer; it scrolls instead (a long plan too).
+ * exists — in that order. Height (owner, 2026-11-05: "why doesn't it get
+ * longer"): while the area makes room (wide layouts) the dock sits left of the
+ * card's lane, so the card may run the pane's full height; otherwise it stops
+ * above the dock (`bottomReserve`: the dock's height, without its fade). A
+ * longer card scrolls.
  */
 export function LessonTrackerCard({ tracking, plan = null, bottomReserve }: { tracking: LessonTracking; plan?: PlanProgress | null; bottomReserve: number }) {
 	const { problems, mistakes } = tracking;
@@ -264,8 +267,8 @@ export function LessonTrackerCard({ tracking, plan = null, bottomReserve }: { tr
 		<aside
 			data-testid="lesson-tracker"
 			aria-label="Lesson progress"
-			className="absolute right-3 top-3 z-20 flex w-64 max-w-[calc(100%-1.5rem)] flex-col gap-4 overflow-y-auto rounded-xl border border-border/80 bg-card/95 px-3.5 py-3 font-ui text-xs text-foreground shadow-sm backdrop-blur-sm"
-			style={{ maxHeight: `calc(100% - ${bottomReserve + 24}px)` }}
+			className="absolute right-3 top-3 z-20 flex max-h-[calc(100%-var(--lh-card-reserve))] w-64 max-w-[calc(100%-1.5rem)] flex-col gap-4 overflow-y-auto rounded-xl border border-border/80 bg-card/95 px-3.5 py-3 font-ui text-xs text-foreground shadow-sm backdrop-blur-sm @min-[64rem]/session:max-h-[calc(100%-1.5rem)]"
+			style={{ "--lh-card-reserve": `${bottomReserve + 24}px` } as CSSProperties}
 		>
 			{plan && (
 				<section data-testid="lesson-tracker-plan">
