@@ -106,8 +106,13 @@ export function sharedOptionWording(options: readonly string[]): { where: "begin
 		let n = 0;
 		while (list.every((o) => n < o.length && o[n] === list[0]![n])) n++;
 		const run = list[0]!.slice(0, n);
-		// Whole words only: a shared first letter or a half word isn't a lead-in.
-		return list.every((o) => o.length === n || /\s/.test(o[n]!)) ? run : run.slice(0, Math.max(0, run.search(/\s\S*$/)));
+		// Whole words or math tokens only: a shared first letter or a half word
+		// isn't a lead-in, but a formula like $x_1+x_2+…$ splits at + - = , ( ) $ { }
+		// as well as spaces (round-5 hunt finding).
+		const boundary = /[\s+\-=,;:()[\]{}$]/;
+		if (list.every((o) => o.length === n || boundary.test(o[n]!))) return run;
+		for (let cut = n - 1; cut >= 0; cut--) if (boundary.test(run[cut]!)) return run.slice(0, cut + 1);
+		return "";
 	};
 	const begin = common(trimmed).trim();
 	if (visibleLength(begin) >= SHARED_RUN_CHARS) return { where: "begin", text: begin };
@@ -152,7 +157,11 @@ const squash = (text: string) => text.replace(/\s+/g, " ").trim();
  *  "Begins with", not "contains": a short answer like "1" would otherwise match
  *  inside "10" (round-4 hunt finding). */
 export function withSourceAnswer(card: Flashcard, explanation: string): string {
-	return squash(explanation).startsWith(squash(card.back)) ? explanation : `${card.back}\n\n${explanation}`;
+	const text = squash(explanation);
+	const answer = squash(card.back);
+	// …and the answer must end there: "10 is the answer" doesn't begin with the answer "1" (round-5).
+	const quoted = text.startsWith(answer) && (text.length === answer.length || /[\s.,;:!?)\]]/.test(text[answer.length]!) || /[.!?;:]$/.test(answer));
+	return quoted ? explanation : `${card.back}\n\n${explanation}`;
 }
 
 

@@ -190,6 +190,15 @@ it("a new card that fails to prepare doesn't block rewrites (round-4 hunt findin
     assert.match(readFlashcardCuration().lastError??"",/question generation failed/,"the preparation failure is still reported");
 });
 
+it("a failing triage doesn't block rewrites (round-5 hunt finding)",async()=>{
+    const h=harness(4,4);
+    for(const c of h.records.slice(0,2))c.mcq={prompt:c.front,options:["A","B","C","D"],correctIndex:0,explanation:"Old"};
+    h.deps.triage=async()=>{throw new Error("triage failed");};
+    await runFlashcardCuration(false,h.deps);
+    assert.equal(h.refreshed.length,2,"stale questions still rewritten");
+    assert.match(readFlashcardCuration().lastError??"",/triage failed/);
+});
+
 it("failed rewrites count toward the daily cap (round-2 hunt finding)",async()=>{
     const h=harness(60,1);let attempts=0;
     for(const c of h.records)c.mcq={prompt:c.front,options:["A","B","C","D"],correctIndex:0,explanation:"Old"};

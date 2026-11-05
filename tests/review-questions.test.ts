@@ -115,6 +115,7 @@ it("puts the card's answer into an explanation that doesn't quote it, and fails 
 	const one: Flashcard = { ...card("one"), back: "1" };
 	assert.equal(withSourceAnswer(one, "The answer is 10 when n = 3."), "1\n\nThe answer is 10 when n = 3.");
 	assert.equal(withSourceAnswer(one, "1. Because the limit is one."), "1. Because the limit is one.");
+	assert.equal(withSourceAnswer(one, "10 is the answer."), "1\n\n10 is the answer.", "round-5 hunt finding: a longer number isn't the answer");
 
 	const repeated = { ...question(answer), options: ["It is the instantaneous rate of change: A", "It is the instantaneous rate of change: B", "It is the instantaneous rate of change: C", "It is the instantaneous rate of change: D"] };
 	respond(Array.from({ length: 4 }, () => submit("submit_question", repeated)));
@@ -264,6 +265,11 @@ it("rejects options that repeat a shared lead-in or formula (the owner's LEC 3 c
 	assert.equal(sharedOptionWording(partials), null);
 	assert.equal(sharedOptionWording(["$\\mathbb{E}[X \\mid \\mathcal{F}_1]$", "$\\mathbb{E}[X \\mid \\mathcal{F}_2]$", "$\\mathbb{E}[X \\mid \\mathcal{F}_3]$", "$\\mathbb{E}[X \\mid \\mathcal{F}_4]$"]), null);
 	assert.equal(visibleLength("\\frac{\\partial^2 f}{\\partial "), 6);
+	// Round-5 hunt finding: a shared formula with no spaces still counts as a shared lead-in.
+	const sum = "$x_1+x_2+x_3+x_4+x_5+x_6+x_7$";
+	assert.equal(sharedOptionWording([`${sum} is 1`, `${sum} is 2`, `${sum} is 3`, `${sum} is 4`])?.where, "begin");
+	const nospace = "$x_1+x_2+x_3+x_4+x_5+x_6+x_7+";
+	assert.equal(sharedOptionWording([`${nospace}a$`, `${nospace}b$`, `${nospace}c$`, `${nospace}d$`])?.where, "begin", "no spaces at all: cut at the +");
 });
 
 it("a rewrite must keep the correct option where the old question had it (offline reviews; round 1–2 hunt findings)", async () => {
