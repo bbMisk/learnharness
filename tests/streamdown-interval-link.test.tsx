@@ -106,6 +106,11 @@ it("a price or a code span before a streaming link doesn't hide it (round-2 hunt
 	assert.equal(finalRegionStart("a\n\n$$\nx\n\ny\n$$\nz"), 3, "nor one inside display math");
 	assert.equal(finalRegionStart("a\n\n```\nstill streaming\n\n"), 3, "an open fence keeps its blank lines");
 	assert.equal(finalRegionStart("no blank line"), 0);
+	// Round-16 hunt finding: a fence nested in a list, indented 4 spaces, keeps its blank lines.
+	const nested = "- Example:\n    ```text\n  first\n\n  [n, infinity)\n    ```";
+	assert.equal(finalRegionStart(nested), 0);
+	assert.doesNotMatch(remend(nested, streamdownRemend), /incomplete-link/);
+	assert.doesNotMatch(renderToStaticMarkup(<MessageResponse>{nested}</MessageResponse>), /incomplete-link/);
 	// Round-9 hunt finding: a code span closes only on a backtick run of its own length.
 	const ticks = "A `` literal [source](https://example.com/pa ``` end";
 	assert.match(remend(ticks, streamdownRemend), /streamdown:incomplete-link/);
