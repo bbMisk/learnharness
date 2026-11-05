@@ -18,7 +18,7 @@ process.env.LH_DATA_DIR = temp;
 process.env.LH_AUTH_FILE = path.join(temp, "auth.json");
 const { stores } = await import("../src/server/stores.ts");
 const { piModels } = await import("../src/agent/models.ts");
-const { questionFor, questionProblem, sharedOptionWording, SHORT_ANSWER_CHARS, QUESTION_RULES } = await import("../src/server/review-questions.ts");
+const { questionFor, questionProblem, sharedOptionWording, visibleLength, SHORT_ANSWER_CHARS, QUESTION_RULES } = await import("../src/server/review-questions.ts");
 const { triageFlashcards } = await import("../src/server/flashcard-agent.ts");
 const { bgLlmSlots } = await import("../src/agent/subagents/bg-llm-semaphore.ts");
 const { chatGPTStatus } = await import("../src/agent/chatgpt-bridge.ts");
@@ -254,6 +254,11 @@ it("rejects options that repeat a shared lead-in or formula (the owner's LEC 3 c
 	// Round-1 hunt finding: the same formula in the middle of every option.
 	const formula = " so $\\bigcap_{n=1}^\\infty(-1/n,1+1/n)$ is ";
 	assert.equal(sharedOptionWording([`1${formula}a`, `2${formula}b`, `3${formula}c`, `4${formula}d`])?.where, "contain");
+	// Round-3 hunt finding: shared notation that shows as a few symbols is not shared wording.
+	const partials = ["x", "y", "z", "t"].map((v) => `\\(\\frac{\\partial^2 f}{\\partial ${v}^2}\\)`);
+	assert.equal(sharedOptionWording(partials), null);
+	assert.equal(sharedOptionWording(["$\\mathbb{E}[X \\mid \\mathcal{F}_1]$", "$\\mathbb{E}[X \\mid \\mathcal{F}_2]$", "$\\mathbb{E}[X \\mid \\mathcal{F}_3]$", "$\\mathbb{E}[X \\mid \\mathcal{F}_4]$"]), null);
+	assert.equal(visibleLength("\\frac{\\partial^2 f}{\\partial "), 6);
 });
 
 it("a rewrite must keep the correct option where the old question had it (offline reviews; round 1–2 hunt findings)", async () => {

@@ -92,6 +92,14 @@ const SHARED_INTERIOR_CHARS = 24;
 
 /** The lead-in or ending all four options share, cut at a word boundary, when
  *  it is at least SHARED_RUN_CHARS long; else null. */
+/** How much of `text` shows on screen: a LaTeX command is one symbol, and
+ *  braces, `^`, `_`, `$` and backslashes show nothing (round-3 hunt finding:
+ *  options like \frac{\partial^2 f}{\partial x^2} share 20+ characters of
+ *  notation but almost nothing a reader would call shared wording). */
+export function visibleLength(text: string): number {
+	return text.replace(/\\[a-zA-Z]+/g, "•").replace(/[{}$^_\\]/g, "").replace(/\s+/g, " ").trim().length;
+}
+
 export function sharedOptionWording(options: readonly string[]): { where: "begin" | "end" | "contain"; text: string } | null {
 	const trimmed = options.map((o) => o.trim());
 	const common = (list: string[]) => {
@@ -102,17 +110,17 @@ export function sharedOptionWording(options: readonly string[]): { where: "begin
 		return list.every((o) => o.length === n || /\s/.test(o[n]!)) ? run : run.slice(0, Math.max(0, run.search(/\s\S*$/)));
 	};
 	const begin = common(trimmed).trim();
-	if (begin.length >= SHARED_RUN_CHARS) return { where: "begin", text: begin };
+	if (visibleLength(begin) >= SHARED_RUN_CHARS) return { where: "begin", text: begin };
 	const reversed = (s: string) => [...s].reverse().join("");
 	const end = reversed(common(trimmed.map(reversed))).trim();
-	if (end.length >= SHARED_RUN_CHARS) return { where: "end", text: end };
+	if (visibleLength(end) >= SHARED_RUN_CHARS) return { where: "end", text: end };
 	// The same formula or phrase in the middle of every option (round-1 hunt
 	// finding). Longer threshold: incidental shared notation stays allowed.
 	const shortest = trimmed.reduce((a, b) => (a.length <= b.length ? a : b));
 	for (let length = shortest.length; length >= SHARED_INTERIOR_CHARS; length--)
 		for (let start = 0; start + length <= shortest.length; start++) {
 			const run = shortest.slice(start, start + length);
-			if (run.trim().length >= SHARED_INTERIOR_CHARS && trimmed.every((o) => o.includes(run))) return { where: "contain", text: run.trim() };
+			if (visibleLength(run) >= SHARED_INTERIOR_CHARS && trimmed.every((o) => o.includes(run))) return { where: "contain", text: run.trim() };
 		}
 	return null;
 }
