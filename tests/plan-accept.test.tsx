@@ -33,20 +33,21 @@ it("offered only while a teach lesson's plan waits for the go-ahead", () => {
 });
 
 it("waits for a reply only to the latest plan", () => {
-	const plan = { role: "assistant", content: [{ type: "toolCall", name: "plan_init" }] };
+	const planCall = (id: string) => ({ role: "assistant", content: [{ type: "toolCall", name: "plan_init", id }] });
+	const ok = (id: string) => ({ role: "toolResult", toolName: "plan_init", toolCallId: id, isError: false, details: { ok: true, tree: { nodes: [], edges: [] } } });
 	const prose = { role: "assistant", content: [{ type: "toolCall", name: "send_to_user" }, { type: "text", text: "Accept?" }] };
 	const block = { role: "custom", content: "" };
 	const learner = { role: "user", content: "accept" };
 	assert.equal(awaitingPlanReply([]), false);
-	assert.equal(awaitingPlanReply([plan, { role: "toolResult" }, prose, block]), true, "presented, not yet answered");
-	assert.equal(awaitingPlanReply([plan, prose, learner]), false, "accepted");
-	assert.equal(awaitingPlanReply([plan, prose, learner, prose]), false, "the tutor started teaching in prose and stopped");
-	assert.equal(awaitingPlanReply([plan, learner, plan, prose]), true, "a revised plan waits again");
+	assert.equal(awaitingPlanReply([planCall("a"), ok("a"), prose, block]), true, "presented, not yet answered");
+	assert.equal(awaitingPlanReply([planCall("a"), ok("a"), prose, learner]), false, "accepted");
+	assert.equal(awaitingPlanReply([planCall("a"), ok("a"), prose, learner, prose]), false, "the tutor started teaching in prose and stopped");
+	assert.equal(awaitingPlanReply([planCall("a"), ok("a"), learner, planCall("b"), ok("b"), prose]), true, "a revised plan waits again");
 });
 
 it("round-2 hunt findings: dock answers, failed calls, rewrites after Accept", () => {
 	const plan = (id: string) => ({ role: "assistant", content: [{ type: "toolCall", name: "plan_init", id }] });
-	const planResult = (id: string, isError = false) => ({ role: "toolResult", toolName: "plan_init", toolCallId: id, isError });
+	const planResult = (id: string, isError = false) => ({ role: "toolResult", toolName: "plan_init", toolCallId: id, isError, details: isError ? null : { ok: true, tree: { nodes: [], edges: [] } } });
 	const ask = { role: "assistant", content: [{ type: "toolCall", name: "ask_user_question", id: "q" }] };
 	const answer = { role: "toolResult", toolName: "ask_user_question", toolCallId: "q", isError: false };
 	const accept = { role: "user", content: [{ type: "text", text: PLAN_ACCEPT_TEXT }] };
@@ -62,6 +63,10 @@ it("round-2 hunt findings: dock answers, failed calls, rewrites after Accept", (
 	const dismissed = { role: "toolResult", toolName: "ask_user_question", toolCallId: "q", isError: false, details: { kind: "ask", dismissed: true } };
 	assert.equal(awaitingPlanReply([plan("p1"), planResult("p1"), ask, dismissed]), true, "a dismissed question is not a reply (round-4 hunt finding)");
 	assert.equal(awaitingPlanReply([plan("p1"), planResult("p1"), accept, ask, answer, plan("p2"), planResult("p2")]), true, "a dock answer after Accept can ask for changes (round-5 hunt finding)");
+	// Round-10 hunt finding: an invalid map returns { ok: false } without isError and presents nothing.
+	const invalid = { role: "toolResult", toolName: "plan_init", toolCallId: "p2", isError: false, details: { ok: false, error: "Line 3: bad edge" } };
+	assert.equal(awaitingPlanReply([plan("p1"), planResult("p1"), typed, plan("p2"), invalid, { role: "assistant", content: [{ type: "text", text: "Fixed?" }] }]), false, "a failed rewrite doesn't re-offer the old plan");
+	assert.equal(awaitingPlanReply([plan("p1")]), false, "a plan whose result hasn't arrived isn't presented yet");
 });
 
 it("Accept sends the go-ahead; Change hands over the composer", async () => {

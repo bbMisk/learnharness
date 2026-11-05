@@ -38,23 +38,26 @@ function learnerText(content: unknown): string {
 /** True while the latest plan presentation has no reply yet (owner,
  *  2026-11-05). Phase stays "plan" until the first tagged check, so the phase
  *  alone can't tell (hunt findings, rounds 1–2):
- *  - a successful plan_init call presents a plan (a failed one doesn't);
+ *  - a plan_init call presents a plan only once its result succeeded
+ *    (details.ok, as the plan popup reads it);
  *  - a learner message, or a (successful, not dismissed) answer to a
  *    question asked after the plan, is a reply;
  *  - right after the learner clicks Accept, later plan_init calls (a rewrite
  *    while teaching gets going) don't ask again; a typed message after that
  *    may be a change request, so the next plan asks again. */
 export function awaitingPlanReply(messages: readonly ScanMessage[]): boolean {
-	const failed = new Set<string>();
+	// A plan is presented only by a plan_init whose result succeeded: an
+	// invalid map returns { ok: false, error } without isError (round-10 hunt finding).
+	const presented = new Set<string>();
 	for (const m of messages) {
-		if (m.role === "toolResult" && m.toolName === "plan_init" && m.isError && m.toolCallId) failed.add(m.toolCallId);
+		if (m.role === "toolResult" && m.toolName === "plan_init" && !m.isError && m.toolCallId && (m.details as { ok?: unknown } | undefined)?.ok === true) presented.add(m.toolCallId);
 	}
 	let awaiting = false;
 	let accepted = false;
 	for (const m of messages) {
 		if (m.role === "assistant" && Array.isArray(m.content)) {
 			const presents = (m.content as Array<{ type?: string; name?: string; id?: string }>).some(
-				(b) => b.type === "toolCall" && b.name === "plan_init" && !(b.id && failed.has(b.id)),
+				(b) => b.type === "toolCall" && b.name === "plan_init" && !!b.id && presented.has(b.id),
 			);
 			if (presents && !accepted) awaiting = true;
 		} else if (m.role === "user") {
