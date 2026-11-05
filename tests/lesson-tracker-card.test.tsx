@@ -87,8 +87,17 @@ const record: LhMessage[] = [
 	result(11, "problem_start", { ok: true, id: "q2" }),
 ];
 
+/** What a sighted reader sees (screen-reader-only text removed) and what a
+ *  screen reader reads (aria-hidden parts removed). */
+const textWithout = (el: Element, selector: string) => {
+	const copy = el.cloneNode(true) as Element;
+	for (const hidden of copy.querySelectorAll(selector)) hidden.remove();
+	return copy.textContent;
+};
+const visible = (el: Element) => textWithout(el, ".sr-only");
+const spoken = (el: Element) => textWithout(el, "[aria-hidden]");
 const rows = (host: Element, section: string) =>
-	[...host.querySelectorAll(`[data-testid="lesson-tracker-${section}"] li`)].map((li) => [li.getAttribute("data-status"), li.textContent]);
+	[...host.querySelectorAll(`[data-testid="lesson-tracker-${section}"] li`)].map((li) => [li.getAttribute("data-status"), visible(li)]);
 const count = (host: Element, section: string) =>
 	host.querySelector(`[data-testid="lesson-tracker-${section}"] [data-testid="lesson-tracker-count"]`)?.textContent;
 
@@ -329,10 +338,10 @@ it("plan: a teach lesson with a plan shows the section — covered/total, one ro
 	}
 	// Scores: right-aligned, tabular; green when the latest answer was right, red when wrong; none unanswered.
 	const [scoreRow, fisherRow] = host.querySelectorAll('[data-testid="lesson-tracker-plan"] li[data-status="covered"]');
-	assert.equal(score(scoreRow!)!.textContent, "1/2");
+	assert.equal(visible(score(scoreRow!)!), "1/2");
 	assert.match(score(scoreRow!)!.getAttribute("class")!, /\btext-green-500\b/);
 	assert.match(score(scoreRow!)!.getAttribute("class")!, /\bml-auto\b.*\btabular-nums\b/);
-	assert.equal(score(fisherRow!)!.textContent, "1/2");
+	assert.equal(visible(score(fisherRow!)!), "1/2");
 	assert.match(score(fisherRow!)!.getAttribute("class")!, /\btext-red-500\b/);
 	assert.equal(score(planRow(host, "current")), null, "no answered check: no score");
 	assert.equal(score(planRow(host, "upcoming")), null);
@@ -350,7 +359,7 @@ it("plan: updates live as tagged checks stream in and answers land", async () =>
 	assert.equal(rows(host, "plan")[0]![0], "current");
 	assert.equal(score(planRow(host, "current")), null, "posed, not answered");
 	await act(async () => root!.render(<PlanHarness view={[{ parts: [tagged("score", graded(true))] }]} />));
-	assert.equal(score(planRow(host, "current"))!.textContent, "1/1");
+	assert.equal(visible(score(planRow(host, "current"))!), "1/1");
 	await act(async () => root!.render(<PlanHarness view={[{ parts: [tagged("score", graded(true))] }, { parts: [tagged("fisher")] }]} />));
 	assert.equal(count(host, "plan"), "1/4");
 	assert.deepEqual(rows(host, "plan").map((r) => r[0]), ["covered", "current", "upcoming", "upcoming"]);
@@ -421,4 +430,24 @@ it("makes room for the dock too: it centres on the narrowed column while the car
 	assert.match(chat, /const COLUMN = "mx-auto w-full max-w-none px-6";/);
 	assert.match(chat, /room=\{trackerRoom\.dock\}/);
 	assert.match(chat, /<div ref=\{blockRef\} data-testid="dock-block" className=\{`relative bg-background pb-5 \$\{room\}`\}>\s*<div className=\{DOCK\}>/);
+});
+
+it("plan: screen readers get each step's status and its score in words; the visual design is unchanged", async () => {
+	const host = await mount(<PlanHarness />);
+	const items = [...host.querySelectorAll('[data-testid="lesson-tracker-plan"] li')];
+	assert.deepEqual(items.map(spoken), [
+		"Covered: The score function, 1 of 2 checks right, latest right",
+		"Covered: Fisher information, 1 of 2 checks right, latest wrong",
+		"Current step: The Cramér-Rao bound",
+		"Not started: Efficiency",
+	]);
+	// The words are visually hidden (sr-only); what shows is exactly as before.
+	assert.deepEqual(items.map(visible), ["✓The score function1/2", "✓Fisher information1/2", "▸The Cramér-Rao bound", "○Efficiency"]);
+	for (const li of items) assert.equal(li.querySelector('[data-testid="lesson-tracker-symbol"]')!.getAttribute("aria-hidden"), "true");
+	const scoreEl = score(items[0]!)!;
+	assert.equal(scoreEl.querySelector(".sr-only")!.textContent, ", 1 of 2 checks right, latest right");
+	assert.equal(scoreEl.querySelector("[aria-hidden]")!.textContent, "1/2");
+	// One check reads in the singular.
+	await act(async () => root!.render(<PlanHarness view={[{ parts: [tagged("score", graded(false))] }]} />));
+	assert.equal(spoken(planRow(host, "current")), "Current step: The score function, 0 of 1 check right, latest wrong");
 });

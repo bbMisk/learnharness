@@ -131,12 +131,16 @@ function SectionHeader({ title, count }: { title: string; count: string }) {
 	);
 }
 
-function Row({ symbol, status, text, className, symbolClassName = "", textClassName = "break-words", aside }: { symbol: string; status: string; text: string; className: string; symbolClassName?: string; textClassName?: string; aside?: ReactNode }) {
+/** `statusLabel`: the status the aria-hidden symbol shows, for screen
+ *  readers (visually hidden — sr-only is out of flow, so the row's layout
+ *  is unchanged). */
+function Row({ symbol, status, text, className, symbolClassName = "", textClassName = "break-words", aside, statusLabel }: { symbol: string; status: string; text: string; className: string; symbolClassName?: string; textClassName?: string; aside?: ReactNode; statusLabel?: string }) {
 	return (
 		<li data-status={status} className={`flex gap-2 leading-snug ${className}`}>
 			<span aria-hidden data-testid="lesson-tracker-symbol" className={`w-3 shrink-0 text-center ${symbolClassName}`}>
 				{symbol}
 			</span>
+			{statusLabel && <span className="sr-only">{`${statusLabel}: `}</span>}
 			<span className={`min-w-0 ${textClassName}`}>{text}</span>
 			{aside}
 		</li>
@@ -209,8 +213,10 @@ function ProblemRow({ problem: p }: { problem: TrackedProblem }) {
 
 /** A plan step's check score (owner, 2026-11-05): right/answered,
  *  right-aligned — green when the step's latest answered check was right,
- *  red when wrong, muted when it carries no grade (an explain answer);
- *  nothing before the step has an answered check. */
+ *  red when wrong; nothing while the step has no graded check (an
+ *  ungraded explain answer counts for nothing). The colour and the slash
+ *  are visual only, so screen readers get the words instead (Codex round 1,
+ *  2026-11-05): "1 of 2 checks right, latest wrong". */
 const SCORE_TONE = { right: "text-green-500", wrong: "text-red-500" } as const;
 
 function StepScore({ step }: { step: PlanStepProgress }) {
@@ -221,22 +227,26 @@ function StepScore({ step }: { step: PlanStepProgress }) {
 			data-latest={step.latest}
 			className={`ml-auto shrink-0 pl-1 font-normal tabular-nums ${SCORE_TONE[step.latest]}`}
 		>
-			{step.right}/{step.answered}
+			<span aria-hidden>
+				{step.right}/{step.answered}
+			</span>
+			<span className="sr-only">{`, ${step.right} of ${step.answered} ${step.answered === 1 ? "check" : "checks"} right, latest ${step.latest}`}</span>
 		</span>
 	);
 }
 
 /** One plan step (owner, 2026-11-05) in the problem rows' conventions:
- *  ▸ + bold the current step, a muted ✓ for a step moved past, ○ upcoming. */
+ *  ▸ + bold the current step, a muted ✓ for a step moved past, ○ upcoming;
+ *  each status also in words for screen readers (Codex round 1). */
 function PlanStepRow({ step }: { step: PlanStepProgress }) {
 	const score = <StepScore step={step} />;
 	switch (step.status) {
 		case "current":
-			return <Row symbol="▸" status="current" text={step.title} className="font-semibold text-foreground" aside={score} />;
+			return <Row symbol="▸" status="current" statusLabel="Current step" text={step.title} className="font-semibold text-foreground" aside={score} />;
 		case "visited":
-			return <Row symbol="✓" status="covered" text={step.title} className="text-muted-foreground" aside={score} />;
+			return <Row symbol="✓" status="covered" statusLabel="Covered" text={step.title} className="text-muted-foreground" aside={score} />;
 		default:
-			return <Row symbol="○" status="upcoming" text={step.title} className="text-muted-foreground" aside={score} />;
+			return <Row symbol="○" status="upcoming" statusLabel="Not started" text={step.title} className="text-muted-foreground" aside={score} />;
 	}
 }
 
