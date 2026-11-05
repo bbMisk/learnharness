@@ -106,6 +106,12 @@ it("a price or a code span before a streaming link doesn't hide it (round-2 hunt
 	assert.equal(finalRegionStart("a\n\n$$\nx\n\ny\n$$\nz"), 3, "nor one inside display math");
 	assert.equal(finalRegionStart("a\n\n```\nstill streaming\n\n"), 3, "an open fence keeps its blank lines");
 	assert.equal(finalRegionStart("no blank line"), 0);
+	// Round-17 hunt finding: an indented paragraph after a blank line continues its list item.
+	const listed = "- outer\n  - inner\n\n    See [source](https://example.com/pa";
+	assert.equal(finalRegionStart(listed), 0);
+	assert.doesNotMatch(renderToStaticMarkup(<MessageResponse>{listed}</MessageResponse>), /href="https:\/\/example\.com\/pa"/);
+	assert.match(remend(listed, streamdownRemend), /streamdown:incomplete-link/);
+	assert.equal(finalRegionStart("- a\n\nNext paragraph"), 5, "a non-indented line after a blank starts the region");
 	// Round-16 hunt finding: a fence nested in a list, indented 4 spaces, keeps its blank lines.
 	const nested = "- Example:\n    ```text\n  first\n\n  [n, infinity)\n    ```";
 	assert.equal(finalRegionStart(nested), 0);

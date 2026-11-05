@@ -95,8 +95,8 @@ function prepare(text: string): { hidden: string; lastBlockStart: number } {
 	return { hidden, lastBlockStart };
 }
 
-/** Where the final region starts: just after the last blank line that is
- *  outside fenced code and $$ display math. Everything before it is
+/** Where the final region starts: at the last non-indented line after a
+ *  blank line outside fenced code and $$ display math. Everything before it is
  *  finished blocks, so a streaming render parses only the tail (the
  *  renderer re-runs this on every chunk; parsing the whole reply each time
  *  cost several ms on long replies). 0 when there is no such line. */
@@ -105,7 +105,9 @@ export function finalRegionStart(text: string): number {
 	let display = false;
 	let start = 0;
 	let pos = 0;
+	let afterBlank = false;
 	for (const line of text.split("\n")) {
+		const lineStart = pos;
 		pos += line.length + 1;
 		// Any indentation: a fence nested in a list may sit 4+ spaces in (round-16
 		// hunt finding). Over-detecting only widens the parsed region, which is safe.
@@ -114,12 +116,20 @@ export function finalRegionStart(text: string): number {
 			if (marker && marker[0] === fence[0] && marker.length >= fence.length && line.trim() === marker) fence = null;
 			continue;
 		}
+		if (line.trim() === "") {
+			if (!display) afterBlank = true;
+			continue;
+		}
+		// A region starts at a non-indented line after a blank one (a fence
+		// opener included); an indented line continues the block above (a list
+		// item's next paragraph, nested lists, indented code; round-17 hunt finding).
+		if (afterBlank && !/^\s/.test(line)) start = lineStart;
+		afterBlank = false;
 		if (marker) {
 			fence = marker;
 			continue;
 		}
 		if ((line.match(/\$\$/g) ?? []).length % 2 === 1) display = !display;
-		if (!display && line.trim() === "") start = pos;
 	}
 	return Math.min(start, text.length);
 }
