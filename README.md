@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://github.com/bbMisk/learnharness/releases/download/v0.4.0-preview.2/LearnHarness-0.4.0-preview.2-arm64.dmg">Download for Mac</a> ·
   <a href="#how-it-works">How it works</a> ·
-  <a href="docs/development.md">Documentation</a> ·
+  <a href="docs/README.md">Documentation</a> ·
   <a href="https://github.com/bbMisk/learnharness/issues">Issues</a> ·
   <a href="https://discord.gg/5tCHHQEB2e">Discord</a>
 </p>
@@ -42,7 +42,9 @@ Instead of just giving you an explanation, it uses your answers and thinking to 
 
 **Think out loud.** The thinking fields let you explain your reasoning, uncertainties, and reactions in your own words. This is how the agent gets a detailed picture rather than just a record of right and wrong answers. You can type or use dictation.
 
-The agent can also research questions in the background, create visual explanations, and build interactive demonstrations.
+**Bring your files.** In the desktop app, attach PDFs, photos, or any other file with the paperclip, or drag them in. The file stays where it is: the message carries its path, and the agent reads it from there.
+
+The agent can also research questions in the background, create visual explanations, show your own images in the lesson and mark them up with arrows and labels, and build interactive demonstrations.
 
 ## Knowledge that carries forward
 
@@ -62,7 +64,9 @@ Future teaching sessions can read the graph instead of starting from scratch. Pr
 
 This is a **preview**, ad-hoc signed and not Apple notarized. If macOS blocks it, use **System Settings → Privacy & Security → Open Anyway** after verifying the download source. Automatic app updates are not active in this preview; install newer releases from this repository. Your learning data remains in the app’s local data folder. Other platforms are not packaged by this fork yet.
 
-Besides your ChatGPT account or API keys, you can use an installed [Claude Code CLI](docs/claude-code.md) or a [custom OpenAI-compatible endpoint](docs/custom-providers.md), including a local model server. Each model slot can also set a [prompt-cache retention preference](docs/compaction-accounting.md#prompt-cache-retention) under **Settings → Agent → Models → Show advanced settings**.
+Besides your ChatGPT account or API keys, you can use an installed [Claude Code CLI](docs/claude-code.md) or a [custom OpenAI-compatible endpoint](docs/custom-providers.md), including a local model server. Each model slot can also set a [prompt-cache retention preference](docs/compaction-accounting.md#prompt-cache-retention) under **Settings → Agent → Models → Show advanced settings**. Optional dictation and web search use separate service keys. Web research can use a Tavily, Brave, Exa, Firecrawl, or Ollama key in Settings → Providers → Search. Ollama search uses its hosted service, not a local model server.
+
+See [Getting started](docs/getting-started.md) for model setup, dictation, files, and notes imports, and [context, caching, and costs](docs/compaction-accounting.md) for advanced cache preferences.
 
 Optional shared-host mode connects your own Macs to one running LearnHarness host; otherwise every installation uses its own local chats, graph, files and account. It does not include access to Hanson’s host or accounts.
 
@@ -78,12 +82,12 @@ Optional shared-host mode connects your own Macs to one running LearnHarness hos
 See [ChatGPT account setup](docs/chatgpt-plan.md) for account handling and limits, and [offline flashcards](docs/offline-flashcards.md) for review setup.
 
 ```bash
-npm install
+npm ci
 npm run dev        # http://localhost:3000
-npm test           # deterministic, no LLM, no network
+npm test           # fixtures and fake providers
 ```
 
-See the [development guide](docs/development.md) for setup and checks, [architecture](docs/architecture.md) for the shipped runtime, [keyboard reference](docs/keyboard.md) for shortcuts, and [desktop release guide](docs/desktop-release.md) for packaging and updates.
+See the [documentation index](docs/README.md) for all guides, [development](docs/development.md) for setup and checks, [architecture](docs/architecture.md) for the runtime, [keyboard shortcuts](docs/keyboard.md), and [desktop builds and releases](docs/desktop-release.md).
 
 Questions, bug reports, and feature requests: [GitHub Issues](https://github.com/bbMisk/learnharness/issues).
 

@@ -25,6 +25,7 @@ const originalConnected = Object.getOwnPropertyDescriptor(process, "connected");
 const { piModels, piEngineForSpec } = await import("../src/agent/models.ts");
 const { composeInstructions, createProberAgent, createTeacherAgent, bareQuestionTools } = await import("../src/agent/teacher-agent.ts");
 const { HANDOFF_UPDATE_TEXT, handoffIndex, sharedHandoffMessages, sharedHandoffSupported } = await import("../src/agent/shared-handoff.ts");
+const { SEND_TO_USER_DELIVERY_RULE } = await import("../src/agent/narration-guard.ts");
 const { handleChatInput } = await import("../src/server/chat-handler.ts");
 const { runningTurn } = await import("../src/server/turn-runs.ts");
 const { chatStore } = await import("../src/store/chats.ts");
@@ -252,7 +253,8 @@ test("Anthropic: the same record gives the prober's system and tools, plus a nat
 	assert.deepEqual(teacherBody.tools, proberBody.tools, "the prober's tools stay the top-level tools");
 	const update = teacherBody.messages.find((m: any) => m.role === "system");
 	assert(update, "a mid-conversation system message");
-	assert.equal(update.content[0].text, `${HANDOFF_UPDATE_TEXT}\n\n${composeInstructions("teacher")}`);
+	// A Claude teacher carries the narration-guard delivery rule after its instructions.
+	assert.equal(update.content[0].text, `${HANDOFF_UPDATE_TEXT}\n\n${composeInstructions("teacher")}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}`);
 	const additions = update.content.filter((b: any) => b.type === "tool_addition").map((b: any) => b.tool.definition.name);
 	const removals = update.content.filter((b: any) => b.type === "tool_removal").map((b: any) => b.tool.name);
 	assert.deepEqual(additions.sort(), Object.keys(bareQuestionTools()).filter((name) => !proberTools.some((t) => t.name === name)).sort());

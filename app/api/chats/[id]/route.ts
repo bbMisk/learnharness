@@ -21,7 +21,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 	// agent history with non-display bytes omitted — the client derives its view
 	// (core/view.ts projectView). turnInFlight lets a returning client
 	// re-attach to a running turn; coverage is the chat view's ring meter.
-	const { learningEvents: _learningEvents, ...view } = chat;
+	// Snapshot bytes have a session-scoped endpoint; do not resend the whole image pool on every poll.
+	const { learningEvents: _learningEvents, imageSnapshots: _imageSnapshots, ...view } = chat;
 	return jsonResponse(req, {
 		...view,
 		messages: chat.messages.map(clientMessage),
