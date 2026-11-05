@@ -72,14 +72,22 @@ export function useLessonTrackerShown(): { shown: boolean; toggle: () => void } 
  * column's own gutter (px-6, 1.5rem). "Wide enough" is a 64rem session
  * area: the lane plus a reading column as wide as the dock (46rem). Below
  * that the card overlays, as before. A container query on the session
- * area (not the viewport), so the sidebar's width counts; both classes
+ * area (not the viewport), so the sidebar's width counts; the classes
  * apply only while the card shows — hidden or absent changes nothing.
+ *
+ * The dock follows (owner, 2026-11-05): the question card, composer,
+ * reading field, queued steers, setup/plan-accept bar and footer row centre
+ * on the column, not the whole pane, so a question never slides under the
+ * card. The dock block takes the column's own padding box at the same
+ * breakpoint — the column's px-6 left (1.5rem) and its room-making right —
+ * so the 46rem dock centres in exactly the column's content box.
  */
 export const TRACKER_ROOM_AREA = "@container/session";
 export const TRACKER_ROOM_COLUMN = "@min-[64rem]/session:pr-[18.25rem]";
+export const TRACKER_ROOM_DOCK = "@min-[64rem]/session:pl-[1.5rem] @min-[64rem]/session:pr-[18.25rem]";
 
-export function lessonTrackerRoom(active: boolean): { area: string; column: string } {
-	return active ? { area: TRACKER_ROOM_AREA, column: TRACKER_ROOM_COLUMN } : { area: "", column: "" };
+export function lessonTrackerRoom(active: boolean): { area: string; column: string; dock: string } {
+	return active ? { area: TRACKER_ROOM_AREA, column: TRACKER_ROOM_COLUMN, dock: TRACKER_ROOM_DOCK } : { area: "", column: "", dock: "" };
 }
 
 const CHIP =

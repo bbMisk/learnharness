@@ -1506,6 +1506,7 @@ export function Chat({
 					cliContextWindow={cliContextWindowOf(nativeMessages)}
 					pricing={pricing}
 					onReserve={setDockReserve}
+					room={trackerRoom.dock}
 					dictationSlot={<DictationBar dictation={dictation} />}
 					dictationCancel={dictation.cancel}
 					queuedSteers={visibleQueuedSteers(steerQueue, nativeMessages)}
@@ -1748,6 +1749,7 @@ function DockOverlay({
 	chatId,
 	onModelChange,
 	onReserve,
+	room,
 	plan,
 	onOpenPlan,
 	dictationSlot,
@@ -1792,6 +1794,10 @@ function DockOverlay({
 	/** Reports the dock's settled height (block + gradient) — ChatView's
 	 *  dockReserve state feeds the transcript's spacer from it. */
 	onReserve: (h: number) => void;
+	/** The progress card's make-room padding (lessonTrackerRoom's `dock`;
+	 *  owner, 2026-11-05): centres the dock on the narrowed column while the
+	 *  card shows on a wide session area; "" otherwise — layout untouched. */
+	room: string;
 	/** The plan marginalia's content (the bare diagram) — rendered only
 	 *  while a question owns the band. Null until a plan exists. */
 	plan?: React.ReactNode;
@@ -2152,7 +2158,7 @@ function DockOverlay({
 	return (
 		<div className="pointer-events-none absolute inset-x-0 bottom-0" style={{ right: sbInset }}>
 			<div className="h-24 bg-gradient-to-t from-background via-background/85 to-transparent" />
-			<div ref={blockRef} className="relative bg-background pb-5">
+			<div ref={blockRef} data-testid="dock-block" className={`relative bg-background pb-5 ${room}`}>
 				<div className={DOCK}>
 					<div ref={viewportRef} data-dock-viewport="" className="pointer-events-auto">
 					<div ref={bodyRef}>

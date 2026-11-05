@@ -236,7 +236,7 @@ it("blocked storage costs only the memory", async () => {
 });
 
 it("makes room: while shown on a wide session area the column clears the card; otherwise layout is untouched", async () => {
-	assert.deepEqual(lessonTrackerRoom(false), { area: "", column: "" }, "hidden or absent: no layout change");
+	assert.deepEqual(lessonTrackerRoom(false), { area: "", column: "", dock: "" }, "hidden or absent: no layout change");
 	const room = lessonTrackerRoom(true);
 	// The classes compile to a container query on the session area: at
 	// 64rem and up the column's right padding is the card's lane (16rem
@@ -398,4 +398,30 @@ it("plan: the chat wires the section with the cram/practice gate and counts it f
 	assert.match(chat, /const hasTracking = hasLessonTracking\(tracking\) \|\| planProgress !== null;/);
 	assert.match(chat, /\{hasTracking && <LessonTrackerChip /);
 	assert.match(chat, /<LessonTrackerCard tracking=\{tracking\} plan=\{planProgress\} /);
+});
+
+it("makes room for the dock too: it centres on the narrowed column while the card shows on a wide area, untouched otherwise", async () => {
+	// Hidden or absent card (and, through the container query, narrow areas): no dock classes at all.
+	assert.equal(lessonTrackerRoom(false).dock, "", "card hidden or absent: the dock's layout is unchanged");
+	const room = lessonTrackerRoom(true);
+	const { compile } = await import("tailwindcss");
+	const build = async (classes: string[]) => (await compile("@tailwind utilities;", { base: process.cwd() })).build(classes);
+	const QUERY = /@container session \(width >= 64rem\) \{([\s\S]*?)\n\}/;
+	const inQuery = (css: string, prop: string) => css.match(QUERY)?.[1]?.match(new RegExp(`\\b${prop}: ([^;]+);`))?.[1];
+	const dockCss = await build(room.dock.split(" "));
+	const columnCss = await build([room.column]);
+	// The same breakpoint as the column, and the column's own padding box:
+	// its room-making right and its px-6 (1.5rem) left — so the dock centres
+	// in exactly the column's content box (owner, 2026-11-05).
+	assert.equal(inQuery(dockCss, "padding-right"), "18.25rem");
+	assert.equal(inQuery(dockCss, "padding-right"), inQuery(columnCss, "padding-right"), "the same right offset as the column");
+	assert.equal(inQuery(dockCss, "padding-left"), "1.5rem", "the column's px-6 left gutter");
+	assert.doesNotMatch(dockCss.replace(QUERY, ""), /padding/, "nothing outside the wide-area query");
+	// The chat applies them: the column carries px-6, and the dock block (the
+	// one wrapper of the question card, composer, reading field, queued steers,
+	// setup/plan-accept bar and footer row) takes the dock classes.
+	const chat = fs.readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
+	assert.match(chat, /const COLUMN = "mx-auto w-full max-w-none px-6";/);
+	assert.match(chat, /room=\{trackerRoom\.dock\}/);
+	assert.match(chat, /<div ref=\{blockRef\} data-testid="dock-block" className=\{`relative bg-background pb-5 \$\{room\}`\}>\s*<div className=\{DOCK\}>/);
 });
