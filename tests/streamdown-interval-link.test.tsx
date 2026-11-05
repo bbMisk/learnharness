@@ -67,6 +67,11 @@ it("a price or a code span before a streaming link doesn't hide it (round-2 hunt
 	// and tilde (or backtick) fences hide their dollars, even while still open.
 	assert.ok(remend("The cost is $5.\n\nSee [source](https://example.com/pa", streamdownRemend).endsWith(marker));
 	assert.ok(remend("The cost is $5.\n\nSee [partial", streamdownRemend).endsWith(marker), "a price's `$` is literal once its paragraph ends");
+	// Round-8 hunt finding: a single `$` never closes on half of a `$$`.
+	const display = "Price $5. See [source](https://example.com/pa\n$$x$$";
+	assert.match(remend(display, streamdownRemend), /\[source\]\(streamdown:incomplete-link\)/);
+	assert.doesNotMatch(renderToStaticMarkup(<MessageResponse>{display}</MessageResponse>), /href="https:\/\/example\.com\/pa"/);
+	assert.equal(remend("so $$\\bigcup [0,1)$$ and $[2,3)$ here", streamdownRemend), "so $$\\bigcup [0,1)$$ and $[2,3)$ here");
 	const across = "The cost is $5.\n\nSee [source](https://example.com/pa\n\nThe equation is $x$.";
 	assert.match(remend(across, streamdownRemend), /\[source\]\(streamdown:incomplete-link\)/, "the unfinished link is still hardened");
 	assert.doesNotMatch(renderToStaticMarkup(<MessageResponse>{across}</MessageResponse>), /href="https:\/\/example\.com\/pa"/);

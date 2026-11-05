@@ -34,10 +34,21 @@ function escaped(text: string, i: number): boolean {
 	return slashes % 2 === 1;
 }
 
-/** Find the next unescaped `delim` at or after `from` (-1 if none). */
-function nextDelimiter(text: string, delim: string, from: number): number {
-	for (let i = text.indexOf(delim, from); i !== -1; i = text.indexOf(delim, i + 1)) {
-		if (!escaped(text, i) && (delim === "$$" || text[i + 1] !== "$")) return i;
+/** Length of the run of `$` starting at `i`. */
+function dollarRun(text: string, i: number): number {
+	let n = 0;
+	while (text[i + n] === "$") n++;
+	return n;
+}
+
+/** The next unescaped run of exactly `size` dollars at or after `from`, as
+ *  the Markdown math parser pairs them (like code-span backticks): a `$`
+ *  never closes on half of a `$$` (round-8 hunt finding). -1 if none. */
+function nextDelimiter(text: string, size: number, from: number): number {
+	for (let i = text.indexOf("$", from); i !== -1; ) {
+		const run = dollarRun(text, i);
+		if (run === size && !escaped(text, i)) return i;
+		i = text.indexOf("$", i + run);
 	}
 	return -1;
 }
@@ -105,10 +116,16 @@ export function hideMathBrackets(text: string): string {
 			continue;
 		}
 		if (ch === "$" && !escaped(text, i)) {
-			const delim = text[i + 1] === "$" ? "$$" : "$";
-			const start = i + delim.length;
-			let close = nextDelimiter(text, delim, start);
-			const para = delim === "$" ? paragraphEnd(text, start) : -1;
+			const size = dollarRun(text, i);
+			if (size > 2) {
+				out += text.slice(i, i + size);
+				i += size;
+				continue;
+			}
+			const delim = "$".repeat(size);
+			const start = i + size;
+			let close = nextDelimiter(text, size, start);
+			const para = size === 1 ? paragraphEnd(text, start) : -1;
 			if (para !== -1 && close > para) close = -1;
 			if (close === -1) {
 				// Last paragraph: math may still be streaming. Earlier: a literal `$`.
