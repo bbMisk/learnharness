@@ -57,11 +57,24 @@ function nextRun(text: string, ch: string, size: number, from: number): number {
 /** The next unescaped run of exactly `size` dollars at or after `from`, as
  *  the Markdown math parser pairs them (like code-span backticks): a `$`
  *  never closes on half of a `$$` (round-8 hunt finding). -1 if none. */
-function nextDelimiter(text: string, size: number, from: number): number {
-	for (let i = text.indexOf("$", from); i !== -1; ) {
-		const run = dollarRun(text, i);
-		if (run === size && !escaped(text, i)) return i;
-		i = text.indexOf("$", i + run);
+function nextDelimiter(text: string, size: number, from: number, limit: number): number {
+	for (let i = from; i < limit; ) {
+		const ch = text[i];
+		if (ch === "`" && !escaped(text, i)) {
+			// A code span inside the scope can't hold the closer (round-11 hunt finding).
+			let run = 1;
+			while (text[i + run] === "`") run++;
+			const close = nextRun(text, "`", run, i + run);
+			i = close !== -1 && close < limit ? close + run : i + run;
+			continue;
+		}
+		if (ch === "$") {
+			const run = dollarRun(text, i);
+			if (run === size && !escaped(text, i)) return i;
+			i += run;
+			continue;
+		}
+		i++;
 	}
 	return -1;
 }
@@ -95,6 +108,17 @@ function paragraphEnd(text: string, from: number): number {
 	const blank = /\n[ \t]*\n/g;
 	blank.lastIndex = from;
 	return blank.exec(text)?.index ?? -1;
+}
+
+/** Where a math span opened at `from` must close by: inline math ends with
+ *  its paragraph (a blank line), and no math crosses into a fenced code
+ *  block (round-11 hunt finding). -1 when the scope runs to the end of the
+ *  text, where math may still be streaming. */
+function mathScopeEnd(text: string, from: number, inline: boolean): number {
+	const fence = /\n {0,3}(?:`{3,}|~{3,})/g;
+	fence.lastIndex = from;
+	const ends = [fence.exec(text)?.index ?? -1, inline ? paragraphEnd(text, from) : -1].filter((n) => n !== -1);
+	return ends.length ? Math.min(...ends) : -1;
 }
 
 /** `[` inside $…$ and $$…$$ → HIDDEN, following Markdown's boundaries
@@ -137,12 +161,11 @@ export function hideMathBrackets(text: string): string {
 			}
 			const delim = "$".repeat(size);
 			const start = i + size;
-			let close = nextDelimiter(text, size, start);
-			const para = size === 1 ? paragraphEnd(text, start) : -1;
-			if (para !== -1 && close > para) close = -1;
+			const scope = mathScopeEnd(text, start, size === 1);
+			const close = nextDelimiter(text, size, start, scope === -1 ? text.length : scope);
 			if (close === -1) {
-				// Last paragraph: math may still be streaming. Earlier: a literal `$`.
-				if (para === -1) return out + text.slice(i, start) + hideUnclosed(text.slice(start));
+				// The scope runs to the end: math may still be streaming. Otherwise a literal `$`.
+				if (scope === -1) return out + text.slice(i, start) + hideUnclosed(text.slice(start));
 				out += text.slice(i, start);
 				i = start;
 				continue;
