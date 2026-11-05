@@ -229,16 +229,10 @@ export function useChatListRefresh({
 	chats,
 	setChats,
 	setProjects,
-	recordChanges = false,
 }: {
 	chats: ChatListItem[] | null;
 	setChats: (update: (prev: ChatListItem[] | null) => ChatListItem[] | null) => void;
 	setProjects: (projects: ProjectSummary[]) => void;
-	/** Refetch on record-changed too (the silent writes: a dismissal, a
-	 *  parallel answer's write-ahead, a compaction). Only the sidebar's time
-	 *  spent reads what those writes change (owner, 2026-11-05), so it is on
-	 *  only while that figure shows. */
-	recordChanges?: boolean;
 }) {
 	const refresherRef = useRef<ReturnType<typeof createChatListRefresher> | null>(null);
 	refresherRef.current ??= createChatListRefresher({
@@ -263,9 +257,9 @@ export function useChatListRefresh({
 	useServerEvent("turn-started", ({ chatId }) => refresher.event({ type: "turn-started", chatId }));
 	useServerEvent("turn-settled", ({ chatId }) => refresher.event({ type: "turn-settled", chatId }));
 	useServerEvent("compaction-changed", () => refresher.event({ type: "compaction-changed" }));
-	useServerEvent("record-changed", ({ chatId }) => {
-		if (recordChanges) refresher.event({ type: "record-changed", chatId });
-	});
+	// The silent writes (a dismissal, a parallel answer's write-ahead, a
+	// compaction) change a row's time spent (owner, 2026-11-05).
+	useServerEvent("record-changed", ({ chatId }) => refresher.event({ type: "record-changed", chatId }));
 	useServerResync(() => void refresher.resync());
 
 	/* INSTANT TURN-STATE (owner, sidebar round 2026-10-02): the open

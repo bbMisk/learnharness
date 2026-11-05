@@ -3,8 +3,8 @@
  * the record-only measurement (gap caps, the open question/problem cap,
  * ordering, empty and single-event records), the sidebar's rounding and
  * wording, the General switch (default off, strict writes, round trip), and
- * the chat list: projected once per record change, sent only while the
- * switch is on. Temp data dir; no network.
+ * the chat list: projected once per record change and sent on every row;
+ * the switch only decides whether the sidebar shows it. Temp data dir; no network.
  */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -264,7 +264,7 @@ const listed = async () =>
 	(await (await listing.GET(new Request("http://test/api/chats"))).json()).chats as Array<{ id: string; timeSpentMs?: number }>;
 
 describe("the chat list", () => {
-	it("projects time spent with the summary, and sends it only while the switch is on (round trip)", async () => {
+	it("projects time spent with the summary and sends it on every row; the switch round-trips", async () => {
 		const chat = chatStore.createChat("Timed lesson");
 		chatStore.saveMessages(chat.id, [
 			user(0),
@@ -274,17 +274,10 @@ describe("the chat list", () => {
 		]);
 		assert.equal(chatStore.listChats().find((c) => c.id === chat.id)?.timeSpentMs, 31 * MIN);
 
-		const off = (await listed()).find((c) => c.id === chat.id)!;
-		assert.ok(off, "the chat is listed");
-		assert.equal("timeSpentMs" in off, false, "off by default: not sent");
-
+		assert.equal((await listed()).find((c) => c.id === chat.id)?.timeSpentMs, 31 * MIN, "sent with the switch off too");
 		assert.equal((await put({ showLessonTime: true })).status, 200);
 		const saved = (await (await settingsRoute.GET()).json()).settings;
 		assert.equal(saved.general.showLessonTime, true, "the switch round-trips");
-		assert.equal((await listed()).find((c) => c.id === chat.id)?.timeSpentMs, 31 * MIN);
-
-		assert.equal((await put({ showLessonTime: false })).status, 200);
-		assert.equal("timeSpentMs" in (await listed()).find((c) => c.id === chat.id)!, false);
 		assert.equal((await put({ showLessonTime: "on" })).status, 400);
 	});
 

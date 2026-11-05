@@ -23,7 +23,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { formatLessonTime, fuzzyScore } from "@/src/core";
 import { useChatListRefresh } from "@/components/chat-list-refresh";
-import type { ChatListItem, GeneralSettings, ProjectSummary } from "@/src/core";
+import type { ChatListItem, ProjectSummary } from "@/src/core";
 import { kbdEventForAction } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { DeployReload } from "@/components/deploy-reload";
@@ -456,9 +456,8 @@ function SessionsSidebar() {
 	const modes = useVisibleModes();
 	const showPractice = modes.includes("practice");
 	const kindFilter: SessionKindFilter = showPractice ? storedKindFilter : "all";
-	// Time spent (owner, 2026-11-05): off by default; the list route sends it only while on.
-	const general = useGeneralSettings();
-	const showTime = general?.showLessonTime ?? false;
+	// Time spent (owner, 2026-11-05): every row carries it; Settings → General shows it (off by default).
+	const showTime = useGeneralSettings()?.showLessonTime ?? false;
 	useEffect(() => {
 		const stored = window.localStorage.getItem(KIND_FILTER_KEY);
 		if (stored === "teach" || stored === "all" || stored === "practice") setKindFilter(stored);
@@ -501,30 +500,8 @@ function SessionsSidebar() {
 	// the same-window lh:turn-state instants (components/chat-list-refresh.ts):
 	// one change costs one list fetch; projects ride only when they may
 	// have changed.
-	// Record changes refetch while time spent shows, and while the setting is
-	// still loading: the list may already carry figures, and a write missed
-	// now would leave them stale once the read says on. Off stays quiet.
-	const refreshList = useChatListRefresh({ chats, setChats, setProjects, recordChanges: general === undefined || showTime });
+	const refreshList = useChatListRefresh({ chats, setChats, setProjects });
 	const refresh = useCallback(() => refreshList(), [refreshList]);
-	// Fetch the list again when time spent turns on, here or in another
-	// window: record changes were ignored while it was off, so figures the
-	// rows still carry from before may be stale. Also when it is on but the
-	// list shown was fetched while it was off (switched on between this page's
-	// first list and its first settings read): while on, the route sends
-	// timeSpentMs on every row, so a non-empty list without it was fetched
-	// with the switch off. One refetch per settings read: if the server still
-	// says off, the next settings read settles it.
-	const timeAskedRef = useRef<GeneralSettings | null>(null);
-	const timeWasOnRef = useRef<boolean | null>(null);
-	useEffect(() => {
-		if (!general) return;
-		const wasOn = timeWasOnRef.current;
-		timeWasOnRef.current = showTime;
-		if (!showTime || !chats || chats.length === 0 || timeAskedRef.current === general) return;
-		if (wasOn !== false && chats.some((c) => c.timeSpentMs !== undefined)) return;
-		timeAskedRef.current = general;
-		void refresh();
-	}, [general, showTime, chats, refresh]);
 
 	const { updateError, moveStatus, updateChat, moveChat, chatDrop } = useChatOrganization({ chats, projects, refresh });
 
