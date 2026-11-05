@@ -23,7 +23,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { formatLessonTime, fuzzyScore } from "@/src/core";
 import { useChatListRefresh } from "@/components/chat-list-refresh";
-import type { ChatListItem, ProjectSummary } from "@/src/core";
+import type { ChatListItem, GeneralSettings, ProjectSummary } from "@/src/core";
 import { kbdEventForAction } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { DeployReload } from "@/components/deploy-reload";
@@ -503,15 +503,19 @@ function SessionsSidebar() {
 	// have changed.
 	const refreshList = useChatListRefresh({ chats, setChats, setProjects, recordChanges: showTime });
 	const refresh = useCallback(() => refreshList(), [refreshList]);
-	// Switching time spent on in this page: the snapshot was fetched without
-	// it. A page that loads with it on already got it with its first list.
-	const timeShownRef = useRef<boolean | null>(null);
+	// Time spent is on but the list shown was fetched while it was off (it was
+	// just switched on, here or in another window, or switched on between this
+	// page's first list and its first settings read): fetch the list again.
+	// While on, the route sends timeSpentMs on every row, so a non-empty list
+	// without it was fetched with the switch off. One refetch per settings
+	// read: if the server still says off, the next settings read settles it.
+	const timeAskedRef = useRef<GeneralSettings | null>(null);
 	useEffect(() => {
-		if (general === undefined) return;
-		const before = timeShownRef.current;
-		timeShownRef.current = showTime;
-		if (showTime && before === false) void refresh();
-	}, [general, showTime, refresh]);
+		if (!general || !showTime || !chats || chats.length === 0) return;
+		if (chats.some((c) => c.timeSpentMs !== undefined) || timeAskedRef.current === general) return;
+		timeAskedRef.current = general;
+		void refresh();
+	}, [general, showTime, chats, refresh]);
 
 	const { updateError, moveStatus, updateChat, moveChat, chatDrop } = useChatOrganization({ chats, projects, refresh });
 
