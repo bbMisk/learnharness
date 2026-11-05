@@ -94,6 +94,11 @@ it("a price or a code span before a streaming link doesn't hide it (round-2 hunt
 	assert.equal(remend(malformed, { htmlTags: false }), "See [source](streamdown:incomplete-link)", "library default drops the rest");
 	assert.match(renderToStaticMarkup(<MessageResponse>{malformed}</MessageResponse>), /Next paragraph with words\./);
 	assert.equal(remend("A stray [note here.\n\nThe interval is $[0,1)$.", streamdownRemend), "A stray [note here.\n\nThe interval is $[0,1)$.");
+	// Round-14 hunt finding: table cells bound math, as in the renderer's GFM parse.
+	const table = "| Cost | Source |\n| --- | --- |\n| $5 | [source](https://example.com/$10";
+	assert.match(remend(table, streamdownRemend), /streamdown:incomplete-link/);
+	assert.doesNotMatch(renderToStaticMarkup(<MessageResponse>{table}</MessageResponse>), /href="https:\/\/example\.com\/\$10"/);
+	assert.equal(remend("| a | b |\n| --- | --- |\n| $[0,1)$ | $[2,3)$ |", streamdownRemend), "| a | b |\n| --- | --- |\n| $[0,1)$ | $[2,3)$ |");
 	// Round-9 hunt finding: a code span closes only on a backtick run of its own length.
 	const ticks = "A `` literal [source](https://example.com/pa ``` end";
 	assert.match(remend(ticks, streamdownRemend), /streamdown:incomplete-link/);

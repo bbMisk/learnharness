@@ -1,5 +1,7 @@
 import remend, { type RemendHandler } from "remend";
 import { fromMarkdown } from "mdast-util-from-markdown";
+import { gfmFromMarkdown } from "mdast-util-gfm";
+import { gfm } from "micromark-extension-gfm";
 import { mathFromMarkdown } from "mdast-util-math";
 import { math } from "micromark-extension-math";
 
@@ -55,7 +57,8 @@ type MdNode = { type: string; position?: { start: { offset?: number }; end: { of
  *  code spans and fences all follow the real rules. */
 function parse(text: string): { ranges: Array<[number, number]>; lastBlockStart: number } {
 	const ranges: Array<[number, number]> = [];
-	const tree = fromMarkdown(text, { extensions: [math({ singleDollarTextMath: true })], mdastExtensions: [mathFromMarkdown()] }) as MdNode;
+	// GFM too, as the renderer parses it (remark-gfm): table cells bound math (round-14 hunt finding).
+	const tree = fromMarkdown(text, { extensions: [gfm(), math({ singleDollarTextMath: true })], mdastExtensions: [gfmFromMarkdown(), mathFromMarkdown()] }) as MdNode;
 	const walk = (node: MdNode) => {
 		if (node.type === "inlineMath" || node.type === "math" || node.type === "inlineCode" || node.type === "code") {
 			const from = node.position?.start.offset;
