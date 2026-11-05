@@ -16,9 +16,9 @@ Object.assign(globalThis, {
 	HTMLElement: dom.window.HTMLElement,
 	IS_REACT_ACT_ENVIRONMENT: true,
 });
-const { offersPlanAccept, PlanAcceptBar, PLAN_ACCEPT_TEXT } = await import("../components/plan-accept.tsx");
+const { offersPlanAccept, awaitingPlanReply, PlanAcceptBar, PLAN_ACCEPT_TEXT } = await import("../components/plan-accept.tsx");
 
-const ready = { kind: "teach" as const, phase: "plan" as const, hasPlan: true, sendAllowed: true, busy: false, retryable: false };
+const ready = { kind: "teach" as const, cram: false, phase: "plan" as const, hasPlan: true, awaitingReply: true, sendAllowed: true, busy: false, retryable: false };
 
 it("offered only while a teach lesson's plan waits for the go-ahead", () => {
 	assert.equal(offersPlanAccept(ready), true);
@@ -28,6 +28,20 @@ it("offered only while a teach lesson's plan waits for the go-ahead", () => {
 	assert.equal(offersPlanAccept({ ...ready, busy: true }), false, "the tutor is still writing");
 	assert.equal(offersPlanAccept({ ...ready, sendAllowed: false }), false, "a question or compaction owns the input");
 	assert.equal(offersPlanAccept({ ...ready, retryable: true }), false, "a failed turn waits for Retry");
+	assert.equal(offersPlanAccept({ ...ready, cram: true }), false, "cram starts without approval (hunt finding)");
+	assert.equal(offersPlanAccept({ ...ready, awaitingReply: false }), false, "already answered (hunt finding)");
+});
+
+it("waits for a reply only to the latest plan", () => {
+	const plan = { role: "assistant", content: [{ type: "toolCall", name: "plan_init" }] };
+	const prose = { role: "assistant", content: [{ type: "toolCall", name: "send_to_user" }, { type: "text", text: "Accept?" }] };
+	const block = { role: "custom", content: "" };
+	const learner = { role: "user", content: "accept" };
+	assert.equal(awaitingPlanReply([]), false);
+	assert.equal(awaitingPlanReply([plan, { role: "toolResult" }, prose, block]), true, "presented, not yet answered");
+	assert.equal(awaitingPlanReply([plan, prose, learner]), false, "accepted");
+	assert.equal(awaitingPlanReply([plan, prose, learner, prose]), false, "the tutor started teaching in prose and stopped");
+	assert.equal(awaitingPlanReply([plan, learner, plan, prose]), true, "a revised plan waits again");
 });
 
 it("Accept sends the go-ahead; Change hands over the composer", async () => {

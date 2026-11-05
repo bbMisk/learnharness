@@ -9,6 +9,7 @@ import type { ComponentProps, HTMLAttributes } from "react";
 import type { LhViewMessage } from "@/src/core";
 import { memo } from "react";
 import remarkBreaks from "remark-breaks";
+import { mathAwareLinks } from "./remend-links";
 import {
   Streamdown,
   type PluginConfig,
@@ -76,12 +77,12 @@ export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 // HTML tag and removes the rest of the message, even inside fenced math.
 // Let the Markdown/math parser handle angle brackets; Streamdown's normal
 // HTML sanitization remains enabled. Other streaming repairs stay active.
-// Link completion is off too (owner, 2026-11-05): remend reads the `[` of a
-// half-open interval like $[n,\infty)$ as an unfinished link and appends
-// "](streamdown:incomplete-link)" to the finished message. Without it, a
-// link still streaming shows as plain text until its closing parenthesis.
-// (remend runs its link handler unless BOTH `links` and `images` are off.)
-export const streamdownRemend = { htmlTags: false, links: false, images: false };
+// Links (owner, 2026-11-05): remend's own link completion read the `[` of
+// a half-open interval like $[n,\infty)$ as an unfinished link and appended
+// "](streamdown:incomplete-link)" to finished messages. It is replaced by the
+// same completion with math hidden from it (remend-links.ts); remend runs its
+// own link handler unless BOTH `links` and `images` are off.
+export const streamdownRemend = { htmlTags: false, links: false, images: false, handlers: [mathAwareLinks] };
 
 export const streamdownPlugins = {
   cjk: {
