@@ -95,74 +95,36 @@ function prepare(text: string): { hidden: string; lastBlockStart: number } {
 	return { hidden, lastBlockStart };
 }
 
-/** Where the final region starts: at the last non-indented line after a
- *  blank line outside fenced code and $$ display math. Everything before it is
- *  finished blocks, so a streaming render parses only the tail (the
- *  renderer re-runs this on every chunk; parsing the whole reply each time
- *  cost several ms on long replies). 0 when there is no such line. */
-export function finalRegionStart(text: string): number {
-	let fence: string | null = null;
-	let display = false;
-	let start = 0;
-	let pos = 0;
-	let afterBlank = false;
-	let html: string | null = null;
-	for (const line of text.split("\n")) {
-		const lineStart = pos;
-		pos += line.length + 1;
-		// The HTML blocks that span blank lines (CommonMark type 1: pre,
-		// script, style, textarea) run to their closing tag (round-18 hunt finding).
-		if (html) {
-			if (line.toLowerCase().includes(`</${html}>`)) html = null;
-			continue;
-		}
-		// Any indentation: a fence nested in a list may sit 4+ spaces in (round-16
-		// hunt finding). Over-detecting only widens the parsed region, which is safe.
-		const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
-		if (fence) {
-			if (marker && marker[0] === fence[0] && marker.length >= fence.length && line.trim() === marker) fence = null;
-			continue;
-		}
-		if (line.trim() === "") {
-			if (!display) afterBlank = true;
-			continue;
-		}
-		// A region starts at a non-indented line after a blank one (a fence
-		// opener included); an indented line continues the block above (a list
-		// item's next paragraph, nested lists, indented code; round-17 hunt finding).
-		if (afterBlank && !/^\s/.test(line)) start = lineStart;
-		afterBlank = false;
-		const open = /^ {0,3}<(pre|script|style|textarea)(?=[\s>]|$)/i.exec(line)?.[1]?.toLowerCase();
-		if (open && !line.toLowerCase().includes(`</${open}>`)) {
-			html = open;
-			continue;
-		}
-		if (marker) {
-			fence = marker;
-			continue;
-		}
-		if ((line.match(/\$\$/g) ?? []).length % 2 === 1) display = !display;
-	}
-	return Math.min(start, text.length);
-}
-
 export function hideMathBrackets(text: string): string {
 	return prepare(text).hidden;
 }
 
-/** Only the final block can end in a link still streaming: earlier blocks are
- *  finished, so link repair runs on the final block alone. That is faster
- *  (remend's link scan is slow on long texts) and right: an unmatched `[`
- *  in an earlier paragraph is plain text, never an unfinished link. */
+/** The previous call's text and where its last top-level block started.
+ *  While a reply streams its text only grows, and every top-level block
+ *  before the last one is closed and can't change, so the next call parses
+ *  only from that block on, with the real parser (exact; a hand-written
+ *  boundary guess kept splitting multi-line blocks, rounds 16–19). Any text
+ *  that doesn't extend the previous one is parsed whole. */
+let previous: { text: string; blockStart: number } | null = null;
+
+/** Tests: forget the previous text. */
+export function resetLinkRepairCache(): void {
+	previous = null;
+}
+
+/** Only the final top-level block can end in a link still streaming:
+ *  earlier blocks are finished, so link repair runs on it alone. That is
+ *  fast and right: an unmatched `[` in an earlier paragraph is plain text,
+ *  and the library default replaced the whole rest of the message with its
+ *  placeholder when it met one. */
 export function completeLinksOutsideMath(text: string): string {
 	if (!text.includes("[")) return text;
 	// The marker character already in the text would be turned into "[": fall back to plain completion.
 	if (text.includes(HIDDEN)) return remend(text, LINKS_ONLY);
-	const region = finalRegionStart(text);
-	const tail = text.slice(region);
-	if (!tail.includes("[")) return text;
-	const { hidden, lastBlockStart } = prepare(tail);
-	return text.slice(0, region) + (hidden.slice(0, lastBlockStart) + remend(hidden.slice(lastBlockStart), LINKS_ONLY)).replaceAll(HIDDEN, "[");
+	const base = previous && text.startsWith(previous.text) ? previous.blockStart : 0;
+	const { hidden, lastBlockStart } = prepare(text.slice(base));
+	previous = { text, blockStart: base + lastBlockStart };
+	return text.slice(0, base) + (hidden.slice(0, lastBlockStart) + remend(hidden.slice(lastBlockStart), LINKS_ONLY)).replaceAll(HIDDEN, "[");
 }
 
 /** Runs where remend's own link handler would (priority 20, before bold/italic). */
