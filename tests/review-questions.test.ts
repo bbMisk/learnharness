@@ -256,18 +256,16 @@ it("rejects options that repeat a shared lead-in or formula (the owner's LEC 3 c
 	assert.equal(sharedOptionWording([`1${formula}a`, `2${formula}b`, `3${formula}c`, `4${formula}d`])?.where, "contain");
 });
 
-it("a rewrite keeps the correct option where the old question had it (round-1 hunt finding: offline reviews)", async () => {
-	const { atCorrectIndex } = await import("../src/server/review-questions.ts");
-	const q = { prompt: "p", options: ["right", "w1", "w2", "w3"], correctIndex: 0, explanation: "e" };
-	assert.deepEqual(atCorrectIndex(q, 2), { ...q, options: ["w2", "w1", "right", "w3"], correctIndex: 2 });
-	assert.equal(atCorrectIndex(q, 0), q);
-	assert.equal(atCorrectIndex(q, undefined), q);
+it("a rewrite must keep the correct option where the old question had it (offline reviews; round 1–2 hunt findings)", async () => {
 	const { refreshQuestion } = await import("../src/server/review-questions.ts");
 	const old: Flashcard = { ...card("rewrite-keeps-index"), mcq: { ...question(answer), correctIndex: 3, options: ["B", "C", "D", answer] } };
-	respond([submit("submit_question", question(answer))]);
+	const atThree = { ...question(answer), options: ["The area under a curve", "The average of a function", "The maximum of a function", answer], correctIndex: 3 };
+	// The model first ignores the position: sent back, not swapped behind its explanation's back.
+	respond([submit("submit_question", question(answer)), submit("submit_question", atThree)]);
 	const rewritten = await refreshQuestion(old);
-	assert.equal(rewritten.correctIndex, 3);
-	assert.equal(rewritten.options[3], answer);
+	assert.equal(contexts.length, 2);
+	assert.match(feedback(1), /Put the correct option at correctIndex 3/);
+	assert.deepEqual(rewritten, { ...atThree, rules: QUESTION_RULES });
 	assert.match(JSON.stringify(contexts[0]!.messages), /Put the correct option at correctIndex 3/);
 });
 

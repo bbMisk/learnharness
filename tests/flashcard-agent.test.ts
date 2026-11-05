@@ -158,6 +158,7 @@ it("rewrites questions written under older rules a few per run, outside the dail
     assert.match(readFlashcardCuration().lastError??"",/1 flashcard question could not be rewritten/);
     await runFlashcardCuration(true,f.deps);
     assert.equal(tried.length,3,"not retried the same day");
+    assert.match(readFlashcardCuration().lastError??"",/1 flashcard question could not be rewritten/,"still reported after a later run (round-2 hunt finding)");
     f.setClock(at+86400000);await runFlashcardCuration(false,f.deps);
     assert.equal(tried.length,4,"retried the next day");
     // Owner, 2026-11-05: any question without the current rules mark is rewritten (the
@@ -178,4 +179,12 @@ it("caps old-rules rewrites per study day across chained runs (round-1 hunt find
     h.setClock(at+86400000);
     for(let run=0;run<10;run++)await runFlashcardCuration(false,h.deps);
     assert.equal(h.refreshed.length,60,"the rest the next day");
+});
+
+it("failed rewrites count toward the daily cap (round-2 hunt finding)",async()=>{
+    const h=harness(60,1);let attempts=0;
+    for(const c of h.records)c.mcq={prompt:c.front,options:["A","B","C","D"],correctIndex:0,explanation:"Old"};
+    h.deps.refresh=async()=>{attempts++;throw new Error("provider outage");};
+    for(let run=0;run<10;run++)await runFlashcardCuration(false,h.deps);
+    assert.equal(attempts,REWRITES_PER_DAY,"an outage can't burn through the whole backlog in a day");
 });

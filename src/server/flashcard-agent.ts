@@ -379,27 +379,37 @@ export async function runFlashcardCuration(force = false, deps: FlashcardAgentDe
 		const room = Math.max(0, REWRITES_PER_DAY - rewritesToday(before, day).done);
 		const current = new Set(deps.candidates().map((card) => card.revision));
 		const stale = rewritable(before).filter((card) => current.has(card.revision)).slice(0, Math.min(REFRESH_PER_RUN, room));
-		let failed = 0;
 		for (const [index, card] of stale.entries()) {
 			signal.throwIfAborted();
+			// Charge the attempt to the CURRENT study day before calling the model
+			// (round-2 hunt findings: failures count toward the cap, and a run that
+			// crosses the day boundary uses the new day's allowance).
+			const today = String(studyDay(deps.now()));
+			let allowed = false;
+			updateFlashcardCuration((next) => {
+				const r = rewritesToday(next, today);
+				if (r.done >= REWRITES_PER_DAY) return;
+				next.rewrites = { ...r, done: r.done + 1 };
+				allowed = true;
+			});
+			if (!allowed) break;
 			progress(`Rewriting questions ${index + 1}/${stale.length}`);
-			let ok = true;
 			try {
 				await deps.refresh(card, options.instructions, signal);
 			} catch (error) {
 				if (signal.aborted) throw error;
-				ok = false;
-				failed++;
+				updateFlashcardCuration((next) => {
+					const r = rewritesToday(next, today);
+					next.rewrites = { ...r, failed: [...r.failed, card.revision] };
+				});
 			}
-			updateFlashcardCuration((next) => {
-				const r = rewritesToday(next, day);
-				next.rewrites = ok ? { ...r, done: r.done + 1 } : { ...r, failed: [...r.failed, card.revision] };
-			});
 		}
-		if (failed)
-			updateFlashcardCuration((next) => {
-				next.lastError = `${failed} flashcard question${failed === 1 ? "" : "s"} could not be rewritten; the old ${failed === 1 ? "one stays" : "ones stay"} in use and will be retried tomorrow.`;
-			});
+		// Today's failures stay visible across chained runs until they are
+		// retried the next day (round-2 hunt finding: a later run cleared them).
+		updateFlashcardCuration((next) => {
+			const failed = rewritesToday(next, String(studyDay(deps.now()))).failed.length;
+			if (failed) next.lastError = `${failed} flashcard question${failed === 1 ? "" : "s"} could not be rewritten; the old ${failed === 1 ? "one stays" : "ones stay"} in use and will be retried tomorrow.`;
+		});
 	} catch (error) {
 		updateFlashcardCuration((next) => {
 			next.lastError = signal.aborted ? "Stopped by you." : error instanceof Error ? error.message : "Flashcard preparation failed.";
