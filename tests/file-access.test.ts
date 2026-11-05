@@ -311,10 +311,10 @@ describe("settings parsing and UI", () => {
 		assert.match(off, /Broad local source access/);
 		assert.match(off, /aria-checked="false"[^>]*aria-label="Restrict to listed folders"/);
 		const empty = render({ fileAccess: { restricted: true, folders: [] } });
-		assert.match(empty, /Restricted: no folders allowed/);
+		assert.match(empty, /Restricted: only files you attach/);
 		assert.match(empty, /aria-checked="true"[^>]*aria-label="Restrict to listed folders"/);
 		const populated = render({ fileAccess: { restricted: true, folders: [a] } });
-		assert.match(populated, />Only listed folders and subfolders\.<\/span>/);
+		assert.match(populated, />Only listed folders and subfolders, plus files you attach\.<\/span>/);
 		assert.doesNotMatch(populated, /Protected locations remain blocked/);
 		assert.match(populated, /aria-checked="true"[^>]*aria-label="Restrict to listed folders"/);
 		assert.match(render({ fileAccess: { restricted: false, folders: [a] } }), /file-access-remove/);

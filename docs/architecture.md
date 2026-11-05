@@ -159,7 +159,9 @@ API environment values override saved keys. Packaged subscription refresh creden
 
 ### File access and external services
 
-Read-only file tools default to the server user's home, not a selected project or app data root. Walk exclusions reduce noise; they are not access authority. Session attachments carry local paths rather than uploads.
+Read-only file tools default to the server user's home, not a selected project or app data root. Walk exclusions reduce noise; they are not access authority. Attachments made on the desktop app can carry local paths; the fork's paperclip, pasted screenshots, iPad and shared-host attachments, and project files are uploads stored under the app's `uploads` folder.
+
+**File access** (Settings → Agent → Tools) is open by default. When restricted, the file tools read only the listed folders plus the app's `uploads` folder, so files the learner attached stay readable; the rest of the data folder stays out of reach. See [`server/file-access.ts`](../src/server/file-access.ts) and [`agent/tools/file-access.ts`](../src/agent/tools/file-access.ts).
 
 The **sensitive-path guard** refuses known private home locations, `.env` files, configured auth/subscription files, and recognized credential temporary files. It checks named/canonical paths and aliases; walks skip protected locations. It is path-based defense in depth, not a content scanner, sandbox, or allowed-folders setting. Other sensitive files and learning records can remain readable. See [`fs-shared.ts`](../src/agent/tools/fs-shared.ts).
 
