@@ -27,7 +27,7 @@ for (const mode of ["static", "streaming"] as const) {
 
 test("streaming preserves inline inequalities and repairs unfinished emphasis", () => {
 	const { document } = parseHTML(renderToStaticMarkup(
-		<MessageResponse>{"For $R<r$, **keep teaching"}</MessageResponse>,
+		<MessageResponse streaming>{"For $R<r$, **keep teaching"}</MessageResponse>,
 	));
 	assert.equal(document.querySelector("annotation")?.textContent, "R<r");
 	assert.equal(document.querySelector("strong")?.textContent, "keep teaching");
