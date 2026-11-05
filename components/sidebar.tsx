@@ -501,7 +501,10 @@ function SessionsSidebar() {
 	// the same-window lh:turn-state instants (components/chat-list-refresh.ts):
 	// one change costs one list fetch; projects ride only when they may
 	// have changed.
-	const refreshList = useChatListRefresh({ chats, setChats, setProjects, recordChanges: showTime });
+	// Record changes refetch while time spent shows, and while the setting is
+	// still loading: the list may already carry figures, and a write missed
+	// now would leave them stale once the read says on. Off stays quiet.
+	const refreshList = useChatListRefresh({ chats, setChats, setProjects, recordChanges: general === undefined || showTime });
 	const refresh = useCallback(() => refreshList(), [refreshList]);
 	// Time spent is on but the list shown was fetched while it was off (it was
 	// just switched on, here or in another window, or switched on between this
