@@ -75,9 +75,13 @@ for (const [name, surface] of Object.entries(surfaces)) describe(`streaming math
 	it("keeps the other incomplete-Markdown repairs", () => {
 		const bold = documentFor(surface("**bold TAIL"));
 		assert.equal(bold.querySelector("strong")?.textContent, "bold TAIL");
+		// Link completion is off (owner, 2026-11-05: it turned the `[` of an
+		// interval like $[n,\infty)$ into a link marker), so an unfinished link
+		// stays literal text: nothing to click, nothing to harden.
 		const link = documentFor(surface("[partial TAIL"));
-		assert.ok(link.body.textContent.includes("partial TAIL"));
-		assert.ok(link.body.textContent.includes("[blocked]"), "the incomplete-link placeholder is still hardened");
+		assert.ok(link.body.textContent.includes("[partial TAIL"));
+		assert.equal(link.querySelectorAll("a").length, 0);
+		assert.ok(!link.body.textContent.includes("incomplete-link"));
 	});
 
 	it("still removes script/event attributes and blocks javascript links", () => {
