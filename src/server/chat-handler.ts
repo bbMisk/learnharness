@@ -1,4 +1,5 @@
 import { projectInstructions } from "./projects.ts";
+import { writeMistakeCard } from "./mistake-cards.ts";
 import type { Usage } from "@earendil-works/pi-ai";
 import {
 	createPracticeAgent,
@@ -567,6 +568,8 @@ export async function handleChatInput(
 						// The registry drop's signal (2026-09-20): no live engine
 						// = no research tool in the teacher's registry.
 						searchAvailable,
+						// A logged mistake becomes a flashcard (server/mistake-cards.ts).
+						onMistake: (mistake) => void writeMistakeCard(chatId, mistake),
 					},
 					agentOpts,
 				)

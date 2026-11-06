@@ -6,6 +6,7 @@ import { getGraph } from "../core/graph.ts";
 import { ReviewError, type Flashcard } from "../core/review.ts";
 import { readReviewArchive, syncReviewCollection } from "../store/review.ts";
 import { readQuestionCache } from "../store/review-questions.ts";
+import { readMistakeCards } from "../store/mistake-cards.ts";
 import { readFlashcardCuration } from "../store/flashcard-curation.ts";
 import { stores, effectiveSettings } from "./stores.ts";
 import { projectStore } from "../store/projects.ts";
@@ -27,7 +28,26 @@ export function reviewCandidates(now: number): Flashcard[] {
 	const sources = new Map(stores.graphStore.readSources().map((source) => [source.id, source]));
 	const chats = new Map(stores.chatStore.listChats().map((chat) => [chat.id, chat]));
 	const projects = new Set(projectStore.list().map((project) => project.id));
-	return getGraph(stores.graphStore)
+	// Cards written from lesson mistakes (server/mistake-cards.ts), in their chat's deck.
+	const mistakes: Flashcard[] = Object.values(readMistakeCards())
+		.filter((card) => chats.has(card.chatId))
+		.map((card) => {
+			const chat = chats.get(card.chatId)!;
+			return {
+				...(questions[card.revision] ? { mcq: questions[card.revision] } : {}),
+				id: card.id,
+				sourceNodeId: "",
+				revision: card.revision,
+				front: card.front,
+				back: card.back,
+				deckId: card.chatId,
+				deckName: chat.title,
+				projectIds: chat.projectId && projects.has(chat.projectId) ? [chat.projectId] : [],
+				createdAt: now,
+				active: true,
+			};
+		});
+	const concepts = getGraph(stores.graphStore)
 		.nodes.filter((node) => node.statement.trim() && (scope === "all" || node.provenance.some((point) => chats.has(point.chatId))))
 		.map((node) => {
 			const deckId =
@@ -57,6 +77,7 @@ export function reviewCandidates(now: number): Flashcard[] {
 				active: true,
 			};
 		});
+	return [...concepts, ...mistakes];
 }
 
 /** Existing histories remain readable; new concepts enter the catalog after triage. */
