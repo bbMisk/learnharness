@@ -32,6 +32,7 @@ import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import { isSearchEngineId, SEARCH_ENGINES } from "../core/search.ts";
 import { isDictationLanguage } from "../core/dictation.ts";
 import { parseFileAccessSettings } from "../core/file-access.ts";
+import { MODEL_INSTRUCTIONS_MAX } from "../core/model-instructions.ts";
 
 /** Parsed-or-rejected — `ok: false` carries the 400's error message. */
 export type SettingsBodyResult<T> =
@@ -277,6 +278,18 @@ export function parseAgentSettingsBody(body: unknown): SettingsBodyResult<AgentS
 	const prompts = parseBooleanMap(raw.prompts, "prompts");
 	if (prompts.error) return { ok: false, error: prompts.error };
 	if (prompts.map) settings.prompts = prompts.map;
+	if (raw.modelInstructions !== undefined) {
+		const map = asRecord(raw.modelInstructions);
+		if (!map) return { ok: false, error: "modelInstructions must be an object" };
+		const parsed: Record<string, string> = {};
+		for (const [key, value] of Object.entries(map)) {
+			if (typeof value !== "string" || value.length > MODEL_INSTRUCTIONS_MAX) {
+				return { ok: false, error: `modelInstructions["${key}"] must be a string of at most ${MODEL_INSTRUCTIONS_MAX} characters` };
+			}
+			if (value.trim()) parsed[key] = value; // empty text clears the model's instructions
+		}
+		if (Object.keys(parsed).length) settings.modelInstructions = parsed;
+	}
 	if (raw.search !== undefined) {
 		const search = asRecord(raw.search);
 		if (!search) return { ok: false, error: "search must be an object" };

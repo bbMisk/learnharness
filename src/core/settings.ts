@@ -38,6 +38,7 @@ import { isSearchEngineId, type SearchEngineId } from "./search.ts";
 import { isDictationLanguage, type DictationLanguage } from "./dictation.ts";
 import { sanitizeFlashcardSettings } from "./flashcard-settings.ts";
 import { parseFileAccessSettings, type FileAccessSettings } from "./file-access.ts";
+import { MODEL_INSTRUCTIONS_MAX } from "./model-instructions.ts";
 
 /** The schema version this code understands. Bump ONLY for breaking shape
  *  changes (a field renamed/meaning changed); pure additions never bump. */
@@ -395,6 +396,9 @@ export interface FlashcardAgentSettings {
 
 export interface AgentSettings {
 	flashcards?: FlashcardAgentSettings;
+	/** Optional per-model tutor instructions keyed by "provider:id"
+	 *  (core/model-instructions.ts). Absent key = no instructions. */
+	modelInstructions?: Record<string, string>;
 	/** Background-role model/thinking overrides (absent role = config pin). */
 	models?: Partial<Record<BackgroundModelRole, RoleModelOverride>>;
 	/** Tool toggles keyed by tool id (absent key = enabled). User-level
@@ -786,6 +790,13 @@ function sanitizeAgent(raw: Record<string, unknown>): AgentSettings {
 	if (tools) out.tools = tools;
 	const prompts = sanitizeBooleanMap(raw.prompts);
 	if (prompts) out.prompts = prompts;
+	if (raw.modelInstructions !== null && typeof raw.modelInstructions === "object" && !Array.isArray(raw.modelInstructions)) {
+		const modelInstructions: Record<string, string> = {};
+		for (const [key, value] of Object.entries(raw.modelInstructions as Record<string, unknown>)) {
+			if (typeof value === "string" && value.trim()) modelInstructions[key] = value.slice(0, MODEL_INSTRUCTIONS_MAX);
+		}
+		if (Object.keys(modelInstructions).length) out.modelInstructions = modelInstructions;
+	}
 	// Search preference: lenient read side (an unknown engine id drops;
 	// the write side's parser is strict — a stale client can't brick the
 	// record, it just loses the pin and auto-detection resumes).
