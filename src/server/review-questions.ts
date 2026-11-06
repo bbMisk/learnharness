@@ -129,9 +129,9 @@ const squash = (text: string) => text.replace(/\s+/g, " ").trim();
 
 /** The explanation always begins with the full source answer: kept as written
  *  when the model began with it (whitespace aside), else put first by the code —
- *  an exact quote is never a reason to reject a question (round-1 hunt finding).
+ *  an exact quote is never a reason to reject a question.
  *  "Begins with", not "contains": a short answer like "1" would otherwise match
- *  inside "10" (round-4 hunt finding). */
+ *  inside "10". */
 export function withSourceAnswer(card: Flashcard, explanation: string): string {
 	const text = squash(explanation);
 	const answer = squash(card.back);
@@ -186,7 +186,7 @@ async function generate(card: Flashcard, options: { signal?: AbortSignal; instru
 		}),
 		// A rewrite must put the correct option where the old question had it; a
 		// swap afterwards could contradict an explanation that names options by
-		// position (round-2 hunt finding), so the model is asked to fix it instead.
+		// position, so the model is asked to fix it instead.
 		validate: (value) =>
 			questionProblem(value) ??
 			(options.keepCorrectIndex !== undefined && value.correctIndex !== options.keepCorrectIndex

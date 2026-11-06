@@ -1202,8 +1202,8 @@ export function Chat({
 	};
 
 	// "Accept plan" (plan-accept.tsx): the same preflight as an ordinary send
-	// (hunt finding: an unavailable selected model opens the picker first),
-	// with the fixed go-ahead text and the learner's draft left alone.
+	// (an unavailable selected model opens the picker first), with the fixed
+	// go-ahead text and the learner's draft left alone.
 	const acceptPlan = () => {
 		if (busy || pending || compacting) return;
 		if (zeroKeys) {
@@ -1216,7 +1216,7 @@ export function Chat({
 		}
 		// Nothing of the learner's to restore if the send is refused: clear the
 		// replay slot so a refusal can't put an older sent message over the
-		// current draft (round-2 hunt finding).
+		// current draft.
 		draftRef.current = null;
 		void send({ type: "text", text: PLAN_ACCEPT_TEXT });
 	};

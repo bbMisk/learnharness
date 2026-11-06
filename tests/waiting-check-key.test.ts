@@ -1,5 +1,5 @@
 /** Enter/Space open the waiting check only when focus is on nothing that uses the key
- *  (hunt finding 2026-11-02: Space on a focused <summary> used to open the check). */
+ *  (Space on a focused <summary> used to open the check). */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseHTML } from "linkedom";

@@ -68,7 +68,7 @@ export function fingerprintResponsesPayload(chatId: string, payload: Record<stri
 
 /** The fingerprint of `payload`, and `commit` to make it the chat's comparison
  *  baseline. Committing is separate so a body that is prepared but never sent
- *  (refused at admission) does not become the baseline (round-6 hunt finding). */
+ *  (refused at admission) does not become the baseline. */
 function prepareFingerprint(chatId: string, payload: Record<string, unknown>): { fingerprint: RequestFingerprint; commit: () => void } | undefined {
 	const input = payload.input;
 	if (!Array.isArray(input)) return undefined;

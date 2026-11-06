@@ -95,7 +95,7 @@ test("no-transform opts out; HEAD reports GET's encoding without a body; init st
 	const kept = jsonResponse(request("http://localhost/x", "gzip"), data, { headers: { "Cache-Control": "no-cache, no-transform" } });
 	assert.equal(kept.headers.get("content-encoding"), null);
 	const head = jsonResponse(new Request("http://localhost/x", { method: "HEAD", headers: { "Accept-Encoding": "gzip" } }), data);
-	assert.equal(head.headers.get("content-encoding"), "gzip", "same representation headers as the GET (round-6 hunt finding)");
+	assert.equal(head.headers.get("content-encoding"), "gzip", "same representation headers as the GET");
 	assert.equal(head.body, null);
 	const plainHead = jsonResponse(new Request("http://localhost/x", { method: "HEAD" }), data);
 	assert.equal(plainHead.headers.get("content-encoding"), null);

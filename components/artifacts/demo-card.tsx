@@ -46,7 +46,7 @@ export function buildDemoSrcDoc(html: string, renderer?: DemoRenderer, runtimes?
 /** The runtimes this demo needs: synchronous when already loaded (legacy demos
  *  need none), otherwise undefined until the lazy chunk arrives. */
 /** Cards waiting on (or failed by) the shared lazy runtimes. Any successful load wakes them
- *  all, so one card's "Try again" recovers every card on the page (round-3 hunt finding). */
+ *  all, so one card's "Try again" recovers every card on the page. */
 const runtimeWaiters = new Set<() => void>();
 
 function useDemoRuntimes(html: string, renderer?: DemoRenderer): { runtimes?: DemoRuntimes; failed: boolean; retry: () => void } {

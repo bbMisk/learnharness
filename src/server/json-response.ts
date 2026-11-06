@@ -62,7 +62,7 @@ export function jsonResponse(request: Request, data: unknown, init: ResponseInit
 		!/(^|[\s,])no-transform([\s,]|$)/i.test(headers.get("cache-control") ?? "");
 	if (!gzip) return new Response(body, { ...init, headers });
 	headers.set("content-encoding", "gzip");
-	// HEAD reports the same representation headers as the GET would, without compressing a body (round-6 hunt finding).
+	// HEAD reports the same representation headers as the GET would, without compressing a body.
 	if (request.method === "HEAD") return new Response(null, { ...init, headers });
 	return new Response(new Blob([body]).stream().pipeThrough(new CompressionStream("gzip")), { ...init, headers });
 }

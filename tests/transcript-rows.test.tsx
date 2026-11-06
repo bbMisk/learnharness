@@ -165,7 +165,7 @@ describe("streaming leaves settled transcript rows alone", () => {
 	});
 });
 
-describe("the thinking row follows the message being written (round-4 hunt)", () => {
+describe("the thinking row follows the message being written", () => {
 	it("a hidden tracking-only step does not re-activate the previous step's reasoning", async () => {
 		const native = [
 			user("u1", "cram me"),

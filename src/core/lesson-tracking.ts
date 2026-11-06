@@ -232,7 +232,7 @@ export function deriveLessonTracking(
  * A problem reads current while in progress (its old outcome, if restarted,
  * returns with its next problem_done), else its outcome, else open.
  * Each problem carries its label so the tutor can tell which id is which once
- * the problem_list call is condensed away (owner, 2026-11-02, round-2 hunt).
+ * the problem_list call is condensed away.
  * The problems part needs a list, the mistakes part an open mistake; null
  * when neither exists.
  */
@@ -242,7 +242,7 @@ export function lessonTrackingLine(tracking: LessonTracking): string | null {
 		parts.push(`problems ${tracking.problems.map((p) => `${p.id} ${JSON.stringify(p.label)} ${problemStatusWord(p)}`).join(", ")}`);
 	}
 	const open = tracking.mistakes.filter((m) => !m.resolved);
-	// Quoted as JSON so a quote inside a mistake can't read as a second entry (round-3 hunt).
+	// Quoted as JSON so a quote inside a mistake can't read as a second entry.
 	if (open.length > 0) parts.push(`open mistakes ${open.map((m) => `${m.id} ${JSON.stringify(m.text)}`).join(", ")}`);
 	return parts.length > 0 ? `Lesson tracking: ${parts.join("; ")}` : null;
 }
@@ -256,7 +256,7 @@ function problemStatusWord(p: TrackedProblem): string {
 
 /** Correct problems / all problems: the card's header count. Counts every
  *  problem whose LATEST outcome is correct, including one started again for
- *  a redo (hunt finding: a restart must not uncount a correct answer). */
+ *  a redo (a restart must not uncount a correct answer). */
 export function correctProblemCount(problems: readonly TrackedProblem[]): number {
 	return problems.filter((p) => p.outcome === "correct").length;
 }

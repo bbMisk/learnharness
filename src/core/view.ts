@@ -285,7 +285,7 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
 		const rest: LhViewPart[] = [];
 		const reasoning: LhViewPart[] = [];
 		// A message whose only content is hidden tracking calls is not "silent":
-		// it must not get the arrival placeholder below (round-3 hunt).
+		// it must not get the arrival placeholder below.
 		let hiddenTracking = false;
 		let textN = 0;
 		// LIVE IS POSITIVE EVIDENCE (owner, 2026-10-05): a call renders
@@ -351,7 +351,7 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
 			}
 		}
 		// A hidden tracking step with only empty (e.g. encrypted) reasoning shows
-		// nothing: an empty thinking row alone would be a phantom (round-5 hunt).
+		// nothing: an empty thinking row alone would be a phantom.
 		const parts: LhViewPart[] =
 			hiddenTracking && rest.length === 0 && reasoning.every((r) => !r.text) ? [] : [...reasoning, ...rest];
 		if (parts.length === 0) {

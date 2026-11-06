@@ -1,4 +1,4 @@
-/** Lazy demo runtimes under failure (round-3 Codex hunt; failure injected with a module resolve hook). */
+/** Lazy demo runtimes under failure (failure injected with a module resolve hook). */
 import React, {act} from 'react';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';

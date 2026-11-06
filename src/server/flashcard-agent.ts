@@ -16,8 +16,8 @@ import { curatorSubmit, questionFor, QUESTION_RULES, refreshQuestion, staleQuest
 /** Cached long-option questions rewritten per curator run. */
 const REFRESH_PER_RUN = 10;
 /** At most this many old-rules questions are rewritten per study day, however
- *  many runs chain (round-1 hunt finding: each run's activity event schedules
- *  the next, so a per-run limit alone didn't bound the migration). */
+ *  many runs chain (each run's activity event schedules the next, so a
+ *  per-run limit alone wouldn't bound the migration). */
 export const REWRITES_PER_DAY = 40;
 
 type Rewrites = NonNullable<FlashcardCuration["rewrites"]>;
@@ -278,9 +278,9 @@ export async function runFlashcardCuration(force = false, deps: FlashcardAgentDe
 		const stale = rewritable(before).filter((card) => current.has(card.revision)).slice(0, Math.min(REFRESH_PER_RUN, room));
 		for (const [index, card] of stale.entries()) {
 			signal.throwIfAborted();
-			// Charge the attempt to the CURRENT study day before calling the model
-			// (round-2 hunt findings: failures count toward the cap, and a run that
-			// crosses the day boundary uses the new day's allowance).
+			// Charge the attempt to the CURRENT study day before calling the model:
+			// failures count toward the cap, and a run that crosses the day
+			// boundary uses the new day's allowance.
 			const today = String(studyDay(deps.now()));
 			let allowed = false;
 			updateFlashcardCuration((next) => {
@@ -302,7 +302,7 @@ export async function runFlashcardCuration(force = false, deps: FlashcardAgentDe
 			}
 		}
 		// Today's failures stay visible across chained runs until they are
-		// retried the next day (round-2 hunt finding: a later run cleared them).
+		// retried the next day.
 		updateFlashcardCuration((next) => {
 			const failed = rewritesToday(next, String(studyDay(deps.now()))).failed.length;
 			if (failed) next.lastError = `${failed} flashcard question${failed === 1 ? "" : "s"} could not be rewritten; the old ${failed === 1 ? "one stays" : "ones stay"} in use and will be retried tomorrow.`;
@@ -420,7 +420,7 @@ export async function runFlashcardCuration(force = false, deps: FlashcardAgentDe
 		} else newCardError = error;
 	}
 	// The rewrites run even when new-card work (triage or preparation) failed,
-	// which is reported afterwards (round-4/5 hunt findings).
+	// which is reported afterwards.
 	try {
 		if (!signal.aborted) await rewriteOldQuestions();
 		if (newCardError)

@@ -146,7 +146,7 @@ it("rewrites questions written under older rules a few per run, outside the dail
     assert.equal(readFlashcardCuration().lastError,undefined);
     await runFlashcardCuration(false,h.deps);
     assert.equal(h.refreshed.length,12,"the next run picks up the rest");
-    // Round-1 hunt finding: a failing card is skipped and reported, not a block on the rest;
+    // A failing card is skipped and reported, not a block on the rest;
     // it waits for the next study day.
     const f=harness(3,1);const tried:string[]=[];
     for(const c of f.records){c.back=long+c.revision;c.mcq={prompt:c.front,options:[c.back,"B","C","D"],correctIndex:0,explanation:"Old"};}
@@ -158,7 +158,7 @@ it("rewrites questions written under older rules a few per run, outside the dail
     assert.match(readFlashcardCuration().lastError??"",/1 flashcard question could not be rewritten/);
     await runFlashcardCuration(true,f.deps);
     assert.equal(tried.length,3,"not retried the same day");
-    assert.match(readFlashcardCuration().lastError??"",/1 flashcard question could not be rewritten/,"still reported after a later run (round-2 hunt finding)");
+    assert.match(readFlashcardCuration().lastError??"",/1 flashcard question could not be rewritten/,"still reported after a later run");
     f.setClock(at+86400000);await runFlashcardCuration(false,f.deps);
     assert.equal(tried.length,4,"retried the next day");
     // Owner, 2026-11-05: any question without the current rules mark is rewritten (the
@@ -171,7 +171,7 @@ it("rewrites questions written under older rules a few per run, outside the dail
     assert.deepEqual(r.refreshed,[r.records[0]!.revision]);
 });
 
-it("caps old-rules rewrites per study day across chained runs (round-1 hunt finding)",async()=>{
+it("caps old-rules rewrites per study day across chained runs",async()=>{
     const h=harness(60,1);
     for(const c of h.records)c.mcq={prompt:c.front,options:["A","B","C","D"],correctIndex:0,explanation:"Old"};
     for(let run=0;run<10;run++)await runFlashcardCuration(false,h.deps);
@@ -181,7 +181,7 @@ it("caps old-rules rewrites per study day across chained runs (round-1 hunt find
     assert.equal(h.refreshed.length,60,"the rest the next day");
 });
 
-it("a new card that fails to prepare doesn't block rewrites (round-4 hunt finding)",async()=>{
+it("a new card that fails to prepare doesn't block rewrites",async()=>{
     const h=harness(4,4);
     for(const c of h.records.slice(0,2))c.mcq={prompt:c.front,options:["A","B","C","D"],correctIndex:0,explanation:"Old"};
     h.deps.prepare=async()=>{throw new Error("question generation failed");};
@@ -190,7 +190,7 @@ it("a new card that fails to prepare doesn't block rewrites (round-4 hunt findin
     assert.match(readFlashcardCuration().lastError??"",/question generation failed/,"the preparation failure is still reported");
 });
 
-it("a failing triage doesn't block rewrites (round-5 hunt finding)",async()=>{
+it("a failing triage doesn't block rewrites",async()=>{
     const h=harness(4,4);
     for(const c of h.records.slice(0,2))c.mcq={prompt:c.front,options:["A","B","C","D"],correctIndex:0,explanation:"Old"};
     h.deps.triage=async()=>{throw new Error("triage failed");};
@@ -199,7 +199,7 @@ it("a failing triage doesn't block rewrites (round-5 hunt finding)",async()=>{
     assert.match(readFlashcardCuration().lastError??"",/triage failed/);
 });
 
-it("failed rewrites count toward the daily cap (round-2 hunt finding)",async()=>{
+it("failed rewrites count toward the daily cap",async()=>{
     const h=harness(60,1);let attempts=0;
     for(const c of h.records)c.mcq={prompt:c.front,options:["A","B","C","D"],correctIndex:0,explanation:"Old"};
     h.deps.refresh=async()=>{attempts++;throw new Error("provider outage");};
