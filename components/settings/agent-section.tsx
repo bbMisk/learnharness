@@ -78,6 +78,7 @@ import { prettyModel } from "@/components/usage-format";
 import { cn } from "@/lib/utils";
 import { SettingsGroup, SettingsRow, SettingsMenuTrigger, Toggle, CommitInput } from "./controls.tsx";
 import { FlashcardAgentSection } from "./flashcard-agent-section";
+import { ModelInstructionsSection } from "./model-instructions-section";
 import { ModelMenuList, ThinkingMenuList } from "./model-menu";
 import { ChatGPTBackgroundAccess } from "./chatgpt-connection";
 import { NativeSubscriptionBackgroundAccess } from "./subscription-connections";
@@ -939,6 +940,8 @@ export function AgentSection({
 			</SettingsGroup>
 
 			<FlashcardAgentSection agent={agent} onChange={onSectionChange}/>
+
+			<ModelInstructionsSection agent={agent} catalog={catalog ?? undefined} onChange={onSectionChange} />
 
 			<SettingsGroup label="Context" testid="group-context">
 				<SettingsRow
