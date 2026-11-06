@@ -454,3 +454,76 @@ it("plan: screen readers get each step's status and its score in words; the visu
 	await act(async () => root!.render(<PlanHarness view={[{ parts: [tagged("score", graded(false))] }]} />));
 	assert.equal(spoken(planRow(host, "current")), "Current step: The score function, 0 of 1 check right, latest wrong");
 });
+
+// ─── Practice weak spots (owner, 2026-11-06) ─────────────────────────────────
+
+const { lessonWeakSpots, weakSpotsPracticePrompt } = await import("../src/core/lesson-tracking.ts");
+const { startWeakSpotsPractice } = await import("../components/start-session.ts");
+const practiceButton = (host: Element) => host.querySelector('[data-testid="lesson-tracker-practice"]') as HTMLButtonElement | null;
+
+it("weak spots: a button while a plan step's latest check is wrong or a mistake is open; clicking passes them", async () => {
+	const tracking = deriveLessonTracking(record);
+	const plan = lessonPlanProgress(planTree, planView, { cram: false, practice: false });
+	const started: string[][] = [];
+	const onPracticeWeakSpots = async (spots: string[]) => void started.push(spots);
+	const host = await mount(<LessonTrackerCard tracking={tracking} plan={plan} bottomReserve={0} onPracticeWeakSpots={onPracticeWeakSpots} />);
+	assert.equal(practiceButton(host)!.textContent, "Practice weak spots");
+	await act(async () => practiceButton(host)!.click());
+	// Red steps first (fisher: latest wrong; score's latest is right), then the open mistakes (m1 is fixed).
+	assert.deepEqual(started, [["Fisher information", "Drops the n in the Fisher information", "Forgets the regularity conditions"]]);
+	// Only resolved mistakes and no red step: no weak spots, no button.
+	const fixedOnly = deriveLessonTracking([record[3]!, record[6]!]);
+	const greenPlan = lessonPlanProgress(planTree, [{ parts: [tagged("score", graded(true))] }], { cram: false, practice: false });
+	assert.deepEqual(lessonWeakSpots(fixedOnly, greenPlan), []);
+	await act(async () => root!.render(<LessonTrackerCard tracking={fixedOnly} plan={greenPlan} bottomReserve={0} onPracticeWeakSpots={onPracticeWeakSpots} />));
+	assert.ok(card(host) && !practiceButton(host));
+	// No handler (models not set up): no button even with weak spots.
+	await act(async () => root!.render(<LessonTrackerCard tracking={tracking} plan={plan} bottomReserve={0} />));
+	assert.equal(practiceButton(host), null);
+	// Practice sessions carry no plan section and no mistake tools: nothing to practise.
+	assert.equal(lessonPlanProgress(planTree, planView, { cram: false, practice: true }), null);
+	assert.deepEqual(lessonWeakSpots(deriveLessonTracking([]), null), []);
+});
+
+it("weak spots: a failed start re-enables the button with a retry message", async () => {
+	const host = await mount(
+		<LessonTrackerCard tracking={deriveLessonTracking(record)} bottomReserve={0} onPracticeWeakSpots={async () => { throw new Error("x"); }} />,
+	);
+	await act(async () => practiceButton(host)!.click());
+	assert.match(host.querySelector('[role="alert"]')!.textContent!, /Couldn’t start the practice session/);
+	assert.equal(practiceButton(host)!.disabled, false);
+});
+
+it("weak spots: the click creates a practice chat in the lesson's project, opened by the seed message", async () => {
+	const session = new Map<string, string>();
+	const prev = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+	Object.defineProperty(globalThis, "sessionStorage", {
+		configurable: true,
+		value: { getItem: (k: string) => session.get(k) ?? null, setItem: (k: string, v: string) => void session.set(k, v), removeItem: (k: string) => void session.delete(k) },
+	});
+	try {
+		const posts: unknown[] = [];
+		const fetchLike = (async (url: string, init: RequestInit) => {
+			assert.equal(url, "/api/chats");
+			posts.push(JSON.parse(init.body as string));
+			return Response.json({ id: "c_ws" });
+		}) as unknown as typeof fetch;
+		const seed = weakSpotsPracticePrompt("Fisher information", ["Fisher information", "Drops the n"]);
+		assert.equal(seed, "Practice my weak spots from the lesson “Fisher information”:\n- Fisher information\n- Drops the n");
+		assert.equal(await startWeakSpotsPractice("Fisher information", ["Fisher information", "Drops the n"], "project_stats", fetchLike), "/chat/c_ws");
+		assert.deepEqual(posts, [{ title: seed, kind: "practice", projectId: "project_stats" }]);
+		assert.equal(JSON.parse(session.get("lh.openingPrompt.c_ws")!).text, seed, "the seed is the new session's opening message");
+		await startWeakSpotsPractice("L", ["x"], undefined, fetchLike);
+		assert.deepEqual(posts[1], { title: weakSpotsPracticePrompt("L", ["x"]), kind: "practice" }, "no project: none sent");
+	} finally {
+		if (prev) Object.defineProperty(globalThis, "sessionStorage", prev);
+		else Reflect.deleteProperty(globalThis, "sessionStorage");
+	}
+	// The chat wires it: the page's project, gated on working models.
+	const chat = fs.readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
+	assert.match(chat, /onPracticeWeakSpots=\{configured && !zeroKeys \? practiceWeakSpots : undefined\}/);
+	assert.match(chat, /startWeakSpotsPractice\(titleText, spots, project, fetch, weakSpotsStarterRef\.current\)/);
+	assert.match(chat, /listed\?\.chats\?\.find\(\(c\) => c\.id === chatId\)/, "the lesson's current project, looked up at click time");
+	const page = fs.readFileSync(new URL("../app/chat/[id]/page.tsx", import.meta.url), "utf8");
+	assert.match(page, /projectId=\{chat\.projectId\}/);
+});

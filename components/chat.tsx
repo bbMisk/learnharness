@@ -22,6 +22,8 @@ import { useEnterSubmits } from "@/components/enter-submits";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { dockStateKey } from "@/components/dock-state-key";
 import { clearOpeningPrompt, readOpeningPromptEntry, stashOpeningPrompt, OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
+import { SessionStarter, startWeakSpotsPractice } from "@/components/start-session";
+import { useRouter } from "next/navigation";
 import { forwardDockWheel, useDockHeight } from "@/components/dock-height";
 import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-steers";
 import { DictationBar, finishDictation, joinDictation, useDictation } from "@/components/dictation";
@@ -202,6 +204,7 @@ export function Chat({
 	initialShowReadingThinking = FACTORY_SETTINGS.general.showReadingThinking,
 	kind = "teach",
 	style,
+	projectId,
 	questionType: initialQuestionType,
 	agentTools,
 }: {
@@ -216,6 +219,8 @@ export function Chat({
 	kind?: "teach" | "practice";
 	/** "cram" for a lesson started in cram mode (core/cram.ts). */
 	style?: "cram";
+	/** The session's project (its "Practice weak spots" session joins it). */
+	projectId?: string;
 	/** The chat's stored question type (core/question-type.ts; absent = unset). */
 	questionType?: QuestionType;
 	/** Settings → Agent's tool map — an unset question type's app default. */
@@ -921,6 +926,19 @@ export function Chat({
 	const planProgress = useMemo(() => lessonPlanProgress(planTree, messages, { cram, practice: kind === "practice" }), [planTree, messages, cram, kind]);
 	const hasTracking = hasLessonTracking(tracking) || planProgress !== null;
 	const trackerCard = useLessonTrackerShown();
+	// "Practice weak spots" (owner, 2026-11-06): the card's button opens a
+	// new practice session in this lesson's project, seeded with its weak spots.
+	const router = useRouter();
+	const weakSpotsStarterRef = useRef(new SessionStarter());
+	const practiceWeakSpots = useCallback(async (spots: string[]) => {
+		// The lesson may have moved since the page loaded: ask the chat list for its project now.
+		const listed = await fetch("/api/chats")
+			.then((r) => (r.ok ? (r.json() as Promise<{ chats?: Array<{ id: string; projectId?: string }> }>) : null))
+			.catch(() => null);
+		const row = listed?.chats?.find((c) => c.id === chatId);
+		const project = row ? row.projectId : projectId;
+		router.push(await startWeakSpotsPractice(titleText, spots, project, fetch, weakSpotsStarterRef.current));
+	}, [router, titleText, projectId, chatId]);
 	// Room for the card (owner, "make room"): while it shows on a session
 	// area wide enough for both, the transcript column keeps clear of it.
 	const trackerRoom = lessonTrackerRoom(hasTracking && trackerCard.shown);
@@ -1569,7 +1587,7 @@ export function Chat({
 				</Conversation>
 				{/* The tracking card: top-right over the transcript, below the
 				    session-scoped focuses (z-40) and clear of the dock. */}
-				{hasTracking && trackerCard.shown && <LessonTrackerCard tracking={tracking} plan={planProgress} bottomReserve={Math.max(0, dockReserve - GRADIENT_H)} />}
+				{hasTracking && trackerCard.shown && <LessonTrackerCard tracking={tracking} plan={planProgress} bottomReserve={Math.max(0, dockReserve - GRADIENT_H)} onPracticeWeakSpots={configured && !zeroKeys ? practiceWeakSpots : undefined} />}
 
 				{/* The session-scoped focuses (chrome-melt wave, 2026-09-19): mounted
 				    INSIDE the session area — absolute inset-0 siblings of the scroller,

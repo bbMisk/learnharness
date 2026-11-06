@@ -29,6 +29,7 @@
  */
 
 import type { LhMessage } from "./native-messages.ts";
+import type { PlanProgress } from "./plan-progress.ts";
 
 export const PROBLEM_LIST_TOOL = "problem_list";
 export const PROBLEM_START_TOOL = "problem_start";
@@ -264,4 +265,27 @@ export function correctProblemCount(problems: readonly TrackedProblem[]): number
 /** Anything for the card to show: a problem list or any mistake. */
 export function hasLessonTracking(tracking: LessonTracking): boolean {
 	return tracking.problems !== null || tracking.mistakes.length > 0;
+}
+
+/**
+ * "Practice weak spots" (owner, 2026-11-06): the Progress card's button
+ * starts a new practice session seeded with the lesson's weak spots — every
+ * plan step whose latest check was wrong (plan-progress.ts) and every open
+ * mistake, in that order. Empty = no button.
+ */
+export function lessonWeakSpots(tracking: LessonTracking, plan: PlanProgress | null): string[] {
+	return [
+		...(plan?.steps.filter((s) => s.latest === "wrong").map((s) => s.title) ?? []),
+		...tracking.mistakes.filter((m) => !m.resolved).map((m) => m.text),
+	];
+}
+
+/** The new practice session's opening message — sent as the learner's
+ *  first message, the same path as a practice session typed from home.
+ *  {lesson} = the lesson's title; {spots} = one "- " line per weak spot. */
+export const WEAK_SPOTS_PRACTICE_PROMPT = "Practice my weak spots from the lesson “{lesson}”:\n{spots}";
+
+export function weakSpotsPracticePrompt(lesson: string, spots: readonly string[]): string {
+	const list = spots.map((s) => `- ${s}`).join("\n");
+	return WEAK_SPOTS_PRACTICE_PROMPT.replace(/\{(lesson|spots)\}/g, (_, key: string) => (key === "lesson" ? lesson : list));
 }

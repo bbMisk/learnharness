@@ -26,6 +26,7 @@ export default async function ChatPage({
 			title={chat.title}
 			kind={chat.kind ?? "teach"}
 			style={chat.style}
+			projectId={chat.projectId}
 			// The lesson's question type (owner, 2026-11-03): the stored choice
 			// and the app-wide mechanic an unset one falls back to.
 			questionType={sanitizeQuestionType(chat.settings?.questionType)}
