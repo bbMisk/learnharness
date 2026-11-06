@@ -30,9 +30,12 @@ export function ModelInstructionsSection({
 		return list;
 	}, [catalog, saved]);
 	const [selected, setSelected] = useState<string>("");
-	const key = selected || Object.keys(saved)[0] || options[0]?.key || "";
-	const [text, setText] = useState(saved[key] ?? "");
-	useEffect(() => setText(saved[key] ?? ""), [key, saved]);
+	const key = options.some((o) => o.key === selected) ? selected : Object.keys(saved)[0] || options[0]?.key || "";
+	const savedText = saved[key] ?? "";
+	const [text, setText] = useState(savedText);
+	// Reset the draft only when the model or ITS saved text changes, so saving
+	// another Agent setting never discards an unsaved draft.
+	useEffect(() => setText(savedText), [key, savedText]);
 	const suggestion = suggestedModelInstructions(options.find((o) => o.key === key)?.id ?? "");
 	const save = (value: string) => {
 		const next = { ...saved };
@@ -76,7 +79,7 @@ export function ModelInstructionsSection({
 					<div className="flex flex-wrap gap-2">
 						<button
 							type="button"
-							disabled={text === (saved[key] ?? "")}
+							disabled={text === savedText}
 							onClick={() => save(text)}
 							className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50"
 						>
