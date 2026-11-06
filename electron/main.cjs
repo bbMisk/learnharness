@@ -537,10 +537,13 @@ function setupAutoUpdater() {
 		log("auto-update: no packaged update feed — preview updates are manual");
 		return;
 	}
-	// Unsigned macOS builds update themselves; everything else keeps
-	// electron-updater below.
-	if (macSelfUpdateBuild()) {
-		selfUpdater = macSelfUpdate.createMacSelfUpdater({ app, log, report: reportUpdateStatus, killServer });
+	// Unsigned macOS builds (electron-builder.unsigned-mac.yml adds the
+	// lhMacUpdater flag to the packaged package.json) update themselves;
+	// everything else keeps electron-updater below.
+	let packageJson = null;
+	try { packageJson = require("../package.json"); } catch { /* no flag */ }
+	if (macSelfUpdate.wantsSelfUpdater(process.platform, packageJson)) {
+		selfUpdater = macSelfUpdate.createMacSelfUpdater({ app, log, report: reportUpdateStatus });
 		updateCheckHours = macSelfUpdate.CHECK_INTERVAL_HOURS;
 		updateState = { ...updateState, checkHours: updateCheckHours };
 		app.on("will-quit", () => selfUpdater.startSwap());
@@ -579,15 +582,6 @@ function setupAutoUpdater() {
 		log(`updater error: ${err?.message ?? err}`);
 		reportUpdateStatus("error");
 	});
-}
-
-/** Packaged macOS build made with electron-builder.unsigned-mac.yml (its
- * extraMetadata flag)? Those use electron/mac-self-updater.cjs. */
-function macSelfUpdateBuild() {
-	if (!app.isPackaged) return false;
-	let packageJson = null;
-	try { packageJson = require("../package.json"); } catch { /* no flag */ }
-	return macSelfUpdate.wantsSelfUpdater(process.platform, packageJson);
 }
 
 /** One result surface for manual checks. Preload buffers the navigation
@@ -680,15 +674,6 @@ function installMenu() {
 }
 
 async function main() {
-	// Self-updating macOS builds: settle a previous install first — and if this
-	// is an old copy launched mid-install, relaunch into the new one instead.
-	if (macSelfUpdateBuild()) {
-		try {
-			if (await macSelfUpdate.yieldToPendingInstall({ app, log })) return;
-		} catch (err) {
-			log(`self-update: startup check failed: ${err?.message ?? err}`);
-		}
-	}
 	app.on("window-all-closed", () => {
 		chatgpt?.pause();
 		subscriptions?.pause();
