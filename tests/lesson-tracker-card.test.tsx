@@ -528,3 +528,35 @@ it("weak spots: the click creates a practice chat in the lesson's project, opene
 	const page = fs.readFileSync(new URL("../app/chat/[id]/page.tsx", import.meta.url), "utf8");
 	assert.match(page, /projectId=\{chat\.projectId\}/);
 });
+
+// ─── the plan diagram under the plan list (owner, 2026-11-06) ────────────────
+
+it("plan diagram: under the plan list when the card has its own lane and room below its sections, else none", async () => {
+	const { planViewHeight, PLAN_VIEW_MIN_H, PLAN_VIEW_MAX_H } = await import("../components/lesson-tracker.tsx");
+	// A wide area (≥ 64rem: the card sits in its own lane), plenty of room: capped.
+	assert.equal(planViewHeight(1152, 800, 300), PLAN_VIEW_MAX_H);
+	// Just enough room (the gap above the diagram counts).
+	assert.equal(planViewHeight(1152, 300 + 16 + PLAN_VIEW_MIN_H, 300), PLAN_VIEW_MIN_H);
+	assert.equal(planViewHeight(1152, 300 + 16 + PLAN_VIEW_MIN_H - 1, 300), null, "no room below the list: the flank keeps it");
+	assert.equal(planViewHeight(1000, 800, 300), null, "a narrow area (the card overlays the chat): the flank keeps it");
+	assert.equal(planViewHeight(1152, Number.NaN, 300), null, "no max-height read: none");
+});
+
+it("plan diagram: the chat sends it to the card or the dock band's flank, never both; a docked pin takes it away", () => {
+	const chat = fs.readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
+	assert.match(chat, /const planInCard = hasTracking && trackerShown && planProgress !== null && planViewRoom !== null;/);
+	assert.match(chat, /const planDiagram = hasPlan && !\(pinned\.docked && !progressOverPin\) \? <PlanMarginalia messages=\{messages\} \/> : undefined;/);
+	assert.match(chat, /plan=\{planInCard \? undefined : planDiagram\}/);
+	assert.match(chat, /planView=\{planInCard && pending \? planDiagram : undefined\} onPlanViewRoom=\{setPlanViewRoom\} onOpenPlan=\{openPlan\}/);
+});
+
+it("plan diagram: the card shows the given diagram under the Plan section only once it has measured room", async () => {
+	const progress = { covered: 1, total: 2, steps: [{ id: "a", title: "A", status: "current", answered: 0, right: 0, latest: null }, { id: "b", title: "B", status: "upcoming", answered: 0, right: 0, latest: null }] };
+	const rooms: Array<number | null> = [];
+	const host = await mount(
+		<LessonTrackerCard tracking={deriveLessonTracking([])} plan={progress as never} bottomReserve={0} planView={<svg data-testid="diagram" />} onPlanViewRoom={(h) => rooms.push(h)} onOpenPlan={() => {}} />,
+	);
+	// No layout here (linkedom): no room is measured, so the card leaves the diagram to the flank.
+	assert.equal(host.querySelector('[data-testid="diagram"]'), null);
+	assert.deepEqual(rooms.at(-1), null);
+});

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ListChecksIcon } from "lucide-react";
 import { Hint } from "@/components/ui/hint";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
@@ -89,6 +89,29 @@ export const TRACKER_ROOM_DOCK = "@min-[64rem]/session:pl-[1.5rem] @min-[64rem]/
 export function lessonTrackerRoom(active: boolean): { area: string; column: string; dock: string } {
 	return active ? { area: TRACKER_ROOM_AREA, column: TRACKER_ROOM_COLUMN, dock: TRACKER_ROOM_DOCK } : { area: "", column: "", dock: "" };
 }
+
+/**
+ * The plan diagram under the plan list (owner, 2026-11-06): while a question
+ * is pending, the small plan diagram (plan-window.tsx PlanMarginalia) sits in
+ * the card right under the Plan section instead of in the dock band's flank,
+ * when there is room — the card in its own lane (a session area of at least
+ * 64rem, see the room note above) and at least PLAN_VIEW_MIN_H px free below
+ * the card's sections, up to PLAN_VIEW_MAX_H. Otherwise the flank keeps it.
+ * Pure: the diagram's height, or null for no room.
+ */
+export const PLAN_VIEW_MIN_AREA = 64 * 16;
+export const PLAN_VIEW_MIN_H = 140;
+export const PLAN_VIEW_MAX_H = 224;
+/** The card's flex gap (gap-4) above the diagram. */
+const SECTION_GAP = 16;
+
+export function planViewHeight(areaWidth: number, cardMaxHeight: number, contentHeight: number): number | null {
+	if (areaWidth < PLAN_VIEW_MIN_AREA || !Number.isFinite(cardMaxHeight)) return null;
+	const room = Math.floor(cardMaxHeight - contentHeight - SECTION_GAP);
+	return room >= PLAN_VIEW_MIN_H ? Math.min(room, PLAN_VIEW_MAX_H) : null;
+}
+
+const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 const CHIP =
 	"lh-no-drag flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium uppercase tracking-wide transition-colors";
@@ -289,18 +312,54 @@ function PracticeWeakSpotsButton({ onStart }: { onStart: () => Promise<void> }) 
  * above the dock (`bottomReserve`: the dock's height, without its fade). A
  * longer card scrolls.
  */
-export function LessonTrackerCard({ tracking, plan = null, bottomReserve, onPracticeWeakSpots }: {
+export function LessonTrackerCard({ tracking, plan = null, bottomReserve, onPracticeWeakSpots, planView, onPlanViewRoom, onOpenPlan }: {
 	tracking: LessonTracking;
 	plan?: PlanProgress | null;
 	bottomReserve: number;
 	/** Starts a practice session on the weak spots and opens it; absent = no button. */
 	onPracticeWeakSpots?: (spots: string[]) => Promise<void>;
+	/** The plan diagram to show under the Plan section (see planViewHeight). */
+	planView?: ReactNode;
+	/** Reports the diagram's room under the list (null: none, also on unmount). */
+	onPlanViewRoom?: (height: number | null) => void;
+	onOpenPlan?: () => void;
 }) {
 	const { problems, mistakes } = tracking;
 	const openMistakes = mistakes.filter((m) => !m.resolved).length;
 	const weakSpots = lessonWeakSpots(tracking, plan);
+	const asideRef = useRef<HTMLElement | null>(null);
+	const viewRef = useRef<HTMLButtonElement | null>(null);
+	const [viewHeight, setViewHeight] = useState<number | null>(null);
+	const measuresRoom = plan !== null && onPlanViewRoom !== undefined;
+	useIsoLayoutEffect(() => {
+		const aside = asideRef.current;
+		if (!aside || !measuresRoom) return;
+		const area = aside.offsetParent as HTMLElement | null;
+		const measure = () => {
+			const view = viewRef.current;
+			// The sections' height: the card's content without the diagram.
+			const content = aside.scrollHeight - (view ? view.offsetHeight + SECTION_GAP : 0);
+			// In its own lane (the only case with room) the card's max-height is
+			// the area's height less 1.5rem (max-h-[calc(100%-1.5rem)]), less its
+			// 1px borders. (getComputedStyle keeps the percentage, so not read.)
+			const next = planViewHeight(area?.clientWidth ?? 0, (area?.clientHeight ?? 0) - 24 - 2, content);
+			setViewHeight((prev) => (prev === next ? prev : next));
+		};
+		measure();
+		if (typeof ResizeObserver === "undefined") return;
+		const ro = new ResizeObserver(measure);
+		ro.observe(aside);
+		if (area) ro.observe(area);
+		return () => ro.disconnect();
+	}, [measuresRoom]);
+	useEffect(() => {
+		if (!onPlanViewRoom) return;
+		onPlanViewRoom(measuresRoom ? viewHeight : null);
+	}, [onPlanViewRoom, measuresRoom, viewHeight]);
+	useEffect(() => () => onPlanViewRoom?.(null), [onPlanViewRoom]);
 	return (
 		<aside
+			ref={asideRef}
 			data-testid="lesson-tracker"
 			aria-label="Lesson progress"
 			className="absolute right-3 top-3 z-20 flex max-h-[calc(100%-var(--lh-card-reserve))] w-64 max-w-[calc(100%-1.5rem)] flex-col gap-4 overflow-y-auto rounded-xl border border-border/80 bg-card/95 px-3.5 py-3 font-ui text-xs text-foreground shadow-sm backdrop-blur-sm @min-[64rem]/session:max-h-[calc(100%-1.5rem)]"
@@ -315,6 +374,21 @@ export function LessonTrackerCard({ tracking, plan = null, bottomReserve, onPrac
 						))}
 					</ul>
 				</section>
+			)}
+			{plan && planView && viewHeight !== null && (
+				<Hint label="Open the full plan" side="bottom">
+					<button
+						ref={viewRef}
+						type="button"
+						data-testid="plan-marginalia"
+						data-placement="card"
+						onClick={onOpenPlan}
+						className="block w-full shrink-0 cursor-pointer"
+						style={{ height: viewHeight }}
+					>
+						{planView}
+					</button>
+				</Hint>
 			)}
 			{problems && (
 				<section data-testid="lesson-tracker-problems">

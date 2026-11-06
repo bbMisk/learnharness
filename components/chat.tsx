@@ -964,6 +964,13 @@ export function Chat({
 	const pinnedJob = pinned.target?.jobId ?? null;
 	useEffect(() => setProgressOverPin(false), [pinnedJob]);
 	const trackerShown = pinned.docked ? progressOverPin : trackerCard.shown;
+	// The plan diagram (owner, 2026-11-06): under the card's plan list when
+	// the card reports room (lesson-tracker.tsx planViewHeight), else in the
+	// dock band's flank as before — never both. A docked pin takes the
+	// column, and the diagram goes with the card.
+	const [planViewRoom, setPlanViewRoom] = useState<number | null>(null);
+	const planInCard = hasTracking && trackerShown && planProgress !== null && planViewRoom !== null;
+	const planDiagram = hasPlan && !(pinned.docked && !progressOverPin) ? <PlanMarginalia messages={messages} /> : undefined;
 	const toggleTracker = pinned.docked ? () => setProgressOverPin((v) => !v) : trackerCard.toggle;
 	// Room for the card (owner, "make room"): while it shows on a session
 	// area wide enough for both, the transcript column keeps clear of it.
@@ -1525,7 +1532,7 @@ export function Chat({
 					onSubmitThinking={submitThinking}
 					chatId={chatId}
 					onModelChange={setSelectedModel}
-					plan={hasPlan ? <PlanMarginalia messages={messages} /> : undefined}
+					plan={planInCard ? undefined : planDiagram}
 					onOpenPlan={() => setPlanOpen(true)}
 					teachingCheck={teachingCheck}
 					requiresReveal={requiresReveal}
@@ -1610,7 +1617,7 @@ export function Chat({
 				{pinned.dockColumn}
 				{/* The tracking card: top-right over the transcript, below the
 				    session-scoped focuses (z-40) and clear of the dock. */}
-				{hasTracking && trackerShown && <LessonTrackerCard tracking={tracking} plan={planProgress} bottomReserve={Math.max(0, dockReserve - GRADIENT_H)} onPracticeWeakSpots={configured && !zeroKeys ? practiceWeakSpots : undefined} />}
+				{hasTracking && trackerShown && <LessonTrackerCard tracking={tracking} plan={planProgress} bottomReserve={Math.max(0, dockReserve - GRADIENT_H)} onPracticeWeakSpots={configured && !zeroKeys ? practiceWeakSpots : undefined} planView={planInCard && pending ? planDiagram : undefined} onPlanViewRoom={setPlanViewRoom} onOpenPlan={openPlan} />}
 				{pinned.drawerTab}
 
 				{/* The session-scoped focuses (chrome-melt wave, 2026-09-19): mounted
