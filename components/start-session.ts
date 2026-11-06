@@ -1,8 +1,10 @@
+import { weakSpotsPracticePrompt } from "@/src/core";
 import { clearOpeningPrompt, OPENING_PROMPT_FAILURE, stashOpeningPrompt } from "./opening-prompt";
 
 interface SessionCreation {
 	title: string;
 	kind?: "practice";
+	projectId?: string;
 	/** Cram mode (core/cram.ts): a lesson with a short probe and the test-focused loop. */
 	style?: "cram";
 	graphContext?: { propositions: readonly { id: string; name: string; statement: string }[] };
@@ -33,4 +35,16 @@ export class SessionStarter {
 		if (!stashOpeningPrompt(this.created.id, body.title)) throw new Error(OPENING_PROMPT_FAILURE);
 		return `/chat/${this.created.id}`;
 	}
+}
+
+/** "Practice weak spots" (the Progress card's button): a new practice
+ *  session in the lesson's project, opened by the weak-spots message. */
+export function startWeakSpotsPractice(
+	lesson: string,
+	spots: readonly string[],
+	projectId: string | undefined,
+	fetchLike: typeof fetch,
+	starter = new SessionStarter(),
+): Promise<string> {
+	return starter.start({ title: weakSpotsPracticePrompt(lesson, spots), kind: "practice", ...(projectId ? { projectId } : {}) }, fetchLike);
 }

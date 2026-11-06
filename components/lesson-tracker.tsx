@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } 
 import { ListChecksIcon } from "lucide-react";
 import { Hint } from "@/components/ui/hint";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
-import { correctProblemCount, type LessonTracking, type PlanProgress, type PlanStepProgress, type TrackedProblem } from "@/src/core";
+import { correctProblemCount, lessonWeakSpots, type LessonTracking, type PlanProgress, type PlanStepProgress, type TrackedProblem } from "@/src/core";
 
 /**
  * The lesson-tracking card (owner, 2026-11-02): a floating panel in the
@@ -250,6 +250,35 @@ function PlanStepRow({ step }: { step: PlanStepProgress }) {
 	}
 }
 
+/** "Practice weak spots" (owner, 2026-11-06): shown while the lesson has a
+ *  red plan step or an open mistake (lessonWeakSpots). A failed start keeps
+ *  the learner here with a retry. */
+function PracticeWeakSpotsButton({ onStart }: { onStart: () => Promise<void> }) {
+	const [state, setState] = useState<"idle" | "starting" | "failed">("idle");
+	return (
+		<div>
+			<button
+				type="button"
+				data-testid="lesson-tracker-practice"
+				disabled={state === "starting"}
+				onClick={(e) => {
+					blurAfterPointerClick(e);
+					setState("starting");
+					onStart().catch(() => setState("failed"));
+				}}
+				className="w-full cursor-pointer rounded-lg border border-border/80 px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-default disabled:opacity-60"
+			>
+				Practice weak spots
+			</button>
+			{state === "failed" && (
+				<p role="alert" className="mt-1.5 text-[11px] text-muted-foreground">
+					Couldn’t start the practice session. Try again.
+				</p>
+			)}
+		</div>
+	);
+}
+
 /**
  * The card: "Plan covered/total" (one PlanStepRow each) for a teach lesson
  * with a plan (`plan`, null in cram and practice), "Problems correct/total" (one ProblemRow each) when a list
@@ -260,9 +289,16 @@ function PlanStepRow({ step }: { step: PlanStepProgress }) {
  * above the dock (`bottomReserve`: the dock's height, without its fade). A
  * longer card scrolls.
  */
-export function LessonTrackerCard({ tracking, plan = null, bottomReserve }: { tracking: LessonTracking; plan?: PlanProgress | null; bottomReserve: number }) {
+export function LessonTrackerCard({ tracking, plan = null, bottomReserve, onPracticeWeakSpots }: {
+	tracking: LessonTracking;
+	plan?: PlanProgress | null;
+	bottomReserve: number;
+	/** Starts a practice session on the weak spots and opens it; absent = no button. */
+	onPracticeWeakSpots?: (spots: string[]) => Promise<void>;
+}) {
 	const { problems, mistakes } = tracking;
 	const openMistakes = mistakes.filter((m) => !m.resolved).length;
+	const weakSpots = lessonWeakSpots(tracking, plan);
 	return (
 		<aside
 			data-testid="lesson-tracker"
@@ -296,6 +332,7 @@ export function LessonTrackerCard({ tracking, plan = null, bottomReserve }: { tr
 					<MistakeList mistakes={mistakes} />
 				</section>
 			)}
+			{onPracticeWeakSpots && weakSpots.length > 0 && <PracticeWeakSpotsButton onStart={() => onPracticeWeakSpots(weakSpots)} />}
 		</aside>
 	);
 }
