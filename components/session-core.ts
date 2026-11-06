@@ -27,6 +27,7 @@ import {
 	newUserMessage,
 	createViewProjector,
 	deriveLessonTracking,
+	latestTutorPin,
 	type ChatInput,
 	type LhMarkerMessage,
 	type LessonTracking,
@@ -35,6 +36,7 @@ import {
 	type LiveExecution,
 	type QuestionAnswerData,
 	type QuestionDraft,
+	type TutorPin,
 } from "../src/core";
 import { clearDrafts, readDraft, writeDraft } from "./draft-store.ts";
 
@@ -204,6 +206,9 @@ export interface SessionState {
 	 *  record's results plus, mid-turn, the tracking executions that ended
 	 *  before their results land at turn_end. */
 	lessonTracking: LessonTracking;
+	/** The latest successful pin_visual call (core/pinned-visual.ts), with
+	 *  the same live layer as lessonTracking. */
+	tutorPin: TutorPin | null;
 	status: SessionStatus;
 	error: { message: string } | null;
 	/** Steers sent but not yet drained (composer steering, 2026-10-03):
@@ -334,6 +339,7 @@ export class SessionModel {
 			hasConfirmedConversation: this.base.some(m => m.role === "user" || m.role === "assistant"),
 			contextTokens: measuredContextTokens(messages, this.incompleteUsageIds),
 			lessonTracking: deriveLessonTracking(messages, live?.executions),
+			tutorPin: latestTutorPin(messages, live?.executions),
 			status: this.statusValue,
 			error: this.errorValue ?? providerError,
 			steerQueue: this.steerQueueValue,

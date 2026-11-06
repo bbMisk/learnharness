@@ -13,8 +13,8 @@
  *   2. nothing in the new tail changes how the prefix projected:
  *      - a compaction marker moves the cut divider (projectView reads the
  *        record's ACTIVE compaction);
- *      - a send_to_user failure turns an earlier output call's prose into
- *        an error part;
+ *      - a send_to_user or pin_visual failure turns an earlier call (prose,
+ *        or nothing) into an error part;
  *      - a clean problem acknowledgement can change an earlier conclude
  *        card's reveal (problemInputForConclude);
  *      - the live layer: an execution or streaming flag for a prefix call
@@ -35,12 +35,12 @@ import { activeCompactionOf } from "./compaction.ts";
 import {
 	PRACTICE_CONCLUDE_TOOL,
 	PRACTICE_PROBLEM_TOOL,
-	SEND_TO_USER_TOOL,
 	type LhMarkerMessage,
 	type LhMessage,
 } from "./native-messages.ts";
 import {
 	foldViewMessage,
+	isErrorOnlyTool,
 	outputErrorsOf,
 	type ActiveCompaction,
 	type LhViewMessage,
@@ -58,8 +58,9 @@ interface Checkpoint {
 	/** Shared with the fold (a superset of the tool part ids in `out`). */
 	toolPartIds: Set<string>;
 	compaction: ActiveCompaction;
-	/** send_to_user failures among the prefix messages (last wins). */
+	/** send_to_user / pin_visual failures among the prefix messages (last wins). */
 	outputErrors: Map<string, ToolResultMessage>;
+	/** send_to_user / pin_visual call ids (isErrorOnlyTool). */
 	sendCallIds: Set<string>;
 	problemCallIds: Set<string>;
 	/** Call ids with a clean (non-error) result in the prefix. */
@@ -100,13 +101,13 @@ function remember(cp: Checkpoint, m: LhMessage, live: LiveTurnState | undefined)
 			cp.callIds.add(block.id);
 			const execution = live?.executions.get(block.id);
 			if (execution) cp.executions.set(block.id, execution);
-			if (block.name === SEND_TO_USER_TOOL) cp.sendCallIds.add(block.id);
+			if (isErrorOnlyTool(block.name)) cp.sendCallIds.add(block.id);
 			else if (block.name === PRACTICE_PROBLEM_TOOL) cp.problemCallIds.add(block.id);
 			else if (block.name === PRACTICE_CONCLUDE_TOOL) cp.hasConclude = true;
 		}
 	} else if (m.role === "toolResult") {
 		if (!m.isError) cp.cleanIds.add(m.toolCallId);
-		else if (m.toolName === SEND_TO_USER_TOOL) cp.outputErrors.set(m.toolCallId, m);
+		else if (isErrorOnlyTool(m.toolName)) cp.outputErrors.set(m.toolCallId, m);
 	}
 }
 
@@ -120,7 +121,7 @@ function reachesBack(cp: Checkpoint, m: LhMessage): boolean {
 		);
 	}
 	if (m.role !== "toolResult") return false;
-	if (m.isError) return m.toolName === SEND_TO_USER_TOOL && cp.sendCallIds.has(m.toolCallId);
+	if (m.isError) return isErrorOnlyTool(m.toolName) && cp.sendCallIds.has(m.toolCallId);
 	return cp.hasConclude && cp.problemCallIds.has(m.toolCallId) && !cp.cleanIds.has(m.toolCallId);
 }
 

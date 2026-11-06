@@ -38,6 +38,7 @@ import { PRACTICE_CONCLUDE_TOOL, problemInputForConclude, SEND_TO_USER_TOOL, sen
 import { activeCompactionOf, type CompactionDetails } from "./compaction.ts";
 import { QUESTION_TOOLS } from "./pending.ts";
 import { isLessonTrackingTool } from "./lesson-tracking.ts";
+import { PIN_VISUAL_TOOL } from "./pinned-visual.ts";
 import type { SubagentArtifactData, SubagentResultMeta } from "./contracts/jobs.ts";
 import type { PlanBlockData } from "./contracts/chat.ts";
 
@@ -147,15 +148,22 @@ export interface ViewFoldContext {
 	messages: readonly LhMessage[];
 	live?: LiveTurnState;
 	compaction: ActiveCompaction;
-	/** The settled send_to_user failure for this call id, if any. */
+	/** The settled send_to_user / pin_visual failure for this call id, if any. */
 	outputError(toolCallId: string): ToolResultMessage | undefined;
 }
 
-/** Settled send_to_user failures by call id (the last one wins). */
+/** The tools whose calls project no part unless they fail: send_to_user
+ *  (its prose renders as text) and pin_visual (pinned-visual.ts — invisible;
+ *  a failure keeps the "Retrying…" line). */
+export function isErrorOnlyTool(name: string): boolean {
+	return name === SEND_TO_USER_TOOL || name === PIN_VISUAL_TOOL;
+}
+
+/** Settled send_to_user / pin_visual failures by call id (the last one wins). */
 export function outputErrorsOf(messages: readonly LhMessage[]): Map<string, ToolResultMessage> {
 	const outputErrors = new Map<string, ToolResultMessage>();
 	for (const message of messages) {
-		if (message.role === "toolResult" && message.toolName === SEND_TO_USER_TOOL && message.isError) {
+		if (message.role === "toolResult" && isErrorOnlyTool(message.toolName) && message.isError) {
 			outputErrors.set(message.toolCallId, message);
 		}
 	}
@@ -339,6 +347,16 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
 					continue;
 				}
 				const part = toolPartOf(block, live, streamingMessage);
+				// The pin (owner, 2026-11-06 — core/pinned-visual.ts): invisible
+				// like the tracking tools, except that a failed call keeps the
+				// quiet "Retrying…" line, live or settled.
+				if (block.name === PIN_VISUAL_TOOL) {
+					const error = ctx.outputError(block.id);
+					if (error) applyResult(part, error);
+					if (part.state === "output-error") rest.push(part);
+					else hiddenTracking = true;
+					continue;
+				}
 				state.toolPartIds.add(block.id);
 				if ((QUESTION_TOOLS as readonly string[]).includes(block.name)) {
 					part.sourceMessageId = m.id;

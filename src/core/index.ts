@@ -37,6 +37,7 @@ export * from "./events.ts";
 export * from "./layout.ts";
 export * from "./plan-tree.ts";
 export * from "./lesson-tracking.ts";
+export * from "./pinned-visual.ts";
 export * from "./plan-progress.ts";
 export * from "./lesson-time.ts";
 export * from "./question-type.ts";

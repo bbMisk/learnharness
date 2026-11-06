@@ -133,6 +133,7 @@ export function useChatSession({ chatId, initialMessages, initialError, initiall
 		hasConfirmedConversation: state.hasConfirmedConversation,
 		contextTokens: state.contextTokens,
 		lessonTracking: state.lessonTracking,
+		tutorPin: state.tutorPin,
 		status: state.status,
 		error: state.error,
 		steerQueue: state.steerQueue,
