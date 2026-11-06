@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useLayoutEffect, useState } from "react";
-import { ArrowRightIcon, CornerDownLeftIcon, PaperclipIcon, SquareIcon } from "lucide-react";
+import { ArrowRightIcon, CornerDownLeftIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Hint } from "@/components/ui/hint";
 import { useFileDrop } from "@/components/file-drop";
 import { FileDropFeedback } from "@/components/file-drop-feedback";
+import { AttachButton } from "@/components/attach-button";
 import { PathInput } from "@/components/path-input";
 
 /**
@@ -161,8 +162,7 @@ export function Composer({
 				act();
 			}}
 		>
-			<input ref={fileDrop.inputRef} type="file" multiple className="hidden" aria-label="Choose files" onChange={(event) => { const files = Array.from(event.target.files || []); event.target.value = ""; void fileDrop.addFiles(files); }} />
-			<button type="button" aria-label="Add files" title={fileDrop.uploading ? "Uploading…" : "Add files"} disabled={fileDrop.uploading} onClick={() => fileDrop.inputRef.current?.click()} className="flex size-10 shrink-0 items-center justify-center rounded-[10px] text-muted-foreground hover:bg-accent disabled:opacity-40"><PaperclipIcon className="size-4" /></button>
+			<AttachButton fileDrop={fileDrop} />
 			<PathInput
 				ref={inputRef}
 				value={fileDrop.text}

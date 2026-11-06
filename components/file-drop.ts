@@ -190,6 +190,21 @@ export function useFileDrop(value: string, onChange: (value: string) => void, op
 		},
 		inputRef,
 		addFiles,
+		/** The desktop folder picker applies (local desktop app, a field that takes paths). */
+		canAddFolder: () => !imagesOnly && !uploadAll && !window.lh?.remoteServer && !!window.lh?.chooseAttachmentFolder,
+		/** Attach a picked folder like a dropped one: its path, never its contents. */
+		async addFolder() {
+			setError("");
+			try {
+				const folder = await window.lh?.chooseAttachmentFolder?.();
+				if (!folder || !mounted.current) return;
+				const next = appendFilePaths(latest.current.value, [directoryReferencePath(folder)]);
+				latest.current.onChange(next);
+				latest.current.value = next;
+			} catch (error) {
+				if (mounted.current) setError(error instanceof Error ? error.message : "The folder could not be added.");
+			}
+		},
 		handlers: {
 			"data-file-drop-id": id,
 			onFocusCapture() {

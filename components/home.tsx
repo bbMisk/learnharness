@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CornerDownLeftIcon, PaperclipIcon } from "lucide-react";
+import { CornerDownLeftIcon } from "lucide-react";
 import { GraphView } from "@/components/graph-view";
 import { MinimalHome } from "@/components/minimal-home";
 import { SetupDialog } from "@/components/setup-dialog";
@@ -13,6 +13,7 @@ import { useFieldCycle } from "@/components/field-cycle";
 import { SidebarToggle } from "@/components/sidebar";
 import { StatsBar } from "@/components/stats-bar";
 import { FileDropFeedback } from "@/components/file-drop-feedback";
+import { AttachButton } from "@/components/attach-button";
 import { useFileDrop } from "@/components/file-drop";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { PathInput } from "@/components/path-input";
@@ -261,8 +262,7 @@ export function Home({
 				>
 						<FileDropFeedback files={fileDrop} />
 						<div className="flex items-end gap-1.5">
-						<input ref={fileDrop.inputRef} type="file" multiple className="hidden" aria-label="Choose files" onChange={(event) => { const files = Array.from(event.target.files || []); event.target.value = ""; void fileDrop.addFiles(files); }} />
-						<button type="button" aria-label="Add files" title={fileDrop.uploading ? "Uploading…" : "Add files"} disabled={fileDrop.uploading} onClick={() => fileDrop.inputRef.current?.click()} className="flex size-10 shrink-0 items-center justify-center rounded-[10px] text-muted-foreground hover:bg-accent disabled:opacity-40"><PaperclipIcon className="size-4" /></button>
+						<AttachButton fileDrop={fileDrop} />
 						<PathInput
 						ref={topicInputRef}
 						value={fileDrop.text}
