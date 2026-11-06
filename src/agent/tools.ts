@@ -19,6 +19,7 @@ import type { JobStore } from "../core/ports.ts";
 import { jobTools, type DemoInput, type PdfInput, type ResearchInput, type VisualInput } from "./tools/jobs.ts";
 import { planTools, type PlanToolContext } from "./tools/plan.ts";
 import { lessonTrackingTools } from "./tools/lesson-tracking.ts";
+import { pinVisualTool } from "./tools/pin-visual.ts";
 import { probeDoneTool, type ProbeDoneContext } from "./tools/probe.ts";
 import { proberGraphTools } from "./tools/graph.ts";
 import { readTool } from "./tools/read.ts";
@@ -57,6 +58,8 @@ export type { ProbeDoneContext } from "./tools/probe.ts";
  *   plan_init. Teacher only.
  * - jobTools (src/agent/tools/jobs.ts): SERVER-EXECUTED dispatch. Teacher
  *   only.
+ * - pin_visual (src/agent/tools/pin-visual.ts): SERVER-SIDE — pins an
+ *   earlier demo or diagram beside the chat. Teacher only.
  * - lessonTrackingTools (src/agent/tools/lesson-tracking.ts): SERVER-SIDE —
  *   note_mistake / resolve_mistake for every teacher, problem_list /
  *   problem_start / problem_done for a cram teacher only. Never the prober
@@ -480,6 +483,7 @@ export function createTeacherTools(
 			// teacher; the problem set for a cram teacher only.
 			...lessonTrackingTools(ctx, { problems: cram }),
 			...jobTools({ chatId: ctx.chatId, jobStore: ctx.jobStore, spawn: ctx.spawn, searchAvailable: ctx.searchAvailable }),
+			pin_visual: pinVisualTool(ctx),
 		},
 		withoutMechanics(enabled),
 		),

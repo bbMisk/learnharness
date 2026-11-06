@@ -263,7 +263,8 @@ it("makes room: while shown on a wide session area the column clears the card; o
 	assert.ok(cls.includes("w-64") && cls.includes("right-3"));
 	// The chat applies them: the session area and the transcript column.
 	const chat = fs.readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
-	assert.match(chat, /lessonTrackerRoom\(hasTracking && trackerCard\.shown\)/);
+	// A docked pinned demo/diagram takes the card's column, so no room then.
+	assert.match(chat, /lessonTrackerRoom\(hasTracking && trackerCard\.shown && !pinned\.docked\)/);
 	assert.match(chat, /className=\{`relative flex min-h-0 flex-1 \$\{trackerRoom\.area\}`\}/);
 	assert.match(chat, /data-session-find-root="" className=\{`\$\{COLUMN\}[^`]*\$\{trackerRoom\.column\}`\}/);
 });
@@ -526,4 +527,72 @@ it("weak spots: the click creates a practice chat in the lesson's project, opene
 	assert.match(chat, /listed\?\.chats\?\.find\(\(c\) => c\.id === chatId\)/, "the lesson's current project, looked up at click time");
 	const page = fs.readFileSync(new URL("../app/chat/[id]/page.tsx", import.meta.url), "utf8");
 	assert.match(page, /projectId=\{chat\.projectId\}/);
+});
+
+// ─── the plan diagram under the plan list ─────────────────────────────────────
+
+it("plan diagram: under the plan list when the card has its own lane and room below its sections, else none", async () => {
+	const { planViewHeight, PLAN_VIEW_MIN_H, PLAN_VIEW_MAX_H } = await import("../components/lesson-tracker.tsx");
+	// A wide area (≥ 64rem: the card sits in its own lane), plenty of room: capped.
+	assert.equal(planViewHeight(1152, 800, 300), PLAN_VIEW_MAX_H);
+	// Just enough room (the gap above the diagram counts).
+	assert.equal(planViewHeight(1152, 300 + 16 + PLAN_VIEW_MIN_H, 300), PLAN_VIEW_MIN_H);
+	assert.equal(planViewHeight(1152, 300 + 16 + PLAN_VIEW_MIN_H - 1, 300), null, "no room below the list: the flank keeps it");
+	assert.equal(planViewHeight(1000, 800, 300), null, "a narrow area (the card overlays the chat): the flank keeps it");
+	assert.equal(planViewHeight(1152, Number.NaN, 300), null, "no max-height read: none");
+});
+
+it("plan diagram: exactly one destination — the card while it has room, else the flank — as the room changes", async () => {
+	// A fake ResizeObserver the test fires by hand, and stubbed geometry
+	// (linkedom has no layout): the card's area and its sections' height.
+	const observers: Array<() => void> = [];
+	(globalThis as Record<string, unknown>).ResizeObserver = class { constructor(cb: () => void) { observers.push(cb); } observe() {} disconnect() {} };
+	try {
+		const progress = { covered: 1, total: 2, steps: [{ id: "a", title: "A", status: "current", answered: 0, right: 0, latest: null }, { id: "b", title: "B", status: "upcoming", answered: 0, right: 0, latest: null }] };
+		// chat.tsx's wiring: the card is offered the diagram while a question
+		// is pending; the flank (DockOverlay) shows it unless the card took it.
+		function Harness({ pending }: { pending: boolean }) {
+			const [inCard, setInCard] = React.useState(false);
+			const diagram = <svg data-testid="diagram" />;
+			return (
+				<>
+					<LessonTrackerCard tracking={deriveLessonTracking([])} plan={progress as never} bottomReserve={0} planView={pending ? diagram : undefined} onPlanViewPlaced={setInCard} onOpenPlan={() => {}} />
+					{pending && !inCard && <div data-testid="flank">{diagram}</div>}
+				</>
+			);
+		}
+		const host = await mount(<Harness pending />);
+		const area = { clientWidth: 1152, clientHeight: 900 };
+		const aside = host.querySelector('[data-testid="lesson-tracker"]')! as unknown as Record<string, unknown>;
+		Object.defineProperty(aside, "offsetParent", { get: () => area });
+		// The sections are 300px tall; a shown diagram adds its height and the gap.
+		Object.defineProperty(aside, "scrollHeight", { get: () => {
+			const view = host.querySelector('[data-testid="plan-marginalia"]');
+			return 300 + (view ? parseFloat(view.getAttribute("style")!.replace(/[^\d.]/g, "")) + 16 : 0);
+		} });
+		const where = () => {
+			const all = [...host.querySelectorAll('[data-testid="diagram"]')];
+			assert.equal(all.length, 1, "exactly one diagram");
+			return all[0]!.closest('[data-testid="lesson-tracker"]') ? "card" : "flank";
+		};
+		const resize = async () => act(async () => observers.forEach((fire) => fire()));
+
+		assert.equal(where(), "flank", "no room measured yet");
+		await resize();
+		assert.equal(where(), "card", "room below the list");
+		area.clientHeight = 400;
+		await resize();
+		assert.equal(where(), "flank", "the room is gone");
+		area.clientHeight = 900;
+		area.clientWidth = 1000;
+		await resize();
+		assert.equal(where(), "flank", "a narrow area: the card overlays the chat");
+		area.clientWidth = 1152;
+		await resize();
+		assert.equal(where(), "card");
+		await act(async () => root!.render(<Harness pending={false} />));
+		assert.equal(host.querySelectorAll('[data-testid="diagram"]').length, 0, "no question, no diagram");
+	} finally {
+		delete (globalThis as Record<string, unknown>).ResizeObserver;
+	}
 });

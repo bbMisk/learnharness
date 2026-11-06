@@ -25,10 +25,10 @@
  *   current — the most recently started problem with no problem_done after
  *             that start; null when none.
  *
- * Pure and browser-safe (type-only imports).
+ * Pure and browser-safe.
  */
 
-import type { LhMessage } from "./native-messages.ts";
+import { forEachToolSuccess, type LhMessage } from "./native-messages.ts";
 import type { PlanProgress } from "./plan-progress.ts";
 
 export const PROBLEM_LIST_TOOL = "problem_list";
@@ -190,29 +190,7 @@ export function lessonTrackerOf(
 	live?: ReadonlyMap<string, LiveTrackingExecution>,
 ): LessonTracker {
 	const tracker = new LessonTracker();
-	let settled: Set<string> | null = null;
-	if (live && live.size > 0) {
-		settled = new Set();
-		for (const m of messages) {
-			const r = m as { role?: string; toolCallId?: unknown };
-			if (r.role === "toolResult" && isString(r.toolCallId)) settled.add(r.toolCallId);
-		}
-	}
-	for (const m of messages) {
-		const r = m as { role?: string; toolName?: unknown; isError?: unknown; details?: unknown; content?: unknown };
-		if (settled && r.role === "assistant" && Array.isArray(r.content)) {
-			for (const block of r.content as Array<{ type?: string; id?: unknown; name?: unknown }>) {
-				if (block.type !== "toolCall" || !isString(block.id) || !isString(block.name)) continue;
-				if (!isLessonTrackingTool(block.name) || settled.has(block.id)) continue;
-				const execution = live!.get(block.id);
-				if (execution && !execution.isError) tracker.apply(block.name, execution.output);
-			}
-			continue;
-		}
-		if (r.role !== "toolResult" || r.isError === true || !isString(r.toolName)) continue;
-		if (!isLessonTrackingTool(r.toolName)) continue;
-		tracker.apply(r.toolName, r.details);
-	}
+	forEachToolSuccess(messages, isLessonTrackingTool, live, (name, _id, details) => tracker.apply(name, details));
 	return tracker;
 }
 

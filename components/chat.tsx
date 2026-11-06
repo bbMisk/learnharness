@@ -61,6 +61,7 @@ import { recordSyncVerdict } from "@/components/record-sync";
 import { QuestionTypeChip, showsQuestionTypeChip, useLessonQuestionType } from "@/components/question-type-chip";
 import { MARGIN_MIN_W, dockFlank, measureDockFlank, type DockFlank } from "@/components/dock-flank";
 import { LessonTrackerCard, LessonTrackerChip, lessonTrackerRoom, useLessonTrackerShown } from "@/components/lesson-tracker";
+import { PinnedVisualContext, usePinnedVisual } from "@/components/pinned-visual";
 import { CoverageRing } from "@/components/extraction-coverage";
 import { Button } from "@/components/ui/button";
 import {
@@ -251,7 +252,7 @@ export function Chat({
 	// (core/view.ts projectView); sends are ONE explicit input event each
 	// ({chatId, input} — the stash indirection died with the SDK), and the
 	// turn stream is the VERBATIM AgentEvent passthrough the server emits.
-	const { messages, nativeMessages, hasConfirmedConversation, contextTokens, lessonTracking: tracking, send, continueIfOwed, steer, steerQueue, submitAnswer, dismissQuestion, dismissProblem, questionDraft, saveQuestionDraft, setMessages, adoptRecord, status, error, abortTurn, clearError, resumeStream, setReattachSettled } =
+	const { messages, nativeMessages, hasConfirmedConversation, contextTokens, lessonTracking: tracking, tutorPin, send, continueIfOwed, steer, steerQueue, submitAnswer, dismissQuestion, dismissProblem, questionDraft, saveQuestionDraft, setMessages, adoptRecord, status, error, abortTurn, clearError, resumeStream, setReattachSettled } =
 		useChatSession({ chatId, initialMessages, initialError, initiallyInFlight });
 
 	const sessionFindScopeRef = useRef<HTMLDivElement | null>(null);
@@ -351,11 +352,16 @@ export function Chat({
 	const [abortAsk, setAbortAsk] = useState<AbortMode | null>(null);
 	const abortAskRef = useRef<AbortMode | null>(null);
 	abortAskRef.current = abortAsk;
+	// The pinned demo/diagram's Esc inputs (assigned once the pin hook runs, below).
+	const pinEscRef = useRef<ReturnType<typeof usePinnedVisual> | null>(null);
 	useEffect(() => {
 		const onAbort = () => {
+			const pinned = pinEscRef.current;
 			const target = escAbortTarget({
 				abortAsk: abortAskRef.current !== null,
 				mermaidFocus: mermaidFocusRef.current !== null || figureFocusRef.current !== null,
+				pinExpanded: pinned?.escState.pinExpanded ?? false,
+				drawer: pinned?.escState.drawer ?? null,
 				planOpen: planOpenRef.current,
 				setupOpen: setupOpenRef.current,
 				pending: pendingRef.current !== null,
@@ -367,6 +373,8 @@ export function Chat({
 			else if (target === "turn") setAbortAsk("turn");
 			else if (target === "mermaid") setMermaidFocus(null);
 			else if (target === "plan") setPlanOpen(false);
+			else if (target === "pin-expanded") pinned?.closeExpanded();
+			else if (target === "pin-drawer") pinned?.toggleDrawer();
 			// setup closes itself; null = nothing to do — both claimed.
 		};
 		window.addEventListener("lh:kbd-abort-turn", onAbort);
@@ -939,9 +947,30 @@ export function Chat({
 		const project = row ? row.projectId : projectId;
 		router.push(await startWeakSpotsPractice(titleText, spots, project, fetch, weakSpotsStarterRef.current));
 	}, [router, titleText, projectId, chatId]);
+	// The dock's reserved tail height (DockOverlay reports it; the spacer at
+	// the end of the transcript renders it). Lives here because the spacer is
+	// inside the scroller while the dock overlays OUTSIDE it — two parents.
+	// 208 ≈ gradient(96) + composer block(~112): the SSR/pre-hydration
+	// guess so the static paint has a sane tail. The first layout effect
+	// replaces it with the measured truth before paint.
+	const [dockReserve, setDockReserve] = useState(208);
+	// A docked pinned demo/diagram takes the progress card's column; the
+	// PROGRESS chip then shows the card over it (progressOverPin, reset per pin).
+	const getTranscriptScroller = useCallback(() => scrollContextRef.current?.scrollRef.current ?? null, []);
+	const pinned = usePinnedVisual({ messages, tutorPin, areaRef: sessionFindScopeRef, bottomReserve: Math.max(0, dockReserve - GRADIENT_H), getScroller: getTranscriptScroller });
+	pinEscRef.current = pinned;
+	const [progressOverPin, setProgressOverPin] = useState(false);
+	const pinnedJob = pinned.target?.jobId ?? null;
+	useEffect(() => setProgressOverPin(false), [pinnedJob]);
+	const trackerShown = pinned.docked ? progressOverPin : trackerCard.shown;
+	// The plan diagram goes under the card's plan list when the card has room
+	// for it, else to the dock band's flank — never both; a docked pin hides it.
+	const [planInCard, setPlanInCard] = useState(false);
+	const planDiagram = hasPlan && !(pinned.docked && !progressOverPin) ? <PlanMarginalia messages={messages} /> : undefined;
+	const toggleTracker = pinned.docked ? () => setProgressOverPin((v) => !v) : trackerCard.toggle;
 	// Room for the card (owner, "make room"): while it shows on a session
 	// area wide enough for both, the transcript column keeps clear of it.
-	const trackerRoom = lessonTrackerRoom(hasTracking && trackerCard.shown);
+	const trackerRoom = lessonTrackerRoom(hasTracking && trackerCard.shown && !pinned.docked);
 
 	// ── Session usage (wave-4 stats bar) ──
 	// The money channel: the record's turns log and read-time server Pi
@@ -953,13 +982,6 @@ export function Chat({
 	const [pricing, setPricing] = useState<SessionPricing | undefined>();
 	// The per-chat model control state (model-picker writes via PUT; the
 	// record is the source of truth, lifted here so the stats bar re-renders).
-	// The dock's reserved tail height (DockOverlay reports it; the spacer at
-	// the end of the transcript renders it). Lives here because the spacer is
-	// inside the scroller while the dock overlays OUTSIDE it — two parents.
-	// 208 ≈ gradient(96) + composer block(~112): the SSR/pre-hydration
-	// guess so the static paint has a sane tail. The first layout effect
-	// replaces it with the measured truth before paint.
-	const [dockReserve, setDockReserve] = useState(208);
 	const syncTurns = useCallback(async () => {
 		try {
 			const res = await fetch(`/api/chats/${chatId}?only=stats`);
@@ -1272,6 +1294,7 @@ export function Chat({
 			}}
 		>
 		<JobsContext.Provider value={jobs}>
+		<PinnedVisualContext.Provider value={pinned.context}>
 		{/* The session surface: the transcript column (header + scroller) and
 		    the plan-tree panel as full-height SIBLINGS — the panel spans top to
 		    bottom exactly like the left sidebar, and the header (name + phase
@@ -1376,7 +1399,7 @@ export function Chat({
 						</button>
 </Hint>
 					)}
-					{hasTracking && <LessonTrackerChip shown={trackerCard.shown} onToggle={trackerCard.toggle} />}
+					{hasTracking && <LessonTrackerChip shown={trackerShown} onToggle={toggleTracker} />}
 					{/* The extraction ring (owner-locked redesign, 2026-09-24): fills
 					    with uncovered vs the chunk threshold, pulses while a run is in
 					    flight, vanishes when the graph is off. Click → the exact
@@ -1505,7 +1528,7 @@ export function Chat({
 					onSubmitThinking={submitThinking}
 					chatId={chatId}
 					onModelChange={setSelectedModel}
-					plan={hasPlan ? <PlanMarginalia messages={messages} /> : undefined}
+					plan={planInCard ? undefined : planDiagram}
 					onOpenPlan={() => setPlanOpen(true)}
 					teachingCheck={teachingCheck}
 					requiresReveal={requiresReveal}
@@ -1585,9 +1608,13 @@ export function Chat({
 					}}
 				/>
 				</Conversation>
+				{/* The pinned demo/diagram's docked column (the card itself stays
+				    in its transcript row, restyled over this column). */}
+				{pinned.dockColumn}
 				{/* The tracking card: top-right over the transcript, below the
 				    session-scoped focuses (z-40) and clear of the dock. */}
-				{hasTracking && trackerCard.shown && <LessonTrackerCard tracking={tracking} plan={planProgress} bottomReserve={Math.max(0, dockReserve - GRADIENT_H)} onPracticeWeakSpots={configured && !zeroKeys ? practiceWeakSpots : undefined} />}
+				{hasTracking && trackerShown && <LessonTrackerCard tracking={tracking} plan={planProgress} bottomReserve={Math.max(0, dockReserve - GRADIENT_H)} onPracticeWeakSpots={configured && !zeroKeys ? practiceWeakSpots : undefined} planView={pending ? planDiagram : undefined} onPlanViewPlaced={setPlanInCard} onOpenPlan={openPlan} />}
+				{pinned.drawerTab}
 
 				{/* The session-scoped focuses (chrome-melt wave, 2026-09-19): mounted
 				    INSIDE the session area — absolute inset-0 siblings of the scroller,
@@ -1609,6 +1636,7 @@ export function Chat({
 			</div>
 			{sideTutor && <SideTutor chatId={chatId} selectedText={sideTutor.selectedText} onClose={closeSideTutor} />}
 		</div>
+		</PinnedVisualContext.Provider>
 		</JobsContext.Provider>
 		</SessionMermaidContext.Provider>
 		{/* The BYOK setup flow (owner, 2026-09-22): one mount serves the
@@ -1669,7 +1697,7 @@ export function Chat({
  *  then the session overlays (mermaid paints above plan — later in DOM),
  *  then setup (self-closing — the gate only must not fire), then the
  *  2026-10-02 abort chain proper (question before turn). */
-export type EscAbortTarget = "mermaid" | "plan" | "setup" | "question" | "problem" | "turn" | null;
+export type EscAbortTarget = "mermaid" | "pin-expanded" | "plan" | "setup" | "pin-drawer" | "question" | "problem" | "turn" | null;
 	/**
  * Does the opening topic still owe its first send? The topic is the
  * server's ?prompt= or the sessionStorage stash. The gate is "no real
@@ -1697,14 +1725,23 @@ export function escAbortTarget(s: {
 	 *  teaching sessions — practice problems end their pose turns). */
 	problem: boolean;
 	busy: boolean;
+	/** A pinned demo shown over the whole area (components/pinned-visual.tsx). */
+	pinExpanded?: boolean;
+	/** The pin drawer (narrow layouts): an open drawer claims Esc to close
+	 *  above the question; a closed one opens only on an otherwise unclaimed
+	 *  Esc, so it never steals the question dismissal or the turn abort. */
+	drawer?: "open" | "closed" | null;
 }): EscAbortTarget {
 	if (s.abortAsk) return null; // the popup's own Esc — claimed by the dialog
 	if (s.mermaidFocus) return "mermaid";
+	if (s.pinExpanded) return "pin-expanded";
 	if (s.planOpen) return "plan";
 	if (s.setupOpen) return "setup";
+	if (s.drawer === "open") return "pin-drawer";
 	if (s.pending) return "question";
 	if (s.problem) return "problem";
 	if (s.busy) return "turn";
+	if (s.drawer === "closed") return "pin-drawer";
 	return null;
 }
 

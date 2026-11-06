@@ -168,6 +168,35 @@ export function failedOutputCallIds(messages: readonly LhMessage[]): ReadonlySet
 	return failed;
 }
 
+/** Each successful result of a `isTool` call, in record order: settled
+ *  toolResults, plus (client, mid-turn) `live` executions that ended before
+ *  their toolResult arrived, at their call's position. Once the toolResult
+ *  exists only it counts, so nothing is visited twice. */
+export function forEachToolSuccess(
+	messages: readonly LhMessage[],
+	isTool: (name: string) => boolean,
+	live: ReadonlyMap<string, { isError: boolean; output?: unknown }> | undefined,
+	visit: (toolName: string, toolCallId: string, details: unknown) => void,
+): void {
+	let settled: Set<string> | null = null;
+	if (live && live.size > 0) {
+		settled = new Set();
+		for (const m of messages) if (m.role === "toolResult") settled.add(m.toolCallId);
+	}
+	for (const m of messages) {
+		if (settled && m.role === "assistant") {
+			for (const block of m.content) {
+				if (block.type !== "toolCall" || !isTool(block.name) || settled.has(block.id)) continue;
+				const execution = live!.get(block.id);
+				if (execution && !execution.isError) visit(block.name, block.id, execution.output);
+			}
+			continue;
+		}
+		if (m.role !== "toolResult" || m.isError === true || !isTool(m.toolName)) continue;
+		visit(m.toolName, m.toolCallId, m.details);
+	}
+}
+
 // ─── id minting ──────────────────────────────────────────────────────────────
 
 /** The app-wide message id shape (same as the UIMessage-era mint). */

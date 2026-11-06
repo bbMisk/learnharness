@@ -7,6 +7,7 @@ import { InvertDiscIcon } from "@/components/artifacts/invert-disc";
 import { ChatActionsContext } from "@/components/chat";
 import { downloadFile, slugFilename } from "@/components/artifacts/download";
 import { DispatchCard } from "@/components/artifacts/dispatch-card";
+import { ExpandButton, PinButton } from "@/components/pinned-visual";
 import {
 	buildDemoDocument,
 	loadDemoRuntimes,
@@ -240,6 +241,8 @@ function DemoFrame({
 					>
 						<DownloadIcon className="size-3.5" />
 					</button>
+					<PinButton />
+					<ExpandButton />
 				</div>
 			</div>
 			{state.error && (
