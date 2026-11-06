@@ -289,11 +289,20 @@ it("a check behind the reveal shows Check your understanding and opens on click"
 	}
 });
 
-it("the collapsed teaser reads set notation and spacing as text, not LaTeX", async () => {
-	const { teaserText } = await import("../components/question-dock.tsx");
-	assert.equal(
-		teaserText("A gambler's wealth is in $\\{0,1,2,3\\}$, and play stops at $0$ and $3$."),
-		"A gambler's wealth is in {0,1,2,3}, and play stops at 0 and 3.",
-	);
-	assert.equal(teaserText("Find $\\frac{1}{2}\\,x$ when $\\alpha = 1$"), "Find 1/2 x when alpha = 1");
+it("the collapsed teaser renders math with KaTeX, prose as text", async () => {
+	const { renderToStaticMarkup } = await import("react-dom/server");
+	const { QuestionTeaser } = await import("../components/question-dock.tsx");
+	const render = (q: string) => renderToStaticMarkup(<QuestionTeaser question={q} />);
+	// Visible text only: KaTeX's MathML copy carries the TeX source.
+	const visible = (html: string) => html.replace(/<span class="katex-mathml">.*?<\/math><\/span>/g, "").replace(/<[^>]+>/g, "");
+	const interval = render("Is $\\left(-\\tfrac1n, 1 + \\tfrac1n\\right)$ open, and is \\(x \\in \\mathbb{R}\\)?");
+	assert.equal(interval.match(/class="katex"/g)?.length, 2);
+	assert.ok(interval.includes("mfrac"), "\\tfrac renders as a fraction");
+	assert.ok(!/left|tfrac|mathbb/.test(visible(interval)), visible(interval));
+	assert.ok(visible(interval).startsWith("Is ") && visible(interval).includes(" open, and is "));
+	assert.ok(visible(interval).includes("\u2208"), "\\in renders as the element-of glyph");
+	const sets = render("A gambler's wealth is in $\\{0,1,2,3\\}$, and\nplay stops at $$0$$.");
+	assert.ok(visible(sets).includes("{0,1,2,3}"));
+	assert.ok(visible(sets).includes(", and play stops at "), "whitespace folds to one line");
+	assert.ok(!sets.includes("katex-display"), "display math stays inline in the bar");
 });

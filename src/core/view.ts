@@ -53,6 +53,8 @@ export interface LhViewPart extends Record<string, unknown> {
 	text?: string;
 	state?: string;
 	toolCallId?: string;
+	/** Prose delivered through send_to_user (a text part). */
+	delivered?: boolean;
 	/** Native location, retained across display grouping (client-only). */
 	sourceMessageId?: string;
 	sourceContentIndex?: number;
@@ -295,9 +297,30 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
 		// back to a spinner mid-transcript; live cards belong at the
 		// bottom, and this gate is what puts them there by construction).
 		const streamingMessage = live?.streamingIds.has(m.id) === true;
+		// THE COLLAPSED RECAP (owner, 2026-11-06): once this turn (the
+		// assistant group) has delivered prose through send_to_user, later
+		// ordinary text — usually a recap of what was just sent — renders as
+		// a collapsed thinking row instead of being shown twice. An answered
+		// question starts a new turn (answers are tool results, so they do not
+		// break the group): only parts after the last question card count.
+		let delivered = false;
+		const prev = out[out.length - 1];
+		if (prev?.role === "assistant") {
+			for (let i = prev.parts.length - 1; i >= 0; i--) {
+				const p = prev.parts[i]!;
+				if (p.sourceMessageId !== undefined) break; // a question card
+				if (p.delivered === true) {
+					delivered = true;
+					break;
+				}
+			}
+		}
 		for (const [contentIndex, block] of assistant.content.entries()) {
 			if (block.type === "text") {
-				rest.push({ type: "text", id: `${m.id}-t${textN++}`, text: block.text, state: "done" });
+				const id = `${m.id}-t${textN++}`;
+				rest.push(delivered && block.text.trim()
+					? { type: "reasoning", id, text: block.text, state: "done" }
+					: { type: "text", id, text: block.text, state: "done" });
 			} else if (block.type === "thinking") {
 				// A provider can split one response into many reasoning items,
 				// including encrypted items with no display text. They are one
@@ -332,7 +355,8 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
 					} else {
 						const text = sendToUserText(block);
 						if (text !== undefined) {
-							rest.push({ type: "text", id: `${m.id}-t${textN++}`, text, state: "done" });
+							rest.push({ type: "text", id: `${m.id}-t${textN++}`, text, state: "done", delivered: true });
+							delivered = true;
 						}
 					}
 					// No live tool card or acknowledgement: this channel is
