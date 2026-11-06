@@ -24,6 +24,8 @@ import { createPortal } from "react-dom";
  * positioned menu.
  */
 
+/** The narrowest a menu may get before it moves against the safe edge instead. */
+const MIN_ROOM = 160;
 const GAP = 4; // anchor edge → menu (the bespoke shells' settled 4px)
 const EDGE = 8; // viewport floor the menu never enters
 const CAP_VH = 0.6; // 60vh — the graph pattern's cap
@@ -84,15 +86,15 @@ export function computeMenuPlacement(
 		const safeRoom = side === "down" ? viewport.height - safe.bottom - (rect.bottom + GAP) : rect.top - GAP - safe.top;
 		maxHeight = Math.max(0, Math.min(maxHeight, safeRoom));
 	}
+	// The menu may not grow past the (safe) edge on the side it extends toward
+	// (iPhone landscape notch, an iPad split view). With less than MIN_ROOM there
+	// (a node right-clicked near the window's edge), it sits against that safe
+	// edge instead of shrinking to nothing.
+	const room = align === "right" ? rect.right - (safe.left ?? 0) - EDGE : viewport.width - (safe.right ?? 0) - EDGE - rect.left;
 	const horizontal: Record<string, number> =
-		align === "right" ? { right: viewport.width - rect.right } : { left: rect.left };
-	// The menu may not grow past the (safe) edge on the side it extends toward:
-	// iPhone landscape notch, or a window narrower than the menu (iPad split
-	// view). The cap only binds when the menu would otherwise leave that edge.
-	horizontal.maxWidth = Math.max(
-		0,
-		align === "right" ? rect.right - (safe.left ?? 0) - EDGE : viewport.width - (safe.right ?? 0) - EDGE - rect.left,
-	);
+		room >= MIN_ROOM
+			? { ...(align === "right" ? { right: viewport.width - rect.right } : { left: rect.left }), maxWidth: room }
+			: { ...(align === "right" ? { left: (safe.left ?? 0) + EDGE } : { right: (safe.right ?? 0) + EDGE }), maxWidth: viewport.width - (safe.left ?? 0) - (safe.right ?? 0) - 2 * EDGE };
 	const vertical: Record<string, number> =
 		side === "down" ? { top: rect.bottom + GAP } : { bottom: viewport.height - rect.top + GAP };
 	return { side, style: { ...horizontal, ...vertical }, maxHeight };

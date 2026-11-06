@@ -112,3 +112,13 @@ it("safe-area insets are not usable room (iPad Home Screen app)", () => {
 	// Zero insets: identical to before.
 	assert.deepEqual(computeMenuPlacement(anchor, vp, 300, "up", "right", { top: 0, bottom: 0 }), computeMenuPlacement(anchor, vp, 300, "up", "right"));
 });
+
+it("a menu without room on its side sits against the safe edge instead of shrinking (graph node near the edge)", () => {
+	const nearLeft = computeMenuPlacement({ top: 100, bottom: 100, left: 20, right: 20 }, { width: 1000, height: 800 }, 200, "down", "right");
+	assert.equal(nearLeft.style.left, 8);
+	assert.equal(nearLeft.style.right, undefined);
+	assert.ok((nearLeft.style.maxWidth as number) >= 160);
+	const roomy = computeMenuPlacement({ top: 100, bottom: 100, left: 600, right: 600 }, { width: 1000, height: 800 }, 200, "down", "right");
+	assert.equal(roomy.style.right, 400);
+});
+
