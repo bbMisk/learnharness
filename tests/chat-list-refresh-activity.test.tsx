@@ -1,4 +1,4 @@
-/** The refresh hook under React <Activity> hide/show while a response lands (round-4 Codex hunt). */
+/** The refresh hook under React <Activity> hide/show while a response lands. */
 import React,{act,useState,Activity} from 'react';import {test} from 'node:test';import assert from 'node:assert/strict';import {parseHTML} from 'linkedom';
 const dom=parseHTML('<!doctype html><html><body></body></html>');Object.assign(globalThis,{React,window:dom.window,document:dom.document,Node:dom.window.Node,Element:dom.window.Element,HTMLElement:dom.window.HTMLElement,Event:dom.window.Event,CustomEvent:dom.window.CustomEvent,IS_REACT_ACT_ENVIRONMENT:true,self:globalThis});
 const {createRoot}=await import('react-dom/client');const {useChatListRefresh}=await import('../components/chat-list-refresh.ts');const {ServerEventsProvider}=await import('../components/server-events.tsx');

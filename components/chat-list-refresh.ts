@@ -1,31 +1,15 @@
 "use client";
 
 /**
- * THE SESSION LIST'S FETCH COORDINATOR (efficiency pass, 2026-11-01): every
- * reason the sidebar has to refetch — a local turn-state instant, a server
- * event, a reconnect, an explicit refresh — goes through one queue, so one
- * change costs one GET /api/chats, and GET /api/projects rides along only
- * when projects may have changed (chats-changed — which project writes also
- * announce — a reconnect, or an explicit refresh).
- *
- * Two rules keep it fresh without double fetching:
- *
- * 1. A list fetch that starts after an event arrived covers that event
- *    (the server writes before it emits). Starting a fetch therefore
- *    absorbs every pending debounced need.
- * 2. A turn-settled event for chat X that arrives AFTER a fetch started
- *    (the same-window settle refreshed first) is covered when the newest
- *    server snapshot shows X idle and no turn-started for X arrived since
- *    that snapshot was requested: busy is the server's own in-flight
- *    flag, so an idle X in a snapshot whose request preceded no new start
- *    means the turn had already ended — and persisted — when the server
- *    built it. Anything short of that proof fetches. The check runs when
- *    the debounce fires, so a snapshot still in flight when the event
- *    arrives gets to answer it.
- *
- * A reconnect may have missed turn-started events, so it drops the
- * coverage proof until a fresh snapshot lands, and fetches immediately.
- * Pure (no React) below the hook; the hook is the sidebar's wiring.
+ * The session list's fetch coordinator: every reason the sidebar has to
+ * refetch — a local turn-state instant, a server event, a reconnect, an
+ * explicit refresh — goes through one serialized, debounced queue, and GET
+ * /api/projects rides along only when projects may have changed
+ * (chats-changed — which project writes also announce — a reconnect, or an
+ * explicit refresh). A list fetch that starts after an event arrived covers
+ * it (the server writes before it emits), so starting a fetch absorbs every
+ * pending debounced need. Pure (no React) below the hook; the hook is the
+ * sidebar's wiring.
  */
 
 import { useCallback, useEffect, useRef } from "react";
@@ -69,11 +53,11 @@ export function createChatListRefresher(deps: ChatListRefreshDeps) {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let inFlight = false;
 	let pumpWhenDone = false;
-	// Unmounted (hunt finding): no new fetches, no callbacks, pending refresh() promises settle.
+	// Unmounted: no new fetches, no callbacks, pending refresh() promises settle.
 	let disposed = false;
-	// Work that was waiting when disposed; a resume (React dev double-mount) runs it.
+	// Work that was waiting when disposed, and whether it included the
+	// projects; a resume (React dev double-mount) runs it.
 	let resumeWork = false;
-	// ...and whether that work included the projects (round-5 hunt finding).
 	let resumeProjects = false;
 	let flightProjects = false;
 	// The in-flight fetch's refresh() waiters, so dispose() can settle them at once.
@@ -81,15 +65,7 @@ export function createChatListRefresher(deps: ChatListRefreshDeps) {
 	// What the next fetch must cover.
 	let force = false;
 	let withProjects = false;
-	const settled = new Set<string>();
 	let waiters: Array<() => void> = [];
-	// Coverage proof: the newest server snapshot, and the chats whose turns
-	// started since it (or the fetch in flight) was requested.
-	let snapshot: { chats: ChatListItem[]; startedSince: Set<string> } | null = null;
-	let flight: { startedSince: Set<string>; trusted: boolean } | null = null;
-
-	const covered = (id: string) =>
-		!!snapshot && !snapshot.startedSince.has(id) && snapshot.chats.some((c) => c.id === id && !c.busy);
 
 	function pump(): void {
 		if (disposed) {
@@ -104,25 +80,18 @@ export function createChatListRefresher(deps: ChatListRefreshDeps) {
 		}
 		if (timer) clearTimeout(timer);
 		timer = undefined;
-		if (!force && [...settled].every(covered)) {
-			settled.clear();
-			return;
-		}
+		if (!force) return; // an earlier fetch already covered it
 		const projects = withProjects;
 		const done = waiters;
 		activeWaiters = done;
 		flightProjects = projects;
 		force = false;
 		withProjects = false;
-		settled.clear();
 		waiters = [];
 		inFlight = true;
-		const current = { startedSince: new Set<string>(), trusted: true };
-		flight = current;
 		void (async () => {
 			try {
 				const chats = await within(deps.fetchList(), timeoutMs);
-				if (current.trusted) snapshot = { chats, startedSince: current.startedSince };
 				if (!disposed) deps.onList(chats);
 				if (projects && !disposed) {
 					// A failed or stalled projects request keeps the last projects; the list stands.
@@ -133,7 +102,6 @@ export function createChatListRefresher(deps: ChatListRefreshDeps) {
 				if (!disposed) deps.onError();
 			} finally {
 				inFlight = false;
-				flight = null;
 				for (const resolve of done) resolve();
 				if (pumpWhenDone) {
 					pumpWhenDone = false;
@@ -164,39 +132,21 @@ export function createChatListRefresher(deps: ChatListRefreshDeps) {
 
 	return {
 		refresh,
-		/** A server event: the debounced fetch, unless rule 2 proves it covered. */
+		/** A server event: the debounced fetch. */
 		event(event: ListEvent): void {
-			switch (event.type) {
-				case "turn-started":
-					snapshot?.startedSince.add(event.chatId);
-					flight?.startedSince.add(event.chatId);
-					force = true;
-					break;
-				case "turn-settled":
-					settled.add(event.chatId);
-					break;
-				case "compaction-changed":
-				case "record-changed":
-					force = true;
-					break;
-				case "chats-changed":
-					force = true;
-					withProjects = true;
-					break;
-			}
+			force = true;
+			if (event.type === "chats-changed") withProjects = true;
 			schedule();
 		},
 		/** The channel (re)opened: events may have been missed. */
 		resync(): Promise<void> {
-			snapshot = null;
-			if (flight) flight.trusted = false;
 			return refresh();
 		},
 		/** Unmount: stop fetching and settle every pending refresh() promise. */
 		dispose(): void {
 			disposed = true;
 			// An in-flight result is dropped while disposed, so a resume must fetch again.
-			resumeWork = resumeWork || inFlight || timer !== undefined || pumpWhenDone || force || settled.size > 0;
+			resumeWork = resumeWork || inFlight || timer !== undefined || pumpWhenDone || force;
 			resumeProjects = resumeProjects || withProjects || (inFlight && flightProjects);
 			if (timer) clearTimeout(timer);
 			timer = undefined;
@@ -211,7 +161,7 @@ export function createChatListRefresher(deps: ChatListRefreshDeps) {
 			if (!disposed) return;
 			disposed = false;
 			if (resumeWork) {
-				// Whatever was dropped while disposed must be fetched again, covered or not.
+				// Whatever was dropped while disposed must be fetched again.
 				resumeWork = false;
 				force = true;
 				if (resumeProjects) withProjects = true;
@@ -287,9 +237,7 @@ export function useChatListRefresh({
 				return;
 			}
 			setChats((prev) => (prev ? prev.map((c) => (c.id === id ? { ...c, busy: false } : c)) : prev));
-			// Settle: the server snapshot is now truthful — land it now. The
-			// server's own turn-settled for this turn then finds it covered
-			// (rule 2) instead of fetching again.
+			// Settle: the server snapshot is now truthful — land it now.
 			void refresher.refresh({ projects: false });
 		};
 		window.addEventListener("lh:turn-state", onTurnState);

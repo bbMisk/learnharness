@@ -1,4 +1,4 @@
-/** Seeded 3,000-step model of the sidebar refresh queue: events, refreshes, dispose/resume, slow fetches (round-4 Codex hunt). */
+/** Seeded 3,000-step model of the sidebar refresh queue: events, refreshes, dispose/resume, slow fetches. */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createChatListRefresher} from '../components/chat-list-refresh.ts';

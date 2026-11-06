@@ -1,10 +1,9 @@
 /**
  * The sidebar's list fetches (components/chat-list-refresh.ts), counted
- * through the hook the sidebar mounts: one settled turn = one GET
- * /api/chats (the same-window instant and the server's turn-settled no
- * longer both fetch), projects only when they may have changed, reconnect
- * resync immediate — and a server event the local fetch could not have
- * seen still lands.
+ * through the hook the sidebar mounts: events are debounced and absorbed
+ * by a fetch that starts after them, projects only when they may have
+ * changed, reconnect resync immediate — and a server event the local fetch
+ * could not have seen still lands.
  */
 import React, { act, useState } from "react";
 (globalThis as Record<string, unknown>).React = React;
@@ -94,7 +93,7 @@ async function mount() {
 	};
 }
 
-it("a same-window settle plus the server's turn-settled: one list fetch, no projects (server event first)", async () => {
+it("a same-window settle absorbs a pending server turn-settled: one list fetch, no projects", async () => {
 	const { counts } = fakeServer();
 	const view = await mount();
 	await view.server("turn-settled", { chatId: "chat_x" });
@@ -103,13 +102,13 @@ it("a same-window settle plus the server's turn-settled: one list fetch, no proj
 	assert.deepEqual(counts, { list: 1, projects: 0 });
 });
 
-it("a same-window settle plus the server's turn-settled: one list fetch, no projects (event lands mid-fetch)", async () => {
+it("a server turn-settled that lands mid-fetch fetches once more, no projects", async () => {
 	const { counts } = fakeServer(40);
 	const view = await mount();
 	await view.local("chat_x", false);
 	await view.server("turn-settled", { chatId: "chat_x" }); // arrives while the local fetch is in flight
 	await settle();
-	assert.deepEqual(counts, { list: 1, projects: 0 });
+	assert.deepEqual(counts, { list: 2, projects: 0 });
 	assert.equal(view.state.chats?.find((c) => c.id === "chat_x")?.busy, false);
 });
 
@@ -192,7 +191,7 @@ it("a stalled projects request times out instead of holding the queue; the list 
 	refresher.dispose();
 });
 
-it("after dispose no queued fetch starts and every refresh() settles; resume re-enables it (hunt finding)", async () => {
+it("after dispose no queued fetch starts and every refresh() settles; resume re-enables it", async () => {
 	const { createChatListRefresher } = await import("../components/chat-list-refresh.ts");
 	let calls = 0;
 	let lists = 0;
@@ -221,7 +220,7 @@ it("after dispose no queued fetch starts and every refresh() settles; resume re-
 	refresher.dispose();
 });
 
-it("a refresh scheduled before a dispose/resume pair still runs (round-3 hunt finding)", async () => {
+it("a refresh scheduled before a dispose/resume pair still runs", async () => {
 	const { createChatListRefresher } = await import("../components/chat-list-refresh.ts");
 	let server = "old";
 	const seen: string[] = [];
