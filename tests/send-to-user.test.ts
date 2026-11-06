@@ -170,12 +170,29 @@ describe("send_to_user transcript projection", () => {
 		]), ack()];
 		const before = structuredClone(messages);
 		const view = projectView(messages);
-		assert.deepEqual(view[0]!.parts.map((p) => p.type), ["step-start", "reasoning", "text", "text", "tool-quiz", "text"]);
-		assert.deepEqual(prose(view), ["Before.", "**The lesson.** $x = 1$", "After."]);
+		assert.deepEqual(view[0]!.parts.map((p) => p.type), ["step-start", "reasoning", "text", "text", "tool-quiz", "reasoning"]);
+		assert.deepEqual(prose(view), ["Before.", "**The lesson.** $x = 1$"]);
 		assert.equal(view[0]!.parts.find((p) => p.type === "reasoning")!.text, "Private reasoning.");
-		assert.deepEqual(view[0]!.parts.filter((p) => p.type === "text").map((p) => p.id), ["a1-t0", "a1-t1", "a1-t2"]);
+		assert.deepEqual(view[0]!.parts.filter((p) => p.type === "text").map((p) => p.id), ["a1-t0", "a1-t1"]);
+		assert.equal(view[0]!.parts.at(-1)!.text, "After.", "text after delivered prose collapses, kept verbatim");
 		assert.deepEqual(messages, before, "projection never rewrites native content");
 		assert.deepEqual(projectView(JSON.parse(JSON.stringify(messages))), view, "reload is identical, without consulting a provider gate");
+	});
+
+	it("collapses a closing recap only after the same turn delivered prose", () => {
+		const turn = (sendFails: boolean) => [
+			newUserMessage("Teach me."),
+			assistant([fauxText("Let me explain."), outputCall("The lesson.")], "a1"), ack("send-1", sendFails),
+			assistant([fauxText("Recap: the lesson.")], "a2"),
+			newUserMessage("Next."),
+			assistant([fauxText("A fresh turn.")], "a3"),
+		] as LhMessage[];
+		const view = projectView(turn(false));
+		assert.deepEqual(prose(view), ["Let me explain.", "The lesson.", "A fresh turn."]);
+		const recap = view[1]!.parts.filter((p) => p.type === "reasoning");
+		assert.deepEqual(recap.map((p) => [p.id, p.text]), [["a2-t0", "Recap: the lesson."]]);
+		// A failed delivery delivered nothing: the text stays ordinary prose.
+		assert.deepEqual(prose(projectView(turn(true))), ["Let me explain.", "Recap: the lesson.", "A fresh turn."]);
 	});
 
 	it("streams available arguments as replacing prose, never as a live tool card", () => {
