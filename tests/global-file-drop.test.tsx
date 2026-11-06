@@ -72,7 +72,7 @@ async function fixture({ desktop = true, fields = true } = {}) {
 	function transfer(files: File[], types = ["Files"]) {
 		return { types, files, dropEffect: "none" };
 	}
-	async function event(type: string, dataTransfer = transfer([]), target: EventTarget = doc.querySelector('[data-testid="sidebar"]')!) {
+	async function event(type: string, dataTransfer: ReturnType<typeof transfer> & { items?: unknown[] } = transfer([]), target: EventTarget = doc.querySelector('[data-testid="sidebar"]')!) {
 		const event = Object.assign(new win.Event(type, { bubbles: true, cancelable: true }), { dataTransfer, clientX: 0, clientY: 0 });
 		await act(async () => {
 			target.dispatchEvent(event);
@@ -215,5 +215,21 @@ test("a drop with no destination says so, stages nothing and the message is dism
 	assert.match(f.alert, /Open a chat or project/);
 	await f.event("dragenter", f.transfer([f.file("again.pdf")]));
 	assert.equal(f.overlay, "Add files to a chat");
+	f.assertPathOnly();
+});
+
+test("a dropped folder attaches its own path once with a trailing separator; unknown metadata stays a file", async () => {
+	const f = await fixture();
+	await f.focus("message");
+	const folder = f.file("course", "/actual/course");
+	const plain = f.file("README", "/actual/README");
+	const unknown = f.file("unknown", "/actual/unknown");
+	const items = [
+		{ kind: "file", webkitGetAsEntry: () => ({ isDirectory: true, isFile: false, createReader() { throw new Error("Must not traverse entries"); } }) },
+		{ kind: "file", webkitGetAsEntry: () => ({ isDirectory: false, isFile: true }) },
+		{ kind: "file", webkitGetAsEntry: () => { throw new Error("No metadata"); } },
+	];
+	await f.event("drop", { ...f.transfer([folder, plain, unknown]), items });
+	assert.equal(f.drafts.message, ["/actual/course/", "/actual/README", "/actual/unknown"].map((p) => JSON.stringify(p)).join("\n"));
 	f.assertPathOnly();
 });

@@ -10,9 +10,10 @@ import { Reasoning, ReasoningContent } from "../components/ai-elements/reasoning
 import { transformMathDelimiters } from "../src/core/math-delims.ts";
 
 const surfaces = {
-	message: (source: string) => <MessageResponse>{source}</MessageResponse>,
-	tool: (source: string) => <ToolContentResponse>{source}</ToolContentResponse>,
-	reasoning: (source: string) => <Reasoning open><ReasoningContent>{source}</ReasoningContent></Reasoning>,
+	// Streaming surfaces: unfinished-Markdown repair runs only while text streams (owner, 2026-11-05).
+	message: (source: string) => <MessageResponse streaming>{source}</MessageResponse>,
+	tool: (source: string) => <ToolContentResponse streaming>{source}</ToolContentResponse>,
+	reasoning: (source: string) => <Reasoning open isStreaming><ReasoningContent>{source}</ReasoningContent></Reasoning>,
 };
 const documentFor = (element: React.ReactElement) =>
 	parseHTML(`<html><body>${renderToStaticMarkup(element)}</body></html>`).document;

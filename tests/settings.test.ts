@@ -20,7 +20,7 @@ import {
 describe("FACTORY_SETTINGS (the compiled factory layer)", () => {
 	it("pins the owner-decided defaults", () => {
 		assert.equal(CURRENT_SETTINGS_VERSION, 1);
-		assert.deepEqual(FACTORY_SETTINGS.general, { autoUpdate: true, showReadingThinking: false, keepThinkingFocus: true, flashcardSources: "chats", hiddenModes: [], revealQuestions: "cram", cramShortProbe: true, sharedHandoffPrefix: false });
+		assert.deepEqual(FACTORY_SETTINGS.general, { autoUpdate: true, showReadingThinking: false, keepThinkingFocus: true, flashcardSources: "chats", hiddenModes: [], revealQuestions: "cram", cramShortProbe: true, sharedHandoffPrefix: false, showLessonTime: false });
 		// wave 7 collapse: the master switch ONLY + the extraction-UX
 		// redesign's chunk budget (2026-09-24); doubled to 8192 with the
 		// digest-aware redesign (2026-09-30), then HALVED BACK to 4096
@@ -179,6 +179,12 @@ describe("sanitizeUserSettings", () => {
 	it("search engine pin survives; unknown engine ids drop (auto-detect resumes) — search wave, 2026-09-20", () => {
 		const good = sanitizeUserSettings({ version: 1, agent: { search: { engine: "tavily" } } });
 		assert.deepEqual(good?.agent?.search, { engine: "tavily" });
+		const exa = sanitizeUserSettings({ version: 1, agent: { search: { engine: "exa" } } });
+		assert.deepEqual(exa?.agent?.search, { engine: "exa" });
+		const fc = sanitizeUserSettings({ version: 1, agent: { search: { engine: "firecrawl" } } });
+		assert.deepEqual(fc?.agent?.search, { engine: "firecrawl" });
+		const ollama = sanitizeUserSettings({ version: 1, agent: { search: { engine: "ollama" } } });
+		assert.deepEqual(ollama?.agent?.search, { engine: "ollama" });
 		const bad = sanitizeUserSettings({ version: 1, agent: { search: { engine: "google" } } });
 		assert.equal(bad?.agent?.search, undefined);
 		const notObject = sanitizeUserSettings({ version: 1, agent: { search: "tavily" } });

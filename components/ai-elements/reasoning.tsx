@@ -199,6 +199,17 @@ export type ReasoningContentProps = ComponentProps<
 // Shares message.tsx's Streamdown config (math delimiters, dark mermaid,
 // remark-breaks) — reasoning renders the same contract as message text.
 
+/** Repairs unfinished Markdown only while the thinking still streams (owner,
+ *  2026-11-05; see MessageResponse). */
+function ReasoningMarkdown({ children }: { children: string }) {
+  const { isStreaming } = useReasoning();
+  return (
+    <Streamdown components={mdComponents} plugins={streamdownPlugins} remend={streamdownRemend} parseIncompleteMarkdown={isStreaming}>
+      {transformMathDelimiters(children)}
+    </Streamdown>
+  );
+}
+
 export const ReasoningContent = memo(
   ({ className, children, ...props }: ReasoningContentProps) => (
     <CollapsibleContent
@@ -209,9 +220,7 @@ export const ReasoningContent = memo(
       )}
       {...props}
     >
-      <Streamdown components={mdComponents} plugins={streamdownPlugins} remend={streamdownRemend}>
-        {transformMathDelimiters(children)}
-      </Streamdown>
+      <ReasoningMarkdown>{children}</ReasoningMarkdown>
     </CollapsibleContent>
   )
 );

@@ -5,6 +5,7 @@ import { invalidInputResult, serverExecute } from "../tool-execute.ts";
 import { resolveSourcePath } from "./fs-shared.ts";
 import type { JobRecord } from "../../core/contracts.ts";
 import type { JobStore } from "../../core/ports.ts";
+import { checkLearnerImage } from "./learner-image.ts";
 
 /**
  * Async sub-agent job tools (vision §2.5; W2/W6 kinds + the pi-model
@@ -55,8 +56,16 @@ export const visualInputSchema = Type.Object({
 	brief: Type.String({
 		description:
 			"Precise brief for ONE static figure: exactly what it must show — coordinates, labels, proportions, orientation. " +
-			"The maker sees NOTHING else of the lesson; a wrong or vague brief produces a wrong figure.",
+			"The maker sees NOTHING else of the lesson; a wrong or vague brief produces a wrong figure. " +
+			"With an image: which features to mark and what each label says.",
 	}),
+	image: Type.Optional(
+		Type.String({
+			description:
+				"Path to one of the learner's image files (jpg, png, gif, webp, bmp) to annotate — the maker draws on top of it " +
+				"instead of drawing from scratch.",
+		}),
+	),
 });
 
 export const pdfInputSchema = Type.Object({
@@ -113,6 +122,7 @@ const VISUAL_DESCRIPTION =
 	"Dispatch a background sub-agent that hand-authors ONE precise SVG figure, renders it, LOOKS at the render, and iterates " +
 	"until correct. Use it for exact spatial pictures auto-layout diagrams can't do: coordinate geometry, number lines, vectors, " +
 	"function plots, physical layouts. Use native dark-mode styling by default. For flows/relations/taxonomies write mermaid inline instead. " +
+	"Pass `image` (a learner image file) to have the maker annotate that picture — arrows, outlines, labels — instead. Local image paths follow File access settings; use ls to discover allowed folders. " +
 	"The call is ASYNC and fire-and-forget — it resolves immediately and your turn continues; the verified figure arrives later " +
 	"as a new message.";
 const PDF_DESCRIPTION =
@@ -120,7 +130,7 @@ const PDF_DESCRIPTION =
 	"reading for equations and diagrams) and returns a brief with page citations. Use it when the learner gives you a PDF path " +
 	"and you need its CONTENT for the lesson. The call is ASYNC and fire-and-forget — it resolves immediately and your turn " +
 	"continues; the brief arrives later as a new message. For quick looks at plain text or image files, use the read tool " +
-	"directly instead of dispatching.";
+	"directly instead of dispatching. Local PDF paths follow File access settings; use ls to discover allowed folders.";
 
 /** Why `path` cannot be read as a PDF, or null when it is a file. */
 function pdfPathProblem(p: string): string | null {
@@ -141,7 +151,12 @@ function pdfPathProblem(p: string): string | null {
  * existing user-toggle filtering still applies outside this registry.
  */
 export function jobTools(ctx: JobToolContext): Record<string, AgentTool<any>> {
-	const dispatchPdf = serverExecute("pdf", pdfInputSchema, (input, { toolCallId }) => dispatch(ctx, "pdf", toolCallId, PDF_ACK, input));
+	const dispatchPdf = serverExecute("pdf", pdfInputSchema, (input, { toolCallId }) => {
+		// Admission uses the current boundary; the queued reader checks
+		// again at job start. Preserve raw args/history and replay IDs.
+		if (!ctx.jobStore.findJobByToolCallId(ctx.chatId, toolCallId)) resolveSourcePath(input.path);
+		return dispatch(ctx, "pdf", toolCallId, PDF_ACK, input);
+	});
 	return {
 		research: {
 			name: "research",
@@ -164,9 +179,13 @@ export function jobTools(ctx: JobToolContext): Record<string, AgentTool<any>> {
 			label: "visual",
 			description: VISUAL_DESCRIPTION,
 			parameters: visualInputSchema,
-			execute: serverExecute("visual", visualInputSchema, (input, { toolCallId }) =>
-				dispatch(ctx, "visual", toolCallId, VISUAL_ACK, input),
-			),
+			// An unusable image path fails the CALL (no job is created), so the
+			// teacher corrects the path in the same turn.
+			execute: serverExecute("visual", visualInputSchema, async (input, { toolCallId, signal }) => {
+				if (!ctx.jobStore.findJobByToolCallId(ctx.chatId, toolCallId) && input.image !== undefined) await checkLearnerImage(input.image);
+				signal?.throwIfAborted();
+				return dispatch(ctx, "visual", toolCallId, VISUAL_ACK, input);
+			}),
 		},
 		pdf: {
 			name: "pdf",
@@ -176,7 +195,12 @@ export function jobTools(ctx: JobToolContext): Record<string, AgentTool<any>> {
 			execute: async (toolCallId, input: unknown, signal) => {
 				// A wrong path would only fail later as a "PDF failed" card in the
 				// lesson; rejecting it here lets the tutor retry with the right one.
-				const problem = ctx.jobStore.findJobByToolCallId(ctx.chatId, toolCallId) ? null : pdfPathProblem((input as PdfInput).path);
+				// A path outside the file-access boundary throws in resolveSourcePath;
+				// dispatchPdf's admission check reports that refusal.
+				let problem: string | null = null;
+				if (!ctx.jobStore.findJobByToolCallId(ctx.chatId, toolCallId)) {
+					try { problem = pdfPathProblem((input as PdfInput).path); } catch { /* reported by dispatchPdf */ }
+				}
 				if (problem) return invalidInputResult("pdf", [problem]);
 				return dispatchPdf(toolCallId, input, signal);
 			},

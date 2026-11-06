@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { registerFileDrop, focusFileDrop } from "@/components/global-file-drop";
 import type { ClipboardEvent } from "react";
+import { directoryReferencePath } from "@/src/core";
 
 /** One quoted path per line keeps spaces and unusual filenames unambiguous. */
 export function appendFilePaths(draft: string, paths: string[]): string {
@@ -94,7 +95,7 @@ export function useFileDrop(value: string, onChange: (value: string) => void, op
 			onUploadingChange?.(false);
 		};
 	}, [onUploadingChange]);
-	const addFiles = (files: File[]) => {
+	const addFiles = (files: File[], directories?: ReadonlySet<File>) => {
 		if (!files.length) return Promise.resolve();
 		pending.current++;
 		setUploading(true);
@@ -104,6 +105,21 @@ export function useFileDrop(value: string, onChange: (value: string) => void, op
 			setError("");
 			try {
 				for (const file of files) {
+					if (directories?.has(file)) {
+						// A folder attaches by its own path with a trailing separator
+						// (upstream 0.5.0); its bytes are never read or uploaded.
+						if (imagesOnly || uploadAll) throw new Error("Folders can't be added here. Add the files inside it instead.");
+						const native = window.lh?.remoteServer ? undefined : window.lh?.getPathForFile;
+						let folder = "";
+						try { folder = native?.(file) || ""; } catch { /* no local path */ }
+						if (!folder) throw new Error("Folders can only be attached in the desktop app on this computer.");
+						const path = directoryReferencePath(folder);
+						if (!mounted.current) return;
+						const next = appendFilePaths(latest.current.value, [path]);
+						latest.current.onChange(next);
+						latest.current.value = next;
+						continue;
+					}
 					if (imagesOnly && !/^image\/(png|jpeg|gif|webp)$/.test(file.type))
 						throw new Error("The side tutor supports PNG, JPEG, WebP and GIF images.");
 					// Disk-backed images also use the upload store so every chat can attach their bytes.
@@ -145,7 +161,7 @@ export function useFileDrop(value: string, onChange: (value: string) => void, op
 				element: () => document.querySelector(`[data-file-drop-id=${JSON.stringify(id)}]`),
 				activate: () => registered.current.options.activate?.(),
 				canReveal: () => !!registered.current.options.activate,
-				add: (files) => registered.current.addFiles(files),
+				add: (files, directories) => registered.current.addFiles(files, directories),
 			}),
 		[id],
 	);

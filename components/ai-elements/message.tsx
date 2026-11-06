@@ -51,7 +51,13 @@ export const MessageContent = ({
   </div>
 );
 
-export type MessageResponseProps = ComponentProps<typeof Streamdown>;
+export type MessageResponseProps = ComponentProps<typeof Streamdown> & {
+  /** Text still arriving: only then are unfinished Markdown constructs
+   *  repaired (owner, 2026-11-05). A finished message is rendered as written:
+   *  the repair read the `[` of a half-open interval like $[n,\infty)$ as an
+   *  unfinished link and appended "](streamdown:incomplete-link)". */
+  streaming?: boolean;
+};
 
 // Type-only version skew: @streamdown/code bundles shiki@3 types while
 // streamdown@2.5 expects shiki@4 types. Both work at runtime (each ships its
@@ -88,7 +94,7 @@ export const streamdownPlugins = {
 } as unknown as PluginConfig;
 
 export const MessageResponse = memo(
-  ({ className, children, ...props }: MessageResponseProps) => {
+  ({ className, children, streaming = false, ...props }: MessageResponseProps) => {
     // Legacy backslash delimiters are converted in a single linear scan;
     // native dollar math passes through to Streamdown unchanged. Incomplete
     // legacy spans are left for a later render when their closer arrives.
@@ -108,6 +114,7 @@ export const MessageResponse = memo(
         components={mdComponents}
         plugins={streamdownPlugins}
         remend={streamdownRemend}
+        parseIncompleteMarkdown={streaming}
         {...props}
       >
         {content}
@@ -116,7 +123,8 @@ export const MessageResponse = memo(
   },
   (prevProps, nextProps) =>
     prevProps.children === nextProps.children &&
-    nextProps.isAnimating === prevProps.isAnimating
+    nextProps.isAnimating === prevProps.isAnimating &&
+    nextProps.streaming === prevProps.streaming
 );
 
 MessageResponse.displayName = "MessageResponse";

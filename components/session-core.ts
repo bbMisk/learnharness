@@ -431,7 +431,9 @@ export class SessionModel {
 					const mid = message.id;
 					if (mid === undefined) return false;
 					// Already synced from the record (the probe handoff after a
-					// settle sync): a second copy rendered a doubled Planning divider.
+					// settle sync; adoption/refetch may also carry this durable
+					// message before its start/end is replayed): the record owns
+					// that identity, and a second copy rendered a doubled divider.
 					if (this.base.some((m) => m.id === mid)) return false;
 					this.mutate(() => {
 						const idx = this.tail.findIndex((m) => m.id === mid);
@@ -990,9 +992,9 @@ export class SessionModel {
 	/**
 	 * Append-only adoption (the mid-turn steer/artifact ground rule): swap
 	 * in the record — every current base message must still be present
-	 * (the server appends only) — keeping the live tail, minus the
-	 * optimistic entries the record has absorbed (their server-stamped
-	 * copies just landed; without this the input bubble would double).
+	 * (the server appends only) — keeping the live tail, minus entries the
+	 * record already carries by id and optimistic entries it has absorbed
+	 * (their server-stamped copies just landed; without this messages double).
 	 */
 	adoptRecord(record: LhMessage[]): void {
 		const recordIds = new Set(record.map((m) => (m as { id?: string }).id));
@@ -1001,7 +1003,7 @@ export class SessionModel {
 		this.mutate(() => {
 			this.base = record;
 			this.forgetResolvedDrafts(record);
-			this.tail = this.tail.filter((m) => !absorbed(m, record));
+			this.tail = this.tail.filter((m) => !(typeof m.id === "string" && recordIds.has(m.id)) && !absorbed(m, record));
 		});
 	}
 

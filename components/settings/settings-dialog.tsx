@@ -151,6 +151,7 @@ export function SettingsDialogBody({
 		undefined,
 	);
 	const [error, setError] = useState<string | null>(null);
+	const [fileAccessError, setFileAccessError] = useState<string | null>(null);
 	// MenuShell open-count — drives the content column's scroll lock.
 	const [openMenus, setOpenMenus] = useState(0);
 	const contentRef = useRef<HTMLDivElement | null>(null);
@@ -202,9 +203,10 @@ export function SettingsDialogBody({
 			.then((r) =>
 				r.ok ? r.json() : Promise.reject(new Error(`status ${r.status}`)),
 			)
-			.then((body: { settings: UserSettings | null }) =>
-				setRecord(body.settings ?? { version: CURRENT_SETTINGS_VERSION }),
-			)
+			.then((body: { settings: UserSettings | null; fileAccessError?: string }) => {
+				setRecord(body.settings ?? { version: CURRENT_SETTINGS_VERSION });
+				setFileAccessError(body.fileAccessError ?? null);
+			})
 			.catch(() => setRecord(null));
 	}, []);
 
@@ -253,9 +255,9 @@ export function SettingsDialogBody({
 			// (bd68486) — a swap that rides an unsupported level lands
 			// CLAMPED in the record, and the writing surface must show the
 			// stored value in this same interaction, not the optimistic one.
-			const stored = (
-				(await res.json().catch(() => null)) as { settings?: UserSettings } | null
-			)?.settings;
+			const reply = (await res.json().catch(() => null)) as { settings?: UserSettings; fileAccessError?: string } | null;
+			const stored = reply?.settings;
+			setFileAccessError(reply?.fileAccessError ?? null);
 			setRecord(
 				(prev) =>
 					stored ?? ({ ...(prev ?? {}), [section]: body }) as UserSettings,
@@ -463,6 +465,18 @@ export function SettingsDialogBody({
 										/>
 									</SettingsRow>
 									<SettingsRow
+										label="Show time spent on lessons"
+										hint="The sidebar shows about how long you've worked on each lesson."
+										testid="row-show-lesson-time"
+									>
+										<Toggle
+											checked={record.general?.showLessonTime ?? false}
+											label="show time spent on lessons"
+											disabled={savingGeneral}
+											onChange={(on) => void writeGeneral({ showLessonTime: on })}
+										/>
+									</SettingsRow>
+									<SettingsRow
 										label="Cards from imported knowledge"
 										hint="Also make flashcards from imported material, not just chat history. Review history is kept."
 										testid="row-flashcard-sources"
@@ -501,6 +515,7 @@ export function SettingsDialogBody({
 								>
 									<AgentSection
 										agent={record.agent}
+										fileAccessError={fileAccessError}
 										models={record.models}
 										graph={record.graph}
 										compaction={record.compaction}

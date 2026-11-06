@@ -21,13 +21,14 @@ import { Hint } from "@/components/ui/hint";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { fuzzyScore } from "@/src/core";
+import { formatLessonTime, fuzzyScore } from "@/src/core";
 import { useChatListRefresh } from "@/components/chat-list-refresh";
 import type { ChatListItem, ProjectSummary } from "@/src/core";
 import { kbdEventForAction } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { DeployReload } from "@/components/deploy-reload";
 import { useVisibleModes } from "@/components/session-modes";
+import { useGeneralSettings } from "@/components/general-settings";
 
 /**
  * Toggleable sidebar — NOT a modal drawer: no backdrop, no focus theft. It
@@ -76,6 +77,8 @@ declare global {
 			openConnection?: () => Promise<void>;
 			/** Resolve an OS-backed File without copying/uploading its contents. */
 			getPathForFile?: (file: File) => string;
+			/** Choose one original directory path, without reading its contents. */
+			chooseAttachmentFolder?: () => Promise<string | null>;
 			/** External Next desktop-dev uses the server's web connections. */
 			subscriptionTransport?: "desktop" | "web";
 			openSubscriptionBrowser?: (action: string) => Promise<void>;
@@ -292,6 +295,31 @@ export function sessionMeta(chat: ChatListItem): string {
 	return timeAgo(chat.updatedAt);
 }
 
+/** The row's meta line. With time spent on (Settings → General, owner
+ *  2026-11-05) the figure sits muted at the line's right end, never on the
+ *  title line, so titles keep their width. `gutter`: the line may run into
+ *  the archive button's reserved right padding — the button sits beside the
+ *  title line (top-1.5, 28px tall), so the line below it is free; a practice
+ *  row's dumbbell holds that corner, so it never takes the gutter. The
+ *  sidebar is a fixed w-72 at every window width (narrow windows close it),
+ *  so the row width is the same on a phone, an iPad and the desktop: a
+ *  resting "Waiting for input · 2d ago" plus "1h 20m" fits; only longer
+ *  meta truncates, never the figure. */
+function SessionMetaLine({ chat, showTime, gutter, className }: { chat: ChatListItem; showTime: boolean; gutter: boolean; className: string }) {
+	const meta = sessionMeta(chat);
+	const time = showTime ? formatLessonTime(chat.timeSpentMs) : null;
+	if (!time) return <span className={className}>{meta}</span>;
+	return (
+		<span className={cn("flex items-baseline gap-2 text-xs text-muted-foreground", gutter && "-mr-7")}>
+			<span className="min-w-0 truncate" title={meta}>{meta}</span>
+			<span className="ml-auto shrink-0 tabular-nums" title="Time spent" data-testid="session-time">
+				<span className="sr-only">Time spent: </span>
+				{time}
+			</span>
+		</span>
+	);
+}
+
 /**
  * One session row: the status spinner (only while working), then title +
  * state-aware meta. Exported for render tests — pure function of the
@@ -304,6 +332,7 @@ export function SessionRow({
 	kbdSelected = false,
 	onContextMenu,
 	onArchive,
+	showTime = false,
 }: {
 	chat: ChatListItem;
 	active: boolean;
@@ -314,6 +343,8 @@ export function SessionRow({
 	/** Right-click opens the context menu (wave 6: Rename / Delete). */
 	onContextMenu?: (e: React.MouseEvent<HTMLButtonElement>) => void;
 	onArchive?: () => Promise<unknown>;
+	/** Settings → General "Show time spent on lessons" (default off). */
+	showTime?: boolean;
 }) {
 	const [archiving, setArchiving] = useState(false);
 	const archiveLabel = chat.archived ? "Restore chat" : "Archive chat";
@@ -340,7 +371,7 @@ export function SessionRow({
 				    rule, finally applied to the picker too (owner, typography
 				    round): mono = chrome, Source Sans = human words. */}
 				<span className="block truncate font-prose text-(length:--lh-prose-size)">{chat.title}</span>
-				<span className="block text-xs text-muted-foreground">{sessionMeta(chat)}</span>
+				<SessionMetaLine chat={chat} showTime={showTime} gutter={!!onArchive && (chat.kind ?? "teach") !== "practice"} className="block text-xs text-muted-foreground" />
 			</span>
 			{/* The dumbbell rides the FAR RIGHT (owner round 6, 2026-10-05) —
 			    was left of the name; right-aligned keeps the titles flush with
@@ -364,7 +395,7 @@ export function SessionRow({
  *  title line becomes a text input — select-all on entry (the click means
  *  "replace", the header rename's rule), Enter/blur commits, Esc discards.
  *  The meta line stays so the row never changes height mid-edit. */
-export function RenameRow({ chat, onCommit, onCancel }: { chat: ChatListItem; onCommit: (next: string) => void; onCancel: () => void }) {
+export function RenameRow({ chat, onCommit, onCancel, showTime = false }: { chat: ChatListItem; onCommit: (next: string) => void; onCancel: () => void; showTime?: boolean }) {
 	const [draft, setDraft] = useState(chat.title);
 	const inputRef = useRef<HTMLInputElement | null>(null);
 	useEffect(() => {
@@ -404,7 +435,7 @@ export function RenameRow({ chat, onCommit, onCancel }: { chat: ChatListItem; on
 					data-testid="session-rename-input"
 					className="lh-input w-full min-w-0 truncate border-0 border-b border-border bg-transparent px-0 text-foreground outline-none"
 				/>
-				<span className="block truncate text-xs text-muted-foreground">{sessionMeta(chat)}</span>
+				<SessionMetaLine chat={chat} showTime={showTime} gutter={false} className="block truncate text-xs text-muted-foreground" />
 			</span>
 		</div>
 	);
@@ -427,6 +458,8 @@ function SessionsSidebar() {
 	const modes = useVisibleModes();
 	const showPractice = modes.includes("practice");
 	const kindFilter: SessionKindFilter = showPractice ? storedKindFilter : "all";
+	// Time spent (owner, 2026-11-05): every row carries it; Settings → General shows it (off by default).
+	const showTime = useGeneralSettings()?.showLessonTime ?? false;
 	useEffect(() => {
 		const stored = window.localStorage.getItem(KIND_FILTER_KEY);
 		if (stored === "teach" || stored === "all" || stored === "practice") setKindFilter(stored);
@@ -618,9 +651,9 @@ function SessionsSidebar() {
 	}, [open, pathname, refresh]);
 
 	const renderChat = (chat: ChatListItem, index?: number) => renamingId === chat.id ? (
-		<RenameRow key={chat.id} chat={chat} onCommit={next => void commitRename(chat.id, next)} onCancel={() => setRenamingId(null)} />
+		<RenameRow key={chat.id} chat={chat} showTime={showTime} onCommit={next => void commitRename(chat.id, next)} onCancel={() => setRenamingId(null)} />
 	) : (
-		<SessionRow key={chat.id} chat={chat} active={pathname === `/chat/${chat.id}`} kbdSelected={index !== undefined && index === kbdIndex}
+		<SessionRow key={chat.id} chat={chat} showTime={showTime} active={pathname === `/chat/${chat.id}`} kbdSelected={index !== undefined && index === kbdIndex}
 			onArchive={() => updateChat(chat.id, {archived:!chat.archived})}
 			onOpen={() => { setKbdIndex(null); router.push(`/chat/${chat.id}`); }} onContextMenu={event => openContext(event, chat)} />
 	);
