@@ -6,11 +6,9 @@ import type { JobStore } from "../../core/ports.ts";
 import { isPinnableResult, PIN_VISUAL_TOOL, type PinVisualDetails } from "../../core/pinned-visual.ts";
 
 /**
- * pin_visual (owner, 2026-11-06 — core/pinned-visual.ts): pins an earlier
- * demo or diagram beside the chat. SERVER-SIDE and effect-free: the result's
- * details name the job, and the chat page derives the pinned card from the
- * record. Not a question tool, so the turn continues. An unknown target
- * fails the call (an error result the model retries on).
+ * pin_visual: effect-free on the server — the result's details name the job
+ * and the chat page derives the pinned card from the record
+ * (core/pinned-visual.ts). An unknown target is an error result to retry on.
  */
 
 export const PIN_VISUAL_DESCRIPTION =
@@ -43,7 +41,7 @@ function label(job: JobRecord): string {
  *  a repeated title picks the latest), or the error the model reads. */
 export function resolvePinTarget(jobs: readonly JobRecord[], visual: string): { job: JobRecord } | { error: string } {
 	const key = visual.trim();
-	const candidates = jobs.filter((j) => j.kind === "demo" || j.kind === "visual");
+	const candidates = jobs.filter((j): j is JobRecord & { kind: "demo" | "visual" } => j.kind === "demo" || j.kind === "visual");
 	const job = candidates.find((j) => j.id === key) ?? candidates.find((j) => j.kind === "demo" && titleOf(j) === key);
 	const ready = candidates.filter((j) => isPinnableResult(j.kind, j.result));
 	const list = ready.length > 0

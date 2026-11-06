@@ -483,8 +483,6 @@ export function createTeacherTools(
 			// teacher; the problem set for a cram teacher only.
 			...lessonTrackingTools(ctx, { problems: cram }),
 			...jobTools({ chatId: ctx.chatId, jobStore: ctx.jobStore, spawn: ctx.spawn, searchAvailable: ctx.searchAvailable }),
-			// The pin (owner, 2026-11-06): beside demo/visual, the teacher's
-			// only artifact tools — pins an earlier one beside the chat.
 			pin_visual: pinVisualTool(ctx),
 		},
 		withoutMechanics(enabled),

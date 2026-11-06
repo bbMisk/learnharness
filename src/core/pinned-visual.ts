@@ -1,25 +1,12 @@
 /**
- * The pinned demo or diagram (owner, 2026-11-06): one earlier demo or
- * diagram card can be pinned beside the chat, so the learner can use it
- * while reading on instead of scrolling back to it.
- *
- * Two sources decide what is pinned:
- *   - the tutor's pin_visual calls (src/agent/tools/pin-visual.ts), read
- *     from the record, so a tutor pin survives reloads;
- *   - the learner's own pin and unpin clicks, kept as page state.
- * The pinned item is the target of the most recent successful pin_visual
- * call, unless the learner pinned or unpinned after that call
- * (pinnedJobId).
- *
- * pin_visual never renders in the transcript (view.ts) or the export; a
- * failed call shows the usual "Retrying…" line.
- *
- * Pure and browser-safe (type-only imports).
+ * Which demo or diagram is pinned beside the chat: the target of the latest
+ * successful pin_visual call (read from the record, so it survives reloads),
+ * unless the learner pinned or unpinned after that call (pinnedJobId).
  */
 
-import type { LhMessage } from "./native-messages.ts";
+import { forEachToolSuccess, type LhMessage } from "./native-messages.ts";
 import type { LhViewMessage } from "./view.ts";
-import type { DemoResult, JobKind, SubagentArtifactData, SubagentResultMeta } from "./contracts/jobs.ts";
+import { isSubagentFailure, type DemoResult, type SubagentArtifactData, type SubagentResultMeta, type VisualResult } from "./contracts/jobs.ts";
 
 export const PIN_VISUAL_TOOL = "pin_visual";
 
@@ -49,33 +36,17 @@ function pinJobOf(details: unknown): string | null {
 	return d && d.ok === true && typeof d.jobId === "string" ? d.jobId : null;
 }
 
-/** The record's latest successful pin_visual call. `live` (client, mid-turn):
- *  executions that ended before their toolResult message arrived count at
- *  their call's position, the lesson-tracking rule (lesson-tracking.ts). */
+/** The record's latest successful pin_visual call (with the client's live
+ *  executions mid-turn — forEachToolSuccess). */
 export function latestTutorPin(
 	messages: readonly LhMessage[],
 	live?: ReadonlyMap<string, { isError: boolean; output?: unknown }>,
 ): TutorPin | null {
-	let settled: Set<string> | null = null;
-	if (live && live.size > 0) {
-		settled = new Set();
-		for (const m of messages) if (m.role === "toolResult") settled.add(m.toolCallId);
-	}
 	let latest: TutorPin | null = null;
-	for (const m of messages) {
-		if (settled && m.role === "assistant") {
-			for (const block of m.content) {
-				if (block.type !== "toolCall" || block.name !== PIN_VISUAL_TOOL || settled.has(block.id)) continue;
-				const execution = live!.get(block.id);
-				const jobId = execution && !execution.isError ? pinJobOf(execution.output) : null;
-				if (jobId) latest = { callId: block.id, jobId };
-			}
-			continue;
-		}
-		if (m.role !== "toolResult" || m.toolName !== PIN_VISUAL_TOOL || m.isError) continue;
-		const jobId = pinJobOf(m.details);
-		if (jobId) latest = { callId: m.toolCallId, jobId };
-	}
+	forEachToolSuccess(messages, (name) => name === PIN_VISUAL_TOOL, live, (_name, callId, details) => {
+		const jobId = pinJobOf(details);
+		if (jobId) latest = { callId, jobId };
+	});
 	return latest;
 }
 
@@ -94,15 +65,9 @@ export interface PinTarget {
 	title: string;
 }
 
-/** Whether a delivered result is a pinnable card: a built demo or a drawn
- *  figure (failures render as a failure note, not a card). */
-export function isPinnableResult(kind: JobKind, result: unknown): boolean {
-	if (kind === "demo") return typeof (result as DemoResult | undefined)?.html === "string" && (result as DemoResult).html.length > 0;
-	if (kind === "visual") {
-		const svg = (result as { svg?: unknown } | undefined)?.svg;
-		return typeof svg === "string" && svg.length > 0;
-	}
-	return false;
+/** A delivered demo or figure that rendered as a card (not a failure note). */
+export function isPinnableResult(kind: "demo" | "visual", result: unknown): boolean {
+	return result != null && !isSubagentFailure(kind, result as DemoResult | VisualResult);
 }
 
 /** The transcript card for `jobId`, or null when it is not (yet) shown. */

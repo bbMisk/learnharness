@@ -1,5 +1,5 @@
 /**
- * The pinned demo or diagram (owner, 2026-11-06 — src/core/pinned-visual.ts,
+ * The pinned demo or diagram (src/core/pinned-visual.ts,
  * src/agent/tools/pin-visual.ts, components/pinned-visual.tsx): the tutor
  * tool's validation, the pinned item's derivation from the record and the
  * learner's clicks, the hidden tool part, the layout math, the Esc layering,

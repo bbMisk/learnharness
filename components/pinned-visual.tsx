@@ -10,46 +10,29 @@ import {
 	useRef,
 	useState,
 	type CSSProperties,
-	type KeyboardEvent as ReactKeyboardEvent,
-	type PointerEvent as ReactPointerEvent,
 	type ReactNode,
 	type RefObject,
 } from "react";
 import { Maximize2Icon, Minimize2Icon, PinIcon, PinOffIcon } from "lucide-react";
+import { useResizableWidth } from "@/components/resizable-side-panel";
 import { pinnedJobId, pinTargetOf, type LhViewMessage, type ManualPin, type PinTarget, type TutorPin } from "@/src/core";
 
 /**
- * The pinned demo or diagram (owner, 2026-11-06 — core/pinned-visual.ts
- * decides WHAT is pinned; this module shows it).
+ * Shows the pinned demo or diagram (src/core/pinned-visual.ts decides which).
  *
- * THE CARD NEVER MOVES IN THE DOM: reparenting an iframe reloads it and
- * loses the learner's slider and checkbox state. The pinned card stays in
- * its transcript row and only its wrapper's style changes — position: fixed
- * over the docked area — while a placeholder of the same height holds its
- * place in the transcript, so the scroll position does not jump. Every
- * wrapper element renders in both states, so React never remounts the card.
+ * Invariant: never reparent or remount the card — moving an iframe reloads
+ * it and loses the learner's state. Pinning only restyles the card's
+ * wrappers (position: fixed over the docked area) and leaves a same-height
+ * placeholder in its transcript row.
  *
- * Where it docks depends on the session area's width:
- *   - dock: when the chat column keeps at least PIN_MIN_CHAT px, the card
- *     takes a right-hand column (it replaces the progress card there; the
- *     PROGRESS chip still shows that card on top). A divider sets the
- *     column's width, remembered per device.
- *   - drawer: otherwise, a right-edge drawer over the chat, stopping above
- *     the composer. Collapsed it is a slim tab with the title; a new tutor
- *     pin opens it; the tab or Esc toggles it.
- * An expand control shows a pinned demo over the whole session area (a
- * diagram's own fullscreen button already does that, with zoom).
- *
- * Fit: a diagram scales to the panel (contain). A demo keeps its transcript
- * width and scales down to fit the panel, never below DEMO_MIN_SCALE; past
- * that it lays out narrower (the demo kit is responsive), and below
- * DEMO_MIN_LAYOUT the panel scrolls sideways. The panel's height is capped
- * at the area; taller content scrolls inside it.
+ * Docks as a right column when the chat keeps PIN_MIN_CHAT px, else as a
+ * right-edge drawer. A demo keeps its transcript width scaled down to fit,
+ * not below DEMO_MIN_SCALE; past that it lays out narrower (the demo kit is
+ * responsive), down to DEMO_MIN_LAYOUT, after which the panel scrolls.
  */
 
 const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
-const WIDTH_KEY = "lh:pin-width";
 export const PIN_DEFAULT_WIDTH = 560;
 export const PIN_MIN_WIDTH = 320;
 /** The narrowest chat column the dock may leave; below it, the drawer. */
@@ -69,7 +52,7 @@ export function pinMode(areaWidth: number, width: number): PinMode {
 }
 
 /** A demo's layout width and scale in a panel `panelWidth` wide, from the
- *  width it has in the transcript (see the module note). Pure. */
+ *  width it has in the transcript. Pure. */
 export function demoFit(flowWidth: number, panelWidth: number): { layout: number; scale: number } {
 	const layout = Math.max(DEMO_MIN_LAYOUT, Math.min(Math.max(flowWidth, panelWidth), panelWidth / DEMO_MIN_SCALE));
 	return { layout, scale: Math.max(DEMO_MIN_SCALE, Math.min(1, panelWidth / layout)) };
@@ -114,23 +97,6 @@ const PinSlotContext = createContext<PinSlot | null>(null);
 /** Whether the surrounding card is pinned (false outside a chat page). */
 export function usePinnedSlot(): boolean {
 	return useContext(PinSlotContext)?.pinned === true;
-}
-
-function readWidth(): number | null {
-	try {
-		const n = Number(window.localStorage.getItem(WIDTH_KEY));
-		return Number.isFinite(n) && n >= PIN_MIN_WIDTH ? n : null;
-	} catch {
-		return null;
-	}
-}
-
-function writeWidth(width: number): void {
-	try {
-		window.localStorage.setItem(WIDTH_KEY, String(Math.round(width)));
-	} catch {
-		/* Blocked storage: the width holds for this page only. */
-	}
 }
 
 /** What the reader is looking at near the scroller's top, and where it is;
@@ -208,17 +174,18 @@ export function usePinnedVisual({
 	const pinnedId = pinnedJobId(tutorPin, manual);
 	const target = useMemo(() => pinTargetOf(messages, pinnedId), [messages, pinnedId]);
 	const area = useAreaRect(areaRef);
-	const [width, setWidth] = useState(PIN_DEFAULT_WIDTH);
-	useEffect(() => {
-		const saved = readWidth();
-		if (saved !== null) setWidth(saved);
-	}, []);
+	// `preferred` (the remembered width) picks dock or drawer; docked, the
+	// divider keeps the chat at least PIN_MIN_CHAT wide.
+	const { width, preferred, dragging, separatorProps } = useResizableWidth({
+		storageKey: "lh:pin-width",
+		defaultWidth: PIN_DEFAULT_WIDTH,
+		minimum: PIN_MIN_WIDTH,
+		maximum: area ? Math.max(PIN_MIN_WIDTH, area.width - PIN_MIN_CHAT) : PIN_DEFAULT_WIDTH,
+	});
 	const [open, setOpen] = useState(false);
 	const [expanded, setExpanded] = useState(false);
-	const [dragging, setDragging] = useState(false);
 
-	// A NEW tutor pin opens the drawer; the one already in the record at
-	// page load does not (nothing was just pinned).
+	// A new tutor pin opens the drawer; the one in the record at load does not.
 	const tutorCallId = tutorPin?.callId ?? null;
 	const seenTutorCall = useRef(tutorCallId);
 	useEffect(() => {
@@ -241,8 +208,8 @@ export function usePinnedVisual({
 		setExpanded(false);
 	}, []);
 
-	const mode: PinMode = area ? pinMode(area.width, width) : "drawer";
-	const drawerWidth = area ? Math.max(Math.min(width, area.width - 4 * GAP), 0) : width;
+	const mode: PinMode = area ? pinMode(area.width, preferred) : "drawer";
+	const drawerWidth = area ? Math.max(Math.min(preferred, area.width - 4 * GAP), 0) : preferred;
 	const shown = target !== null && area !== null;
 	const showExpanded = shown && expanded;
 	let frame: PinFrame | null = null;
@@ -260,11 +227,9 @@ export function usePinnedVisual({
 	}
 	const hidden = shown && mode === "drawer" && !open && !showExpanded;
 
-	// Keep the reading position when the dock opens, closes or resizes: the
-	// chat column's width changes and the transcript rewraps, which would
-	// otherwise throw the reader far up or down. The anchor row is read
-	// during render, while the DOM still shows the old layout, and restored
-	// once the new one is committed.
+	// Keep the reading position when the dock opens, closes or resizes (the
+	// chat rewraps): the anchor is read during render, while the DOM still
+	// has the old layout, and restored after commit.
 	const dockKey = shown && mode === "dock" ? width : 0;
 	const committedDockKey = useRef(dockKey);
 	const anchor = useRef<{ el: Element; top: number } | null>(null);
@@ -285,9 +250,7 @@ export function usePinnedVisual({
 			hidden,
 			expanded: showExpanded,
 			dragging,
-			// Expanded: with the session focuses. Docked: under the progress
-			// card (z-20), which the PROGRESS chip may show over it. Drawer:
-			// over the chat and the progress card.
+			// Docked sits under the progress card (z-20) so the PROGRESS chip can show it on top.
 			zIndex: showExpanded ? 40 : mode === "dock" ? 15 : 30,
 			pin,
 			unpin,
@@ -297,56 +260,12 @@ export function usePinnedVisual({
 		[target?.jobId, frame?.left, frame?.top, frame?.width, frame?.maxHeight, hidden, showExpanded, dragging, mode, pin, unpin],
 	);
 
-	// The divider: drag (pointer capture, so the pointer never lands in the
-	// demo's iframe) or arrow keys; the width persists per device.
-	const areaRefLatest = useRef(area);
-	areaRefLatest.current = area;
-	const widthRef = useRef(width);
-	widthRef.current = width;
-	const clampWidth = useCallback((w: number) => {
-		const a = areaRefLatest.current;
-		const max = a ? a.width - PIN_MIN_CHAT : w;
-		return Math.round(Math.max(PIN_MIN_WIDTH, Math.min(w, max)));
-	}, []);
-	const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-		if (e.button !== 0) return;
-		e.preventDefault();
-		e.currentTarget.setPointerCapture(e.pointerId);
-		setDragging(true);
-	};
-	const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
-		const a = areaRefLatest.current;
-		if (!dragging || !a) return;
-		setWidth(clampWidth(a.left + a.width - e.clientX));
-	};
-	const endDrag = () => {
-		if (!dragging) return;
-		setDragging(false);
-		writeWidth(widthRef.current);
-	};
-	const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
-		const step = e.key === "ArrowLeft" ? 16 : e.key === "ArrowRight" ? -16 : 0;
-		if (!step) return;
-		e.preventDefault();
-		const next = clampWidth(widthRef.current + step);
-		setWidth(next);
-		writeWidth(next);
-	};
-
 	const dockColumn = shown && mode === "dock" ? (
 		<div data-testid="pin-dock" className="relative shrink-0 border-l border-border/80" style={{ width }}>
 			<div
-				role="separator"
-				aria-orientation="vertical"
+				{...separatorProps}
 				aria-label="Resize the pinned panel"
-				aria-valuenow={width}
-				tabIndex={0}
 				data-testid="pin-divider"
-				onPointerDown={onPointerDown}
-				onPointerMove={onPointerMove}
-				onPointerUp={endDrag}
-				onPointerCancel={endDrag}
-				onKeyDown={onKeyDown}
 				className={`absolute inset-y-0 -left-1.5 z-20 w-3 cursor-col-resize touch-none outline-none transition-colors hover:bg-border/60 focus-visible:bg-ring/40 ${dragging ? "bg-border/60" : ""}`}
 			/>
 		</div>
@@ -392,11 +311,8 @@ function DrawerTab({ title, open, right, onToggle }: { title: string; open: bool
 
 const PANEL = "fixed overflow-auto overscroll-contain rounded-xl border border-border/80 bg-background p-3 shadow-lg [scrollbar-gutter:stable]";
 
-/**
- * A pinnable demo or diagram card (steer-card.tsx wraps each delivered one).
- * See the module note: three wrappers always render; pinning only restyles
- * them, so the card (and a demo's iframe) is never remounted or moved.
- */
+/** Wraps a delivered demo or diagram card. Its wrappers render in both
+ *  states — pinning only restyles them (the module invariant). */
 export function PinnableArtifact({ jobId, kind, children }: { jobId: string; kind: "demo" | "visual"; children: ReactNode }) {
 	const pins = useContext(PinnedVisualContext);
 	const frame = pins && pins.pinnedId === jobId ? pins.frame : null;

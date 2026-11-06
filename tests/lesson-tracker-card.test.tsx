@@ -529,7 +529,7 @@ it("weak spots: the click creates a practice chat in the lesson's project, opene
 	assert.match(page, /projectId=\{chat\.projectId\}/);
 });
 
-// ─── the plan diagram under the plan list (owner, 2026-11-06) ────────────────
+// ─── the plan diagram under the plan list ─────────────────────────────────────
 
 it("plan diagram: under the plan list when the card has its own lane and room below its sections, else none", async () => {
 	const { planViewHeight, PLAN_VIEW_MIN_H, PLAN_VIEW_MAX_H } = await import("../components/lesson-tracker.tsx");
@@ -542,21 +542,57 @@ it("plan diagram: under the plan list when the card has its own lane and room be
 	assert.equal(planViewHeight(1152, Number.NaN, 300), null, "no max-height read: none");
 });
 
-it("plan diagram: the chat sends it to the card or the dock band's flank, never both; a docked pin takes it away", () => {
-	const chat = fs.readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
-	assert.match(chat, /const planInCard = hasTracking && trackerShown && planProgress !== null && planViewRoom !== null;/);
-	assert.match(chat, /const planDiagram = hasPlan && !\(pinned\.docked && !progressOverPin\) \? <PlanMarginalia messages=\{messages\} \/> : undefined;/);
-	assert.match(chat, /plan=\{planInCard \? undefined : planDiagram\}/);
-	assert.match(chat, /planView=\{planInCard && pending \? planDiagram : undefined\} onPlanViewRoom=\{setPlanViewRoom\} onOpenPlan=\{openPlan\}/);
-});
+it("plan diagram: exactly one destination — the card while it has room, else the flank — as the room changes", async () => {
+	// A fake ResizeObserver the test fires by hand, and stubbed geometry
+	// (linkedom has no layout): the card's area and its sections' height.
+	const observers: Array<() => void> = [];
+	(globalThis as Record<string, unknown>).ResizeObserver = class { constructor(cb: () => void) { observers.push(cb); } observe() {} disconnect() {} };
+	try {
+		const progress = { covered: 1, total: 2, steps: [{ id: "a", title: "A", status: "current", answered: 0, right: 0, latest: null }, { id: "b", title: "B", status: "upcoming", answered: 0, right: 0, latest: null }] };
+		// chat.tsx's wiring: the card is offered the diagram while a question
+		// is pending; the flank (DockOverlay) shows it unless the card took it.
+		function Harness({ pending }: { pending: boolean }) {
+			const [inCard, setInCard] = React.useState(false);
+			const diagram = <svg data-testid="diagram" />;
+			return (
+				<>
+					<LessonTrackerCard tracking={deriveLessonTracking([])} plan={progress as never} bottomReserve={0} planView={pending ? diagram : undefined} onPlanViewPlaced={setInCard} onOpenPlan={() => {}} />
+					{pending && !inCard && <div data-testid="flank">{diagram}</div>}
+				</>
+			);
+		}
+		const host = await mount(<Harness pending />);
+		const area = { clientWidth: 1152, clientHeight: 900 };
+		const aside = host.querySelector('[data-testid="lesson-tracker"]')! as unknown as Record<string, unknown>;
+		Object.defineProperty(aside, "offsetParent", { get: () => area });
+		// The sections are 300px tall; a shown diagram adds its height and the gap.
+		Object.defineProperty(aside, "scrollHeight", { get: () => {
+			const view = host.querySelector('[data-testid="plan-marginalia"]');
+			return 300 + (view ? parseFloat(view.getAttribute("style")!.replace(/[^\d.]/g, "")) + 16 : 0);
+		} });
+		const where = () => {
+			const all = [...host.querySelectorAll('[data-testid="diagram"]')];
+			assert.equal(all.length, 1, "exactly one diagram");
+			return all[0]!.closest('[data-testid="lesson-tracker"]') ? "card" : "flank";
+		};
+		const resize = async () => act(async () => observers.forEach((fire) => fire()));
 
-it("plan diagram: the card shows the given diagram under the Plan section only once it has measured room", async () => {
-	const progress = { covered: 1, total: 2, steps: [{ id: "a", title: "A", status: "current", answered: 0, right: 0, latest: null }, { id: "b", title: "B", status: "upcoming", answered: 0, right: 0, latest: null }] };
-	const rooms: Array<number | null> = [];
-	const host = await mount(
-		<LessonTrackerCard tracking={deriveLessonTracking([])} plan={progress as never} bottomReserve={0} planView={<svg data-testid="diagram" />} onPlanViewRoom={(h) => rooms.push(h)} onOpenPlan={() => {}} />,
-	);
-	// No layout here (linkedom): no room is measured, so the card leaves the diagram to the flank.
-	assert.equal(host.querySelector('[data-testid="diagram"]'), null);
-	assert.deepEqual(rooms.at(-1), null);
+		assert.equal(where(), "flank", "no room measured yet");
+		await resize();
+		assert.equal(where(), "card", "room below the list");
+		area.clientHeight = 400;
+		await resize();
+		assert.equal(where(), "flank", "the room is gone");
+		area.clientHeight = 900;
+		area.clientWidth = 1000;
+		await resize();
+		assert.equal(where(), "flank", "a narrow area: the card overlays the chat");
+		area.clientWidth = 1152;
+		await resize();
+		assert.equal(where(), "card");
+		await act(async () => root!.render(<Harness pending={false} />));
+		assert.equal(host.querySelectorAll('[data-testid="diagram"]').length, 0, "no question, no diagram");
+	} finally {
+		delete (globalThis as Record<string, unknown>).ResizeObserver;
+	}
 });

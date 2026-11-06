@@ -347,9 +347,8 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
 					continue;
 				}
 				const part = toolPartOf(block, live, streamingMessage);
-				// The pin (owner, 2026-11-06 — core/pinned-visual.ts): invisible
-				// like the tracking tools, except that a failed call keeps the
-				// quiet "Retrying…" line, live or settled.
+				// pin_visual is invisible like the tracking tools, except that a
+				// failed call keeps the quiet "Retrying…" line.
 				if (block.name === PIN_VISUAL_TOOL) {
 					const error = ctx.outputError(block.id);
 					if (error) applyResult(part, error);
