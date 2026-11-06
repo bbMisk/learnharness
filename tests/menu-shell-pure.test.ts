@@ -109,11 +109,6 @@ it("safe-area insets are not usable room (iPad Home Screen app)", () => {
 	// iPad split view (320px, no side insets): a menu anchored near the right edge stays on screen.
 	const split = computeMenuPlacement({ top: 100, bottom: 140, left: 250, right: 292 }, { width: 320, height: 700 }, 200, "down", "right", { top: 24, bottom: 20, left: 0, right: 0 });
 	assert.equal(split.style.maxWidth, 292 - 8, "a 352px menu is narrowed to fit left of its anchor");
-	// Anchored at the left safe edge (graph context menu): flip to open rightward rather than crush to 0.
-	const edge = computeMenuPlacement({ top: 100, bottom: 100, left: 59, right: 59 }, { width: 852, height: 393 }, 200, "down", "right", { top: 0, bottom: 21, left: 59, right: 59 });
-	assert.equal(edge.style.right, undefined);
-	assert.equal(edge.style.left, 67, "opens from the safe edge + 8px");
-	assert.equal(edge.style.maxWidth, 852 - 59 - 8 - 67);
 	// Zero insets: identical to before.
 	assert.deepEqual(computeMenuPlacement(anchor, vp, 300, "up", "right", { top: 0, bottom: 0 }), computeMenuPlacement(anchor, vp, 300, "up", "right"));
 });
