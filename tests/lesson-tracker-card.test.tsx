@@ -263,7 +263,8 @@ it("makes room: while shown on a wide session area the column clears the card; o
 	assert.ok(cls.includes("w-64") && cls.includes("right-3"));
 	// The chat applies them: the session area and the transcript column.
 	const chat = fs.readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
-	assert.match(chat, /lessonTrackerRoom\(hasTracking && trackerCard\.shown\)/);
+	// A docked pinned demo/diagram takes the card's column, so no room then.
+	assert.match(chat, /lessonTrackerRoom\(hasTracking && trackerCard\.shown && !pinned\.docked\)/);
 	assert.match(chat, /className=\{`relative flex min-h-0 flex-1 \$\{trackerRoom\.area\}`\}/);
 	assert.match(chat, /data-session-find-root="" className=\{`\$\{COLUMN\}[^`]*\$\{trackerRoom\.column\}`\}/);
 });

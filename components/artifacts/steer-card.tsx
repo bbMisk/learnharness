@@ -2,11 +2,12 @@
 
 import { CheckIcon, CircleX } from "lucide-react";
 import type { PdfResult, ResearchResult, SubagentArtifactData } from "@/src/core";
-import type { LhViewMessage } from "@/src/core";
-import { isSubagentFailure } from "@/src/core";
+import type { LhViewMessage, SubagentResultMeta } from "@/src/core";
+import { isPinnableResult, isSubagentFailure } from "@/src/core";
 import { DemoOutputCard } from "@/components/artifacts/demo-card";
 import { PdfBriefCard, ResearchBriefCard } from "@/components/artifacts/job-card";
 import { VisualOutputCard } from "@/components/artifacts/visual-card";
+import { PinnableArtifact } from "@/components/pinned-visual";
 
 /**
  * The sub-agent result delivery card (contracts.ts "THE ASYNC PROTOCOL" §4).
@@ -56,10 +57,18 @@ export function SubagentSteerCard({ message }: { message: LhViewMessage }) {
 				<PdfCompleteBadge result={data.result as PdfResult} />
 			);
 		case "demo":
-			return <DemoOutputCard output={data.result} messageId={message.id} initialInverted={data.ui?.inverted ?? false} />;
+			return pinnable(message, data, <DemoOutputCard output={data.result} messageId={message.id} initialInverted={data.ui?.inverted ?? false} />);
 		case "visual":
-			return <VisualOutputCard output={data.result} messageId={message.id} initialInverted={data.ui?.inverted ?? false} />;
+			return pinnable(message, data, <VisualOutputCard output={data.result} messageId={message.id} initialInverted={data.ui?.inverted ?? false} />);
 	}
+}
+
+/** A delivered demo or figure can be pinned beside the chat
+ *  (components/pinned-visual.tsx); a failure note cannot. */
+function pinnable(message: LhViewMessage, data: SubagentArtifactData, card: React.ReactElement) {
+	const jobId = (message.metadata as { subagentResult?: SubagentResultMeta } | undefined)?.subagentResult?.jobId;
+	if (!jobId || (data.kind !== "demo" && data.kind !== "visual") || !isPinnableResult(data.kind, data.result)) return card;
+	return <PinnableArtifact jobId={jobId} kind={data.kind}>{card}</PinnableArtifact>;
 }
 
 /** The aborted-job chip: mirrors the complete-badge one-liner — the
