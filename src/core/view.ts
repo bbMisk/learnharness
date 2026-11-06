@@ -300,9 +300,21 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
 		// THE COLLAPSED RECAP (owner, 2026-11-06): once this turn (the
 		// assistant group) has delivered prose through send_to_user, later
 		// ordinary text — usually a recap of what was just sent — renders as
-		// a collapsed thinking row instead of being shown twice.
+		// a collapsed thinking row instead of being shown twice. An answered
+		// question starts a new turn (answers are tool results, so they do not
+		// break the group): only parts after the last question card count.
+		let delivered = false;
 		const prev = out[out.length - 1];
-		let delivered = prev?.role === "assistant" && prev.parts.some((p) => p.delivered === true);
+		if (prev?.role === "assistant") {
+			for (let i = prev.parts.length - 1; i >= 0; i--) {
+				const p = prev.parts[i]!;
+				if (p.sourceMessageId !== undefined) break; // a question card
+				if (p.delivered === true) {
+					delivered = true;
+					break;
+				}
+			}
+		}
 		for (const [contentIndex, block] of assistant.content.entries()) {
 			if (block.type === "text") {
 				const id = `${m.id}-t${textN++}`;

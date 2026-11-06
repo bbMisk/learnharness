@@ -195,6 +195,17 @@ describe("send_to_user transcript projection", () => {
 		assert.deepEqual(prose(projectView(turn(true))), ["Let me explain.", "Recap: the lesson.", "A fresh turn."]);
 	});
 
+	it("an answered question starts a new turn: later plain text is prose again", () => {
+		const view = projectView([
+			newUserMessage("Teach me."),
+			assistant([outputCall("The lesson."), { type: "toolCall", id: "q-1", name: "ask_user_question", arguments: { question: "Ready?" } }], "a1"),
+			ack("send-1"),
+			{ id: "result-q-1", role: "toolResult", toolCallId: "q-1", toolName: "ask_user_question", content: [{ type: "text", text: "Yes" }], details: null, isError: false, timestamp: 1 },
+			assistant([fauxText("Good, next idea.")], "a2"),
+		] as LhMessage[]);
+		assert.deepEqual(prose(view), ["The lesson.", "Good, next idea."]);
+	});
+
 	it("streams available arguments as replacing prose, never as a live tool card", () => {
 		const live = { inFlight: true, streamingIds: new Set(["a1"]), executions: new Map() };
 		for (const text of ["A", "A growing", "A growing explanation."]) {
