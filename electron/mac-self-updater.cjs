@@ -35,34 +35,16 @@ function wantsSelfUpdater(platform, packageJson) {
 	return platform === "darwin" && packageJson?.lhMacUpdater === "self";
 }
 
-/* ── Versions (SemVer precedence, prereleases included) ─────────────────── */
+/* ── Versions ─────────────────────────────────────────────────────────── */
 
-function parseVersion(value) {
-	const m = /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z.-]+)?$/.exec(String(value ?? "").trim());
-	return m ? { core: [Number(m[1]), Number(m[2]), Number(m[3])], pre: m[4] ? m[4].split(".") : [] } : null;
-}
+// semver ships in the app already (electron-updater's dependency, packaged by
+// electron-builder.yml's file list).
+const semver = require("semver");
 
-/** -1 / 0 / 1 like a sort comparator. Throws on an invalid version. */
+/** -1 / 0 / 1 like a sort comparator (SemVer precedence, prereleases included). Throws on an invalid version. */
 function compareVersions(a, b) {
-	const x = parseVersion(a);
-	const y = parseVersion(b);
-	if (!x || !y) throw new Error(`invalid version: ${!x ? a : b}`);
-	for (let i = 0; i < 3; i++) if (x.core[i] !== y.core[i]) return x.core[i] < y.core[i] ? -1 : 1;
-	// A release outranks any of its prereleases.
-	if (!x.pre.length || !y.pre.length) return x.pre.length === y.pre.length ? 0 : x.pre.length ? -1 : 1;
-	for (let i = 0; i < Math.max(x.pre.length, y.pre.length); i++) {
-		const p = x.pre[i];
-		const q = y.pre[i];
-		if (p === undefined) return -1;
-		if (q === undefined) return 1;
-		if (p === q) continue;
-		const pn = /^\d+$/.test(p);
-		const qn = /^\d+$/.test(q);
-		if (pn && qn) return Number(p) < Number(q) ? -1 : 1;
-		if (pn !== qn) return pn ? -1 : 1; // numeric identifiers sort first
-		return p < q ? -1 : 1;
-	}
-	return 0;
+	for (const v of [a, b]) if (!semver.valid(String(v ?? "").trim())) throw new Error(`invalid version: ${v}`);
+	return semver.compare(String(a).trim(), String(b).trim());
 }
 
 /* ── Feed ───────────────────────────────────────────────────────────────── */
@@ -79,7 +61,7 @@ function parseFeed(text) {
 		throw new Error(`feed is not valid YAML (${err?.reason ?? err?.message ?? err})`);
 	}
 	if (!doc || typeof doc !== "object" || Array.isArray(doc)) throw new Error("feed is not a mapping");
-	if (!parseVersion(doc.version)) throw new Error("feed has no valid version");
+	if (!semver.valid(String(doc.version ?? "").trim())) throw new Error("feed has no valid version");
 	const entry = (Array.isArray(doc.files) ? doc.files : []).find((file) => typeof file?.url === "string" && /\.zip$/i.test(file.url));
 	if (!entry) throw new Error("feed lists no zip");
 	const size = Number(entry.size);
