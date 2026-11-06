@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import katex from "katex";
 import { ArrowDownIcon, ChevronRightIcon, PlayIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { finishDictation, isDictationActive, joinDictation, useDictationTarget } from "@/components/dictation";
@@ -180,22 +181,22 @@ export function QuestionDock({
 	);
 }
 
-/** A plain-text teaser of a question for the collapsed bar: unwrap math, flatten common LaTeX. */
-export function teaserText(q: string): string {
-	return repairMathForDisplay(q)
-		.replace(/\\\(([\s\S]*?)\\\)/g, "$1") // \(...\) inline math
-		.replace(/\\\[([\s\S]*?)\\\]/g, "$1") // \[...\] display math
-		.replace(/\$\$?([^$]*)\$\$?/g, "$1") // standard $...$/$$...$$ math
-		.replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, "$1/$2")
-		// Escaped braces are set notation ({0,1,2,3}); keep them past the brace strip.
-		.replace(/\\([{}])/g, (_, brace: string) => (brace === "{" ? "\u0001" : "\u0002"))
-		.replace(/\\[,;:! ]/g, " ") // LaTeX spacing
-		.replace(/\\([a-zA-Z]+)/g, "$1")
-		.replace(/[{}]/g, "")
-		.replace(/\u0001/g, "{")
-		.replace(/\u0002/g, "}")
-		.replace(/\s+/g, " ")
-		.trim();
+/** The collapsed bar's one-line teaser: prose as text, math rendered inline
+ *  by KaTeX (display math too — the bar is one truncated line). */
+export function QuestionTeaser({ question }: { question: string }) {
+	const text = repairMathForDisplay(question).replace(/\s+/g, " ").trim();
+	const math = /\\\(([\s\S]*?)\\\)|\\\[([\s\S]*?)\\\]|\$\$([\s\S]*?)\$\$|(?<!\\)\$((?:\\.|[^$\\])+)\$/g;
+	const out: React.ReactNode[] = [];
+	let at = 0;
+	for (const m of text.matchAll(math)) {
+		if (m.index > at) out.push(text.slice(at, m.index));
+		const html = katex.renderToString((m[1] ?? m[2] ?? m[3] ?? m[4] ?? "").trim(), { throwOnError: false });
+		// katex.renderToString is the library's own trusted output (latex-glyph.tsx).
+		out.push(<span key={m.index} dangerouslySetInnerHTML={{ __html: html }} />);
+		at = m.index + m[0].length;
+	}
+	if (at < text.length) out.push(text.slice(at));
+	return <>{out}</>;
 }
 
 /** The collapsed strip. Two species (W5): "collapsed" is the scroll minimization
@@ -235,7 +236,7 @@ export function QuestionDockBar({
 				</span>
 				<span className="min-w-0 flex-1">
 					<span className="block text-sm font-medium">Check your understanding</span>
-					<span className="block truncate text-xs text-muted-foreground">{teaserText(question)}</span>
+					<span className="block truncate text-xs text-muted-foreground"><QuestionTeaser question={question} /></span>
 				</span>
 				<span className="flex shrink-0 items-center gap-1 text-xs font-medium text-primary">
 					Open <ChevronRightIcon className="size-3.5" />
@@ -255,7 +256,7 @@ export function QuestionDockBar({
 							toolLabel ??
 							(toolName === "quiz" ? "Check" : toolName === "explain" ? "Explain" : "Question")}
 			</span>
-			<span className="min-w-0 flex-1 truncate text-muted-foreground">{teaserText(question)}</span>
+			<span className="min-w-0 flex-1 truncate text-muted-foreground"><QuestionTeaser question={question} /></span>
 			<span className="flex shrink-0 items-center gap-1 text-xs font-medium">
 				Answer <ArrowDownIcon className="size-3.5" />
 			</span>
