@@ -9,7 +9,7 @@ import type { OrganizationAction, SourceDirectory } from "../src/core/index.ts";
 const dom = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, {
 	window: dom.window, document: dom.document, Element: dom.window.Element, IS_REACT_ACT_ENVIRONMENT: true,
-	getComputedStyle: () => ({ fontFamily: "monospace" }),
+	getComputedStyle: () => ({ fontFamily: "monospace", getPropertyValue: () => "" }),
 	requestAnimationFrame: (cb: FrameRequestCallback) => { queueMicrotask(() => cb(0)); return 1; },
 });
 dom.window.HTMLInputElement.prototype.select = function () {};
