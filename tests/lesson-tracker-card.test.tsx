@@ -522,7 +522,8 @@ it("weak spots: the click creates a practice chat in the lesson's project, opene
 	// The chat wires it: the page's project, gated on working models.
 	const chat = fs.readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
 	assert.match(chat, /onPracticeWeakSpots=\{configured && !zeroKeys \? practiceWeakSpots : undefined\}/);
-	assert.match(chat, /startWeakSpotsPractice\(titleText, spots, projectId, fetch, weakSpotsStarterRef\.current\)/);
+	assert.match(chat, /startWeakSpotsPractice\(titleText, spots, project, fetch, weakSpotsStarterRef\.current\)/);
+	assert.match(chat, /listed\?\.chats\?\.find\(\(c\) => c\.id === chatId\)/, "the lesson's current project, looked up at click time");
 	const page = fs.readFileSync(new URL("../app/chat/[id]/page.tsx", import.meta.url), "utf8");
 	assert.match(page, /projectId=\{chat\.projectId\}/);
 });
