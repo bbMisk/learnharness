@@ -22,7 +22,7 @@ export function longRetentionNote(provider: string | undefined, modelId: string 
 		const [major, minor] = [Number(version[1]), Number(version[2] ?? 0)];
 		if (major > 5 || (major === 5 && minor >= 6)) {
 			// The API-key route goes through pi-ai, which maps Long to OpenAI's 30-minute
-			// default on these models; only the ChatGPT route asks for 12 hours (round-6 hunt finding).
+			// default on these models; only the ChatGPT route asks for 12 hours.
 			return provider === "chatgpt"
 				? "GPT-5.6 and later: the default already keeps 30 minutes. Long asks for 12 hours, with writes at 2.5×; for typical lessons that costs more than it saves. Keep the default."
 				: "OpenAI API, GPT-5.6 and later: the default already keeps 30 minutes, and Long keeps that same 30 minutes. Keep the default.";

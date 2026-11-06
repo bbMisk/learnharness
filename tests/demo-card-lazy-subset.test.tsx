@@ -1,4 +1,4 @@
-/** A d3-only success must not clear an icon demo's lucide failure (round-4 Codex hunt). */
+/** A d3-only success must not clear an icon demo's lucide failure. */
 import React,{act} from 'react';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';

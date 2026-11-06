@@ -1,7 +1,7 @@
 /**
- * Lesson tracking (owner, 2026-11-02): the cram teacher's problem set and
- * the teacher's mistake log, shown to the learner in the chat's tracking
- * card (components/lesson-tracker.tsx).
+ * Lesson tracking: the cram teacher's problem set and the teacher's mistake
+ * log, shown to the learner in the chat's tracking card
+ * (components/lesson-tracker.tsx).
  *
  * Five server-side tools write it (src/agent/tools/lesson-tracking.ts):
  *   problem_list({ problems })      — cram teacher only; replaces the list
@@ -10,24 +10,20 @@
  *   note_mistake({ text })          — every teacher (teach + cram); mints m1, m2…
  *   resolve_mistake({ id })         — every teacher
  *
- * NO separate storage: the state is DERIVED from the record's successful
- * tool results, whose `details` carry exactly what the fold needs (the
- * plan_init pattern: content is the slim model-facing ack, details the
- * record-facing data). Compaction keeps the full record, so the fold —
- * which reads the record, never the model's kept context — survives it,
- * reloads, and every device. The server tools and the client card run
- * this SAME fold, so the ids the tools validate against are the ids the
- * card shows.
+ * There is no separate storage: the state is derived from the record's
+ * successful tool results, whose `details` carry what the fold needs. The
+ * fold reads the full record (which compaction keeps), so it survives
+ * compaction, reloads and devices. The server tools and the client card run
+ * this same fold, so the ids the tools validate are the ids the card shows.
  *
- * Problem statuses (owner, 2026-11-03) follow the plan map's rule
- * (contracts/plan.ts): the list carries structure, statuses derive from the
- * record's start/done events by id, and only ids in the LATEST list display
- * — a re-list keeps the outcomes of the problems it keeps.
- *   outcome — from the problem's LATEST problem_done (a correct redo turns a
+ * Problem statuses follow the plan map's rule (contracts/plan.ts): the list
+ * carries structure, statuses derive from start/done events by id, and only
+ * ids in the latest list display — a re-list keeps the outcomes of the
+ * problems it keeps.
+ *   outcome — from the problem's latest problem_done (a correct redo turns a
  *             ✗ green); a legacy problem_done with no outcome is "correct".
  *   current — the most recently started problem with no problem_done after
- *             that start (a finished problem started again is current
- *             again until its next problem_done); null when none.
+ *             that start; null when none.
  *
  * Pure and browser-safe (type-only imports).
  */
@@ -236,7 +232,7 @@ export function deriveLessonTracking(
  * A problem reads current while in progress (its old outcome, if restarted,
  * returns with its next problem_done), else its outcome, else open.
  * Each problem carries its label so the tutor can tell which id is which once
- * the problem_list call is condensed away (owner, 2026-11-02, round-2 hunt).
+ * the problem_list call is condensed away.
  * The problems part needs a list, the mistakes part an open mistake; null
  * when neither exists.
  */
@@ -246,7 +242,7 @@ export function lessonTrackingLine(tracking: LessonTracking): string | null {
 		parts.push(`problems ${tracking.problems.map((p) => `${p.id} ${JSON.stringify(p.label)} ${problemStatusWord(p)}`).join(", ")}`);
 	}
 	const open = tracking.mistakes.filter((m) => !m.resolved);
-	// Quoted as JSON so a quote inside a mistake can't read as a second entry (round-3 hunt).
+	// Quoted as JSON so a quote inside a mistake can't read as a second entry.
 	if (open.length > 0) parts.push(`open mistakes ${open.map((m) => `${m.id} ${JSON.stringify(m.text)}`).join(", ")}`);
 	return parts.length > 0 ? `Lesson tracking: ${parts.join("; ")}` : null;
 }
@@ -260,7 +256,7 @@ function problemStatusWord(p: TrackedProblem): string {
 
 /** Correct problems / all problems: the card's header count. Counts every
  *  problem whose LATEST outcome is correct, including one started again for
- *  a redo (hunt finding: a restart must not uncount a correct answer). */
+ *  a redo (a restart must not uncount a correct answer). */
 export function correctProblemCount(problems: readonly TrackedProblem[]): number {
 	return problems.filter((p) => p.outcome === "correct").length;
 }

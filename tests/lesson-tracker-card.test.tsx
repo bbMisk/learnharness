@@ -140,7 +140,7 @@ it("renders both sections with symbols and counts", async () => {
 	assert.match(resolved.getAttribute("class")!, /text-muted-foreground\/60/, "dimmed");
 	const unfold = resolved.querySelector("button")!;
 	assert.equal(unfold.getAttribute("title"), "Variance taken as the standard deviation", "full text on hover");
-	// Touch and keyboard: the row is a button that unfolds the full text (round-3 hunt finding).
+	// Touch and keyboard: the row is a button that unfolds the full text.
 	assert.equal(unfold.getAttribute("aria-expanded"), "false");
 	await act(async () => unfold.click());
 	assert.equal(unfold.getAttribute("aria-expanded"), "true");
@@ -169,7 +169,7 @@ it("shows only the sections that exist", async () => {
 	assert.equal(host.querySelector('[data-testid="lesson-tracker-mistakes"]'), null);
 	assert.equal(count(host, "problems"), "0/5");
 	assert.deepEqual(rows(host, "problems").map((r) => r[0]), ["todo", "todo", "todo", "todo", "todo"], "nothing started: nothing current");
-	// Legacy records (no outcome) read as correct; a restarted correct problem is current and still counted (hunt finding).
+	// Legacy records (no outcome) read as correct; a restarted correct problem is current and still counted.
 	const legacy = deriveLessonTracking([record[0]!, ...["q1", "q2", "q3", "q4", "q5"].map((id, i) => result(20 + i, "problem_done", { ok: true, id }))]);
 	await act(async () => root!.render(<LessonTrackerCard tracking={legacy} bottomReserve={0} />));
 	assert.equal(count(host, "problems"), "5/5");

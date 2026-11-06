@@ -1,4 +1,4 @@
-/** Dispose/resume edge cases of the sidebar refresh queue (round-4 Codex hunt). */
+/** Dispose/resume edge cases of the sidebar refresh queue. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createChatListRefresher } from '../components/chat-list-refresh.ts';
@@ -14,7 +14,7 @@ test('dispose settles active refresh without waiting for a stalled request',asyn
  const r=createChatListRefresher({fetchList:()=>new Promise(()=>{}),fetchProjects:async()=>[],onList:()=>{},onProjects:()=>{},onError:()=>{},timeoutMs:50});
  let done=false; const p=r.refresh({projects:false}).then(()=>{done=true}); r.dispose(); await sleep(5); const observed=done; await p; assert.equal(observed,true);
 });
-test('resume also refetches projects the disposed refresh skipped (round-5 hunt finding)',async()=>{
+test('resume also refetches projects the disposed refresh skipped',async()=>{
  let resolve!: (x:any[])=>void; let lists=0, projects=0;
  const r=createChatListRefresher({debounceMs:1,timeoutMs:100,fetchList:()=>++lists===1?new Promise(res=>resolve=res):Promise.resolve([]),fetchProjects:async()=>{projects++;return [{id:'new'}] as any},onList:()=>{},onProjects:()=>{},onError:()=>{}});
  const p=r.refresh();r.dispose();resolve([]);await p;await delay(5);r.resume();await delay(20);r.dispose();

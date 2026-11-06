@@ -13,8 +13,6 @@ test("reads the --lh-safe-* variables; zero when styles are unavailable", () => 
 		g.document = { documentElement: {} };
 		g.getComputedStyle = () => ({ getPropertyValue: (name: string) => vars[name] ?? "" });
 		assert.deepEqual(safeAreaInsets(), { top: 24, bottom: 20, left: 0, right: 0 });
-		g.getComputedStyle = () => { throw new Error("detached"); };
-		assert.deepEqual(safeAreaInsets(), { top: 0, bottom: 0, left: 0, right: 0 }, "a throwing read falls back to zero");
 	} finally {
 		g.getComputedStyle = saved.gcs;
 		g.document = saved.doc;

@@ -57,7 +57,7 @@ test("the Claude Code stream launches the CLI with the request's cache retention
 		assert.equal(env.CLAUDE_CODE_PROMPT_CACHE_TTL, retention === "long" ? "1h" : process.env.CLAUDE_CODE_PROMPT_CACHE_TTL);
 		assert.equal(env.DISABLE_PROMPT_CACHING, retention === "none" ? "1" : process.env.DISABLE_PROMPT_CACHING);
 	}
-	// Launched with caching disabled in the environment: an explicit Long still wins (round-5 hunt finding).
+	// Launched with caching disabled in the environment: an explicit Long still wins.
 	const saved = process.env.DISABLE_PROMPT_CACHING;
 	process.env.DISABLE_PROMPT_CACHING = "1";
 	try {
@@ -78,14 +78,14 @@ test("the menu says what Long means for the slot's model", () => {
 	assert.match(longRetentionNote("claude-code", "opus")!, /subscription/);
 	assert.match(longRetentionNote("chatgpt", "gpt-6.1-terra")!, /Keep the default/);
 	assert.match(longRetentionNote("chatgpt", "gpt-5.5")!, /24 hours/);
-	// The API-key route sends pi-ai's mapping: 30 minutes on GPT-5.6+, never 12 hours (round-6 hunt finding).
+	// The API-key route sends pi-ai's mapping: 30 minutes on GPT-5.6+, never 12 hours.
 	assert.match(longRetentionNote("openai", "gpt-6.1-sol")!, /same 30 minutes/);
 	assert.doesNotMatch(longRetentionNote("openai", "gpt-6.1-sol")!, /12 hours/);
 	assert.match(longRetentionNote("openai", "gpt-5.5")!, /24 hours/);
 	assert.equal(longRetentionNote("openrouter", "deepseek/v4"), undefined);
 });
 
-test("an explicit Short/Long beats inherited cache switches; unset and None leave them (round-5 hunt finding)", () => {
+test("an explicit Short/Long beats inherited cache switches; unset and None leave them", () => {
 	const inherited = { PATH: "/bin", DISABLE_PROMPT_CACHING: "1", DISABLE_PROMPT_CACHING_OPUS: "1", FORCE_PROMPT_CACHING_5M: "1" };
 	const long = withClaudeCacheEnv(inherited, "long");
 	assert.equal(long.CLAUDE_CODE_PROMPT_CACHE_TTL, "1h");

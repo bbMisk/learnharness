@@ -72,7 +72,7 @@ export interface TranscriptRowsProps {
 	streaming: boolean;
 	/** The native message being written right now (while streaming): only ITS
 	 *  reasoning shows "Thinking…". A hidden step (lesson tracking) projects no
-	 *  part, and must not re-activate an earlier step's reasoning (round-4 hunt). */
+	 *  part, and must not re-activate an earlier step's reasoning. */
 	activeMessageId?: string;
 	/** Malformed question calls; ignored while a turn runs. */
 	malformedQuestions: readonly QuestionCall[];

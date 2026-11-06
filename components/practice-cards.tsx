@@ -158,24 +158,14 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 	);
 }
 
-/* THE METADATA POPOVER (owner round 17 refinement, 2026-10-06 — full
- * transparency): a quiet METADATA trigger at the very bottom of the
- * conclude card (no divider — it just sits there); click opens the
- * info-box register of the graph-view node cards (rounded-xl border
- * bg-card p-4 shadow-lg, opening BELOW the trigger — always); any scroll or
- * click outside closes it (plus Esc, claimed from the layered chain
- * per the popover law). Shows every field the agent filled in both the
- * problem call (mode, targets — names resolved lazily) and the
- * conclude call (outcome, rung, miss class, retest). Statement and
- * modelSolution stay out — they are the visible card. The data keeps
- * the original SMALL register (text-xs rows, mono values — owner
- * correction: the 15px pass was way too large); the trigger matches
- * the eyebrow size; the box opens BELOW the trigger, always. */
-/** Any scroll closes the metadata popover EXCEPT one inside it (it scrolls when capped). */
-export function scrollClosesPopover(target: EventTarget | null, box: Element | null): boolean {
-	return !(box && typeof Node !== "undefined" && target instanceof Node && box.contains(target));
-}
-
+/* The metadata popover: a quiet METADATA trigger at the bottom of the
+ * conclude card opens an info box (the graph-view node cards' register)
+ * showing every field the agent filled in the problem call (mode, targets —
+ * names resolved lazily) and the conclude call (outcome, rung, miss class,
+ * retest). Statement and model solution stay out: they are the visible card.
+ * The box opens below the trigger, or above it when the safe area leaves
+ * less room below. Esc, a click outside, an outside scroll or a resize
+ * closes it. */
 function MetadataPopover({
 	concludeInput,
 	problemInput,
@@ -186,9 +176,9 @@ function MetadataPopover({
 	const [open, setOpen] = useState(false);
 	const triggerRef = useRef<HTMLButtonElement | null>(null);
 	const rootRef = useRef<HTMLDivElement | null>(null);
-	// The portal's anchor (owner fix, 2026-10-06): the box is placed from
-	// the trigger's viewport rect AT OPEN TIME — any scroll closes the
-	// box, so there is nothing to track.
+	// The portal's anchor: placed from the trigger's viewport rect at open
+	// time — an outside scroll or a resize closes the box, so there is
+	// nothing to track.
 	const [anchor, setAnchor] = useState<{ top?: number; bottom?: number; left: number; maxHeight?: number } | null>(null);
 	const boxRef = useRef<HTMLDivElement>(null);
 	const [names, setNames] = useState<Record<string, string> | null>(null);
@@ -208,18 +198,17 @@ function MetadataPopover({
 	}, [open, targets.length, names]);
 
 	usePopoverDismiss(rootRef, open, () => setOpen(false));
-	// ANY scroll closes it (owner law): capture-phase, so every scroller
-	// in the tree counts — the transcript's own scroll included.
+	// Any outside scroll closes it: capture-phase, so every scroller in the
+	// tree counts — the transcript's own scroll included. Scrolling inside
+	// the box (it scrolls when capped) does not.
 	useEffect(() => {
 		if (!open) return;
 		const close = () => setOpen(false);
-		// Scrolling INSIDE the popover (it scrolls when capped above the home
-		// indicator) must not close it (round-9 hunt).
 		const onScroll = (e: Event) => {
-			if (scrollClosesPopover(e.target, boxRef.current)) close();
+			if (!(e.target instanceof Node && boxRef.current?.contains(e.target))) close();
 		};
 		window.addEventListener("scroll", onScroll, { capture: true, passive: true });
-		// A resize/rotation closes it too: its fixed coordinates would be stale (round-8 hunt).
+		// A resize/rotation closes it too: its fixed coordinates would be stale.
 		window.addEventListener("resize", close);
 		return () => {
 			window.removeEventListener("scroll", onScroll, { capture: true });
@@ -245,14 +234,14 @@ function MetadataPopover({
 						if (v) return false;
 						const r = triggerRef.current?.getBoundingClientRect();
 						if (r) {
-							// Below the trigger, always; clamped so the 320px box
-							// never leaves the viewport's right edge, and (iPhone/iPad
-							// Home Screen app) the safe area. Zero insets: unchanged.
+							// Below the trigger; clamped so the 320px box never leaves
+							// the viewport's right edge, and (iPhone/iPad Home Screen
+							// app) the safe area. Zero insets: unchanged.
 							const safe = safeAreaInsets();
 							const left = Math.max(8 + safe.left, Math.min(r.left, window.innerWidth - 328 - safe.right));
 							const top = r.bottom + 8;
 							if (safe.bottom > 0 || safe.top > 0) {
-								// Safe rectangle only: open above when below has less room (hunt finding).
+								// Safe rectangle only: open above when below has less room.
 								const below = window.innerHeight - safe.bottom - 8 - top;
 								const above = r.top - 8 - 8 - safe.top;
 								if (below < 96 && above > below) setAnchor({ bottom: window.innerHeight - r.top + 8, left, maxHeight: above });
@@ -273,12 +262,9 @@ function MetadataPopover({
 					<div
 						ref={boxRef}
 						data-testid="metadata-box"
-						// PORTALED TO BODY (owner fix, 2026-10-06): the transcript's
-						// MessageContent boxes carry overflow-hidden — an absolutely
-						// positioned child clips at its own message block's edge (the
-						// cut-off bug). A fixed-position portal sits on top of
-						// EVERYTHING, the dialogs' law. Node-card info-box register;
-						// opening BELOW the trigger — always.
+						// Portaled to body: the transcript's MessageContent boxes
+						// carry overflow-hidden, which would clip an absolutely
+						// positioned child at its message block's edge.
 						style={{ position: "fixed", ...(anchor.bottom !== undefined ? { bottom: anchor.bottom } : { top: anchor.top }), left: anchor.left, ...(anchor.maxHeight !== undefined ? { maxHeight: anchor.maxHeight, overflowY: "auto" as const } : {}) }}
 						className="z-50 w-80 max-w-[calc(100vw-1rem)] rounded-xl border bg-card p-4 text-left shadow-lg"
 					>

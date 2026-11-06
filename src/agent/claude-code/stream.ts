@@ -640,7 +640,7 @@ export function claudeCacheEnv(retention: CacheRetention | undefined): Record<st
 }
 
 /** The launch environment plus the slot's cache choice. An explicit Short or Long beats
- *  inherited switches that would silently override it (round-5 hunt finding): every
+ *  inherited switches that would silently override it: every
  *  DISABLE_PROMPT_CACHING* variable, and for Long also FORCE_PROMPT_CACHING_5M. Unset or
  *  None leaves the inherited environment as it is. */
 export function withClaudeCacheEnv<T extends Record<string, string | undefined>>(base: T, retention: CacheRetention | undefined): T & Record<string, string | undefined> {

@@ -70,53 +70,35 @@ export function StatsBar({
 	leadingSlot?: ReactNode;
 }) {
 	const [open, setOpen] = useState(false);
-	// The centred stats popover stays inside the (safe) viewport: shift it back
-	// when it would cross an edge (notch, narrow window). 0 when it fits.
-	// Height is capped to the safe room above it (it opens upward), so a long
-	// turn list scrolls instead of leaving the top of a landscape phone.
-	// Re-measured on resize/rotation while open.
+	// The centred stats popover stays inside the (safe) viewport: shifted back
+	// when it would cross a side edge (notch, narrow window), and capped to the
+	// safe room above it (it opens upward), so a long turn list scrolls instead
+	// of leaving the top of a landscape phone. Measured on open and on resize.
 	const detailRef = useRef<HTMLDivElement>(null);
-	const [detailShift, setDetailShift] = useState(0);
-	const [detailMaxHeight, setDetailMaxHeight] = useState<number | undefined>(undefined);
-	const [viewportTick, setViewportTick] = useState(0);
-	useEffect(() => {
-		if (!open || typeof window === "undefined") return;
-		const onResize = () => setViewportTick((n) => n + 1);
-		window.addEventListener("resize", onResize);
-		// Content growth (new turns while open) re-measures too (round-8 hunt).
-		const observer = typeof ResizeObserver === "function" ? new ResizeObserver(onResize) : null;
-		const el = detailRef.current;
-		if (observer && el) {
-			observer.observe(el);
-			for (const child of Array.from(el.children)) observer.observe(child);
-		}
-		return () => {
-			window.removeEventListener("resize", onResize);
-			observer?.disconnect();
-		};
-	}, [open]);
+	const [placement, setPlacement] = useState<{ shift: number; maxHeight: number } | null>(null);
 	useLayoutEffect(() => {
 		if (!open) {
-			setDetailShift(0);
-			setDetailMaxHeight(undefined);
+			setPlacement(null);
 			return;
 		}
 		const el = detailRef.current;
-		if (!el || typeof window === "undefined") return;
-		const rect = el.getBoundingClientRect();
-		if (rect.width === 0) return; // not laid out (non-browser hosts)
-		const unshifted = rect.left - detailShift;
-		const safe = safeAreaInsets();
-		const minLeft = safe.left + 8;
-		const maxRight = window.innerWidth - safe.right - 8;
-		const next = unshifted < minLeft ? minLeft - unshifted : unshifted + rect.width > maxRight ? maxRight - (unshifted + rect.width) : 0;
-		if (next !== detailShift) setDetailShift(next);
-		// Room above: from the popover's bottom edge up to the safe top + 8px.
-		const room = Math.floor(rect.bottom - safe.top - 8);
-		// Compare the CONTENT height (scrollHeight), not the capped box, so the cap is stable.
-		const cap = el.scrollHeight > room ? Math.max(96, room) : undefined;
-		if (cap !== detailMaxHeight) setDetailMaxHeight(cap);
-	}, [open, detailShift, detailMaxHeight, viewportTick]);
+		if (!el) return;
+		let shift = 0; // the shift currently applied
+		const measure = () => {
+			const rect = el.getBoundingClientRect();
+			if (rect.width === 0) return; // not laid out (non-browser hosts)
+			const unshifted = rect.left - shift;
+			const safe = safeAreaInsets();
+			const minLeft = safe.left + 8;
+			const maxRight = window.innerWidth - safe.right - 8;
+			shift = unshifted < minLeft ? minLeft - unshifted : unshifted + rect.width > maxRight ? maxRight - (unshifted + rect.width) : 0;
+			// Room above: from the popover's bottom edge up to the safe top + 8px.
+			setPlacement({ shift, maxHeight: Math.max(96, Math.floor(rect.bottom - safe.top - 8)) });
+		};
+		measure();
+		window.addEventListener("resize", measure);
+		return () => window.removeEventListener("resize", measure);
+	}, [open]);
 	const [selectedModel, setSelectedModel] = useState<string | undefined>();
 	const modelChanged = useCallback((model: string | undefined) => {
 		setSelectedModel(model);
@@ -203,14 +185,11 @@ export function StatsBar({
 						ref={detailRef}
 						data-testid="stats-detail"
 						style={
-							detailShift || detailMaxHeight !== undefined
-								? {
-										...(detailShift ? { transform: `translateX(calc(-50% + ${detailShift}px))` } : {}),
-										...(detailMaxHeight !== undefined ? { maxHeight: detailMaxHeight, overflowY: "auto" as const } : {}),
-									}
+							placement
+								? { maxHeight: placement.maxHeight, ...(placement.shift ? { transform: `translateX(calc(-50% + ${placement.shift}px))` } : {}) }
 								: undefined
 						}
-						className="absolute bottom-full left-1/2 z-40 mb-1.5 w-72 -translate-x-1/2 rounded-xl border bg-card p-3 text-xs shadow-xl"
+						className="absolute bottom-full left-1/2 z-40 mb-1.5 w-72 -translate-x-1/2 overflow-y-auto rounded-xl border bg-card p-3 text-xs shadow-xl"
 					>
 						<div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 							Session stats

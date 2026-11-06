@@ -148,8 +148,8 @@ function Row({ symbol, status, text, className, symbolClassName = "", aside, sta
 }
 
 /** One archived mistake: a single struck-through line; a tap, click or
- *  Enter/Space unfolds the full text (round-3 hunt finding: hover alone left
- *  touch and keyboard users with a cut-off line). */
+ *  Enter/Space unfolds the full text (hover alone would leave touch and
+ *  keyboard users with a cut-off line). */
 function ResolvedMistake({ text }: { text: string }) {
 	const [open, setOpen] = useState(false);
 	return (

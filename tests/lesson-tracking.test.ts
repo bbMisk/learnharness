@@ -391,7 +391,7 @@ describe("lesson-tracking calls are hidden from the transcript", () => {
 		const view = projectView(record.slice(0, 6), live);
 		const types = view.flatMap((m) => m.parts.map((p) => p.type));
 		assert.ok(!types.some((t) => t === "tool-problem_done" || t === "tool-resolve_mistake"));
-		// A tracking step whose reasoning is empty/encrypted shows nothing either, live or settled (round-5 hunt).
+		// A tracking step whose reasoning is empty/encrypted shows nothing either, live or settled.
 		const encrypted = [
 			...record.slice(0, 6),
 			{ ...(record[0] as object), id: "a9", role: "assistant", content: [{ type: "thinking", thinking: "", thinkingSignature: "enc" }, { type: "toolCall", id: "c9", name: "note_mistake", arguments: { text: "z" } }], stopReason: "toolUse" } as unknown as LhMessage,
@@ -399,7 +399,7 @@ describe("lesson-tracking calls are hidden from the transcript", () => {
 		for (const view9 of [projectView(encrypted, { ...live, streamingIds: new Set(["a9"]) }), projectView(encrypted)]) {
 			assert.ok(!view9.flatMap((m) => m.parts).some((p) => p.id === "a9-r0"), "no empty thinking row for an encrypted-reasoning tracking step");
 		}
-		// a2 is tracking-only and streaming: no phantom "thinking" row for it (round-3 hunt).
+		// a2 is tracking-only and streaming: no phantom "thinking" row for it.
 		assert.ok(!view.flatMap((m) => m.parts).some((p) => p.id === "a2-r0"), "no empty reasoning placeholder for a tracking-only step");
 		const projector = createViewProjector();
 		for (let n = 1; n <= record.length; n++) {
@@ -602,7 +602,7 @@ describe("the compaction line", () => {
 		assert.equal(
 			lessonTrackingLine(tracking(null, [["m1", 'first", m2 "second', false]])),
 			'Lesson tracking: open mistakes m1 "first\\", m2 \\"second"',
-			"a quote inside a mistake stays inside its entry (round-3 hunt)",
+			"a quote inside a mistake stays inside its entry",
 		);
 		assert.equal(lessonTrackingLine(tracking(null, [["m1", "a", true]])), null);
 		assert.equal(lessonTrackingLine(tracking(null, [])), null);

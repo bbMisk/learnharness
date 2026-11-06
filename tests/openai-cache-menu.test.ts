@@ -1,4 +1,4 @@
-/** OpenAI API-key route: the Cache menu's Long note matches the request actually prepared (round-6 Codex hunt). */
+/** OpenAI API-key route: the Cache menu's Long note matches the request actually prepared. */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { normalizeContext } from '@earendil-works/pi-ai';

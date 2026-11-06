@@ -100,7 +100,7 @@ it("retries a schema-invalid question and accepts the corrected submission", asy
 });
 
 it("puts the card's answer into an explanation that doesn't quote it, and fails cleanly on repeated invalid submissions", async () => {
-	// Round-1 hunt finding: an exact quote is ensured by the code, never a reason to reject.
+	// An exact quote is ensured by the code, never a reason to reject.
 	const unquoted = question(answer, "Derivatives measure change; the distractors describe other things.");
 	respond([submit("submit_question", unquoted)]);
 	const result = await questionFor(card("unquoted"));
@@ -110,12 +110,12 @@ it("puts the card's answer into an explanation that doesn't quote it, and fails 
 	const spaced = question(answer, "The instantaneous   rate\nof change. Derivatives measure change.");
 	respond([submit("submit_question", spaced)]);
 	assert.equal((await questionFor(card("spaced"))).explanation, spaced.explanation);
-	// Round-4 hunt finding: a short answer inside another number isn't a quote.
+	// A short answer inside another number isn't a quote.
 	const { withSourceAnswer } = await import("../src/server/review-questions.ts");
 	const one: Flashcard = { ...card("one"), back: "1" };
 	assert.equal(withSourceAnswer(one, "The answer is 10 when n = 3."), "1\n\nThe answer is 10 when n = 3.");
 	assert.equal(withSourceAnswer(one, "1. Because the limit is one."), "1. Because the limit is one.");
-	assert.equal(withSourceAnswer(one, "10 is the answer."), "1\n\n10 is the answer.", "round-5 hunt finding: a longer number isn't the answer");
+	assert.equal(withSourceAnswer(one, "10 is the answer."), "1\n\n10 is the answer.", "a longer number isn't the answer");
 
 	const repeated = { ...question(answer), options: ["It is the instantaneous rate of change: A", "It is the instantaneous rate of change: B", "It is the instantaneous rate of change: C", "It is the instantaneous rate of change: D"] };
 	respond(Array.from({ length: 4 }, () => submit("submit_question", repeated)));
@@ -257,22 +257,22 @@ it("rejects options that repeat a shared lead-in or formula (the owner's LEC 3 c
 	assert.equal(sharedOptionWording(["$[0,1)$", "$[0,1]$", "$(0,1)$", "$(0,1]$"]), null);
 	assert.equal(sharedOptionWording(["5 m/s", "10 m/s", "15 m/s", "20 m/s"]), null);
 	assert.equal(sharedOptionWording(["The intersection is empty", "The intersection is one point", "The intersection is open", "The intersection is closed"]), null, "a short shared lead-in is fine");
-	// Round-1 hunt finding: the same formula in the middle of every option.
+	// The same formula in the middle of every option.
 	const formula = " so $\\bigcap_{n=1}^\\infty(-1/n,1+1/n)$ is ";
 	assert.ok(sharedOptionWording([`1${formula}a`, `2${formula}b`, `3${formula}c`, `4${formula}d`]));
-	// Round-3 hunt finding: shared notation that shows as a few symbols is not shared wording.
+	// Shared notation that shows as a few symbols is not shared wording.
 	const partials = ["x", "y", "z", "t"].map((v) => `\\(\\frac{\\partial^2 f}{\\partial ${v}^2}\\)`);
 	assert.equal(sharedOptionWording(partials), null);
 	assert.equal(sharedOptionWording(["$\\mathbb{E}[X \\mid \\mathcal{F}_1]$", "$\\mathbb{E}[X \\mid \\mathcal{F}_2]$", "$\\mathbb{E}[X \\mid \\mathcal{F}_3]$", "$\\mathbb{E}[X \\mid \\mathcal{F}_4]$"]), null);
 	assert.equal(visibleLength("\\frac{\\partial^2 f}{\\partial "), 6);
-	// Round-5 hunt finding: a shared formula with no spaces still counts as a shared lead-in.
+	// A shared formula with no spaces still counts as a shared lead-in.
 	const sum = "$x_1+x_2+x_3+x_4+x_5+x_6+x_7$";
 	assert.ok(sharedOptionWording([`${sum} is 1`, `${sum} is 2`, `${sum} is 3`, `${sum} is 4`]));
 	const nospace = "$x_1+x_2+x_3+x_4+x_5+x_6+x_7+";
 	assert.ok(sharedOptionWording([`${nospace}a$`, `${nospace}b$`, `${nospace}c$`, `${nospace}d$`]), "a shared formula with no spaces");
 });
 
-it("a rewrite must keep the correct option where the old question had it (offline reviews; round 1–2 hunt findings)", async () => {
+it("a rewrite must keep the correct option where the old question had it (offline reviews)", async () => {
 	const { refreshQuestion } = await import("../src/server/review-questions.ts");
 	const old: Flashcard = { ...card("rewrite-keeps-index"), mcq: { ...question(answer), correctIndex: 3, options: ["B", "C", "D", answer] } };
 	const atThree = { ...question(answer), options: ["The area under a curve", "The average of a function", "The maximum of a function", answer], correctIndex: 3 };

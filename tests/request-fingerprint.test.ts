@@ -192,7 +192,7 @@ test("old records without the fields and new ones with them load side by side", 
 	assert.deepEqual(turns, [old, fresh]);
 });
 
-test("gpt-5.5+ bodies: the leading additional_tools item and instructions are prompt, not history (hunt finding)", () => {
+test("gpt-5.5+ bodies: the leading additional_tools item and instructions are prompt, not history", () => {
 	resetRequestFingerprints();
 	const body = (prompt: string, tool: string, history: unknown[]) => ({
 		model: "gpt-6.1-sol",
@@ -209,7 +209,7 @@ test("gpt-5.5+ bodies: the leading additional_tools item and instructions are pr
 	assert.equal(extended.extendsPrevious, true);
 });
 
-test("a body prepared but never admitted does not become the comparison baseline (round-6 hunt finding)", () => {
+test("a body prepared but never admitted does not become the comparison baseline", () => {
 	resetRequestFingerprints();
 	const body = (input: unknown[]) => ({ model: "gpt-6.1-sol", input });
 	const first = { role: "user", content: "first" };

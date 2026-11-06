@@ -6,53 +6,36 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefO
 import { createPortal } from "react-dom";
 
 /**
- * THE shared menu shell (menu standardization, fix wave chunk B): one
- * placement body for the app's dropdown menus — portaled to document.body
- * (never clipped by an ancestor's overflow), fixed-anchored to the trigger's
- * rect, viewport-capped. PLACEMENT-ONLY by design: every site keeps its own
- * open/close/Esc contract (the layered-dismissal machinery differs
- * legitimately by surface — settings sections, the keys editor, the setup
- * dialog each own their Escape).
+ * The shared menu shell: one placement body for the app's dropdown menus —
+ * portaled to document.body (never clipped by an ancestor's overflow),
+ * fixed-anchored to the trigger's rect, viewport-capped. Placement only:
+ * every site keeps its own open/close/Escape contract.
  *
- *  - Side: each site declares its preferred side — the composer opens UP
- *    (its control sits at screen bottom), the settings rows open DOWN;
- *    the shell flips when the preferred side cannot show the menu's
- *    content and the other side is roomier (the graph popovers'
- *    honest-fitting behavior, generalized).
- *  - Cap: max-height = min(60vh, the chosen side's available room); the
- *    menu scrolls internally instead of stretching the page or escaping
- *    the viewport (graph-view's max-h-[60vh] pattern).
- *  - Re-placement: capture-phase scroll + window resize — the settings
- *    menus' discipline (the settings dialog's inner content scroll
- *    included).
- *
- * Sites (model menus first, owner 2026-09-22; the graph popovers and the
- * stats-bar summary popover stay bespoke — seams stay open for later
- * adoption): the settings Agent section's slot + search-engine menus, the
- * Keys section's Add-provider menu, the composer's model/thinking menus
- * (model-picker.tsx), and the SetupDialog's slot pickers — portaling THOSE
- * out of the dialog's overflow-hidden frame so they extend beyond the
- * dialog exactly like the settings menus (owner, chunk B item 7).
+ *  - Side: each site declares a preferred side (the composer opens up, the
+ *    settings rows open down); the shell flips when the preferred side cannot
+ *    show the content and the other side is roomier.
+ *  - Cap: max-height = min(60vh, the chosen side's room), and max-width = the
+ *    safe room on the side the menu extends toward; the menu scrolls
+ *    internally instead of escaping the viewport.
+ *  - Re-placement: capture-phase scroll (inner scrollers included) + resize.
  *
  * SSR: menus only mount client-side while open; the hidden measuring pass
- * below is the only pre-placement render, so a server render never emits
- * a positioned menu.
+ * below is the only pre-placement render, so a server render never emits a
+ * positioned menu.
  */
 
+/** The narrowest a menu may get before it moves against the safe edge instead. */
+const MIN_ROOM = 160;
 const GAP = 4; // anchor edge → menu (the bespoke shells' settled 4px)
 const EDGE = 8; // viewport floor the menu never enters
 const CAP_VH = 0.6; // 60vh — the graph pattern's cap
-const MIN_SAFE_WIDTH = 160; // narrower than this against a side inset: flip the horizontal anchor
 const MIN_USABLE = 96; // floor: a shorter cap is an unusable sliver; the
 // cap then overflows the edge instead of crushing the menu
 
-/** A MenuShell mounted = a dropdown open (fix wave, owner ruling:
- *  the settings dialog's content column locks while any menu is down —
- *  no scrolling under a dropdown). The shell stays placement-only: it
- *  just ANNOUNCES, surfaces decide what to do with the fact (the
- *  settings dialog locks; anything un-lockable keeps the re-place-on-
- *  scroll fallback below). Count-based: overlapping menus open/close in
- *  any order and the accounting stays balanced. */
+/** A MenuShell mounted = a dropdown open. The shell only announces it;
+ *  surfaces decide what to do (the settings dialog locks its content
+ *  scroll; anything else keeps the re-place-on-scroll fallback below).
+ *  Listeners count open/close, so overlapping menus stay balanced. */
 export const MENU_OPEN_EVENT = "lh:menu-open";
 export const MENU_CLOSE_EVENT = "lh:menu-close";
 
@@ -98,34 +81,20 @@ export function computeMenuPlacement(
 	const avail = side === "down" ? availDown : availUp;
 	let maxHeight = Math.max(MIN_USABLE, Math.min(CAP_VH * viewport.height, avail));
 	// With safe-area insets the usability floor must not push the menu into the
-	// status bar or home indicator (hunt finding). Zero insets: unchanged.
+	// status bar or home indicator. Zero insets: unchanged.
 	if (safe.top > 0 || safe.bottom > 0) {
 		const safeRoom = side === "down" ? viewport.height - safe.bottom - (rect.bottom + GAP) : rect.top - GAP - safe.top;
 		maxHeight = Math.max(0, Math.min(maxHeight, safeRoom));
 	}
+	// The menu may not grow past the (safe) edge on the side it extends toward
+	// (iPhone landscape notch, an iPad split view). With less than MIN_ROOM there
+	// (a node right-clicked near the window's edge), it sits against that safe
+	// edge instead of shrinking to nothing.
+	const room = align === "right" ? rect.right - (safe.left ?? 0) - EDGE : viewport.width - (safe.right ?? 0) - EDGE - rect.left;
 	const horizontal: Record<string, number> =
-		align === "right" ? { right: viewport.width - rect.right } : { left: rect.left };
-	// The menu may not grow past the (safe) edge on the side it extends toward:
-	// iPhone landscape notch, or a window narrower than the menu (iPad split
-	// view). The cap only binds when the menu would otherwise leave that edge.
-	const left = safe.left ?? 0;
-	const right = safe.right ?? 0;
-	{
-		const roomLeftward = rect.right - left - EDGE;
-		const roomRightward = viewport.width - right - EDGE - rect.left;
-		if (align === "right" && roomLeftward < MIN_SAFE_WIDTH && roomRightward > roomLeftward) {
-			// Anchored too close to the left safe edge: open rightward instead (hunt finding).
-			delete horizontal.right;
-			horizontal.left = Math.max(rect.left, left + EDGE);
-			horizontal.maxWidth = Math.max(0, viewport.width - right - EDGE - horizontal.left);
-		} else if (align === "left" && roomRightward < MIN_SAFE_WIDTH && roomLeftward > roomRightward) {
-			delete horizontal.left;
-			horizontal.right = Math.max(viewport.width - rect.right, right + EDGE);
-			horizontal.maxWidth = Math.max(0, viewport.width - horizontal.right - left - EDGE);
-		} else {
-			horizontal.maxWidth = Math.max(0, align === "right" ? roomLeftward : roomRightward);
-		}
-	}
+		room >= MIN_ROOM
+			? { ...(align === "right" ? { right: viewport.width - rect.right } : { left: rect.left }), maxWidth: room }
+			: { ...(align === "right" ? { left: (safe.left ?? 0) + EDGE } : { right: (safe.right ?? 0) + EDGE }), maxWidth: viewport.width - (safe.left ?? 0) - (safe.right ?? 0) - 2 * EDGE };
 	const vertical: Record<string, number> =
 		side === "down" ? { top: rect.bottom + GAP } : { bottom: viewport.height - rect.top + GAP };
 	return { side, style: { ...horizontal, ...vertical }, maxHeight };
