@@ -45,6 +45,9 @@ export interface LessonTrackingToolContext {
 	chatId: string;
 	/** The record the tracker seeds from. */
 	chatStore: ChatStore;
+	/** Called after each logged mistake (the composition root writes its
+	 *  flashcard — server/mistake-cards.ts); fire-and-forget. */
+	onMistake?: (mistake: { id: string; text: string }) => void;
 }
 
 const SLUG = /^[a-z0-9][a-z0-9_-]*$/;
@@ -146,6 +149,7 @@ export function lessonTrackingTools(
 				const t = tracker();
 				const details: NoteMistakeDetails = { ok: true, id: t.nextMistakeId(), text: line };
 				t.apply(NOTE_MISTAKE_TOOL, details);
+				ctx.onMistake?.({ id: details.id, text: line });
 				return { text: JSON.stringify({ ok: true, id: details.id }), details };
 			}),
 		},

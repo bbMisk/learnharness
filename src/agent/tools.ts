@@ -406,6 +406,8 @@ export interface TeacherToolContext extends PlanToolContext {
 	spawn: (job: JobRecord, input: ResearchInput | DemoInput | VisualInput | PdfInput) => void;
 	/** Retained search-status seam; research dispatch is available keylessly. */
 	searchAvailable?: () => boolean;
+	/** note_mistake's flashcard seam (lesson-tracking.ts). */
+	onMistake?: (mistake: { id: string; text: string }) => void;
 }
 
 /**
