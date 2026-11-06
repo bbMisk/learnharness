@@ -931,8 +931,14 @@ export function Chat({
 	const router = useRouter();
 	const weakSpotsStarterRef = useRef(new SessionStarter());
 	const practiceWeakSpots = useCallback(async (spots: string[]) => {
-		router.push(await startWeakSpotsPractice(titleText, spots, projectId, fetch, weakSpotsStarterRef.current));
-	}, [router, titleText, projectId]);
+		// The lesson may have moved since the page loaded: ask the chat list for its project now.
+		const listed = await fetch("/api/chats")
+			.then((r) => (r.ok ? (r.json() as Promise<{ chats?: Array<{ id: string; projectId?: string }> }>) : null))
+			.catch(() => null);
+		const row = listed?.chats?.find((c) => c.id === chatId);
+		const project = row ? row.projectId : projectId;
+		router.push(await startWeakSpotsPractice(titleText, spots, project, fetch, weakSpotsStarterRef.current));
+	}, [router, titleText, projectId, chatId]);
 	// Room for the card (owner, "make room"): while it shows on a session
 	// area wide enough for both, the transcript column keeps clear of it.
 	const trackerRoom = lessonTrackerRoom(hasTracking && trackerCard.shown);
