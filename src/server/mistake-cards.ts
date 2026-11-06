@@ -3,7 +3,9 @@ import { Type } from "typebox";
 import { teacherProseBlocks } from "../core/coverage.ts";
 import { updateFlashcardCuration } from "../store/flashcard-curation.ts";
 import { saveMistakeCard } from "../store/mistake-cards.ts";
-import { scheduleFlashcardCuration } from "./flashcard-agent.ts";
+import { QUESTION_TOOLS } from "../core/pending.ts";
+import type { LhMessage } from "../core/native-messages.ts";
+import { flashcardAgentOptions, scheduleFlashcardCuration } from "./flashcard-agent.ts";
 import { curatorSubmit } from "./review-questions.ts";
 import { stores } from "./stores.ts";
 
@@ -15,6 +17,31 @@ const cardSchema = Type.Object({
 	back: Type.String({ description: "The correct answer, then why." }),
 });
 
+type Block = { type?: string; name?: string; text?: string; arguments?: { question?: unknown } };
+const textOf = (content: unknown) =>
+	typeof content === "string" ? content : Array.isArray(content) ? (content as Block[]).filter((b) => b.type === "text").map((b) => b.text ?? "").join("") : "";
+
+/** The lesson's last exchange as plain lines: the tutor's prose and questions,
+ *  the learner's messages and answers (the mistake shows in what the learner
+ *  answered, not only in what the tutor said). */
+function recentExchange(messages: readonly LhMessage[]): string {
+	const lines: string[] = [];
+	for (const m of messages.slice(-16)) {
+		const message = m as { role?: string; content?: unknown; toolName?: string };
+		if (message.role === "assistant") {
+			lines.push(...teacherProseBlocks([m]).map((t) => `Tutor: ${t}`));
+			for (const block of Array.isArray(message.content) ? (message.content as Block[]) : [])
+				if (block.type === "toolCall" && (QUESTION_TOOLS as readonly string[]).includes(block.name ?? "") && typeof block.arguments?.question === "string")
+					lines.push(`Tutor asked: ${block.arguments.question}`);
+		} else if (message.role === "user" && textOf(message.content).trim()) {
+			lines.push(`Learner: ${textOf(message.content).trim()}`);
+		} else if (message.role === "toolResult" && (QUESTION_TOOLS as readonly string[]).includes(message.toolName ?? "") && textOf(message.content).trim()) {
+			lines.push(`Learner answered: ${textOf(message.content).trim()}`);
+		}
+	}
+	return lines.join("\n\n").slice(-8000);
+}
+
 /**
  * Writes the flashcard for a mistake note_mistake just logged (one cheap-model
  * call), keeps it for review (a kept curation decision, so the curator prepares
@@ -23,6 +50,8 @@ const cardSchema = Type.Object({
  */
 export async function writeMistakeCard(chatId: string, mistake: { id: string; text: string }): Promise<void> {
 	try {
+		// Only when automatic flashcards are on (Settings): no model call otherwise.
+		if (!flashcardAgentOptions().enabled) return;
 		const chat = stores.chatStore.getChat(chatId);
 		if (!chat) return;
 		const { front, back } = await curatorSubmit<{ front: string; back: string }>({
@@ -35,7 +64,7 @@ export async function writeMistakeCard(chatId: string, mistake: { id: string; te
 			content: {
 				mistake: mistake.text,
 				lesson: chat.title,
-				recentTeaching: teacherProseBlocks(chat.messages).slice(-4).join("\n\n").slice(-8000),
+				recentExchange: recentExchange(chat.messages),
 			},
 			neverSubmitted: "The flashcard writer did not submit a card.",
 		});

@@ -96,3 +96,26 @@ it("a failed card write leaves note_mistake working and makes no card", async ()
 	assert.deepEqual(await run("note_mistake", { text: "Drops the n in the Fisher information" }), { ok: true, id: "m2" });
 	await Promise.all(writes);
 });
+
+it("the writer sees the learner's answer, and nothing runs with automatic flashcards off (review findings)", async () => {
+	const chat = stores.chatStore.createChat("Answers");
+	stores.chatStore.saveMessages(chat.id, [
+		{ id: "u1", role: "user", content: "teach me intersections", timestamp: 1 } as never,
+		{ id: "a1", role: "assistant", content: [{ type: "toolCall", id: "q1", name: "quiz", arguments: { question: "What is $\\bigcap_n (-1/n, 1+1/n)$?" } }], timestamp: 2 } as never,
+		{ id: "r1", role: "toolResult", toolCallId: "q1", toolName: "quiz", content: [{ type: "text", text: "{\"answers\":[\"(0,1)\"]}" }], isError: false, timestamp: 3 } as never,
+	]);
+	stores.settingsStore.writeSettings({ version: 1, models: { cheap: { model: { provider: "faux-mistakes", id: "cheap-1" } } }, agent: { flashcards: { enabled: false } } });
+	const calls: unknown[] = [];
+	faux.setResponses([(context) => { calls.push(context); return fauxAssistantMessage([fauxToolCall("submit_card", { front, back }, { id: "card-off" })]); }]);
+	await writeMistakeCard(chat.id, { id: "m1", text: "Copies the open endpoints" });
+	assert.equal(calls.length, 0, "automatic flashcards off: no model call");
+	assert.equal(readMistakeCards()[`mistake_${chat.id}_m1`], undefined);
+
+	stores.settingsStore.writeSettings({ version: 1, models: { cheap: { model: { provider: "faux-mistakes", id: "cheap-1" } } }, agent: { flashcards: { enabled: true } } });
+	await writeMistakeCard(chat.id, { id: "m1", text: "Copies the open endpoints" });
+	const sent = JSON.stringify(calls[0]);
+	assert.match(sent, /Tutor asked: What is/);
+	assert.match(sent, /Learner answered:/);
+	assert.match(sent, /Learner: teach me intersections/);
+});
+
