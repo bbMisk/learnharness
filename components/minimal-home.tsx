@@ -20,8 +20,8 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { ListTreeIcon } from "lucide-react";
-import { ChainTableOverlay } from "@/components/chain-table.tsx";
-import { GraphCostControl } from "@/components/graph-view.tsx";
+import { ChainTableOverlay } from "@/components/chain-table-lazy";
+import { GraphCostControl } from "@/components/graph-cost-control";
 import { NotesImportControl, NotesImportErrors, NotesImportNotices, useNotesImport } from "@/components/notes-import.tsx";
 import { Hint } from "@/components/ui/hint";
 import type { ChatSummary, GraphCostSummary, GraphSnapshot } from "@/src/core";

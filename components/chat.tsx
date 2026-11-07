@@ -1,10 +1,11 @@
 "use client";
 
 import { opensWaitingCheck } from "@/components/waiting-check-key";
-import { createContext, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useChatSession } from "@/components/session";
 import { visibleQueuedSteers } from "@/components/session-core";
-import { SetupDialog } from "@/components/setup-dialog";
+import { SetupDialog } from "@/components/setup-dialog-lazy";
+import { ChatActionsContext } from "@/components/chat-actions";
 import { Hint } from "@/components/ui/hint";
 import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
 import { useStickToBottomContext, type StickToBottomContext } from "use-stick-to-bottom";
@@ -112,23 +113,6 @@ const GRADIENT_H = 96;
 // vs EXPAND_DIST absorbs trackpad drift.
 const COLLAPSE_DIST = 96;
 const EXPAND_DIST = 16;
-
-/**
- * Server-sync channel for artifact renderers: the CENTRAL jobs poll in Chat
- * calls syncFromServer() when a background job settles — the wake turn's
- * steer + response are already persisted by then, so fresh messages replace
- * local state in one pull. sendText feeds the demo error-fix loop.
- * (contracts.ts "THE ASYNC PROTOCOL" §4.)
- */
-export const ChatActionsContext = createContext<{
-	chatId: string;
-	syncFromServer: () => Promise<boolean>;
-	/** Send a user message into the session (demo error-fix loop, W6). */
-	sendText: (text: string) => void;
-	/** Opens the model setup dialog (BYOK, 2026-09-22): refused job cards
-	 *  deep-link into the same SetupDialog the send interception uses. */
-	openSetup: () => void;
-} | null>(null);
 
 /** The BYOK refusal envelope from the transport's error text: the
  *  DefaultChatTransport throws the 503 body VERBATIM as the error message,

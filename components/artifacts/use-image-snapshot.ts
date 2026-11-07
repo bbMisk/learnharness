@@ -1,7 +1,7 @@
 "use client";
 
 import { useContext, useEffect, useState } from "react";
-import { ChatActionsContext } from "@/components/chat";
+import { ChatActionsContext } from "@/components/chat-actions";
 import type { ImageSnapshot } from "@/src/core";
 
 /** `chatIdOverride`: surfaces outside a chat page (the activity dock's job

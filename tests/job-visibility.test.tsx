@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { renderToStaticMarkup } from "react-dom/server";
 import { jobDisplay, jobElapsedMs, jobTaskFromInput } from "../src/core/job-visibility.ts";
 import type { JobRecord } from "../src/core/contracts/jobs.ts";
-import { JobDetails } from "../components/job-details.tsx";
+import { JobDetails, JobResult } from "../components/job-details.tsx";
 import { DispatchCard } from "../components/artifacts/dispatch-card.tsx";
 import { JobsContext } from "../components/jobs-context.ts";
 import { toBlobs } from "../components/activity-dock.tsx";
@@ -41,7 +41,13 @@ describe("agent visibility without changing delivery", () => {
 		assert.equal(jobTaskFromInput(null), undefined);
 		assert.equal(jobTaskFromInput({ brief: "x".repeat(10000) })?.length, 8000);
 	});
-	it("previews a ready figure and history without delivering it or exposing raw HTML text", () => {
+	it("renders the text chrome before the result renderers load", () => {
+		const html = renderToStaticMarkup(<JobDetails job={{ ...ready, task: "Draw a ring" }} />);
+		assert.match(html, /Draw a ring/); assert.match(html, /Available result/);
+		assert.doesNotMatch(html, /data-testid="visual-svg"/);
+	});
+	it("previews a ready figure and history without delivering it or exposing raw HTML text", async () => {
+		await JobResult.preload();
 		const before = JSON.stringify(ready);
 		const html = renderToStaticMarkup(<JobDetails job={{ ...ready, task: "Draw a ring", activityHistory: [{ at: createdAt, text: "drawing figure" }, { at: ready.generatedAt!, text: "render_svg: inspected" }] }} />);
 		assert.match(html, /Draw a ring/); assert.match(html, /render_svg: inspected/);
