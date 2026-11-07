@@ -96,7 +96,6 @@ import {
 	REGION_BITMAP_OPTIONS,
 	REGION_BLUR_LADDER,
 	fromLadderPosition,
-	snapToLadder,
 	toLadderPosition,
 	REGION_DILATION_LADDER,
 	REGION_EDGE_ALPHA_LADDER,

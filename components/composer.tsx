@@ -3,7 +3,6 @@
 import { useCallback, useLayoutEffect, useState } from "react";
 import { ArrowRightIcon, CornerDownLeftIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Hint } from "@/components/ui/hint";
 import { useFileDrop } from "@/components/file-drop";
 import { FileDropFeedback } from "@/components/file-drop-feedback";
 import { AttachButton } from "@/components/attach-button";

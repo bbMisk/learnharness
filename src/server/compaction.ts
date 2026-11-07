@@ -44,7 +44,6 @@ import {
 	toLlmMessages,
 	type CompactionDetails,
 	type LhMessage,
-	type LhMarkerMessage,
 } from "../core/index.ts";
 import { emit } from "../core/events.ts";
 import type { ChatStore } from "../core/ports.ts";

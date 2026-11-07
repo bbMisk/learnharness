@@ -44,7 +44,6 @@ import {
 	AUTH_PROVIDER_KEYS,
 	AUTH_PROVIDER_ENV_VARS,
 	CUSTOM_PROVIDER,
-	type AuthKeyInfo,
 	type AuthKeyStatus,
 	genericProviderKeyGuard,
 	isKnownAuthKey,

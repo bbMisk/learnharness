@@ -348,11 +348,6 @@ export function explainInputProblems(input: { correctAnswer: string }): string[]
 	return [];
 }
 
-/** The tool names that carry the quizzing mechanic — the teach seam
- *  (phases), the plan-position fold, and the pending gate all recognize
- *  whichever is armed. */
-export const QUIZ_TOOL_NAMES = ["quiz", "explain"] as const;
-
 /** The TEACHER's quiz declaration (base + the position field). */
 export const quizInputSchema = quizInputObject;
 
@@ -386,8 +381,6 @@ export const askInputSchema = Type.Object({
 export type QuizToolInput = Static<typeof quizInputObject>;
 export type AskToolInput = Static<typeof askInputSchema>;
 export type ExplainToolInput = Static<typeof explainInputObject>;
-export type ProbeExplainToolInput = Static<typeof explainInputBase>;
-
 
 /** A real selected answer, in the order the options were displayed. */
 export interface OptionAnswer {
@@ -686,11 +679,6 @@ export function toClientQuestion(qd: QuestionData): ClientQuestion {
 		mode: qd.mode,
 		options: qd.options,
 	};
-}
-
-function formatOptionRef(options: QuizOption[], index: number): string {
-	const opt = options.find((o, i) => i + 1 === index);
-	return `${index}. ${opt ? opt.label : "(unknown)"}`;
 }
 
 /**

@@ -16,7 +16,7 @@ import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { SessionStarter } from "@/components/start-session";
 import { ModeSwitch } from "@/components/mode-switch";
 import { useSessionMode } from "@/components/session-modes";
-import type { ChatSettings, GraphSnapshot, SessionMode } from "@/src/core";
+import type { GraphSnapshot, SessionMode } from "@/src/core";
 
 /** The draft's pick set (owner round 10): the SAME shape the home pick
  *  bar lifts — resolved nodes as the learner SAW them at pick time. */

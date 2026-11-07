@@ -3,14 +3,12 @@ import type { AgentEvent, AgentMessage, AgentRequestUpdate, AgentTool, PrepareRe
 import { invalidInputResult, questionResult } from "./tool-execute.ts";
 import { providerEventObserver } from "./provider-events.ts";
 import { createInitialSystemMessage, toToolDeclaration, type Usage } from "@earendil-works/pi-ai";
-import { PATHS } from "../../config.ts";
 import { APP_IDENTITY, piEngineFor, type PiEngine } from "./models.ts";
 import { effectivePromptSegments } from "./prompt-segments.ts";
 import {
 	askUserQuestionTool,
 	createProberTools,
 	createTeacherTools,
-	type ProbeDoneContext,
 	type ProberToolContext,
 	type TeacherToolContext,
 } from "./tools.ts";

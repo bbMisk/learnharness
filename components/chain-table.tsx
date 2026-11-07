@@ -64,7 +64,6 @@ import {
 	BookOpenIcon,
 	FolderPlusIcon,
 	Trash2Icon,
-	ListTreeIcon,
 	SearchIcon,
 	XIcon,
 } from "lucide-react";

@@ -1,4 +1,3 @@
-import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { Usage } from "@earendil-works/pi-ai";
 import { createWebTools } from "../tools/web.ts";
 import { createPdfReadTools } from "../tools/pdf-read.ts";
@@ -107,5 +106,3 @@ export async function runResearcherAgent(prompt: string, opts: ResearcherRunOpti
 	});
 	return text;
 }
-
-export type ResearcherAgent = ReturnType<typeof runResearcherAgent>;

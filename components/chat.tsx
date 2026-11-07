@@ -37,7 +37,6 @@ import {
 	cliContextWindowOf,
 	kbdEventForAction as kbdEventForChat,
 	type ChatInput,
-	type ChatSettings,
 	type EnabledTools,
 	type LhMessage,
 	type QuestionType,
@@ -87,7 +86,7 @@ import { ReadingThinkingField } from "@/components/reading-thinking";
 import { SideTutor, useSideTutor } from "@/components/side-tutor";
 import { useReadingThinkingResync } from "@/components/reading-thinking-resync";
 import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/thinking-block";
-import { FACTORY_SETTINGS, slotsConfigured } from "@/src/core";
+import { FACTORY_SETTINGS } from "@/src/core";
 import { useReadingThinkingRefresh } from "@/components/reading-thinking-refresh";
 
 /** One width for everything: transcript, cards, and the bottom blob share this column. */

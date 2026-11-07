@@ -2,10 +2,9 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIcon, BotIcon, FileTextIcon, PenToolIcon, PlayIcon, SearchIcon, SquareIcon, WaypointsIcon } from "lucide-react";
-import { cn } from "@/lib/utils";
 import type { CallUsage, JobKind, JobRecord } from "@/src/core";
-import { isModelsRefusal, isProviderKeyRefusal, jobCost } from "@/src/core";
-import { formatTokens, formatUsd } from "@/components/usage-format";
+import { isModelsRefusal, isProviderKeyRefusal } from "@/src/core";
+import { formatTokens } from "@/components/usage-format";
 import { JobDetails } from "@/components/job-details";
 import { jobDisplay, jobElapsedMs } from "@/src/core";
 import { subscriptionLabel, subscriptionLabels } from "@/src/core";

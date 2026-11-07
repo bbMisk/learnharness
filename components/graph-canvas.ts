@@ -56,8 +56,6 @@ import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from "d3-zo
 import type { Simulation, SimulationLinkDatum } from "d3-force";
 import { clusterHue, type Pt } from "./cluster-geometry.ts";
 import {
-	CHARGE_STRENGTH,
-	CLUSTER_PULL_STRENGTH,
 	createGraphSimulation,
 	DEFAULT_PHYSICS_TUNING,
 	DEFAULT_REGION_TUNING,
@@ -65,9 +63,6 @@ import {
 	sanitizeRegionTuning,
 	type PhysicsTuning,
 	type RegionTuning,
-	INCREMENTAL_GRAVITY,
-	LINK_DISTANCE,
-	type DepthAnchorMode,
 	type GraphRenderSettings,
 	type LayoutNode,
 	type Position,
@@ -601,7 +596,6 @@ export class GraphCanvasRenderer {
 	private commitTimer: ReturnType<typeof setTimeout> | null = null;
 
 	private frameId: number | null = null;
-	private dirty = true;
 	/** True while tick() runs: markDirty inside the loop (d3's zoom event
 	 *  fires from advanceZoom) must NOT schedule — the loop schedules
 	 *  itself below. Un-guarded, each glide frame leaked an extra queued
@@ -1089,7 +1083,6 @@ export class GraphCanvasRenderer {
 	}
 
 	private markDirty(): void {
-		this.dirty = true;
 		if (this.frameId === null && !this.inTick) {
 			this.frameId = requestAnimationFrame(() => {
 				this.frameId = null;
@@ -1602,7 +1595,6 @@ export class GraphCanvasRenderer {
 	 *  happens in WORLD coordinates under the camera transform; nothing is
 	 *  recomputed per frame except layer styling. */
 	private draw(): void {
-		this.dirty = false;
 		const data = this.data;
 		const settings = this.settings;
 		if (!data || !settings) return;

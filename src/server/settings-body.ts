@@ -569,5 +569,3 @@ export const SETTINGS_SECTIONS = {
 	dictation: parseDictationSettingsBody,
 	claudeCode: parseClaudeCodeSettingsBody,
 } as const;
-
-export type SettingsSectionName = keyof typeof SETTINGS_SECTIONS;

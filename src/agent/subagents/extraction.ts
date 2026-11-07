@@ -2,8 +2,7 @@ import { findingsMathIssue } from "./extraction-math.ts";
 import * as crypto from "node:crypto";
 import type { Usage } from "@earendil-works/pi-ai";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { Type, type Static, type TSchema } from "typebox";
-import { toToolResult } from "../tool-execute.ts";
+import { Type, type Static } from "typebox";
 import type { ModelRole } from "../../../config.ts";
 import {
 	FACTORY_SETTINGS,
@@ -14,7 +13,6 @@ import {
 	type ProviderKeyMissing,
 } from "../../core/settings.ts";
 import type { PiEngine } from "../models.ts";
-import { runSubagent } from "./pi-run.ts";
 import { withBgLlmSlot } from "./bg-llm-semaphore.ts";
 import type {
 	AuditVerdicts,
@@ -25,7 +23,6 @@ import type {
 	SessionFindings,
 } from "../../core/contracts.ts";
 import { getGraph, mergeFindings, type DerivedGraph, type EmissionStats, type GraphDeps } from "../../core/graph.ts";
-import type { GraphStore } from "../../core/ports.ts";
 import { emit } from "../../core/events.ts";
 import { settleGraphLayout } from "../../core/layout-settle.ts";
 import { batchRuns, coverageOf, messageViewLines } from "../../core/coverage.ts";
@@ -268,7 +265,6 @@ const auditSchema = Type.Object({
 // stay exactly as they were): one base findings type for both doors,
 // the anchor riding as an optional field.
 type NotesFindings = SessionFindings;
-type NotesAuditResult = AuditVerdicts;
 
 // ── the submit seam (owner, 2026-09-28; redesigned 2026-09-30) ──
 //

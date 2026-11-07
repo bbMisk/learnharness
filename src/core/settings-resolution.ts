@@ -29,9 +29,7 @@ import type { SearchEngineId } from "./search.ts";
 import {
 	BACKGROUND_MODEL_ROLES,
 	FACTORY_SETTINGS,
-	MODEL_SLOTS,
 	ROLE_SLOT,
-	type AgentSettings,
 	type BackgroundModelRole,
 	type FactorySettings,
 	type GeneralSettings,

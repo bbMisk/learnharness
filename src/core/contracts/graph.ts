@@ -18,7 +18,7 @@
  */
 // ─── Knowledge graph (vision §1 — global, cross-session) ────────────────────
 
-import type { CallUsage, ExtractionRunUsage } from "./chat.ts";
+import type { ExtractionRunUsage } from "./chat.ts";
 
 /** One relation of the DERIVED view — chains are the stored truth (owner,
  *  2026-09-30: "the graph is a lossy image of what is truly stored"), and
@@ -104,20 +104,6 @@ export interface NotesSource {
 	/** The run's usage log — same append-only discipline as
 	 *  ChatRecord.extractions, idempotent per startedAt. */
 	extractions?: ExtractionRunUsage[];
-}
-
-/** What one cluster-naming refresh did — the namer's ClusterRefreshStats,
- *  contract-shaped so the agent layer needs no contracts import.
- *  Structural twins stay interchangeable. */
-export interface NamingRunStats {
-	/** Communities the current graph divides into (all sizes). */
-	detected: number;
-	/** Communities that kept a label via core-survival. */
-	claimed: number;
-	/** Communities sent to the namer (unnamed, size >= MIN_CLUSTER_SIZE). */
-	named: number;
-	/** Labeling records actually appended (idempotent dedupe may shrink). */
-	appended: number;
 }
 
 /** The graph-family format version this build writes and understands
