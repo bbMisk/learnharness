@@ -408,14 +408,13 @@ export function MarkdownTable(props: ComponentProps<"table"> & ExtraProps) {
 
 // ─── Display math (the Streamdown `span` override) ────────────────────────────
 
-/** KaTeX display equations are wrapped in a SPAN.katex-display (rehype-katex
+/** The Streamdown `span` override: every span passes through untouched
+ *  except KaTeX display equations — a SPAN.katex-display (rehype-katex
  *  renders them as spans with display:block CSS — NOT divs; verified in the
- *  static render). They gain the corner copy (the raw TeX — KaTeX embeds it
- *  in the MathML <annotation>; read from the DOM on click, no re-parse).
- *  Every other span passes through untouched. */
-export function MathDisplay(props: ComponentProps<"span"> & ExtraProps) {
+ *  static render), which gain the corner copy. Hook-free: KaTeX output is
+ *  thousands of spans per lesson. */
+export function MarkdownSpan(props: ComponentProps<"span"> & ExtraProps) {
 	const { children, className, node, ...rest } = props;
-	const ref = useRef<HTMLSpanElement>(null);
 	if (!className?.includes("katex-display")) {
 		return (
 			<span className={className} {...rest}>
@@ -423,6 +422,17 @@ export function MathDisplay(props: ComponentProps<"span"> & ExtraProps) {
 			</span>
 		);
 	}
+	return (
+		<DisplayMath className={className} {...rest}>
+			{children}
+		</DisplayMath>
+	);
+}
+
+/** A display equation with the corner copy (the raw TeX — KaTeX embeds it
+ *  in the MathML <annotation>; read from the DOM on click, no re-parse). */
+function DisplayMath({ children, className, ...rest }: ComponentProps<"span">) {
+	const ref = useRef<HTMLSpanElement>(null);
 	return (
 		// BLOCK, not inline: the katex-display child is itself display:block
 		// (KaTeX's CSS), and an inline wrapper around a block child gets
@@ -466,7 +476,7 @@ export function MarkdownStrong(props: ComponentProps<"strong"> & ExtraProps) {
 export const mdComponents = {
 	code: MarkdownCode,
 	table: MarkdownTable,
-	span: MathDisplay,
+	span: MarkdownSpan,
 	strong: MarkdownStrong,
 	blockquote: MarkdownBlockquote,
 };

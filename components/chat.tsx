@@ -2043,8 +2043,10 @@ function DockOverlay({
 		const content = el?.firstElementChild as HTMLElement | null | undefined;
 		if (!el || !content) return;
 		let prevH = content.getBoundingClientRect().height;
-		const ro = new ResizeObserver(() => {
-			const h = content.getBoundingClientRect().height;
+		// The entry already carries the border-box height; reading the DOM
+		// again could force a layout another observer just invalidated.
+		const ro = new ResizeObserver(([entry]) => {
+			const h = entry!.borderBoxSize[0]!.blockSize;
 			if (h > prevH + 0.5) growthAtRef.current = Date.now();
 			prevH = Math.max(prevH, h);
 		});

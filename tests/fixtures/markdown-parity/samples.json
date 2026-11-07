@@ -1,0 +1,4 @@
+{
+	"lesson": "Prose with **bold**, *italic*, `inline code` and a [link](https://example.com).\nA second line.\n\nInline $x^2 + \\frac{1}{2}$, then the same TeX on display:\n\n$$\nx^2 + \\frac{1}{2}\n$$\n\n| Quantity | Value |\n|---|---|\n| mean | $\\mu = 3$ |\n| spread | $x^2 + \\frac{1}{2}$ |\n\n```python\ndef f(x):\n    return x ** 2\n```\n\nKaTeX errors: $\\frac{1}{$ and $\\notacommand{x}$, again $\\notacommand{x}$.\n\n> [!IMPORTANT]\n> The key idea: $e^{i\\pi} + 1 = 0$.\n\n> A plain quote with $\\alpha$.\n\n```math\n\\int_0^1 x\\,dx\n```\n\n- item $a_1$\n- item $a_1$\n\nLegacy \\(\\beta\\) and\n\n\\[\n\\sum_{k=1}^n k\n\\]\n",
+	"nested": "Raw math with markup: <code class=\"language-math\">a<b>c</b></code> next to $y$.\n\n$$\ny\n$$\n"
+}

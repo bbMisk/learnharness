@@ -1,6 +1,5 @@
 "use client";
 
-import { useControllableState } from "@radix-ui/react-use-controllable-state";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import {
   Collapsible,
@@ -26,6 +25,7 @@ import { Streamdown } from "streamdown";
 import { transformMathDelimiters } from "@/src/core";
 import { streamdownPlugins, streamdownRemend } from "./message";
 import { mdComponents } from "@/components/md-blocks";
+import { CachedBlock } from "@/components/cached-block";
 import { Shimmer } from "./shimmer";
 
 interface ReasoningContextValue {
@@ -69,13 +69,15 @@ export const Reasoning = memo(
     // it finished". Collapsed is the default; opening is always the
     // learner's click; the auto-close after the stream still tidies a
     // row the learner had opened.
-    const resolvedDefaultOpen = defaultOpen ?? false;
-
-    const [isOpen, setIsOpen] = useControllableState<boolean>({
-      defaultProp: resolvedDefaultOpen,
-      onChange: onOpenChange,
-      prop: open,
-    });
+    const [localOpen, setLocalOpen] = useState(defaultOpen ?? false);
+    const isOpen = open ?? localOpen;
+    const setIsOpen = useCallback(
+      (next: boolean) => {
+        setLocalOpen(next);
+        onOpenChange?.(next);
+      },
+      [onOpenChange]
+    );
     const hasEverStreamedRef = useRef(isStreaming);
     const [hasAutoClosed, setHasAutoClosed] = useState(false);
 
@@ -96,13 +98,6 @@ export const Reasoning = memo(
       }
     }, [isStreaming, isOpen, setIsOpen, hasAutoClosed]);
 
-    const handleOpenChange = useCallback(
-      (newOpen: boolean) => {
-        setIsOpen(newOpen);
-      },
-      [setIsOpen]
-    );
-
     const contextValue = useMemo(
       () => ({ isOpen, isStreaming, setIsOpen }),
       [isOpen, isStreaming, setIsOpen]
@@ -112,7 +107,7 @@ export const Reasoning = memo(
       <ReasoningContext.Provider value={contextValue}>
         <Collapsible
           className={cn("not-prose mb-4", className)}
-          onOpenChange={handleOpenChange}
+          onOpenChange={setIsOpen}
           open={isOpen}
           {...props}
         >
@@ -204,7 +199,7 @@ export type ReasoningContentProps = ComponentProps<
 function ReasoningMarkdown({ children }: { children: string }) {
   const { isStreaming } = useReasoning();
   return (
-    <Streamdown components={mdComponents} plugins={streamdownPlugins} remend={streamdownRemend} parseIncompleteMarkdown={isStreaming}>
+    <Streamdown components={mdComponents} plugins={streamdownPlugins} remend={streamdownRemend} parseIncompleteMarkdown={isStreaming} BlockComponent={CachedBlock}>
       {transformMathDelimiters(children)}
     </Streamdown>
   );
