@@ -327,7 +327,7 @@ test("Add Provider owns Escape above an open key editor", async () => {
 test("Settings above the plan consumes one Escape without reaching the abort fallback", async () => {
 	const f = await fixture();
 	const { PlanPopup } = await import("../components/plan-block.tsx");
-	const { SettingsDialogBody } = await import("../components/settings/settings-dialog.tsx");
+	const { SettingsDialogBody } = await import("../components/settings/settings-dialog-body.tsx");
 	let outer = 0;
 	const fallback = (event: KeyboardEvent) => { if (event.key === "Escape") outer++; };
 	window.addEventListener("keydown", fallback);

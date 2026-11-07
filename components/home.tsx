@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { CornerDownLeftIcon } from "lucide-react";
-import { GraphView } from "@/components/graph-view";
 import { MinimalHome } from "@/components/minimal-home";
-import { SetupDialog } from "@/components/setup-dialog";
+import { SetupDialog } from "@/components/setup-dialog-lazy";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
 import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
 import { DictationBar, joinDictation, useDictation } from "@/components/dictation";
@@ -21,6 +21,9 @@ import { SessionStarter } from "@/components/start-session";
 import { ModeSwitch } from "@/components/mode-switch";
 import { useSessionMode } from "@/components/session-modes";
 import type { TurnUsage } from "@/src/core";
+
+// Server-rendered and preloaded when graph rendering is on; never fetched when it is off.
+const GraphView = dynamic(() => import("@/components/graph-view").then((m) => m.GraphView));
 
 /**
  * Home — the knowledge graph is the main view, full-bleed edge to edge

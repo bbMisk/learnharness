@@ -1,15 +1,31 @@
 "use client";
 
-import { useState } from "react";
+import { Component, useEffect, useState, type ReactNode } from "react";
 import type { JobRecord } from "@/src/core";
-import { VisualOutputCard } from "@/components/artifacts/visual-card";
-import { DemoOutputCard } from "@/components/artifacts/demo-card";
-import { PdfBriefCard, ResearchBriefCard } from "@/components/artifacts/job-card";
+import { preloadable } from "@/components/preloadable";
+
+/** The result renderers stay out of the text chrome's chunk; they warm when details open. */
+export const JobResult = preloadable(() => import("@/components/job-result").then((m) => m.JobResult));
+
+/** A failed renderer load stays inside the details instead of reaching the app's error screen. */
+export class JobDetailsBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+	state = { failed: false };
+	static getDerivedStateFromError() {
+		return { failed: true };
+	}
+	render() {
+		return this.state.failed ? <div className="text-muted-foreground">Details unavailable. Reload to retry.</div> : this.props.children;
+	}
+}
 
 /** Shared inspector for the transcript and sidebar; previews never resume the teacher. */
 export function JobDetails({ job, compact = false }: { job: JobRecord; compact?: boolean }) {
 	const history = job.activityHistory;
 	const [preview, setPreview] = useState(false);
+	const hasResult = job.result !== undefined;
+	useEffect(() => {
+		if (hasResult) void JobResult.preload().catch(() => {});
+	}, [hasResult]);
 	return (
 		<div
 			data-testid="job-details"
@@ -43,31 +59,19 @@ export function JobDetails({ job, compact = false }: { job: JobRecord; compact?:
 				)}
 			</section>
 			{job.error && <p className="break-words text-red-500">{job.error}</p>}
-			{job.result !== undefined && (
+			{hasResult && (
 				<section data-testid="job-result-preview">
 					<h4 className="mb-2 text-xs font-medium uppercase text-muted-foreground">Available result</h4>
 					{compact ? (
 						<details onToggle={(event) => setPreview(event.currentTarget.open)}>
 							<summary className="cursor-pointer text-primary">Preview result</summary>
-							{preview && <JobResult job={job} />}
+							{preview && <JobDetailsBoundary><JobResult job={job} /></JobDetailsBoundary>}
 						</details>
 					) : (
-						<JobResult job={job} />
+						<JobDetailsBoundary><JobResult job={job} /></JobDetailsBoundary>
 					)}
 				</section>
 			)}
 		</div>
-	);
-}
-
-function JobResult({ job }: { job: JobRecord }) {
-	return job.kind === "visual" ? (
-		<VisualOutputCard output={job.result} chatId={job.chatId} />
-	) : job.kind === "demo" ? (
-		<DemoOutputCard output={job.result} />
-	) : job.kind === "pdf" ? (
-		<PdfBriefCard output={job.result} />
-	) : (
-		<ResearchBriefCard output={job.result} />
 	);
 }

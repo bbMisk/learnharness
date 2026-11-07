@@ -3,10 +3,10 @@
 import { useContext, useEffect, useState } from "react";
 import { CheckIcon, ChevronDownIcon, SettingsIcon, XIcon } from "lucide-react";
 import { JobsContext } from "@/components/jobs-context";
-import { ChatActionsContext } from "@/components/chat";
+import { ChatActionsContext } from "@/components/chat-actions";
 import { isModelsRefusal, isProviderKeyRefusal, type JobKind, type JobRecord } from "@/src/core";
 import { BrailleSpinner } from "@/components/braille-spinner";
-import { JobDetails } from "@/components/job-details";
+import { JobDetails, JobResult } from "@/components/job-details";
 import { jobDisplay, jobElapsedMs } from "@/src/core";
 
 /**
@@ -40,6 +40,11 @@ export function DispatchCard({ toolCallId, kind }: { toolCallId: string; kind: J
 		const timer = setInterval(() => setNow(Date.now()), 1000);
 		return () => clearInterval(timer);
 	}, [working]);
+	// Opening the inspector shows the result at once: warm its renderers.
+	const hasResult = job?.result !== undefined;
+	useEffect(() => {
+		if (hasResult) void JobResult.preload().catch(() => {});
+	}, [hasResult]);
 
 	if (!job) {
 		return <DispatchActivityCard job={job} label={label} />;

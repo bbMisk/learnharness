@@ -7,9 +7,9 @@ import { parseHTML } from "linkedom";
 
 const dom = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { window: dom.window, document: dom.document, Node: dom.window.Node, IS_REACT_ACT_ENVIRONMENT: true });
-const { JobDetailsBoundary } = await import("../components/activity-dock.tsx");
+const { JobDetailsBoundary } = await import("../components/job-details.tsx");
 
-it("contains a failed job-details load inside the dock", async () => {
+it("contains a failed result-renderer load inside the details", async () => {
 	function FailedChunk(): React.ReactNode {
 		throw new Error("Loading chunk failed");
 	}
