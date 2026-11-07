@@ -1,19 +1,17 @@
 "use client";
 /**
- * The Keys section (wave-5 polish, 2026-09-21 — owner design): a MINIMAL
- * key-value table. Provider left, masked key right, no description hints
- * (they took too much space), the "Get a key ↗" link a tiny muted guest.
- * Clicking a writable row unfolds a paste field + Save (+ Delete for a
- * file-sourced value) beneath it; Esc or a second click folds it away.
+ * The Keys section: a MINIMAL key-value table. Provider left, masked key
+ * right, no description hints, the "Get a key ↗" link a tiny muted guest.
+ * Clicking a writable row turns it into an inline paste field + Save |
+ * Cancel (| Delete for a file-sourced value); Esc or Cancel folds it away.
  * The Add-provider control is the LAST ROW of the table and uses the
  * app's shared dropdown look (ProviderMenuList — fuzzy search over the
- * 33 pi-ai providers).
+ * pi-ai providers).
  *
- * Owner rulings carried in:
  *  - Env-owned rows (a real environment variable owns the name — dev
  *    .env.local or launch env) render READ-ONLY + dimmed, no paste field:
  *    a paste box on a key the UI cannot make live would mislead.
- *  - OpenRouter is NOT special: one provider among 33, a row only when
+ *  - OpenRouter is NOT special: one provider among many, a row only when
  *    stored, otherwise it lives in the Add dropdown like everyone else.
  *  - Providers groups API keys, subscriptions, dictation and search.
  *    Unknown variables stay masked/read-only at the end of Model API keys.
@@ -42,8 +40,8 @@ import { MenuShell } from "@/components/menu-shell";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { DictationLanguageSetting } from "@/components/dictation-language";
 
-/** One pi-ai provider with plain API-key auth (the Platform seam —
- *  derived from pi-ai's own env-key table; no drift possible). */
+/** One pi-ai provider with plain API-key auth (derived from pi-ai's own
+ *  env-key table; no drift possible). */
 export interface ProviderKeyInfo {
 	id: string;
 	envVar: string;
@@ -77,9 +75,8 @@ async function readCustomStatus(inspectKey = false): Promise<CustomStatus> {
 }
 
 /** The curated tools group, pinned by id (the catalog owns the copy;
- *  these ids are the contract). Derived from the catalog (search wave,
- *  2026-09-20: the Google CSE pair retired, Tavily + Brave joined) — the
- *  section can never drift from core/auth-keys.ts again. */
+ *  these ids are the contract). Derived from core/auth-keys.ts, so the
+ *  section can never drift from it. */
 const TOOL_IDS = AUTH_KEYS.map((k) => k.id) as readonly string[];
 
 /** The custom endpoint's synthetic Add-provider entry (offered only while unconfigured). */
@@ -90,8 +87,8 @@ export const CUSTOM_PROVIDER_INFO: ProviderKeyInfo = {
 };
 
 /** The classification driving the table groups. Pure — exported for
- *  tests. OpenRouter is un-pinned (wave-5 owner ruling): no synthesis,
- *  no special row — it rides the same provider classification. */
+ *  tests. OpenRouter gets no synthesis and no special row — it rides the
+ *  same provider classification. */
 export function classifyKeys(
 	statuses: readonly AuthKeyStatus[],
 	providers: readonly ProviderKeyInfo[] | undefined,
@@ -127,8 +124,8 @@ export function classifyKeys(
 		if (s.id === CUSTOM_PROVIDER.envVar) continue;
 		if (providerEnv.has(s.id) || (!s.info && providers === undefined)) providerRows.push(s);
 		else if (!s.info) unknownRows.push(s);
-		// (pre-interlude catalogs: a curated-but-unclassified status still
-		// renders as a provider row so nothing disappears)
+		// (a status with catalog info but no provider entry still renders
+		// as a provider row so nothing disappears)
 		else providerRows.push(s);
 	}
 	return {
@@ -157,8 +154,8 @@ export function keyStatusLine(status: AuthKeyStatus): string {
 }
 
 /** One table row: label left, tiny docs link + status right. Writable
- *  rows click-unfold an editor beneath (owner interaction); env-owned
- *  rows are dimmed and read-only (a paste box there would mislead). */
+ *  rows click-unfold into an inline editor; env-owned rows are dimmed and
+ *  read-only (a paste box there would mislead). */
 function KeyTableRow({
 	label,
 	docsUrl,
@@ -178,8 +175,8 @@ function KeyTableRow({
 	onToggle: () => void;
 	onSave: (value: string) => Promise<string | null>;
 	onDelete?: () => Promise<void>;
-	/** Folds the editor (owner, fix wave: the way OUT of a paste prompt
-	 *  must be visible — Cancel beside Save/Delete, not only Esc). */
+	/** Folds the editor (the way OUT of a paste prompt must be visible —
+	 *  Cancel beside Save/Delete, not only Esc). */
 	onCancel: () => void;
 	testid: string;
 }) {
@@ -198,10 +195,9 @@ function KeyTableRow({
 		setBusy(false);
 	}
 
-	// INLINE editing (owner, fix wave: "type the keys in line — more
-	// table-like"): the expanded row becomes the editor itself — label
+	// INLINE editing: the expanded row becomes the editor itself — label
 	// left, the paste field filling the middle, Save | Cancel (| Delete)
-	// right — instead of a second line beneath the row.
+	// right.
 	if (expanded && !envOwned) {
 		return (
 			<div data-testid={testid}>
@@ -334,8 +330,7 @@ function AddProviderRow({
 					preferredSide="down"
 					menuClass="flex w-72 flex-col rounded-xl border border-border bg-card p-2 text-xs shadow-xl"
 				>
-					{/* Close on pick (owner, fix wave): a chosen provider ends
-					    the dropdown — the paste row is the next step. */}
+					{/* Close on pick: the paste row is the next step. */}
 					<ProviderMenuList
 						providers={addable}
 						onPick={(p) => {
@@ -350,8 +345,8 @@ function AddProviderRow({
 }
 
 export function KeysSection({
-	/** A deep-linked row to unfold on arrival (zero-keys wave): the
-	 *  dictation error's click lands here on DEEPGRAM_API_KEY. Followed
+	/** A deep-linked row to unfold on arrival (e.g. the dictation error's
+	 *  click lands here on DEEPGRAM_API_KEY). Followed
 	 *  while mounted too — the settings dialog's while-open retarget
 	 *  pattern. undefined = nothing seeded. */
 	initialRow,
@@ -371,10 +366,10 @@ export function KeysSection({
 	const [custom, setCustom] = useState<CustomStatus | null>(null);
 	const [addingCustom, setAddingCustom] = useState(false);
 
-	// Escape folds any open editor (unfolded row or the Add-provider paste)
-	// WITHOUT closing the dialog. Claimed at document CAPTURE phase — the
-	// only stopPropagation that outruns both the input's React handler and
-	// the dialog's window-level listener.
+	// Escape folds any open editor (unfolded row, Add-provider paste, custom
+	// endpoint editor) WITHOUT closing the dialog. Claimed at document CAPTURE
+	// phase — the only stopPropagation that outruns both the input's React
+	// handler and the dialog's document-level listener.
 	useEffect(() => {
 		if (openRow === null && adding === null && !addingCustom) return;
 		const onKeyDown = (e: KeyboardEvent) => {
@@ -433,7 +428,7 @@ export function KeysSection({
 			return body.error ?? `Save failed (${res.status})`;
 		}
 		await reload();
-		// The cross-surface keys signal (zero-keys wave): the zero-keys pill,
+		// The cross-surface keys signal: the zero-keys pill,
 		// the setup dialog's stage advance, and any other keys reader hear
 		// that a key landed — deletions included (see deleteKey below).
 		notifySettingsSaved("keys");

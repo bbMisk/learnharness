@@ -31,50 +31,42 @@ import { prepareAuditorReview } from "../tools/graph.ts";
 import { runSubmitAgent, healStringifiedArrays } from "./submit-agent.ts";
 
 /**
- * The extraction pipeline (vision §1 construction, 2026-09-02 redesign;
- * relinked 2026-09-27) — the sole graph writer. Three stages, one
- * orchestrator (the spine stage came and went, 2026-09-30: serialized
- * digest-aware extraction replaced it — the owner's live test showed
- * the post-hoc assembly pass added complexity without perceptible
- * gain; the extractor itself is the assembler now):
+ * The extraction pipeline — the sole graph writer. Three stages, one
+ * orchestrator:
  *
  *   extractor (LLM)  the ONE stage that sees the raw source (a session
- *                    rendered as the teacher's prose — each passage
- *                    labeled with its ACTUAL message id, "TEACHER [id]",
- *                    owner 2026-10-13 — or a notes file verbatim, walked
- *                    in stretches) → submits NEW core ideas + reasoning
- *                    chains (owner redesign, 2026-09-30); a session
- *                    submit additionally carries each proposition's
- *                    messageId — the anchor the merger stamps into the
- *                    node's message-granular provenance (2026-10-13).
- *                    DIGEST-AWARE (2026-09-30 evening):
- *                    when the source already yielded material, the
- *                    prompt carries THE GRAPH SO FAR (that source's
- *                    propositions + chains, ids verbatim) and the
- *                    extractor builds on it — referencing existing ids
- *                    instead of restating, leaning on established
- *                    conclusions as premises. Stretches of one source
- *                    run SERIALLY (each extract reads every earlier
+ *                    rendered as the teacher's prose, each passage
+ *                    labeled "TEACHER [id]" with its actual message id,
+ *                    or a notes file verbatim, walked in stretches) →
+ *                    submits NEW core ideas + reasoning chains. A session
+ *                    submit also carries each proposition's messageId,
+ *                    the anchor the merger stamps into the node's
+ *                    message-granular provenance.
+ *                    DIGEST-AWARE: when the source already yielded
+ *                    material, the prompt carries THE GRAPH SO FAR (that
+ *                    source's propositions + chains, ids verbatim) for the
+ *                    extractor to build on (sourceDigest). Stretches of one
+ *                    source run SERIALLY (each extract reads every earlier
  *                    merge); tree-blind, FULLY TRUSTED — nothing
  *                    downstream re-checks it.
  *   auditor (LLM)    never sees the source. Its job is IDENTITY: for each
  *                    NEW proposition, linkTo an existing graph node or
- *                    create — decided by EXPLORING the graph through
- *                    tools (find / list_sessions / list_propositions),
- *                    not by an injected graph dump (context bloat,
- *                    owner 2026-09-27). Links are its ONLY deliverable
- *                    — it never mints edges (owner 2026-09-28: the
- *                    graph connects across sources solely through
- *                    identified equivalences). Input is PROPOSITIONS
- *                    only — never chains (owner 2026-09-30).
+ *                    create. Its prompt carries the findings plus an
+ *                    initial batch of ranked candidates per finding
+ *                    (prepareAuditorReview, tools/graph.ts) — never a
+ *                    whole-graph dump; tools (find_candidates /
+ *                    list_sessions / list_propositions) explore further
+ *                    when needed. Links are its ONLY deliverable — it
+ *                    never mints edges: the graph connects across sources
+ *                    solely through identified equivalences. Input is
+ *                    PROPOSITIONS only — never chains.
  *   merger (core)    mergeFindings() → deterministic ledger appends +
- *                    chain simplification (2026-09-30 evening: the
- *                    ancestry-cover / prefer-fewest-premises pass that
- *                    strips redundant derivations — core/graph.ts)
+ *                    chain simplification (the ancestry-cover /
+ *                    prefer-fewest-premises pass that strips redundant
+ *                    derivations — core/graph.ts)
  *
- * The events ledger is GONE (2026-09-27): quiz outcomes and understanding
- * observations are no longer formalized in the graph — the graph is purely
- * extracted reasoning chains (nodes + edges).
+ * The graph is purely extracted reasoning (propositions + chains); quiz
+ * outcomes and understanding observations are not recorded in it.
  *
  * The extractor is a single-tool-call worker (one TypeBox-validated submit
  * call — a pi agent purely so the model can retry a schema-invalid call).
@@ -84,52 +76,41 @@ import { runSubmitAgent, healStringifiedArrays } from "./submit-agent.ts";
  * (chat-handler) injects the storage ports + models; this module never
  * imports an adapter. runExtraction is single-flight per chat: a second
  * trigger while one run is in flight is a no-op (the next trigger picks up
- * whatever the in-flight run missed). On failure nothing is checkpointed —
- * the next trigger re-runs the whole thing.
+ * whatever the in-flight run missed). Each merged batch checkpoints its own
+ * coverage, so a failure loses only the batches that had not merged; the
+ * next trigger re-extracts just those.
  *
- * The FORMAT-AGNOSTIC FRONT DOOR (2026-09-13): importNotes() runs the SAME
- * three stages over raw personal notes (arbitrary format — no chat, no
- * session, no message ids). A notes-mode extractor prompt replaces the
- * session one; the auditor and merger are shared (identity + deterministic
- * appends don't care where text came from). Provenance is the file itself:
- * source ids ("src_" + path hash) play the chatId role in mappings and
+ * The FORMAT-AGNOSTIC FRONT DOOR: importNotes() runs the SAME three stages
+ * over raw personal notes (arbitrary format — no chat, no session, no
+ * message ids). A notes-mode extractor prompt replaces the session one;
+ * the auditor and merger are shared (identity + deterministic appends
+ * don't care where text came from). Provenance is the file itself: source
+ * ids ("src_" + path hash) play the chatId role in provenance and
  * checkpoints, and the source record (graphStore sources seam) carries
  * the file path + the run's usage.
  *
- * Observability (§5 baseline): every stage logs one line per step, its
- * start, and its duration; the pipeline logs a failure line before
- * rethrowing, so the server log reads start → stage timings → merged
- * stats (or failed) for every run.
+ * Observability: every stage logs one line per step, its start, and its
+ * duration; the pipeline logs a failure line before rethrowing, so the
+ * server log reads start → stage timings → merged stats (or failed) for
+ * every run.
  */
 
 // ─── the source view (what the extractor sees) ──────────────────────────────
 
-/**
- * The extraction view: the session as TEACHER PROSE ONLY (owner ruling,
- * 2026-09-28 — supersedes the 2026-09-27 whole-session markdown view),
- * each passage labeled with its actual message id (2026-10-13). The
- * shared markdown engine (core/session-markdown.ts) keeps the full session
- * format for the future user-facing export; the extractor no longer uses
- * it.
- */
-
 /** The whole-record view (used by callers that render a full session;
- *  the pipeline itself batches). TEACHER PROSE ONLY (owner, 2026-09-28),
- *  passages labeled with their message ids (2026-10-13).
- */
+ *  the pipeline itself batches). */
 export function transcriptView(record: ChatRecord): string {
 	return proseView(record.messages, record.title);
 }
 
-/** The extraction view under the teacher-prose ruling (owner, 2026-09-28):
- *  ONLY learner-facing teacher prose (text or send_to_user) — no learner
- *  messages, thinking, other tool calls/results, or quiz blocks — labeled with
- *  its ACTUAL message id (owner, 2026-10-13): the view lines ARE
- *  core/coverage.ts messageViewLines ("TEACHER [id] text"), the exact
- *  lines the coverage fingerprints hash, so the extractor can anchor
- *  every proposition to the passage it came from (the session submit's
- *  required messageId). The shared markdown engine stays reserved for the
- *  future user-facing export. */
+/** The extraction view: ONLY learner-facing teacher prose (text or
+ *  send_to_user) — no learner messages, thinking, other tool calls/results,
+ *  or quiz blocks — each passage labeled with its ACTUAL message id. The
+ *  view lines ARE core/coverage.ts messageViewLines ("TEACHER [id] text"),
+ *  the exact lines the coverage fingerprints hash, so the extractor can
+ *  anchor every proposition to the passage it came from (the session
+ *  submit's required messageId). The full-session markdown engine
+ *  (core/session-markdown.ts) is not used here. */
 function proseView(
 	messages: ReadonlyArray<LhMessage>,
 	title?: string,
@@ -165,10 +146,8 @@ const propositionProps = {
 	),
 };
 
-// The extractor redesign (owner, 2026-09-30): the extractor submits
-// REASONING CHAINS — premises + conclusion — stored AS-IS (chains-primary,
-// same evening: chains.jsonl is the truth; edges are a derived view, and
-// supports edges are retired entirely).
+// The extractor submits REASONING CHAINS — premises + conclusion — stored
+// AS-IS: chains.jsonl is the truth; edges are a derived view.
 const endpoint = (role: string) =>
 	Type.String({
 		description:
@@ -185,11 +164,6 @@ const chainSchema = Type.Object({
 	conclusion: endpoint("conclusion is"),
 });
 
-// Weak-model tolerance (owner, 2026-09-25): the old zod `.default([])` /
-// `.default({ quiz: {} })` on required-but-empty fields becomes Type.Optional
-// here + a ??-fill at the submit seam (fillFindings/fillAudit below) — same
-// contract on the wire (omission tolerated, empty never means "invalid"),
-// no zod left in the agent band.
 const propositionsDescription =
 	"Only the NEW core ideas this stretch contributes — ideas the prompt's THE GRAPH SO FAR already " +
 	"holds are referenced by id in chains, never restated here.";
@@ -207,11 +181,10 @@ const findingsSchema = Type.Object({
 	}),
 });
 
-// THE SESSION EXTENSION (owner, 2026-10-13): every session proposition
-// carries a REQUIRED messageId — the anchor of the passage it came from,
-// copied from the view's "TEACHER [id]" label (validated at the submit
-// seam against the CURRENT batch). The NOTES door has no messages: its
-// schema stays the base shape above, prompt and wire unchanged.
+// The session schema: every session proposition carries a REQUIRED
+// messageId — the anchor of the passage it came from, copied from the
+// view's "TEACHER [id]" label (validated at the submit seam against the
+// CURRENT batch). The NOTES door has no messages and uses the base shape.
 const sessionPropositionProps = {
 	...propositionProps,
 	messageId: Type.String({
@@ -230,22 +203,20 @@ const sessionFindingsSchema = Type.Object({
 	}),
 });
 
-/** What the extractor SUBMITS (the redesign's wire shape) — propositions
- *  + chains. fillFindings normalizes it; validateFindingsChains checks
- *  the chain laws; asSessionFindings lifts it straight into
- *  SessionFindings — chains are stored AS-IS (chains-primary, owner
- *  2026-09-30: no edge translation at any seam). */
+/** What the extractor SUBMITS — propositions + chains. fillFindings
+ *  normalizes it; validateFindingsChains checks the chain laws;
+ *  asSessionFindings lifts it straight into SessionFindings — chains are
+ *  stored AS-IS, with no edge translation at any seam. */
 type FindingsSubmit = Static<typeof findingsSchema>;
 
 /** The SESSION wire — the notes shape plus the REQUIRED messageId anchor
- *  on every proposition (owner, 2026-10-13). */
+ *  on every proposition. */
 type SessionFindingsSubmit = Static<typeof sessionFindingsSchema>;
 
-// VERDICTS-ONLY (owner, 2026-09-28): the auditor never alters the
-// extractor's findings, so it does not restate them — links are its
-// ENTIRE deliverable (owner, 2026-09-28 evening: the edges argument is
-// GONE; the auditor never mints edges. The graph connects across sources
-// solely through identified equivalences — a link, never an inference).
+// VERDICTS-ONLY: the auditor never alters the extractor's findings, so it
+// does not restate them — links are its ENTIRE deliverable. It never mints
+// edges: the graph connects across sources solely through identified
+// equivalences — a link, never an inference.
 const auditSchema = Type.Object({
 	links: Type.Array(
 		Type.Object({
@@ -260,21 +231,17 @@ const auditSchema = Type.Object({
 });
 
 // The notes front door's wire shape is the session shape MINUS the
-// messageId anchor (owner, 2026-10-13: only the SESSION door demands
-// passage anchors — notes have no messages, so their prompt and schema
-// stay exactly as they were): one base findings type for both doors,
-// the anchor riding as an optional field.
+// messageId anchor (notes have no messages): one base findings type for
+// both doors, the anchor riding as an optional field.
 type NotesFindings = SessionFindings;
 
-// ── the submit seam (owner, 2026-09-28; redesigned 2026-09-30) ──
+// ── the submit seam ──
 //
 // Every top-level field on each submit tool is REQUIRED — a payload
 // missing `chains` (findings) or `links` (review) fails validation
-// instead of silently merging structure-less (the degraded-retry hole:
-// the model's first truncated attempt failed validation, then the retry
-// passed with propositions only — optional fields ??-filled [] — merging
-// a pile of nodes with no structure). Only the per-item aliases stay
-// optional with a ??-fill.
+// instead of silently merging a pile of nodes with no structure (a
+// truncated retry that sends propositions only must not pass). Only the
+// per-item aliases stay optional with a ??-fill.
 
 function fillFindings<T extends { propositions: Array<{ aliases?: string[] }>; chains: unknown }>(
 	raw: T,
@@ -288,7 +255,7 @@ function fillFindings<T extends { propositions: Array<{ aliases?: string[] }>; c
 /** The notes fill: the shared alias ??-fill PLUS the door's boundary — a
  *  stray messageId (the notes schema has none; extra properties pass
  *  schema validation) is stripped so notes provenance stays chat-level
- *  (the file is the anchor, owner 2026-09-13). */
+ *  (the file is the anchor). */
 function fillNotesFindings(raw: FindingsSubmit): FindingsSubmit {
 	return fillFindings({
 		...raw,
@@ -300,15 +267,13 @@ function fillNotesFindings(raw: FindingsSubmit): FindingsSubmit {
 	});
 }
 
-/** The chain laws (extractor redesign, 2026-09-30; digest-aware
- *  2026-09-30 evening) — the LOUD channel: runSubmitAgent turns a
- *  problem string into an error tool result and the model re-submits
- *  within its turns. The MIXED NAMESPACE: an
- *  endpoint resolves when it is a submitted proposition id OR an
- *  existing graph node id (the extractor continues a partly-extracted
- *  source and references digest ids verbatim). Identical (premise-set,
- *  conclusion) chains are NOT errors — they dedupe silently at the
- *  merge (chainKey): restating an argument is a no-op. */
+/** The chain laws — the LOUD channel: runSubmitAgent turns a problem
+ *  string into an error tool result and the model re-submits within its
+ *  turns. The MIXED NAMESPACE: an endpoint resolves when it is a submitted
+ *  proposition id OR an existing graph node id (the extractor continues a
+ *  partly-extracted source and references digest ids verbatim). Identical
+ *  (premise-set, conclusion) chains are NOT errors — they dedupe silently
+ *  at the merge (chainKey): restating an argument is a no-op. */
 function validateFindingsChains(value: FindingsSubmit, existingIds: ReadonlySet<string>): string | null {
 	const ids = new Set(value.propositions.map((p) => p.id));
 	for (const chain of value.chains) {
@@ -326,14 +291,13 @@ function validateFindingsChains(value: FindingsSubmit, existingIds: ReadonlySet<
 	return null;
 }
 
-/** The SESSION anchor law (owner, 2026-10-13): every proposition names a
- *  passage of the CURRENT batch — nonempty, and a teacher-prose message
- *  id present in the stretch this extractor is reading (the same ids the
- *  view's TEACHER [id] labels carry). Refused anchors ride the existing
- *  error-back channel: no merge, no coverage checkpoint, until a valid
- *  submit lands. The boundary is strict on purpose — an id from a LATER
- *  or already-covered batch, another chat, or a learner/tool message is
- *  refused even when it is a real message id of this chat. */
+/** The SESSION anchor law: every proposition names a passage of the CURRENT
+ *  batch — nonempty, and a teacher-prose message id present in the stretch this
+ *  extractor is reading (the same ids the view's TEACHER [id] labels carry).
+ *  Refused anchors ride the existing error-back channel: no merge, no coverage
+ *  checkpoint, until a valid submit lands. The boundary is strict on purpose —
+ *  an id from a LATER or already-covered batch, another chat, or a learner/tool
+ *  message is refused even when it is a real message id of this chat. */
 function validateSessionAnchors(value: SessionFindingsSubmit, batchIds: ReadonlySet<string>): string | null {
 	for (const p of value.propositions) {
 		if (p.messageId.trim().length === 0) {
@@ -346,12 +310,11 @@ function validateSessionAnchors(value: SessionFindingsSubmit, batchIds: Readonly
 	return null;
 }
 
-/** (chains-primary, owner 2026-09-30) the wire IS the pipeline shape
- *  now: propositions + chains, no translation — the stores keep the
- *  chains and the derived edge view is recomputed on read. The fill
- *  already ran inside runSubmitAgent; this only re-asserts the
- *  aliases-filled type (and preserves the session submit's messageId
- *  anchor, 2026-10-13 — both doors lift through here). */
+/** The wire IS the pipeline shape: propositions + chains, no
+ *  translation — the stores keep the chains and the derived edge view is
+ *  recomputed on read. The fill already ran inside runSubmitAgent; this
+ *  only re-asserts the aliases-filled type (and preserves the session
+ *  submit's messageId anchor — both doors lift through here). */
 const asSessionFindings = (
 	raw: {
 		propositions: Array<{ id: string; name: string; statement: string; aliases?: string[]; messageId?: string }>;
@@ -368,22 +331,18 @@ function fillAudit(raw: Static<typeof auditSchema>): AuditVerdicts {
 	};
 }
 
-// ── the extractor's system prompt (owner redesign, 2026-09-30) ──
+// ── the extractor's system prompt ──
 //
-// GOAL-FIRST, NO RULE ARMOR: the old doctrine's defensive lists (DROP
-// lists, merge-your-own-output, name walls, when-in-doubt-omit, the
-// faithfulness paragraph) are ALL CUT — the prompt states the goal and
-// the submission mechanics; the tool's field descriptions carry the
-// details. One shared core + two contextualizations, assembled here —
-// session and notes share the core by construction. (The old opening
-// describing Quiz/Recall-check/Question blocks was stale since the
-// 2026-09-28 teacher-prose ruling and is simply omitted.)
+// GOAL-FIRST: the prompt states the goal and the submission mechanics; the
+// tool's field descriptions carry the details. One shared core + two
+// contextualizations, assembled here — session and notes share the core
+// by construction.
 
-/** The session-only anchor instruction (owner, 2026-10-13, verbatim):
+/** The session-only anchor instruction (verbatim wording):
  *  passages arrive labeled "TEACHER [id]" and every proposition must
  *  name the ONE passage it came from — the anchor the merger stamps
- *  into message-granular provenance. Notes have no passages: their
- *  contextualization stays untouched. */
+ *  into message-granular provenance. Notes have no passages, so their
+ *  prompt omits it. */
 export const SESSION_MESSAGE_ID_RULE =
 	"For each new proposition, copy the message ID of the passage that most directly states or explains it into messageId.";
 
@@ -461,15 +420,12 @@ rather than constructing an argument for it. Select enough detail to preserve th
 expanding the note into a full treatment of the subject.`,
 );
 
-// ── the same-source digest (owner, 2026-09-30 evening) ──
+// ── the same-source digest ──
 //
-// Serialized digest-aware extraction REPLACED the spine stage (owner
-// ruling after the live test: the post-hoc assembly pass added
-// complexity without perceptible gain — the extractor itself is the
-// assembler when it can see what its source has already yielded). Pure
-// string fold over the derived graph; "" when the source owns nothing
-// yet (the first stretch runs bare). Ids ride VERBATIM — that is what
-// the extractor references in its chains (the merger's mixed-namespace
+// What this source has already yielded, so the extractor can build on it.
+// Pure string fold over the derived graph; "" when the source owns nothing
+// yet (the first stretch runs bare). Ids ride VERBATIM — that is what the
+// extractor references in its chains (the merger's mixed-namespace
 // resolution passes them through).
 export function sourceDigest(graph: DerivedGraph, sourceId: string): string {
 	const nameOf = new Map(graph.nodes.map((n) => [n.id, n.name]));
@@ -502,10 +458,9 @@ function runExtractor(
 	signal: AbortSignal | undefined,
 	onStep: (usage: Usage, model: string, step: number, finishReason: string, tools: string) => void,
 ): Promise<SessionFindings> {
-	// Chains in (the wire), chains out (the store) — no translation seam
-	// since chains-primary. Validation runs at the submit seam (error-back)
-	// over the MIXED namespace: local ids + existing graph ids, plus the
-	// session anchor law (messageId ∈ the current batch, 2026-10-13).
+	// Chains in (the wire), chains out (the store). Validation runs at the
+	// submit seam (error-back) over the MIXED namespace: local ids + existing
+	// graph ids, plus the session anchor law (messageId ∈ the current batch).
 	return runSubmitAgent<SessionFindingsSubmit>({
 		role: "extractor",
 		// Debug recorder key: the source id (the run's ledger key — the
@@ -585,9 +540,8 @@ Include only useful matches to existing records you have seen. Omitted findings 
 when none match. Do not restate findings, invent relations, or justify verdicts in the output. The merger retains the
 existing record's name and statement and adds the incoming wording as an alias with its provenance.`;
 
-/** The auditor — one shape for both front doors now (the notes schema was
- *  identical once attribution died). An agentic loop: graph-exploration
- *  tools plus the one submit call. */
+/** The auditor — one shape for both front doors. An agentic loop:
+ *  graph-exploration tools plus the one submit call. */
 function runAuditor(
 	engine: PiEngine | undefined,
 	sourceId: string,
@@ -606,8 +560,8 @@ function runAuditor(
 		fill: fillAudit,
 		systemPrompt: AUDITOR_INSTRUCTIONS,
 		prompt,
-		// No output cap (owner, 2026-11-02: quality always trumps price). Reasoning counts
-		// toward the cap on reasoning models, so a cap could cut a review mid-thought.
+		// No output cap: reasoning counts toward the cap on reasoning models,
+		// so a cap could cut a review mid-thought.
 		engine,
 		signal,
 		onStep,
@@ -621,20 +575,15 @@ function runAuditor(
 // ─── the pipeline status registry ─────────────────────────────────────────────
 
 /** The pipeline phases, in order — what the home status endpoint shows.
- *  The post-batch embedding tail was its own phase (accuracy wave,
- *  2026-09-19) until wave 7 killed the embedder seam wholesale (this
- *  interlude) — birth-session clusters need no post-merge pass. The
- *  phases tell the truth about what the job is actually waiting on.
- *  "queued" (owner, 2026-09-28): the global extract semaphore — 3
- *  concurrent extractor calls process-wide; the job is waiting for an
- *  extract slot, not for the model.
- *  "waiting" (owner 2026-09-28): the serialized-audit gate — the job's
- *  audit+merge critical section is queued behind another job's; the
- *  extractor is done but the auditor may not start until the graph is
- *  stable. */
+ *  The phases tell the truth about what the job is actually waiting on.
+ *  "queued": waiting for a permit of the shared background-LLM semaphore
+ *  (bg-llm-semaphore.ts), not for the model.
+ *  "waiting": the serialized-audit gate — the job's audit+merge critical
+ *  section is queued behind another job's; the extractor is done but the
+ *  auditor may not start until the graph is stable. */
 export type ExtractionPhase = "queued" | "extracting" | "waiting" | "auditing" | "merging";
 
-/** One in-flight pipeline run. Module-level: one process, one registry.
+/** One in-flight pipeline run (one process, one registry — see runs()).
  *  Exported for the status payload's consumer typing (the dock). */
 export interface RunningExtraction {
 	/** The SOURCE id (chat id / notes src id) — the payload's identity and
@@ -642,9 +591,9 @@ export interface RunningExtraction {
 	 *  multi-chunk source owns several entries); this field stays the
 	 *  source id so the feed's reveal logic and abort stay source-scoped. */
 	chatId: string;
-	/** PER-CHUNK JOBS (owner, 2026-09-28): which chunk of how many this
-	 *  job is — present only when the source fanned out (n > 1). Drives
-	 *  the feed row's "· i/N" suffix. */
+	/** PER-CHUNK JOBS: which chunk of how many this job is — present only
+	 *  when the source fanned out (n > 1). Drives the feed row's "· i/N"
+	 *  suffix. */
 	part?: { i: number; n: number };
 	/** Which front door the run came through — label + usage-persistence
 	 *  depend on it (chats bill their chat record; notes bill the source
@@ -676,25 +625,19 @@ interface LhExtractionGlobal {
 		 *  same millisecond never collide on the usage idempotency key. */
 		lastStartedAt: number;
 	};
-	/** The serialized-audit mutex (owner 2026-09-28): a FIFO promise
-	 *  chain — the audit+merge critical section runs one job at a time,
-	 *  process-wide. globalThis for the same module-instance reason as
-	 *  the run registries. */
+	/** The serialized-audit mutex: a FIFO promise chain — the audit+merge
+	 *  critical section runs one job at a time, process-wide. globalThis
+	 *  for the same module-instance reason as the run registries. */
 	__lhAuditLock?: { tail: Promise<void> };
-	/** The EXTRACT SEMAPHORE (owner, 2026-09-28): 3 concurrent extractor
-	 *  calls process-wide — the provider-facing rate stance (the import
-	 *  route's old 3-wide pool doctrine, now global). Per-chunk jobs fan
-	 *  out in parallel but queue here. */
 }
 
-/** THE RUN REGISTRIES live on globalThis, not module level — the
- *  turn-liveness lesson: Next dev compiles each route entry as its own
- *  module instance, so a module-level Map is a different object in the
- *  /api/activity route than in the pipeline's chat-handler instance —
- *  the status routes would read an always-empty registry. One process,
- *  one truth — the same idiom as the turn, wake, and abort registries
- *  (moved 2026-09-19, the observability-accuracy wave; also makes the
- *  single-flight guard cross route instances). */
+/** THE RUN REGISTRIES live on globalThis, not module level: Next dev
+ *  compiles each route entry as its own module instance, so a
+ *  module-level Map is a different object in the /api/activity route than
+ *  in the pipeline's chat-handler instance — the status routes would read
+ *  an always-empty registry. Same idiom as the turn, wake, and abort
+ *  registries; it also makes the single-flight guard cross route
+ *  instances. */
 function runs(): NonNullable<LhExtractionGlobal["__lhExtractionRuns"]> {
 	const g = globalThis as typeof globalThis & LhExtractionGlobal;
 	return (g.__lhExtractionRuns ??= { running: new Map(), inFlight: new Set(), lastStartedAt: 0 });
@@ -711,9 +654,8 @@ export function extractionStatuses(): RunningExtraction[] {
  *  nothing merged, nothing checkpointed, partial usage still persisted.
  *  Returns false when no run is in flight (idempotent no-op). */
 export function abortExtraction(chatId: string): boolean {
-	// PER-CHUNK JOBS (owner, 2026-09-28): a source may own several registry
-	// entries (one per chunk/batch) — aborting the source aborts EVERY
-	// job of its fan-out.
+	// A source may own several registry entries (one per chunk/batch) —
+	// aborting the source aborts EVERY job of its fan-out.
 	let found = false;
 	for (const run of runs().running.values()) {
 		if (run.chatId !== chatId) continue;
@@ -730,18 +672,18 @@ export interface ExtractionModels {
 	extractor?: PiEngine;
 	auditor?: PiEngine;
 	/** Settings-resolved engine per role — the same slot treatment the
-	 *  job runner got, read FRESH per stage call (a settings PUT between
-	 *  stages lands). BYOK (owner, 2026-09-22): the chain (role override →
-	 *  slot → NOTHING) may end EMPTY → undefined; the front doors refuse
-	 *  with ModelsNotConfiguredError before any stage runs. */
+	 *  job runner gets, read FRESH per stage call (a settings PUT between
+	 *  stages lands). BYOK: the chain (role override → slot → NOTHING) may
+	 *  end EMPTY → undefined; the front doors refuse with
+	 *  ModelsNotConfiguredError before any stage runs. */
 	engineFor?: (role: ModelRole) => PiEngine | undefined;
-	/** Key-presence gate (provider-key interlude, 2026-09-25): given a
-	 *  stage engine's provider + the role's slot tier, the injected check
-	 *  returns the refusal envelope when the provider's key is missing
-	 *  (null = run). Same injection discipline as the job runner's seam
-	 *  (the agent layer may not read the key store); absent in tests that
-	 *  inject engines directly (test engines never owe a key). A keyless
-	 *  stage refuses with ProviderKeyMissingError BEFORE any batch runs. */
+	/** Key-presence gate: given a stage engine's provider + the role's slot
+	 *  tier, the injected check returns the refusal envelope when the
+	 *  provider's key is missing (null = run). Same injection discipline as the
+	 *  job runner's seam (the agent layer may not read the key store); absent
+	 *  in tests that inject engines directly (test engines never owe a key). A
+	 *  keyless stage refuses with ProviderKeyMissingError BEFORE any batch
+	 *  runs. */
 	providerKeyMissing?: (provider: string, tier: ModelSlotName) => ProviderKeyMissing | null;
 }
 
@@ -750,8 +692,7 @@ export interface ExtractionPipelineDeps extends GraphDeps, ExtractionModels {
 	 *  context; batches fill to it (the trigger fires on the same number,
 	 *  read fresh per turn by the composition root). OPTIONAL with the
 	 *  factory default (4096) so test fixtures stay minimal; the server
-	 *  callers wire the live effective settings (extraction-UX redesign,
-	 *  2026-09-24). */
+	 *  callers wire the live effective settings. */
 	getChunkTokens?: () => number;
 }
 
@@ -779,19 +720,19 @@ export class NotesImportError extends Error {
 
 export interface ExtractionPipeline {
 	/** Extract + audit + merge ONE chat. Single-flight per chat; resolves to
-	 *  the merger's append stats (or throws — no checkpoint on failure). */
+	 *  what actually merged (failed batches are isolated and stay
+	 *  uncovered); throws only when the run fails before any batch starts. */
 	runExtraction(chatId: string): Promise<EmissionStats>;
-	/** The format-agnostic front door (2026-09-13): run the same pipeline
+	/** The format-agnostic front door: run the same pipeline
 	 *  over ONE raw notes file. The source id is deterministic per file
 	 *  path, so re-importing the same file re-runs extraction against the
-	 *  same source identity (mappings dedupe by it). */
+	 *  same source identity. */
 	importNotes(input: NotesImportInput): Promise<EmissionStats>;
 }
 
 /** pi's per-step usage, flattened to the persisted CallUsage fields
- *  (the money channel's capture shape, contracts/chat.ts). Exported for
- *  the cluster namer — the same capture shape (2026-09 graph cost
- *  metrics wave). Module scope: no closure deps, pure projection. */
+ *  (the money channel's capture shape, contracts/chat.ts). Pure
+ *  projection. */
 export function callUsage(usage: Usage): CallUsage {
 	return {
 		inputTokens: usage.input,
@@ -816,8 +757,8 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		override ?? deps.engineFor?.(role);
 	/** The per-need refusal guard: which slot tiers the pipeline's stages
 	 *  found unset (test values count as configured — they ARE engines),
-	 *  and whether a configured stage's provider key is gone (provider-key
-	 *  interlude, 2026-09-25) — both refuse BEFORE any batch runs. */
+	 *  and whether a configured stage's provider key is gone — both refuse
+	 *  BEFORE any batch runs. */
 	function refuseIfStagesUnready(): void {
 		const stages: readonly [ModelRole, PiEngine | undefined][] = [
 			["extractor", stageEngine("extractor", deps.extractor)],
@@ -842,7 +783,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 	}
 	// THE SHARED REGISTRIES (runs() above — globalThis): every pipeline
 	// instance (route entries in dev, tests) sees the same runs, the same
-	// single-flight guard. No module-level state left in this factory.
+	// single-flight guard.
 	const runningExtractions = runs().running;
 	const inFlight = runs().inFlight;
 
@@ -866,14 +807,14 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 			usage: prev?.usage ?? {}, // phase changes never lose usage
 			controller: prev?.controller ?? new AbortController(),
 		});
-		// Every phase transition announces the dock (push S5, 2026-10-02):
-		// notify-after-write — the registry is the feed's truth.
+		// Every phase transition announces the dock, notify-after-write —
+		// the registry is the feed's truth.
 		emit("activity-changed", {});
 	}
 
 	/** Run over (done, failed, aborted — every exit is a finally): the row
 	 *  leaves the feed. ONE seam for all delete sites so no exit path can
-	 *  miss the announce (push S5, 2026-10-02). */
+	 *  miss the announce. */
 	function finishExtraction(jobKey: string): void {
 		runningExtractions.delete(jobKey);
 		emit("activity-changed", {});
@@ -887,17 +828,13 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		run.usage[stage]!.steps.push(usage);
 	}
 
-	/** SERIALIZED AUDIT (owner 2026-09-28): the auditor explores the LIVE
-	 *  graph through its tools and stamps identity verdicts against what
-	 *  it finds — so the audit+merge section is a process-wide critical
-	 *  section. Two concurrent audits would each link into a graph the
-	 *  other is about to change: the structural mint of duplicate nodes.
-	 *  The extractor stays parallel (source-local, graph-blind). The
-	 *  check runs BEFORE any LLM is invoked or the graph read; the lock
-	 *  is FIFO, held through the merge, reacquired per batch, and
-	 *  abort-aware on both sides of the queue (a waiter that aborts
-	 *  leaves without auditing — its chain link still resolves, so
-	 *  successors never hang). */
+	/** SERIALIZED AUDIT: audit+merge is a process-wide critical section — two
+	 *  concurrent audits would each link into a graph the other is about to
+	 *  change, minting duplicate nodes. The extractor stays parallel
+	 *  (source-local, graph-blind). The lock is FIFO, held through the merge,
+	 *  reacquired per batch, and abort-aware on both sides of the queue (a
+	 *  waiter that aborts leaves without auditing; its chain link still
+	 *  resolves, so successors never hang). */
 	async function withAuditLock<T>(jobKey: string, kind: "chat" | "notes", label: string | undefined, critical: () => Promise<T>): Promise<T> {
 		setPhase(jobKey, "waiting", kind, label);
 		const g = globalThis as typeof globalThis & LhExtractionGlobal;
@@ -935,12 +872,12 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 	): Promise<SessionFindings> {
 		const signal = runningExtractions.get(jobKey)?.controller.signal;
 		signal?.throwIfAborted(); // an abort during a sync gap ends the job here
-		// THE DIGEST (owner, 2026-09-30 evening): the extractor continues a
-		// partly-extracted source — it sees everything this source has
-		// already yielded (propositions + chains, ids verbatim) and builds
-		// on it. Serialized batches make this read the post-merge graph of
-		// every earlier batch (cross-source runs stay parallel — the
-		// digest is source-scoped, so only SAME-source order matters).
+		// THE DIGEST: the extractor continues a partly-extracted source — it
+		// sees everything this source has already yielded (propositions +
+		// chains, ids verbatim) and builds on it. Serialized batches make this
+		// read the post-merge graph of every earlier batch (cross-source runs
+		// stay parallel — the digest is source-scoped, so only SAME-source
+		// order matters).
 		const graph = getGraph(graphStore);
 		const digest = sourceDigest(graph, sourceId);
 		const prompt = digest === "" ? view : `${digest}\n\n${view}`;
@@ -976,12 +913,10 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		);
 		const t0 = performance.now();
 
-		// The auditor NEVER sees the source (owner 2026-09-27): findings
-		// JSON + an initial ranked candidate batch, not a global graph dump.
-		// Further graph reads remain optional. The proposition
-		// projection omits messageId (2026-10-13): the auditor is
-		// IDENTITY-only and never sees the passages, so anchors are useless
-		// to it — they add cognitive load, not signal.
+		// The auditor NEVER sees the source: findings JSON + an initial ranked
+		// candidate batch, not a global graph dump. The projection omits
+		// messageId: the auditor never sees the passages, so anchors add load,
+		// not signal.
 		const review = prepareAuditorReview({ chatStore, graphStore }, findings.propositions);
 		const auditResult = await runAuditor(
 			stageEngine("auditor", deps.auditor),
@@ -1016,31 +951,29 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 	}
 
 
-	/** THE EXTRACT SLOT (unified 2026-09-29): extraction chunk jobs run
-	 *  under the SHARED background-LLM semaphore — one process-wide pool
-	 *  of 3 permits (see bg-llm-semaphore.ts). The
-	 *  job's registry-row signal kills a queued ticket (dead-ticket
-	 *  handoff). The audit side needs no slot: audits already serialize
-	 *  behind their own global lock. */
+	/** THE EXTRACT SLOT: extraction chunk jobs run under the SHARED
+	 *  background-LLM semaphore — one process-wide pool of 3 permits (see
+	 *  bg-llm-semaphore.ts). The job's registry-row signal kills a queued
+	 *  ticket (dead-ticket handoff). The audit side needs no slot: audits
+	 *  already serialize behind their own global lock. */
 	async function withExtractSlot<T>(jobKey: string, critical: () => Promise<T>): Promise<T> {
 		const signal = runningExtractions.get(jobKey)?.controller.signal;
 		return withBgLlmSlot(signal, critical);
 	}
 
-		/** Append the run's usage record to the chat's extractions log — success
-	 *  or failure: a failed run still spent money, and its partial usage is
-	 *  exactly what the record should show (stats absent = never merged).
-	 *  Idempotent per startedAt (the store dedupes). */
+	/** Append the job's usage record to its source's log (the chat's
+	 *  extractions, or the notes source record) — success or failure: a failed
+	 *  run still spent money, and its partial usage is exactly what the record
+	 *  should show (stats absent = never merged). Idempotent per startedAt (the
+	 *  store dedupes). */
 	function persistRunUsage(jobKey: string, durationMs: number, stats: EmissionStats | undefined): void {
 		const run = runningExtractions.get(jobKey);
 		if (!run) return; // not running (tests driving stages directly)
-		// PER-CHUNK JOBS (owner, 2026-09-28): the registry KEY may carry a
-		// "#i" suffix — the usage LEDGERS key by SOURCE (run.chatId): one
-		// job's record per chunk, all appended to the source's log.
-		// SESSION-DELETION GUARD (wave 6): a chat deleted mid-run has no
-		// usage log to append to — the record's death is the user's choice
-		// and its partial spend logs with it (appendSourceUsage below
-		// already no-ops for a vanished source; the chat path guards here).
+		// The registry KEY may carry a "#i" suffix — the usage LEDGERS key by
+		// SOURCE (run.chatId): one job's record per chunk, all appended to the
+		// source's log.
+		// SESSION-DELETION GUARD: a chat deleted mid-run has no usage log to
+		// append to (appendSourceUsage already no-ops for a vanished source).
 		if (run.kind === "chat" && !chatStore.getChat(run.chatId)) return;
 		const entry: ExtractionRunUsage = {
 			startedAt: run.startedAt,
@@ -1056,12 +989,11 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		else chatStore.appendExtractionUsage(run.chatId, entry);
 	}
 
-	/** One chunk/batch JOB (per-chunk jobs, owner 2026-09-28): the registry
-	 *  entry's lifecycle — minted with its part, usage persisted per job
-	 *  (the ledger shows each chunk's cost), removed on any exit. The body
-	 *  runs the full queued → extract → audit-locked merge lifecycle;
-	 *  failure isolation lives at the fan-out site (one bad chunk never
-	 *  kills its siblings). */
+	/** One chunk/batch JOB: the registry entry's lifecycle — minted with its
+	 *  part, usage persisted per job (the ledger shows each chunk's cost),
+	 *  removed on any exit. The body runs the full queued → extract →
+	 *  audit-locked merge lifecycle; failure isolation lives at the fan-out
+	 *  site (one bad chunk never kills its siblings). */
 	async function runJob(
 		source: { id: string; kind: "chat" | "notes"; label?: string; part?: { i: number; n: number } },
 		body: (jobKey: string) => Promise<EmissionStats>,
@@ -1080,11 +1012,10 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		}
 	}
 
-	/** The fan-out aggregation (per-chunk jobs, owner 2026-09-28): successes
-	 *  count (earlier chunks keep their merges — checkpoints make aborts
-	 *  cheap), aborts log and pass as partial stats, isolated failures log
-	 *  per job and never throw — the source's run returns what actually
-	 *  merged. */
+	/** The fan-out aggregation: successes count (earlier chunks keep their
+	 *  merges — checkpoints make aborts cheap), aborts log and pass as partial
+	 *  stats, isolated failures log per job and never throw — the source's run
+	 *  returns what actually merged. */
 	function aggregateJobs(sourceId: string, settled: PromiseSettledResult<EmissionStats>[]): EmissionStats {
 		const stats: EmissionStats = { nodes: 0, chains: 0 };
 		let aborted = false;
@@ -1119,20 +1050,18 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		if (inFlight.has(chatId)) return { nodes: 0, chains: 0 };
 		inFlight.add(chatId);
 		const t0 = performance.now();
-		// COVERAGE (vision-extraction-coverage.md, 2026-09-15): extract ONLY
-		// what the per-chat coverage ledger doesn't already hold — never the
-		// whole session. Batches are token-budgeted runs of the oldest
-		// uncovered messages; each merged batch checkpoints its messages'
-		// coverage ATOMICALLY (inside the merger's step 4), so an abort or
-		// error below loses at most the in-flight batch — every earlier
-		// batch stays covered, the rest stays visibly uncovered.
+		// COVERAGE (vision-extraction-coverage.md): extract ONLY what the
+		// per-chat coverage ledger doesn't already hold. Batches are
+		// token-budgeted runs of the oldest uncovered messages; each merged
+		// batch checkpoints its messages' coverage ATOMICALLY (the merger's
+		// step 3), so an abort or error loses at most the in-flight batch.
 		try {
 			const record = chatStore.getChat(chatId);
 			if (!record) throw new Error(`Chat not found: ${chatId}`);
-			// BYOK per-need gate (owner, 2026-09-22) + key presence
-			// (2026-09-25): the write channel needs extractor + auditor
-			// engines AND their providers' keys; a refusal lands BEFORE any
-			// stage runs (typed — the trigger skips, routes surface 503).
+			// BYOK per-need gate + key presence: the write channel needs
+			// extractor + auditor engines AND their providers' keys; a refusal
+			// lands BEFORE any stage runs (typed — the trigger skips, routes
+			// surface 503).
 			refuseIfStagesUnready();
 			const covered = coverageOf(record.messages, graphStore.readCoverage(), chatId);
 			const failedOutputCalls = failedOutputCallIds(record.messages);
@@ -1141,23 +1070,20 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 				return { nodes: 0, chains: 0 };
 			}
 			const chunkTokens = deps.getChunkTokens?.() ?? FACTORY_SETTINGS.graph.extractionChunkTokens;
-			// The batcher's one rule (owner, Wave D): a tool-call message and
-			// its result message(s) are INSEPARABLE — one chunk, covered
-			// together, read together (core/coverage.ts batchRuns).
+			// The batcher's one rule: a tool-call message and its result
+			// message(s) are INSEPARABLE — one chunk, covered together, read
+			// together (core/coverage.ts batchRuns).
 			const batches = batchRuns(covered.slots, covered.uncovered, chunkTokens);
 			console.info(
 				`[extraction ${chatId}] pipeline start — ${covered.uncoveredTokens} uncovered tok, ` +
 					`${covered.uncoveredCount} messages, ${batches.length} batch(es) of ≤${chunkTokens} tok`,
 			);
-			// PER-CHUNK JOBS (owner, 2026-09-28), SERIALIZED PER SOURCE (owner,
-			// 2026-09-30 evening): every batch is its own job — registry row,
-			// because each batch's extractor continues the source's digest
-			// (everything the earlier batches merged). Cross-source runs stay
-			// parallel; the 3-slot extract semaphore still caps concurrent
-			// extracts process-wide ("queued"); audits serialize through the
-			// process-wide gate ("waiting"). A batch that fails is ISOLATED
-			// (its messages stay uncovered — honestly re-runnable); its
-			// siblings keep merging.
+			// PER-CHUNK JOBS, SERIALIZED PER SOURCE: every batch is its own job
+			// (registry row, usage record), run in order because each batch's
+			// extractor continues the source's digest. Cross-source runs stay
+			// parallel, capped by the extract semaphore ("queued"); audits
+			// serialize through the gate ("waiting"). A failed batch is ISOLATED
+			// (its messages stay uncovered); its siblings keep merging.
 			const settled: PromiseSettledResult<EmissionStats>[] = [];
 			for (const [batchIndex, batch] of batches.entries()) {
 				const part = batches.length > 1 ? { i: batchIndex + 1, n: batches.length } : undefined;
@@ -1165,11 +1091,9 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 					settled.push({
 						status: "fulfilled",
 						value: await runJob({ id: chatId, kind: "chat", part }, async (jobKey) => {
-							// The batch's source view: TEACHER PROSE ONLY (owner,
-							// 2026-09-28), each passage labeled with its ACTUAL message
-							// id (2026-10-13) — the view lines ARE the coverage
-							// fingerprints' messageViewLines ("TEACHER [id] text"), one
-							// shared seam.
+							// The batch's source view (proseView): the view lines ARE
+							// the coverage fingerprints' messageViewLines, one shared
+							// seam.
 							const messages = batch.map((slot) => slot.message);
 							const view = proseView(messages, record.title, failedOutputCalls);
 							// The batch's teacher-prose ids — the ONLY anchors this
@@ -1185,28 +1109,22 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 								setPhase(jobKey, "extracting", "chat", undefined, part);
 								return extract(jobKey, chatId, view, batchIds);
 							});
-							// SERIALIZED AUDIT (owner, 2026-09-28): audit + merge are the
-							// graph-mutating critical section — one job at a time,
-							// process-wide, so the auditor explores the graph as it
-							// stands AFTER every earlier job's merge.
 							return withAuditLock(jobKey, "chat", undefined, async () => {
 								setPhase(jobKey, "auditing", "chat", undefined, part);
 								const auditResult = await audit(jobKey, chatId, findings);
 								setPhase(jobKey, "merging", "chat", undefined, part);
-								// SESSION-DELETION GUARD (wave 6): a chat deleted mid-run must never
-								// merge. The deletion route aborts this run first and runs its purge
-								// as one sync block; this closes the last window — a run that slipped
-								// past the wind-down finds the chat gone HERE and rides the existing
-								// abort path (info, not error): nothing merged, nothing checkpointed.
+								// SESSION-DELETION GUARD: a chat deleted mid-run must never merge.
+								// The deletion route aborts the run first; this closes the last
+								// window — a run that slipped past finds the chat gone HERE and
+								// takes the abort path: nothing merged, nothing checkpointed.
 								if (!chatStore.getChat(chatId)) {
 									const gone = new Error(`chat deleted mid-run: ${chatId}`);
 									gone.name = "AbortError";
 									throw gone;
 								}
-								// The batch's messages, snapshotted when the run computed
-								// coverage — if a message mutates mid-run (a quiz answer
-								// merges in), the stored fingerprint won't match its new
-								// one and it re-opens: honest by construction.
+								// Fingerprints were computed before the run: a message that
+								// mutates mid-run (a quiz answer merges in) won't match its
+								// stored fingerprint, so it re-opens.
 								const foldedAt = new Date().toISOString();
 								const batchStats = mergeFindings(chatId, findings, auditResult, { chatStore, graphStore }, {
 									foldedAt,
@@ -1261,11 +1179,10 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		return `SOURCE (the author's personal notes): ${input.filePath}${part}\n\n${input.text}`;
 	}
 
-	/** Chunk the notes text under the same budget the chat path uses
-	 * (owner, 2026-09-28: the whole-file-in-one-call design collapsed a
-	 * weak model — 26 propositions, structure bleed mid-emission).
-	 * Greedy by line, chars/4 like every other estimate in the app; a
-	 * single over-budget line rides alone (never split a line). */
+	/** Chunk the notes text under the same budget the chat path uses (one
+	 * whole-file call overwhelms weaker models). Greedy by line, chars/4
+	 * like every other estimate in the app; a single over-budget line rides
+	 * alone (never split a line). */
 	function chunkNotes(text: string, budget: number): string[] {
 		if (text.trim().length === 0) return [];
 		const out: string[] = [];
@@ -1287,14 +1204,14 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		jobKey: string,
 		input: { id: string; filePath: string; text: string; part?: { i: number; n: number } },
 	): Promise<NotesFindings> {
-		// jobKey (per-chunk jobs, owner 2026-09-28): the registry key —
-		// "src#i" for chunk jobs — so the abort signal reaches the call.
+		// jobKey: the registry key — "src#i" for chunk jobs — so the abort
+		// signal reaches the call.
 		// input.id stays the SOURCE id for the view and store ledgers.
 		const signal = runningExtractions.get(jobKey)?.controller.signal;
 		signal?.throwIfAborted(); // an abort during a sync gap ends the job here
 		const view = notesView(input);
-		// Same digest law as the chat door (owner, 2026-09-30 evening): the
-		// chunk extractor continues its own source, ids verbatim.
+		// Same digest law as the chat door: the chunk extractor continues its
+		// own source, ids verbatim.
 		const graph = getGraph(graphStore);
 		const digest = sourceDigest(graph, input.id);
 		const prompt = digest === "" ? view : `${digest}\n\n${view}`;
@@ -1318,8 +1235,8 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		return findings;
 	}
 
-	// The notes auditor is the SAME identity-linker as the chat one (one
-	// schema now that attribution is gone) — audit() above, verbatim.
+	// The notes auditor is the SAME identity-linker as the chat one —
+	// audit() above, verbatim.
 
 	async function runNotesExtraction(input: { id: string; filePath: string; text: string; importedAt: string }): Promise<EmissionStats> {
 		const { id } = input;
@@ -1327,27 +1244,18 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		const t0 = performance.now();
 		const mergedStats: EmissionStats = { nodes: 0, chains: 0 };
 		try {
-			// BYOK per-need gate (owner, 2026-09-22) + key presence
-			// (2026-09-25): same refusal as the chat front door — no
-			// extractor/auditor engines, or a stage key gone, no run.
+			// BYOK per-need gate + key presence: same refusal as the chat front
+			// door — no extractor/auditor engines, or a stage key gone, no run.
 			refuseIfStagesUnready();
-			// CHUNKED like the chat path (owner, 2026-09-28): each chunk is a
-			// standalone extract → audit → merge, so no single call carries a
-			// whole large file. Abort mid-run keeps earlier chunks merged
-			// (same doctrine as chat batches).
 			const chunkTokens = deps.getChunkTokens?.() ?? FACTORY_SETTINGS.graph.extractionChunkTokens;
 			const chunks = chunkNotes(input.text, chunkTokens);
 			console.info(
 				`[extraction ${id}] notes pipeline start (${input.filePath}) — ${chunks.length} chunk(s) of ≤${chunkTokens} tok`,
 			);
-			// PER-CHUNK JOBS (owner, 2026-09-28), SERIALIZED PER SOURCE (owner,
-			// 2026-09-30 evening): same law as the chat door — chunks run
-			// STRICTLY IN ORDER, each chunk's extractor continuing the
-			// source's digest (everything earlier chunks merged). Cross-source
-			// runs stay parallel; the semaphore caps concurrent extracts
-			// process-wide; audits serialize through the gate as before. The
-			// part rides the registry entry (feed suffix "· i/N") only when
-			// the file actually chunked.
+			// Same per-chunk, serialized-per-source jobs as the chat door: each
+			// chunk is a standalone extract → audit → merge, STRICTLY IN ORDER;
+			// an abort keeps earlier chunks merged. `part` (feed suffix "· i/N")
+			// is set only when the file actually chunked.
 			const settled: PromiseSettledResult<EmissionStats>[] = [];
 			for (const [chunkIndex, chunk] of chunks.entries()) {
 				const part = chunks.length > 1 ? { i: chunkIndex + 1, n: chunks.length } : undefined;
@@ -1364,10 +1272,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 								setPhase(jobKey, "extracting", "notes", input.filePath, part);
 								return notesExtract(jobKey, { ...input, text: chunk, part });
 							});
-							// SERIALIZED AUDIT (owner, 2026-09-28): audit + merge one
-							// at a time, process-wide — the auditor explores the graph
-							// as it stands AFTER every earlier job's merge. Reacquired
-							// per chunk so cross-source runs interleave fairly.
+							// Reacquired per chunk so cross-source runs interleave fairly.
 							return withAuditLock(jobKey, "notes", input.filePath, async () => {
 								setPhase(jobKey, "auditing", "notes", input.filePath, part);
 								const auditResult = await audit(jobKey, input.id, findings);

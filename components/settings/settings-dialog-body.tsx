@@ -1,24 +1,18 @@
 "use client";
 /**
- * THE SETTINGS DIALOG (settings-app wave, 2026-09-20): the thin settings
- * page graduated into the designed surface — a centered modal over
- * everything, left section nav + one scrolling content column.
+ * THE SETTINGS DIALOG: a centered modal over everything, left section nav +
+ * one scrolling content column.
  *
- * Owner decisions this wave:
- * - Dialog, not a page: opens over whatever screen you're on (the payoff:
- *   appearance edits restyle the chat LIVE behind the dialog). Escape,
- *   backdrop, and ✕ all close. Modal-only — /settings redirects, so
- *   nothing links into a dead surface.
- * - Left section nav in the app's mono chrome (text-only, session-list
- *   language — active = bg-accent), no icons, matching the minimal-color
- *   doctrine.
- * - The dialog is surface-agnostic by construction: the sections talk to
- *   /api/settings* and localStorage only, so this shell can be re-mounted
- *   as a true OS window in the Electron round with near-zero churn.
+ * - Dialog, not a page: opens over whatever screen you're on, so appearance
+ *   edits restyle the chat LIVE behind it. Escape, backdrop, and ✕ all
+ *   close. Modal-only — /settings redirects.
+ * - Left section nav in the app's mono chrome (text-only, active =
+ *   bg-accent), no icons.
+ * - Surface-agnostic: the sections talk to /api/settings* and localStorage
+ *   only, so this shell could be re-mounted as an OS window unchanged.
  *
- * The record + the single `write` seam moved here from the thin page:
- * one record instance for the whole dialog, sections write through it,
- * switching sections never refetches.
+ * One record instance for the whole dialog behind the single `write` seam:
+ * sections write through it, switching sections never refetches.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -48,8 +42,7 @@ import { SessionModeChips } from "./session-mode-chips";
 import { ConnectionSettings } from "./connection-settings";
 import { KeyboardSection } from "./keyboard-section.tsx";
 
-/** Owner (2026-09-20): hints earn their place — mechanics-explaining
- *  prose is out; only the keyboard note stays (storage location is a
+/** Hints earn their place: only the keyboard note (storage location is a
  *  real question users ask). */
 const SECTIONS = [
 	{ id: "keys", label: "Providers" },
@@ -109,9 +102,8 @@ export function SettingsDialogBody({
 	// MenuShell open-count — drives the content column's scroll lock.
 	const [openMenus, setOpenMenus] = useState(0);
 	const contentRef = useRef<HTMLDivElement | null>(null);
-	// Scroll-lock (fix wave, owner ruling: the scrollbar MAY stay,
-	// scrolling must NOT happen, nothing may move): the content column
-	// keeps overflow-y-auto — the scrollbar and every width stay exactly
+	// Scroll-lock (the scrollbar may stay, scrolling must NOT happen,
+	// nothing may move): the content column keeps overflow-y-auto — the scrollbar and every width stay exactly
 	// as they are — and while any MenuShell is open, non-passive wheel +
 	// touchmove listeners on the column preventDefault. React attaches
 	// synthetic wheel/touch passively at the root, so this needs the
@@ -140,9 +132,7 @@ export function SettingsDialogBody({
 	}, []);
 	const [active, setActive] = useState<SectionId>(initialSection);
 	const [savingGeneral, setSavingGeneral] = useState(false);
-	// A deep-link fired while the dialog is ALREADY open (first exercised by
-	// the wave-6 embedding picker's "Add a provider key first…" link — the
-	// picker itself died with wave 7, the mechanism is general) changes
+	// A deep-link fired while the dialog is ALREADY open changes
 	// initialSection under our feet — follow it, or the link silently does
 	// nothing.
 	useEffect(() => {
@@ -164,15 +154,14 @@ export function SettingsDialogBody({
 			.catch(() => setRecord(null));
 	}, []);
 
-	// Escape closes — the layered-dismiss convention (Esc is dead for the
-	// sections' own editors while they hold focus; this listener is the
-	// dialog's outer layer).
+	// Escape closes the dialog — the outer dismiss layer. While any MenuShell
+	// is open, that menu's own Esc handler (bindSettingsMenuDismiss) acts
+	// instead.
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
 			if (e.key === "Escape" && openMenus === 0) {
-				// THE ONE-ESC LAW (owner, keyboard round 2026-10-06): claim
-				// at the document level — the window chain (dictation →
-				// abort) must not also act. One Esc, one action.
+				// ONE Esc, one action: claim at the document level so the window
+				// chain (dictation → abort) does not also act.
 				e.preventDefault();
 				e.stopPropagation();
 				onClose();
@@ -204,11 +193,9 @@ export function SettingsDialogBody({
 				setError(`${section}: ${detail.error ?? res.status}`);
 				return;
 			}
-			// Server truth, never the request body (fix wave, owner repro):
-			// the models section clamps pinned thinking levels on write
-			// (bd68486) — a swap that rides an unsupported level lands
-			// CLAMPED in the record, and the writing surface must show the
-			// stored value in this same interaction, not the optimistic one.
+			// Server truth, never the request body: the server may normalize
+			// on write (e.g. clamp a pinned thinking level), and the writing
+			// surface must show the stored value in this same interaction.
 			const reply = (await res.json().catch(() => null)) as { settings?: UserSettings; fileAccessError?: string } | null;
 			const stored = reply?.settings;
 			setFileAccessError(reply?.fileAccessError ?? null);
@@ -276,8 +263,7 @@ export function SettingsDialogBody({
 			</header>
 
 			<div className="flex min-h-0 flex-1">
-				{/* Left nav — text-only, the session-list mono language,
-					    active = bg-accent. */}
+				{/* Left nav — text-only mono, active = bg-accent. */}
 				<nav
 					aria-label="Settings sections"
 					data-testid="settings-nav"
@@ -302,8 +288,8 @@ export function SettingsDialogBody({
 				</nav>
 
 				{/* Content column — one section at a time, this scrolls — and
-				    LOCKS while any MenuShell is open (owner ruling: no
-				    scrolling with a dropdown down; MenuShell announces
+				    LOCKS while any MenuShell is open (no scrolling with a
+				    dropdown down; MenuShell announces
 				    open/close, the count keeps overlap honest). The lock
 				    intercepts wheel/touch instead of hiding the scrollbar —
 				    nothing may shift when the lock engages. */}

@@ -1,12 +1,11 @@
 "use client";
 /**
- * Thin settings primitives (settings-app wave): the control kit the
- * settings dialog needs. Sections → groups → rows; everything SSRs clean
- * (render tests pin the sections' markup).
+ * Thin settings primitives: the control kit the settings dialog needs.
+ * Sections → groups → rows; everything SSRs clean (render tests pin the
+ * sections' markup).
  *
- * The dependency graying (owner, 2026-09-20) follows the graph viewer's
- * render-panel convention: the WHOLE row dims (opacity-40, label and
- * control together) and the control itself locks — the row owns the dim.
+ * Dependency graying: the WHOLE row dims (opacity-40, label and control
+ * together) and the control itself locks — the row owns the dim.
  */
 
 import { useState, type ComponentPropsWithRef, type ReactNode, type RefObject } from "react";
@@ -16,7 +15,8 @@ import { cn } from "@/lib/utils";
  *  the cleanup. A pointerdown inside the anchor or a portaled menu
  *  ([data-lh-menu]) is ignored; one elsewhere inside the dialog closes the
  *  menu; one outside the dialog is left to the dialog's own close. Esc
- *  closes and is CLAIMED (stopPropagation) so the dialog behind stays open. */
+ *  closes the menu and stops propagating to window listeners; the dialog
+ *  stays open because its own Esc skips while a MenuShell is open. */
 export function bindSettingsMenuDismiss(anchorRef: RefObject<Element | null>, close: () => void): () => void {
 	const onPointerDown = (e: PointerEvent) => {
 		const target = e.target as Node;
@@ -60,8 +60,8 @@ export function SettingsSection({
 	);
 }
 
-/** A labeled sub-group inside a section (owner, 2026-09-20: clear
- *  separation — Models / Tools / Prompts read as three blocks). */
+/** A labeled sub-group inside a section (e.g. Models / Tools / Prompts
+ *  read as three blocks). */
 export function SettingsGroup({
 	label,
 	children,
@@ -92,8 +92,8 @@ export function SettingsRow({
 	hint?: ReactNode;
 	children: React.ReactNode;
 	testid?: string;
-	/** Dependency graying, graph-view style: the whole row dims when the
-	 *  control is inert (parent off, no file yet, …). */
+	/** Dependency graying: the whole row dims when the control is inert
+	 *  (parent off, no file yet, …). */
 	dimmed?: boolean;
 }) {
 	return (
@@ -145,8 +145,7 @@ export function Toggle({
 	onChange: (next: boolean) => void;
 	/** Accessible name for the switch role. */
 	label: string;
-	/** Optional icon disc (owner round, 2026-10-07): the figure cards' invert
-	 *  toggle renders the half-filled contrast circle AS the disc — the icon
+	/** Optional icon disc: the figure cards' invert toggle renders the half-filled contrast circle AS the disc — the icon
 	 *  carries the meaning; plain toggles keep the plain disc. */
 	discIcon?: ReactNode;
 	/** Optional native tooltip on the switch. */
@@ -164,8 +163,8 @@ export function Toggle({
 			onClick={() => onChange(!checked)}
 			className={cn(
 				"relative h-4.5 w-8 shrink-0 rounded-full border border-border transition-colors",
-				// Owner (2026-09-20): on is a gray track with a WHITE disc (a full-white
-				// track was too loud); off stays the muted track.
+				// On is a gray track with a WHITE disc (a full-white track is too
+				// loud); off stays the muted track.
 				checked ? "bg-muted-foreground" : "bg-muted",
 				disabled && "cursor-not-allowed",
 			)}
@@ -185,8 +184,7 @@ export function Toggle({
 				<span
 					className={cn(
 						"absolute left-0 top-0.5 size-3 rounded-full transition-transform",
-						// 2px inset from each inner edge, both states (owner round: the on
-						// disc used to touch the pill's right edge).
+						// 2px inset from each inner edge, both states.
 						checked ? "translate-x-4 bg-foreground" : "translate-x-0.5 bg-muted-foreground",
 					)}
 				/>
@@ -240,8 +238,7 @@ export function CommitInput({
 }: {
 	/** "" = unset (the factory default). Mirrors the STORED record —
 	 *  after a clamped/normalized commit this flows back and the field
-	 *  snaps to the stored truth (owner repro: a negative size kept
-	 *  displaying "-5" while 12 was stored). */
+	 *  snaps to the stored truth (a typed "-5" shows the stored 12). */
 	value: string;
 	placeholder?: string;
 	onCommit: (next: string) => void;
@@ -250,8 +247,7 @@ export function CommitInput({
 	type?: "text" | "number";
 }) {
 	// The draft exists only while editing; a blur shows the record's value
-	// again — commit-on-blur/Enter (owner ruling), the field honest about
-	// what landed.
+	// again — commit-on-blur/Enter, the field honest about what landed.
 	const [draft, setDraft] = useState(value);
 	const [editing, setEditing] = useState(false);
 	return (

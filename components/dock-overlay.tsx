@@ -17,19 +17,17 @@ import { rememberRevealed, wasRevealed } from "@/components/revealed-questions";
 import { ReadingThinkingField } from "@/components/reading-thinking";
 import type { cliContextWindowOf, pendingQuestionOf, Phase3, QuestionAnswerData, QuestionFormDraft, TurnUsage, SessionPricing } from "@/src/core";
 
+/** The dock column: narrower than the transcript, ~46rem centered. */
 const DOCK = "mx-auto w-full max-w-[46rem] px-4";
-// The DOCK container's fixed width (46rem) and the plan marginalia's
-// geometry live in components/dock-flank.ts (owner, plan-placement round;
-// moved 2026-11-05 so the make-room flank is testable): the bare diagram
-// sits in the dock band's RIGHT flank and stays mounted while the question
-// owns the band, fading below MARGIN_MIN_W so widening fades it back.
-// The dock overlay's gradient band (h-24) — part of the reserved tail.
+// The plan marginalia's geometry lives in components/dock-flank.ts: the bare
+// diagram sits in the dock band's right flank while a question owns the
+// band, fading below MARGIN_MIN_W.
+// The dock overlay's gradient band (h-24), part of the reserved tail.
 export const GRADIENT_H = 96;
-// Fold thresholds (owner, scroll round 1, tuned round 3): pixel distance
-// from the bottom — position, not velocity. Leave the bottom → the box
-// folds (visual only); reach it again → it re-opens. 96 (was 64, owner
-// round 3) tolerates a small peek upward without folding; the dead band
-// vs EXPAND_DIST absorbs trackpad drift.
+// Fold thresholds: pixel distance from the bottom (position, not velocity).
+// Leave the bottom and the box folds (visual only); reach it again and it
+// re-opens. 96 tolerates a small peek upward; the dead band vs EXPAND_DIST
+// absorbs trackpad drift.
 const COLLAPSE_DIST = 96;
 const EXPAND_DIST = 16;
 
@@ -37,61 +35,51 @@ const EXPAND_DIST = 16;
 const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 /**
- * How a teach-phase question arrives (owner ruling, 2026-09-25): collapsed
- * behind the reveal button when it follows the composer — the learner
- * reads the teaching first — but OPEN when it follows another question
- * (a queued parallel check): the reading already happened, so there is
- * nothing left to wait for and the scroll height it already had is the
- * honest height.
+ * How a teach-phase question arrives: collapsed behind the reveal button when
+ * it follows the composer (the learner reads the teaching first), but open
+ * when it follows another question (a queued parallel check), since the
+ * reading already happened.
  */
 export function revealArrival(wasQuestion: boolean): { expanded: boolean; revealed: boolean } {
 	return wasQuestion ? { expanded: true, revealed: true } : { expanded: false, revealed: false };
 }
 
 /**
- * A question's arrival state when no reveal applies (flicker round, 2026-09-26): open iff
- * the learner is at the bottom following along; scrolled up in history →
- * arrive as the collapsed bar (owner ruling: "it should just remain
- * closed"). Decided DURING RENDER like the teach seam above — the old
- * after-paint effect painted one stale-open frame first (the box "opened
- * and immediately closed" when scrolled up). Pure for tests.
+ * A question's arrival state when no reveal applies: open iff the learner is
+ * at the bottom following along; scrolled up in history, it arrives as the
+ * collapsed bar. Decided during render, so no stale-open frame paints first.
  */
 export function questionArrivalExpanded(isAtBottom: boolean): boolean {
 	return isAtBottom;
 }
 
 /**
- * The geometry-mute's growth rule (flicker round, 2026-09-26): a reserve
- * GROWTH while a question is pending is the dock stretching (the dictation
- * flush landing many lines at once) — the spacer lands in that commit, the
- * smooth catch-up lags by exactly the growth, and that lag is our own
- * motion, not the learner leaving, so the fold machine ignores scroll
- * events for the mute window after (reproduced d≈152 > COLLAPSE_DIST).
- * Shrinks never stamp — that path self-muted the at-bottom re-expand and
- * left the box stuck collapsed (resize round, verified live). Pure for
- * tests.
+ * The geometry mute's growth rule: a reserve growth while a question is
+ * pending is the dock stretching (e.g. a dictation flush landing many lines).
+ * The spacer lands in that commit and the smooth catch-up lags by exactly the
+ * growth; that lag is our own motion, not the learner leaving, so the fold
+ * machine ignores scroll events for the mute window after. Shrinks never
+ * stamp: muting them would swallow the at-bottom re-expand and leave the box
+ * stuck collapsed.
  */
 export function shouldStampGeometryMute(nextH: number, prevH: number, pending: boolean): boolean {
 	return pending && nextH > prevH + 1;
 }
 
 /**
- * The floating blob: ONE persistent shell, OVERLAID at the bottom of the
- * column (absolute — a sibling of the scroller, the use-stick-to-bottom
- * pattern; it replaced the old in-flow sticky dock, which died of the
- * fold-latency problem below). Contents swap between the chat composer and
- * the question dock; shell height morphs between variants (WAAPI, quick). A
- * spacer at the end of the transcript (rendered by ChatView from onReserve
- * reports) holds the dock's flow-space, so at-rest content scrolls fully
- * clear of the overlay.
+ * The floating dock: ONE persistent shell, overlaid at the bottom of the
+ * column (absolute, a sibling of the scroller: the use-stick-to-bottom
+ * pattern). Contents swap between the composer and the question/practice
+ * dock; the shell height morphs between variants (WAAPI, quick). A spacer at
+ * the end of the transcript (rendered by Chat from onReserve reports) holds
+ * the dock's flow-space, so at-rest content scrolls fully clear of it.
  *
- * Why an overlay (owner, scroll round 1): an in-flow dock IS scroll geometry
- * — folding it shrinks the scroll content, so the fold had to wait until the
- * learner was a full dock-height past the bottom (any closer and the browser
- * clamp pinned them back, re-expanding the box: the oscillation). Decoupled
- * from the flow, the fold is VISUAL ONLY: it fires as soon as the learner
- * leaves the bottom, and the reserved tail only ever GROWS while a question
- * is open (a shrinking tail would reintroduce the clamp).
+ * Why an overlay: an in-flow dock is scroll geometry, so folding it would
+ * shrink the scroll content and the browser's scroll clamp would pin the
+ * learner back and re-expand it (oscillation). Out of the flow, the fold is
+ * visual only: it fires as soon as the learner leaves the bottom, and the
+ * reserved tail only ever grows while a question is open (a shrinking tail
+ * would reintroduce the clamp).
  *
  * Collapse: scroll up past COLLAPSE_DIST and the dock folds into a slim bar;
  * click it (or scroll back to the bottom) to re-expand. The question form
@@ -132,22 +120,21 @@ export function DockOverlay({
 	pending: ReturnType<typeof pendingQuestionOf>;
 	initialQuestionDraft?: QuestionFormDraft;
 	onSaveQuestionDraft: (draft: QuestionFormDraft) => void;
-	/** Compaction running for this chat (round 14) — the docks' submit
-	 *  affordance gate (the server's registry is the real one). */
+	/** Compaction running for this chat: the docks' submit affordance gate
+	 *  (the server's registry is the real one). */
 	compactionRunning: boolean;
-	/** The ACTIVE practice problem (practice sessions, 2026-10-04):
-	 *  {toolCallId, input} — dock ownership exactly like a pending
-	 *  question (the composer is replaced); null in teaching sessions. */
+	/** The active practice problem {toolCallId, input}: owns the dock like a
+	 *  pending question (the composer is replaced); null in teaching sessions. */
 	practice: { toolCallId: string; input: unknown } | null;
-	/** (commit, text) — the practice dock's two submit lanes. */
+	/** The practice dock's send lane. */
 	onSubmitThinking: (text: string) => void;
 	/** Teach-phase check: keeps the optional reading-notes field. */
 	teachingCheck: boolean;
-	/** The check arrives collapsed behind the reveal button (W5; Settings → Reveal questions). */
+	/** The check arrives collapsed behind the reveal button (Settings → Reveal questions). */
 	requiresReveal: boolean;
 	showReadingThinking: boolean;
-	/** The reading-thinking draft (owner 2026-10-03) — owned by ChatView so
-	 *  the submit + dismissal seams (outside this overlay) can merge it. */
+	/** The reading-thinking draft, owned by Chat so the submit and dismissal
+	 *  seams (outside this overlay) can merge it. */
 	readingThinking: string;
 	readingThinkingRevision: number;
 	onReadingThinking: (v: string) => void;
@@ -163,35 +150,33 @@ export function DockOverlay({
 	/** The model control's pass-through (the stats bar hosts it). */
 	chatId: string;
 	onModelChange: (model: string | undefined) => void;
-	/** Reports the dock's settled height (block + gradient) — ChatView's
-	 *  dockReserve state feeds the transcript's spacer from it. */
+	/** Reports the dock's settled height (block + gradient); Chat's
+	 *  dockReserve feeds the transcript's spacer from it. */
 	onReserve: (h: number) => void;
-	/** The progress card's make-room padding (lessonTrackerRoom's `dock`;
-	 *  owner, 2026-11-05): centres the dock on the narrowed column while the
-	 *  card shows on a wide session area; "" otherwise — layout untouched. */
+	/** The progress card's make-room padding (lessonTrackerRoom's `dock`):
+	 *  centres the dock on the narrowed column while the card shows on a wide
+	 *  session area; "" otherwise. */
 	room: string;
 	/** The plan marginalia's content (the bare diagram) — rendered only
 	 *  while a question owns the band. Null until a plan exists. */
 	plan?: React.ReactNode;
 	/** Opens the full-DAG popup (the marginalia + chip share it). */
 	onOpenPlan: () => void;
-	/** The dictation strip (STT wave): rendered in the stats bar's middle
-	 *  slot — the mic button + live meter (components/dictation.tsx). */
+	/** The dictation strip (mic button + live meter, components/dictation.tsx),
+	 *  rendered in the stats bar's middle slot. */
 	dictationSlot?: React.ReactNode;
 	/** Esc in a pending question's field stops dictation (the strip is the
 	 *  stats bar's; the stop belongs to the page-owned hook, threaded down). */
 	dictationCancel?: () => void;
-	/** The queued-steer indicator's lines (composer steering, 2026-10-03):
-	 *  already filtered by visibleQueuedSteers — only undrained steers. */
+	/** The queued-steer indicator's lines, already filtered by
+	 *  visibleQueuedSteers (only undrained steers). */
 	queuedSteers: QueuedSteerLine[];
-	/** The persistent setup CTA (BYOK, owner 2026-09-22): the same pill
-	 *  home and /chat/new carry, above the composer while slots are unset. */
+	/** The setup CTA (or plan-accept bar) shown above the composer. */
 	setupCta?: React.ReactNode;
 }) {
 	const { isAtBottom, scrollToBottom, scrollRef } = useStickToBottomContext();
-	// Render-fresh bottom state (flicker round): the arrival block below reads
-	// it DURING RENDER — the same value the after-paint effect used to read a
-	// frame too late. Assigned per render like the other refs below.
+	// Render-fresh bottom state: the arrival block below reads it during
+	// render. Assigned per render like the other refs below.
 	const atBottomRef = useRef(isAtBottom);
 	atBottomRef.current = isAtBottom;
 	// Teach-phase mount (session reload with a pending check): the dock starts
@@ -200,25 +185,20 @@ export function DockOverlay({
 	const openedBefore = wasRevealed(pending?.key ?? null);
 	const [expanded, setExpanded] = useState(!requiresReveal || openedBefore);
 	const [readingUploading, setReadingUploading] = useState(false);
-	// Reveal state (W5): false until the learner clicks the invitation. While
-	// false, the scroll machine must NOT auto-expand at the bottom — the
-	// learner reads the teaching first and opens the check when ready. Once
-	// revealed, the normal collapse machine rules apply untouched.
+	// Reveal state: false until the learner opens the invitation. While false,
+	// the scroll machine must not auto-expand at the bottom (the learner reads
+	// the teaching first). Once revealed, the normal fold rules apply.
 	const [revealed, setRevealed] = useState(openedBefore);
 	const revealPending = requiresReveal && !revealed;
 
 	const pendingId = pending?.key ?? null;
 	const initialPendingRef = useRef(pendingId);
 
-	// Teach-question ARRIVAL state, applied during render — BEFORE the
-	// first paint (owner, scroll-honesty round 2026-09-25). Until now the
-	// stale expanded=true left by the previous question painted one frame
-	// of the OPEN question: the dock measured itself tall, permanently
-	// reserved that height, and the collapse after the paint could never
-	// give it back (fold immunity) — so a collapsed teach question scrolled
-	// the transcript as if it had opened. Resetting here means the paint
-	// measures the bar, the reserve keeps the composer's height, and the
-	// only motion is the teaching text itself.
+	// Question arrival state, applied during render, before the first paint.
+	// A stale expanded=true from the previous question would paint one frame
+	// of the open question; the dock would measure itself tall and reserve
+	// that height for good (the reserve never shrinks while a question is
+	// open). Resetting here means the paint measures the bar.
 	const prevPendingIdRef = useRef(pendingId);
 	if (pendingId !== prevPendingIdRef.current) {
 		const wasQuestion = prevPendingIdRef.current !== null;
@@ -229,27 +209,25 @@ export function DockOverlay({
 			setExpanded(arrival.expanded);
 			setRevealed(arrival.revealed);
 		} else if (pendingId) {
-			// Probe arrival (flicker round): open iff following at the bottom.
-			// Painted in THIS render — no stale-open frame, no after-paint flip.
+			// Probe arrival: open iff following at the bottom, painted in this
+			// render (no stale-open frame).
 			setExpanded(questionArrivalExpanded(atBottomRef.current));
 		}
 	}
 
-	// New question MID-SESSION (flicker round): the open/closed state itself
-	// is decided DURING RENDER above; this effect only owns the reveal
-	// scroll for the at-bottom arrival — and now under the SAME fold
-	// suppression the teach reveal uses (the arrival's growth used to
-	// out-run the scroll catch-up, the position machine read the lag as the
-	// learner leaving, and the dock flashed open → bar → open; reproduced
-	// frame-by-frame 2026-09-26, d peaked ~405px). On session mount the dock
-	// starts in its initial state — no scroll, no morph.
+	// A new question mid-session: the open/closed state is decided during
+	// render above; this effect only owns the reveal scroll for the at-bottom
+	// arrival, under the same fold suppression as the teach reveal (otherwise
+	// the arrival's growth out-runs the scroll catch-up and the fold machine
+	// reads the lag as the learner leaving). On session mount the dock starts
+	// in its initial state: no scroll, no morph.
 	useEffect(() => {
 		if (!pendingId || pendingId === initialPendingRef.current) return;
 		if (!requiresReveal && atBottomRef.current) void suppressFoldDuringReveal();
 		// fire only when a NEW question lands
 	}, [pendingId]);
 
-	// ── Fold machine (position, not velocity — owner, scroll round 1) ──
+	// ── Fold machine (position, not velocity) ──
 	// The dock is an overlay: folding is visual-only and scroll geometry never
 	// moves, so the thresholds can hug the bottom. Leave it → fold; reach it
 	// again → re-open. The dead band keeps trackpad drift from chattering.
@@ -276,33 +254,23 @@ export function DockOverlay({
 			? `practice:${practice.toolCallId}`
 			: "chat";
 
-	// The plan marginalia's flank width (owner, plan-placement round): from
-	// the DOCK container's right edge to the block's right edge — the bare
-	// diagram's canvas. Tracked LIVE by a ResizeObserver on the block
-	// (owner, resize round): every geometry change — window resize, sidebar
-	// toggle, scrollbar appearance, the box's own rewrap — reports the real
-	// width instantly, so the fade floor never lags behind reality (the old
-	// render-time measurement went stale during drag-resizes and the mount
-	// decision popped late).
-	// The card's make-room padding (Codex round 1, 2026-11-05): the flank
-	// starts at the SHIFTED dock's edge and ends left of the card's lane
-	// (dock-flank.ts). The padding changes with the container query or the
-	// room classes; both change the block's content box, so the observer
-	// below sees them, and `room` re-runs it for good measure.
+	// The plan marginalia's flank: from the DOCK container's right edge to the
+	// block's right edge, the bare diagram's canvas. A ResizeObserver on the
+	// block tracks it live (window resize, sidebar toggle, scrollbar, rewrap),
+	// so the fade floor never lags. With the card's make-room padding the
+	// flank starts at the shifted dock's edge and ends left of the card's lane
+	// (dock-flank.ts); padding changes alter the block's content box, so the
+	// observer sees them, and `room` re-runs it too.
 	const [flank, setFlank] = useState<DockFlank>(() => dockFlank(0, 0, 0));
 	const flankW = flank.width;
 	const flankWRef = useRef(0);
 	const laneRef = useRef(0);
-	// Part A of the same round (the resize mute): any block size change
-	// stamps this — the fold machine ignores scroll events for a beat after,
-	// because a resize/rewrap re-clamps scrollTop and emits PHANTOM scroll
-	// events mid-transient (the box flickered to the bar and back).
-	// Width changes stamp HERE (column resizes); height growth stamps at
-	// the OFFER (see offer below) — the spacer growing is the phantom-scroll
-	// source, not the field stretching. SHRINKS never stamp anywhere: the
-	// fold's own morph shrinks the block and gives back the reserve, and
-	// stamping that self-mutes the at-bottom re-expand — the box got stuck
-	// collapsed (resize round).
+	// The resize mute: the fold machine ignores scroll events for a beat after
+	// a geometry change, because a resize/rewrap re-clamps scrollTop and emits
+	// phantom scroll events mid-transient. Width changes stamp here; height
+	// growth stamps at the offer (below), since the spacer growing is the
+	// phantom-scroll source. Shrinks never stamp: the fold's own morph shrinks
+	// the block, and muting that would swallow the at-bottom re-expand.
 	const geometryAtRef = useRef(0);
 	useIsoLayoutEffect(() => {
 		const block = blockRef.current;
@@ -337,8 +305,8 @@ export function DockOverlay({
 		onReserve(next);
 	}, [onReserve]);
 
-	// The overlay must not paint over the scroller's scrollbar (owner, scroll
-	// round 2): the scroller reserves symmetric gutters (scrollbar-gutter:
+	// The overlay must not paint over the scroller's scrollbar: the scroller
+	// reserves symmetric gutters (scrollbar-gutter:
 	// stable both-edges), so inset the overlay's right edge by the gutter —
 	// zero on macOS overlay scrollbars, the real width on classic platforms.
 	// Budget the whole solid dock, leaving only its question area flexible.
@@ -351,14 +319,12 @@ export function DockOverlay({
 		expanded, enabled: !!pending || !!practice, mode, onScrollbarInset: setSbInset, onHeight: offer,
 	});
 
-	// GROWTH MUTE (owner round, 2026-10-05 — the generation churn): during a
-	// live turn the transcript content grows and stick-to-bottom chases it;
-	// the transient distance-from-bottom used to read as the learner
-	// leaving, folding the dock open↔bar ("disappear and appear again").
-	// A ResizeObserver on the scroller's content stamps the SAME mute the
-	// dock's own resizes use — growth frames can never fold. Shrinks stamp
-	// nothing (the fold's own morph shrinks the reserve; muting that would
-	// self-mute the at-bottom re-expand).
+	// Growth mute: during a live turn the transcript grows and stick-to-bottom
+	// chases it; the transient distance from the bottom must not read as the
+	// learner leaving. A ResizeObserver on the scroller's content stamps a
+	// mute like the dock's own resizes, so growth frames never fold. Shrinks
+	// stamp nothing (muting the fold's own morph would swallow the at-bottom
+	// re-expand).
 	const growthAtRef = useRef(0);
 	useEffect(() => {
 		const el = scrollRef.current;
@@ -376,13 +342,12 @@ export function DockOverlay({
 		return () => ro.disconnect();
 	}, [scrollRef]);
 
-	// Wheel over the dock must still scroll the transcript (owner, scroll
-	// round 2): the overlay is a SIBLING of the scroller, so the browser's
-	// native scroll chaining stops at the overlay (the old in-flow dock
-	// chained for free). Internal scrollers — the question area, textarea
-	// overflow, the model menus — keep native scrolling, including their
-	// own edge chaining; only when nothing under the cursor can take the
-	// delta do we forward it to the transcript.
+	// Wheel over the dock must still scroll the transcript: the overlay is a
+	// sibling of the scroller, so native scroll chaining stops at it. Internal
+	// scrollers (the question area, textarea
+	// overflow, the model menus) keep native scrolling, including their own
+	// edge chaining; only when nothing under the cursor can take the delta do
+	// we forward it to the transcript.
 	useEffect(() => {
 		const root = blockRef.current;
 		const el = scrollRef.current;
@@ -396,11 +361,8 @@ export function DockOverlay({
 	// hundreds of ms, during which the position is still legitimately inside
 	// the collapse zone — the machine would instantly re-collapse the dock
 	// (open → snap shut → reopen at the bottom, the flicker). Suppress the
-	// collapse branch until the reveal scroll settles or is interrupted.
-	// (Flicker round, 2026-09-26: extracted — the probe arrival at the
-	// bottom is the SAME motion class and needs the same cover; the owner's
-	// phrasing: the arrival's open and its scroll-to-bottom "should be the
-	// same kind of motion".)
+	// collapse branch until the reveal scroll settles or is interrupted. The
+	// probe arrival at the bottom is the same motion and uses the same cover.
 	const expandIntentRef = useRef(false);
 	const intentTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 	const suppressFoldDuringReveal = () => {
@@ -415,22 +377,19 @@ export function DockOverlay({
 		});
 	};
 	const expandAndReveal = () => {
-		setRevealed(true); // the teach-check invitation was accepted (W5)
+		setRevealed(true); // the teach-check invitation was accepted
 		rememberRevealed(pendingId);
 		setExpanded(true);
 		void suppressFoldDuringReveal();
 	};
 	const expandAndRevealRef = useRef(expandAndReveal);
 	expandAndRevealRef.current = expandAndReveal;
-	// ENTER (OR SPACE) OPENS THE WAITING CHECK (owner, keyboard round 2026-10-06):
-	// while a question waits with the dock CLOSED — behind its reveal
-	// invitation or collapsed by scroll — Enter is never dead. Any live
-	// dictation FINISHES FIRST (the flush lands in the reading-thinking
-	// field, its live claim — the nothing-gets-lost law), then the check
-	// opens. A typing surface or a focused button owns its own Enter (the
-	// reading-thinking field opens from INSIDE when the check is closed;
-	// a focused button activates natively) — this listener claims only
-	// the dead case: plain focus with Enter doing nothing.
+	// Enter (or Space) opens the waiting check: while a question waits with
+	// the dock closed (behind its reveal invitation or folded by scroll),
+	// Enter is never dead. Any live dictation finishes first (the flush lands
+	// in the reading-thinking field, so nothing is lost), then the check
+	// opens. A typing surface or a focused button owns its own Enter; this
+	// listener claims only plain focus, where Enter would do nothing.
 	useEffect(() => {
 		if (!pending || expanded) return;
 		const onKeyDown = (e: KeyboardEvent) => {
@@ -449,23 +408,21 @@ export function DockOverlay({
 		if (!el) return;
 		const onScroll = () => {
 			if (!pendingRef.current) return;
-			// Resize mute (owner, resize round): a geometry change re-clamps
-			// scrollTop and the browser emits the clamp as a scroll event —
-			// reading the transient position folded the box to the bar for a
-			// flicker. Real scrolling resumes after the brief mute window.
+			// Resize mute: a geometry change re-clamps scrollTop and the browser
+			// emits the clamp as a scroll event. Real scrolling resumes after the
+			// brief mute window.
 			if (Date.now() - geometryAtRef.current < 400) return;
-			// Growth mute (owner round, 2026-10-05): the transcript growing
-			// under a live turn is not the learner leaving.
+			// Growth mute: the transcript growing under a live turn is not the
+			// learner leaving.
 			if (Date.now() - growthAtRef.current < 400) return;
 			const d = el.scrollHeight - el.clientHeight - el.scrollTop;
 			if (expandedRef.current) {
-				// INTENT-GATED FOLD (owner ruling, 2026-10-05): distance alone
-				// folded on stick-to-bottom's catch-up transients; a real fold
-				// needs the distance AND stick-to-bottom agreeing the learner
-				// left the bottom.
+				// A fold needs the distance AND stick-to-bottom agreeing the
+				// learner left the bottom: distance alone trips on stick-to-bottom's
+				// catch-up transients.
 				if (d > COLLAPSE_DIST && !expandIntentRef.current && !atBottomRef.current) setExpanded(false);
 			} else if (d < EXPAND_DIST) {
-				// Teach checks stay collapsed until the learner opens them (W5): the
+				// Teach checks stay collapsed until the learner opens them: the
 				// at-bottom auto-expand would pop the form over the teaching.
 				if (requiresRevealRef.current && !revealedRef.current) return;
 				setExpanded(true);
@@ -491,9 +448,8 @@ export function DockOverlay({
 	// Height morph: animate the shell from its previous height to its new one
 	// whenever the variant (chat ↔ question ↔ collapsed bar) changes. Typing
 	// growth keeps the same stateKey and is NOT animated.
-	// The fold's CONTENT fade (owner round, 2026-10-05): the shell height
-	// morphs, but the bar↔form content used to hard-swap. A WAAPI fade/rise
-	// on the toggle — no remount, so the question form's state survives.
+	// The fold's content fade: a WAAPI fade/rise on the bar↔form toggle, with
+	// no remount, so the question form's state survives.
 	const prevExpandedForFadeRef = useRef(expanded);
 	useIsoLayoutEffect(() => {
 		if (prevExpandedForFadeRef.current === expanded) return;
@@ -503,10 +459,9 @@ export function DockOverlay({
 			{ duration: 160, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
 		);
 	}, [expanded]);
-	// The height-morph key (components/dock-state-key.ts): the expanded
-	// term (the fold) belongs to EVERY docked variant — question AND
-	// practice (owner fix, 2026-10-06). Typing growth keeps the key and
-	// never animates; the fold/unfold morphs like teaching always has.
+	// The height-morph key (components/dock-state-key.ts): the expanded term
+	// (the fold) applies to every docked variant, question and practice.
+	// Typing growth keeps the key and never animates; fold/unfold morphs.
 	const stateKey = dockStateKey(mode, !!pending || !!practice, expanded);
 	const prevRef = useRef<{ key: string; height: number } | null>(null);
 	useIsoLayoutEffect(() => {
@@ -546,15 +501,14 @@ export function DockOverlay({
 					<div ref={viewportRef} data-dock-viewport="" className="pointer-events-auto">
 					<div ref={bodyRef}>
 					{setupCta}
-					{/* The queued-steer indicator (owner spec 2026-10-03): quiet
-					    one-liners above the shell - right-aligned to where its corner
-					    rounding starts, truncated, no background, no container. A
-					    line dies when its card lands (visibleQueuedSteers). */}
+					{/* The queued-steer indicator: quiet one-liners above the shell,
+					    right-aligned to where its corner rounding starts. A line goes
+					    away when its card lands (visibleQueuedSteers). */}
 					<QueuedSteersBody steers={queuedSteers} />
-					{/* The reading-thinking field (owner 2026-10-03): mounted while a
-					    teach-phase check waits. It claims dictated speech until the
-					    learner reveals a collapsed check (the dock reclaims then).
-					    Rides the check answer on submit. */}
+					{/* The reading-thinking field: mounted while a teach-phase check
+					    waits. It claims dictated speech until the learner reveals a
+					    collapsed check (the dock reclaims it then), and is sent with
+					    the check answer. */}
 					{pending && teachingCheck && showReadingThinking && (
 						<ReadingThinkingField
 							key={pending.toolCallId}
@@ -633,29 +587,20 @@ export function DockOverlay({
 						chatId={chatId}
 						onModelChange={onModelChange}
 					/>
-					{/* The scroll-down disc (moved here from the Conversation,
-					    owner refinement round 2026-09-24): anchored to the BLOCK's
-					    top edge — above the composer shell AND the stats row, in
-					    the gradient's transparent band — so it never overlaps
-					    any dock element. Because the anchor is the block itself
-					    (not the scroller's bottom), it rides every height change
-					    LIVE: typing growth, a pending question expanding the
-					    band, the 180ms fold morph. pointer-events-auto: the
-					    overlay is none by default. The isAtBottom/scrollToBottom
-					    context still reaches it — DockOverlay is a Conversation
-					    child. */}
+					{/* The scroll-down disc: anchored to the block's top edge, in the
+					    gradient's transparent band, so it never overlaps any dock
+					    element and rides every height change live (typing, a
+					    question expanding the band, the fold morph).
+					    pointer-events-auto: the overlay is none by default. The
+					    stick-to-bottom context reaches it because DockOverlay is a
+					    Conversation child. */}
 					<ConversationScrollButton className="pointer-events-auto bottom-full mb-2" />
 				</div>
-				{/* The plan marginalia (owner, plan-placement round): the bare
-				    diagram in the band's right flank — boundaless, meet-fitted, part
-				    of the lesson's page rather than a floating widget. Mounted only
-				    while a question owns the band (its reserved height is the canvas);
-				    folding the dock fades + blurs it out of existence, so reading
-				    the transcript in full wipes the margin clean. Click → popup.
-				    Width (owner, resize round): the box shrinks continuously with
-				    the flank; below MARGIN_MIN_W it FADES (never pops away — no
-				    mid-question unmount), and widening past the floor fades it
-				    back in. */}
+				{/* The plan marginalia: the bare diagram in the band's right flank,
+				    mounted only while a question owns the band (its reserved height
+				    is the canvas). Folding the dock fades and blurs it out. The box
+				    shrinks with the flank; below MARGIN_MIN_W it fades rather than
+				    unmounting mid-question. Click opens the popup. */}
 				{pending && plan && (
 					<Hint label="Open the full plan" side="bottom">
 <button

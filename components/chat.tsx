@@ -80,20 +80,13 @@ import { useReadingThinkingRefresh } from "@/components/reading-thinking-refresh
 import { DockOverlay, GRADIENT_H } from "@/components/dock-overlay";
 import { useSessionRename } from "@/components/session-rename";
 
-/** One width for everything: transcript, cards, and the bottom blob share this column. */
-/**
- * Width tokens (wave-5 reskin, owner decision): the teaching PROSE spans the
- * full session width with a thin px-6 margin; the composer/question DOCK is
- * deliberately narrower (~46rem centered) per the reference. Same ELEMENT,
- * same place — width polish only.
- */
+/** The transcript column: full session width with a thin px-6 margin. The
+ *  composer/question dock is narrower (DOCK in dock-overlay.tsx). */
 const COLUMN = "mx-auto w-full max-w-none px-6";
 
-/** The BYOK refusal envelope from the transport's error text: the
- *  DefaultChatTransport throws the 503 body VERBATIM as the error message,
- *  so the machine-readable {code, missing} shape survives to here. Real
- *  errors (any other text) read as null and keep the honest banner.
- *  Exported pure for tests. */
+/** The BYOK refusal envelope from the transport's error text: the 503 body
+ *  arrives verbatim as the error message, so the {code, missing} shape
+ *  survives to here. Any other text reads as null and keeps the error banner. */
 export function parseModelsRefusal(message: string | undefined): ModelSlotName[] | null {
 	if (!message) return null;
 	try {
@@ -108,11 +101,9 @@ export function parseModelsRefusal(message: string | undefined): ModelSlotName[]
 	}
 }
 
-/** The provider-key refusal's transport seam (zero-keys wave, Platform's
- *  66dbea9): same discipline as parseModelsRefusal — the 503 body rides
- *  the thrown error message verbatim, so the envelope's own matcher
- *  (core, invariant-tail) decides; the wording can never drift client-
- *  side. Exported pure for tests. */
+/** The provider-key refusal, read like parseModelsRefusal: the 503 body is
+ *  the error message verbatim and core's matcher decides, so the wording
+ *  cannot drift client-side. */
 export function parseProviderKeyRefusal(message: string | undefined): boolean {
 	if (!message) return false;
 	try {
@@ -141,13 +132,13 @@ export function restoreInterruptedDraft(current: string, rejected: string): stri
 }
 
 /**
- * The teaching session. All chat state lives in useChat; the server persists
- * the canonical transcript after every turn.
+ * The teaching session. Session state lives in useChatSession; the server
+ * persists the canonical transcript after every turn.
  *
- * The bottom blob is ONE persistent shell whose contents swap (chat composer ↔
- * question dock ↔ collapsed bar). The shell is sticky INSIDE the scroller —
- * never overlapping the transcript at rest, never covering the scrollbar —
- * and DockOverlay animates its height on variant changes.
+ * The bottom dock is ONE persistent shell (DockOverlay) whose contents swap
+ * (composer ↔ question dock ↔ collapsed bar). It is overlaid on the bottom of
+ * the scroller; a transcript spacer reserves its height so content at rest
+ * scrolls clear of it.
  */
 export function Chat({
 	chatId,
@@ -170,9 +161,8 @@ export function Chat({
 	initialMessages: LhMessage[];
 	/** Memory-only settlement notice supplied on reopening. */
 	initialError?: string;
-	/** The session kind (practice sessions, owner 2026-10-04): practice
-	 *  renders no phase chip (no probe→teach arc applies) and a Practice
-	 *  tag rides the header instead. */
+	/** Practice renders no phase chip (no probe→teach arc) and shows a
+	 *  Practice tag in the header instead. */
 	kind?: "teach" | "practice";
 	/** "cram" for a lesson started in cram mode (core/cram.ts). */
 	style?: "cram";
@@ -186,28 +176,23 @@ export function Chat({
 	/** A teacher turn is running server-side but attached to no client
 	 * (navigated away mid-turn, returned while in flight). */
 	initiallyInFlight?: boolean;
-	/** A compaction holds the chat's model gate at mount (navigated away
-	 * mid-compaction — the registry is live server state, the
-	 * compaction-changed event already fired). The transcript spinner
-	 * and send gates key on it. */
+	/** A compaction holds the chat's model gate at mount (its
+	 * compaction-changed event already fired). The transcript spinner and
+	 * send gates key on it. */
 	initiallyCompacting?: boolean;
-	/** slotsConfigured(server record) — the persistent setup CTA keys on
-	 *  it (BYOK, owner 2026-09-22). The server gate stays the truth; this
-	 *  only decides whether the pill rides the composer. */
+	/** slotsConfigured(server record): decides whether the setup pill shows
+	 *  above the composer. The server gate stays the truth. */
 	initialConfigured?: boolean;
 	initialShowReadingThinking?: boolean;
 }) {
-	// Reattach plumbing (background-turn runner wave): the hook holds the
-	// settled terminal's callback — a stable ref assigned below, once
-	// syncFromServer exists (refs, not closures: no stale capture).
+	// The reattach stream's settled callback: a stable ref assigned below once
+	// syncFromServer exists (a ref, not a closure, so nothing goes stale).
 	const reattachSettledRef = useRef<() => void>(() => {});
 
-	// THE SESSION HOOK (Wave D, owner-approved 2026-09-26): the app-owned
-	// replacement for useChat + the AI-SDK transport. The record is native
-	// history; the VIEW (grouped, golden-master) is derived client-side
-	// (core/view.ts projectView); sends are ONE explicit input event each
-	// ({chatId, input} — the stash indirection died with the SDK), and the
-	// turn stream is the VERBATIM AgentEvent passthrough the server emits.
+	// The session hook: the record is native history; the view is derived
+	// client-side (core/view.ts projectView); each send is one explicit input
+	// event ({chatId, input}); the turn stream is the server's AgentEvent
+	// passthrough.
 	const { messages, nativeMessages, hasConfirmedConversation, contextTokens, lessonTracking: tracking, tutorPin, send, continueIfOwed, steer, steerQueue, submitAnswer, dismissQuestion, dismissProblem, questionDraft, saveQuestionDraft, setMessages, adoptRecord, status, error, abortTurn, clearError, resumeStream, setReattachSettled } =
 		useChatSession({ chatId, initialMessages, initialError, initiallyInFlight });
 
@@ -217,26 +202,23 @@ export function Chat({
 	// The reattach settled terminal → the sync-and-continue seam (below).
 	setReattachSettled(() => reattachSettledRef.current());
 
-	// A turn running server-side, attached to no live view of ours (navigate
-	// away mid-turn, or a wake turn discovered mid-session): the reattach
-	// stream is the primary channel (resumeStream — the same rendering path
-	// as a live turn); this flag is the FALLBACK liveness source — it gates
-	// the composer, shows the pre-first-chunk shimmer, and drives the 1500ms
-	// record poll that adopts at settle if the stream can't attach.
+	// A turn running server-side that no live view of ours holds (navigated
+	// away mid-turn, or a wake turn discovered mid-session). The reattach
+	// stream is the primary channel (resumeStream, the same rendering path as
+	// a live turn); this flag is the fallback liveness source: it gates the
+	// composer and shows the pre-first-chunk shimmer until the stream attaches
+	// or turn-settled arrives.
 	const [turnInFlight, setTurnInFlight] = useState(initiallyInFlight ?? false);
 
 	const { titleText, renaming, setRenaming, titleDraft, setTitleDraft, titleInputRef, commitRename } = useSessionRename(chatId, title);
 
 	// Explicit Stop shares the pending-send fence with composer interruptions.
 	const abortInFlightTurn = useCallback(() => { void abortTurn(); }, [abortTurn]);
-	// ESC-abort guard (owner, 2026-10-02): the abort chain opens a confirm
-	// popup EVERYWHERE (streams and pending questions alike). Both window
-	// listeners fire per Esc, so the state gate here — not stopPropagation
-	// ordering — is what keeps the popup's own Esc from chaining.
-	// LAYERED ESC (owner, 2026-10-04): an open overlay CLAIMS Esc — closing
-	// itself — before the abort chain may open its confirm. A mermaid focus,
-	// the plan popup, or the setup dialog over a pending question must not
-	// dismiss the question underneath.
+	// Esc: the abort chain opens a confirm popup (for streams and pending
+	// questions alike). Both window listeners fire per Esc, so the state gate
+	// here, not stopPropagation ordering, keeps the popup's own Esc from
+	// chaining. An open overlay claims Esc first and closes itself
+	// (escAbortTarget), so it never dismisses the question underneath.
 	const [abortAsk, setAbortAsk] = useState<AbortMode | null>(null);
 	const abortAskRef = useRef<AbortMode | null>(null);
 	abortAskRef.current = abortAsk;
@@ -275,12 +257,11 @@ export function Chat({
 				abortInFlightTurn();
 				return;
 			}
-			// From a pending question the dismiss is silent (A2, 2026-10-03):
-			// the skipped toolResult lands via the SILENT route, no turn, no
-			// wake — the next plain send is the wake. MID-TURN (owner,
-			// 2026-10-04 — the GLM loop): the question can only dangle because a
-			// turn is STILL RUNNING, so the discard ALSO kills that turn; the
-			// route parks the dismissal (202) and the settle applies it.
+			// Dismissing a pending question is silent: the skipped toolResult
+			// lands with no turn and no wake; the next plain send wakes the
+			// teacher. Mid-turn the question can only dangle because a turn is
+			// still running, so the discard also kills that turn; the route
+			// parks the dismissal (202) and the settle applies it.
 			const p = pendingRef.current;
 			if (p) {
 				const question = (p.input as { question?: string } | null)?.question ?? "";
@@ -295,10 +276,9 @@ export function Chat({
 				if (busyRef.current) abortInFlightTurn();
 				return;
 			}
-			// The practice discard (owner, 2026-10-04): ask-style — the
-			// silent marker route; the conclude synthesis rides the user's
-			// next input. The composer returns immediately. Mid-turn the
-			// discard also kills the running turn (same park + settle law).
+			// The practice discard uses the same silent route; the conclude
+			// synthesis rides the learner's next input and the composer returns
+			// at once. Mid-turn it also kills the running turn (park + settle).
 			const problem = activeProblemRef.current;
 			if (problem) {
 				void dismissProblem(problem.toolCallId);
@@ -308,12 +288,10 @@ export function Chat({
 		[abortInFlightTurn, dismissQuestion, dismissProblem],
 	);
 	// Mount continuation: if the stored transcript ends with a fulfilled tool
-	// (a job result landed while no client was open), resume the lesson — the
-	// SDK's sendAutomaticallyWhen only fires inside addToolOutput, so reloads
-	// need this nudge. Once per mount; the turn that follows ends in text (or
-	// a pending question), so no loop. NEVER while a turn is already running
-	// server-side — that would double-run the teacher (the server would 409
-	// it; the poll below resumes instead).
+	// (a job result landed while no client was open), resume the lesson. Once
+	// per mount; the turn that follows ends in text or a pending question, so
+	// no loop. Never while a turn already runs server-side: that would
+	// double-run the teacher (the server would 409; the poll resumes instead).
 	const mountContinuation = useRef(false);
 	useEffect(() => {
 		if (mountContinuation.current) return;
@@ -329,10 +307,9 @@ export function Chat({
 	const pendingRef = useRef(pending);
 	pendingRef.current = pending;
 
-	// THE ACTIVE PRACTICE PROBLEM (practice sessions, 2026-10-04): the
-	// same dock-ownership rule as a pending question — an active problem
-	// replaces the composer. Computed from the NATIVE record (the fold is
-	// the gate the tools themselves read), not the projected view.
+	// An active practice problem owns the dock like a pending question (it
+	// replaces the composer). Read from the native record, the same fold the
+	// tools gate on, not the projected view.
 	const activeProblem = activeProblemOf(nativeMessages);
 	const activeProblemRef = useRef(activeProblem);
 	activeProblemRef.current = activeProblem;
@@ -344,12 +321,9 @@ export function Chat({
 	// The full record refresh's freshness snapshot (record-sync.ts).
 	const nativeMessagesRef = useRef(nativeMessages);
 	nativeMessagesRef.current = nativeMessages;
-	// The attach handoff (stream-reattach wave): the moment a resumed
-	// stream takes over the rendering — the SDK left "ready", so
-	// submitted/streaming means chunks are flowing — localStream covers
-	// busy/shimmer/gates on its own. Keeping turnInFlight set would only
-	// double-render the shimmer and keep the 1500ms fallback poll fighting
-	// the live stream it was a fallback FOR.
+	// The attach handoff: once a resumed stream is rendering (status left
+	// "ready"), localStream covers busy/shimmer/gates on its own. Keeping
+	// turnInFlight set would double-render the shimmer.
 	useEffect(() => {
 		if (turnInFlight && (status === "submitted" || status === "streaming")) setTurnInFlight(false);
 	}, [status, turnInFlight]);
@@ -358,8 +332,8 @@ export function Chat({
 	// exists that none of our views holds — attach to it through the same
 	// resume path as mount reattach (live rendering, instant catch-up). The
 	// flag stays as the fallback until the stream attaches (watcher above);
-	// concurrent resume calls are SDK-guarded (a newer one aborts the older
-	// request), so discovery ticks re-firing this are harmless.
+	// a newer resume aborts the older request, so discovery ticks re-firing
+	// this are harmless.
 	const turnInFlightRef = useRef(turnInFlight);
 	turnInFlightRef.current = turnInFlight;
 	const attachToRunningTurn = useCallback(() => {
@@ -367,11 +341,9 @@ export function Chat({
 		void resumeStream();
 	}, [resumeStream]);
 
-	// The practice dock's send (ONE lane, owner 2026-10-05): POSTs the
-	// thinking against the ACTIVE problem — whether it claims an answer is
-	// read from the text by the agent, not declared here. Starts a turn;
-	// the dock stays mounted (the problem is still active until the agent
-	// concludes).
+	// The practice dock's one send lane: posts the thinking against the active
+	// problem (the agent reads whether it claims an answer). Starts a turn;
+	// the dock stays mounted until the agent concludes.
 	const submitThinking = useCallback(
 		(text: string) => {
 			const problem = activeProblemRef.current;
@@ -385,34 +357,32 @@ export function Chat({
 	// and ask questions never) keeps the optional reading-notes field. It
 	// also waits behind the "Check your understanding" reveal, opened with
 	// Enter or a click, when Settings → General → Reveal questions says so:
-	// in cram mode by default (owner, 2026-11-01), always, or never. The
+	// in cram mode (the default), always, or never. The
 	// session's current phase IS the pending question's phase (the
 	// teacher's turn ends at the question call).
 	const teachingCheck = pending !== null && isTeachingCheck(pending.tool, pending.input, phaseAt3(messages));
 	// Cram is chat metadata another window can switch: re-read on
 	// chats-changed and reconnects, newest confirmed value first.
 	const { cram, begin: beginCramSave } = useLessonCram(chatId, style === "cram");
-	// The lesson's stored question type (owner, 2026-11-03): the Qs chip
-	// writes it; record-changed and reconnects re-read it (another device's
-	// pick), newest confirmed value first.
+	// The lesson's stored question type: the Qs chip writes it; record-changed
+	// and reconnects re-read it, newest confirmed value first.
 	const lessonQuestionType = useLessonQuestionType(chatId, initialQuestionType);
-	// Hooks run on every render: never behind && (a skipped hook crashed the page after an answer).
+	// A hook, so it runs on every render: never put it behind &&.
 	const revealSetting = useGeneralSettings()?.revealQuestions;
 	const requiresReveal = teachingCheck && revealsQuestions(revealSetting, cram);
 
-	/* The READING-THINKING channel (owner 2026-10-03): a draft field for
-	 * thinking while reading the teaching prose, mounted while a check waits
-	 * behind its reveal, riding the check answer (or its dismissal) as the
-	 * separate `readingThinking` field. Reset per pending question. */
+	/* The reading-thinking channel: a draft field for notes while reading the
+	 * teaching, mounted while a check waits behind its reveal, sent with the
+	 * check answer (or its dismissal) as `readingThinking`. Reset per pending
+	 * question. */
 	const [showReadingThinking, setShowReadingThinking] = useState(initialShowReadingThinking);
 	const [readingThinkingSeed, setReadingThinkingSeed] = useState({ questionId: null as string | null, value: "", revision: 0 });
 	const readingThinkingRef = useRef("");
 	useReadingThinkingResync(showReadingThinking, readingThinkingRef, setReadingThinkingSeed);
 	const { sideTutor, toggleSideTutor, closeSideTutor } = useSideTutor();
 
-	// ⌘T (toggle-user-thinking, owner round 2026-10-07): set EVERY user
-	// thinking row to one state — transcript rows default open, so the
-	// first press collapses everything, the second re-expands.
+	// ⌘T (toggle-user-thinking): sets every user thinking row to one state.
+	// Rows default open, so the first press collapses all, the second expands.
 	useEffect(() => {
 		const onToggle = () => setAllUserThinkingOpen(!currentUserThinkingOpen());
 		window.addEventListener(kbdEventForChat("toggle-user-thinking"), onToggle);
@@ -450,8 +420,8 @@ export function Chat({
 	const [composerDraftRevision, setComposerDraftRevision] = useState(0);
 	/* The composer draft ref is synchronous, so sends and dictation flushes
 	 * read the latest text without a parent render per input event. Explicit
-	 * resets still bump a revision so the local field can sync. */
-	// The composer draft autosaves per chat (components/draft-store.ts).
+	 * resets still bump a revision so the local field can sync. The draft
+	 * autosaves per chat (components/draft-store.ts). */
 	const textRef = useRef("");
 	const composerDraftKey = `c:${chatId}`;
 	useLayoutEffect(() => {
@@ -478,11 +448,10 @@ export function Chat({
 	const [selectedModel, setSelectedModel] = useState<string | undefined>();
 	const settingsRefreshError = useReadingThinkingRefresh(setShowReadingThinking);
 	const [setupOpen, setSetupOpen] = useState(false);
-	/** The last explicitly-sent draft (composer send): the
-	 *  refusal flow restores it into the composer, where it waits for the
-	 *  learner to re-send (Save never auto-sends, owner 2026-10-09).
-	 *  Auto-continuations (probe answers) never set it — their refusal
-	 *  opens recovery with no replay. */
+	/** The last explicitly-sent composer draft: the refusal flow restores it
+	 *  into the composer, where it waits for the learner to re-send (Save never
+	 *  auto-sends). Auto-continuations (probe answers) never set it, so their
+	 *  refusal opens recovery with no replay. */
 	const draftRef = useRef<string | null>(null);
 	const openingDraftRef = useRef<string | null>(null);
 	const [openingError, setOpeningError] = useState(false);
@@ -545,28 +514,23 @@ export function Chat({
 		setOpeningError(false);
 	}, [chatId, hasConfirmedConversation, applyText]);
 
-	// THE BYOK REFUSAL (owner, 2026-09-22): a send that lands the server's
-	// 503 models_not_configured envelope renders as the SETUP FLOW, never
-	// the error banner. The gate refuses BEFORE the write-ahead persist,
-	// so the server record is the truth minus the refused send — the
-	// optimistic message is an orphan that goes HOME: refetch the record,
-	// drop the orphan, put the draft back in the composer, open the
-	// dialog (the prefilled tiers carry their picks, the unpinned ones the
-	// "needed" marks). The draft stays in the composer until the learner
-	// re-sends it (owner ruling 2026-10-09).
+	// The BYOK refusal: a send that gets the 503 models_not_configured
+	// envelope opens the setup flow, never the error banner. The gate refuses
+	// before the write-ahead persist, so the record is the truth minus the
+	// refused send: refetch it (dropping the optimistic orphan), put the draft
+	// back in the composer until the learner re-sends it, and open setup.
 	useEffect(() => {
 		if (!error) return;
 		const missing = parseModelsRefusal(error.message);
-		// The key-refusal twin (zero-keys wave): a pinned model whose
-		// provider key is gone also restores the draft. With another provider
+		// The key refusal: a pinned model whose provider key is gone also
+		// restores the draft. With another provider
 		// connected, repair belongs to the ordinary current-session picker;
 		// otherwise setup derives its exclusive provider/loading stage.
 		const keyRefused = parseProviderKeyRefusal(error.message);
 		if (!missing && !keyRefused) return; // a real error keeps the honest banner
-		// ORDER MATTERS: clearError() flips this effect's own dep (`error`)
-		// and would cancel the in-flight work below — so the banner dismiss,
-		// the draft restore, and the dialog open all land TOGETHER after the
-		// record refetch (the honest truth minus the refused send).
+		// ORDER MATTERS: clearError() flips this effect's own dep (`error`) and
+		// would cancel the work below, so the banner dismiss, draft restore
+		// and dialog open all land together after the record refetch.
 		let cancelled = false;
 		void (async () => {
 			const res = await fetch(`/api/chats/${encodeURIComponent(chatId)}`);
@@ -586,18 +550,14 @@ export function Chat({
 		return () => {
 			cancelled = true;
 		};
-		// (setMessages/clearError are stable per useChat instance — the
-		//  dep pair [error, chatId] is what the flow actually keys on.)
+		// (setMessages/clearError are stable per session; the flow keys on
+		//  [error, chatId].)
 	}, [error, chatId]);
-	// Voice dictation (STT wave, 2026-09-17): finals append at the end of
-	// the current text (the page owns the separator, dictate-flush style);
-	// interims ghost in the stats bar's middle slot next to the meter.
-	// TAB CYCLES THE CHAT'S FIELDS (owner, keyboard round 2026-10-06):
-	// reading-thinking → the active dock's field → the composer, in
-	// visual order, forward-only with wrap; Tab from anywhere else
-	// focuses the first live field (navigate IN). Gathered from live
-	// DOM at event time — the docks mount and unmount, refs would go
-	// stale. The quiz dock's rows↔thinking claim never reaches here.
+	// Tab cycles the chat's fields: reading-thinking → the active dock's field
+	// → the composer, in visual order, forward-only with wrap; Tab from
+	// anywhere else focuses the first live field. Gathered from the live DOM at
+	// event time because the docks mount and unmount (refs would go stale).
+	// The quiz dock's rows↔thinking claim never reaches here.
 	const cycleChatFields = useCallback((): readonly HTMLElement[] => {
 		const pick = (sel: string) => Array.from(document.querySelectorAll<HTMLElement>(sel));
 		return [
@@ -608,16 +568,17 @@ export function Chat({
 		];
 	}, []);
 	useFieldCycle(cycleChatFields);
+	// Voice dictation: finals append at the end of the current text (the page
+	// owns the separator).
 	const dictation = useDictation({
 		// Ref-first (see textRef): the join is computed from the mirror so a
 		// send resuming after `await finish()` reads the dictated tail.
 		append: (t) => applyText(joinDictation(textRef.current, t)),
 	});
-	/* When a dictation run ends, the bare composer takes focus (owner
-	 * 2026-10-01) — the hands are already on the keyboard from the stop.
-	 * Falling edge of `active` only (idle→idle never focuses), and ONLY the
-	 * composer: with a question pending the Composer is unmounted, the ref
-	 * is null, and the thinking field is left alone by design. */
+	/* When a dictation run ends, the composer takes focus (the hands are on
+	 * the keyboard from the stop). Falling edge of `active` only, and only the
+	 * composer: with a question pending the Composer is unmounted, the ref is
+	 * null, and the thinking field is left alone. */
 	const dictationWasActiveRef = useRef(false);
 	const composerInputRef = useRef<HTMLDivElement>(null);
 	useEffect(() => {
@@ -629,37 +590,29 @@ export function Chat({
 		}
 	}, [dictation.active]);
 
-	// Jobs never gate the composer (contracts.ts "THE ASYNC PROTOCOL" §4): job
-	// tools resolve with an ack mid-turn, so the learner can interject while
-	// sub-agents run — a feature, not a race: the wake pipeline queues steers
-	// until the current turn ends. Only a QUESTION pending or a turn in
-	// flight (client or server-side wake turn) gates sending.
-	// A LIVE dictation also makes the composer sendable (owner 2026-10-01):
-	// the spoken text is deferred in the run's buffer — Enter must be able
-	// to trigger the finish-first send (see onSend), not be gated out by an
-	// empty textarea. If nothing was said, the send is a harmless no-op.
-	// Steering (2026-10-03): a turn in flight no longer gates the composer —
-	// Enter while a turn runs STEERS it (the quiet queue above the composer);
-	// a pending question still owns the interaction (the dock replaces the
-	// composer, and there is no live turn to steer anyway — questions end
-	// turns).
-	// Compaction (owner round 14): the RUNNING state — compaction-changed
-	// flips it; the send paths, canSend, and the docks gate on it (the
-	// server's registry mutex is the structural gate; this is the
-	// affordance).
+	// Send gating. Jobs never gate the composer (contracts.ts "THE ASYNC
+	// PROTOCOL" §4): job tools ack mid-turn and the wake pipeline queues steers
+	// until the turn ends. A turn in flight doesn't gate it either: Enter
+	// steers the running turn (the queue above the composer). A pending
+	// question or active problem owns the dock instead. A live dictation keeps
+	// the composer sendable: the spoken text is still in the run's buffer, so
+	// Enter must reach the finish-first send (see onSend); with nothing said
+	// the send is a no-op. `compacting` tracks compaction-changed; the send
+	// paths, canSend and the docks gate on it (the server's registry mutex is
+	// the real gate; this is the affordance).
 	const [compacting, setCompacting] = useState(initiallyCompacting);
-	// A failed model response (issue #110): Retry keeps the saved input
-	// and completed work, without another learner message. Offered from
+	// A failed model response: Retry keeps the saved input and completed
+	// work, without another learner message. Offered from
 	// "error" too: a dropped stream leaves the model there, and send()
 	// recovers from it. Later compaction requires new input instead.
 	const retryable = (status === "ready" || status === "error") && !busy && !compacting && endsInFailedTurn(nativeMessages);
 	const retryFailedTurn = () => retryFailedResponse(send, draftRef);
 	const sendAllowed = !pending && !activeProblem && !compacting;
 
-	/* THE PRACTICE PAUSE (owner round 16): between problems — practice
-	 * kind, nothing active, nothing in flight, and at least one problem
-	 * has ever been posed (the fresh session's opening turn is owed, not
-	 * the move-on). Enter-on-empty and the Next chip both key on it. */
+	/* The practice pause between problems: practice kind, nothing active or
+	 * in flight, and at least one problem already posed (a fresh session owes
+	 * its opening turn, not the move-on). Enter-on-empty and the Next chip
+	 * both key on it. */
 	const nextReady =
 		kind === "practice" &&
 		!pending &&
@@ -678,14 +631,10 @@ export function Chat({
 		void send({ type: "next" });
 	}, [nextReady, send]);
 
-	/* ENTER FROM ANYWHERE (owner round 16 refinement, 2026-10-06 —
-	 * keyboard-first): the move-on must not require composer focus. The
-	 * window-level Enter (typing surfaces and buttons excluded — a
-	 * focused composer/button keeps its own lane, so no double fire)
-	 * fires the signal from body focus, a scroll, anywhere. sendNext
-	 * self-guards on nextReady, so the listener is inert outside the
-	 * pause — the dock-mounted listeners are gone by then (docks unmount
-	 * when nothing is active; the two never overlap). */
+	/* Enter from anywhere moves on: the window-level Enter (typing surfaces
+	 * and buttons keep their own lane, so no double fire) works without
+	 * composer focus. sendNext self-guards on nextReady, so the listener is
+	 * inert outside the pause, when the dock-mounted listeners are gone. */
 	useEnterSubmits(sendNext);
 
 	const syncFromServer = useCallback(async (retries = 1): Promise<boolean> => {
@@ -705,37 +654,32 @@ export function Chat({
 			if (!Array.isArray(record.messages)) return false;
 			setMessages(record.messages, record.turnError);
 			// The continuation seam (contracts.ts protocol §4): a job result
-			// landing in the record leaves the agent owing a continuation — the
-			// record ENDS on un-consumed results, the dock owns no question, and
-			// nothing runs. The native fold (needsContinuation) is the old SDK
-			// lastAssistantMessageIsCompleteWithToolCalls check.
-			// Current model truth also guards retained/live failures: canonical
-			// sync must never automatically replace a reply that failed to save.
+			// landing in the record leaves the agent owing a continuation (the
+			// record ends on unconsumed results, no question, nothing running).
+			// The model's own state also guards retained/live failures: a sync
+			// must never automatically replace a reply that failed to save.
 			continueIfOwed(record.messages);
 			return true;
 		} catch { return false; /* retain the confirmed view on a transient read failure */ }
 	}, [chatId, setMessages, continueIfOwed]);
 
-	// The settled terminal's other half (stream-reattach wave): the
-	// transport resolved turn-settled — no turn running, the record is
-	// current. Drop the fallback busy state and adopt the record (its
-	// continuation check fires the owed next turn, exactly as the poll's
-	// settle branch always did).
+	// The settled terminal's other half: the reattach stream resolved
+	// turn-settled, so no turn runs and the record is current. Drop the
+	// fallback busy state and adopt the record (its continuation check fires
+	// any owed next turn, as the poll's settle branch does).
 	reattachSettledRef.current = () => {
 		setTurnInFlight(false);
 		void syncFromServer();
 	};
 
-	// ── Append-only record adoption (owner ground rules, 2026-09-15) ──
-	// Content delivered into the record server-side — sub-agent
-	// artifacts, abort notes — must become visible the
-	// moment it persists, mid-turn included: it sits between messages, and
-	// nothing about a running turn should hide it. The full snapshot sync
-	// mid-stream is forbidden (it breaks the SDK's in-place continuation
-	// merge — the stale-snapshot lesson), so adoption here is APPEND-ONLY
-	// (the session hook's adoptRecord): insert the record's new ids in their canonical
-	// order, never rewrite a local one, keep the in-flight tail last. The
-	// full syncFromServer stays the net at idle (reorder, plan blocks, turns).
+	// ── Append-only record adoption ──
+	// Content written into the record server-side (sub-agent artifacts, abort
+	// notes) must show the moment it persists, mid-turn included. A full
+	// snapshot sync mid-stream would collide with the streaming tail
+	// (duplicate message ids), so this adoption is append-only (adoptRecord):
+	// insert the record's new ids in canonical order, never rewrite a local
+	// one, keep the in-flight tail last. The full syncFromServer stays the net
+	// at idle (reorder, plan blocks, turns).
 	const adoptAppendOnly = useCallback(async () => {
 		try {
 			const res = await fetch(`/api/chats/${chatId}`);
@@ -767,8 +711,8 @@ export function Chat({
 		return () => { timers.forEach(clearTimeout); timers.clear(); };
 	}, []);
 
-	// The live plan popup (wave 4): opened by any transcript plan block, the
-	// top-bar plan chip, and the dock band's marginalia.
+	// The live plan popup: opened by any transcript plan block, the top-bar
+	// plan chip, and the dock band's marginalia.
 	const [planOpen, setPlanOpen] = useState(false);
 	// The transcript rows are memoized (components/transcript-rows.tsx):
 	// their callbacks must be stable or every row re-renders per update.
@@ -777,32 +721,27 @@ export function Chat({
 		draftRef.current = null;
 		void send({ type: "retry-question", messageId: malformed.messageId, contentIndex: malformed.contentIndex, toolCallId: malformed.toolCallId });
 	}, [send]);
-	// Real plan presence — gates the marginalia's clickable flank. A JSX
-	// element is always truthy; gating on the node alone mounted a phantom
-	// (invisible, clickable) button in the bottom-right whenever a question
-	// was pending with no plan yet (owner report, UI round 2026-10-01).
+	// Real plan presence gates the marginalia's clickable flank: a JSX element
+	// is always truthy, so gating on the node alone would mount an invisible,
+	// clickable button whenever a question is pending with no plan yet.
 	const hasPlan = useMemo(() => planExists(messages), [messages]);
-	// The coverage ring's refresh chain (extraction-UX redesign): bumped at
-	// turn settle — the moment this session's uncovered mass changes.
+	// The coverage ring's refresh tick: bumped at turn settle, when this
+	// session's uncovered mass changes.
 	const [coverageTick, setCoverageTick] = useState(0);
-	// The mermaid focus (chrome-melt wave, 2026-09-19): md-blocks' expand
-	// button registers the chart source here; the overlay (and the plan
-	// popup) mount INSIDE the session-area div — both are session-scoped, so
-	// the drag bar stays sharp and draggable while a focus owns the area.
+	// The mermaid focus: md-blocks' expand button registers the chart source
+	// here. The overlay and the plan popup mount inside the session-area div
+	// (session-scoped), so the drag bar stays usable while a focus is open.
 	const [mermaidFocus, setMermaidFocus] = useState<string | null>(null);
-	// Figure focus (2026-10-07): the figure card's fullscreen button — same
-	// overlay shell as mermaid, but carrying the raw svg + the card's invert
-	// state so the fullscreen view stays faithful to the toggled card.
+	// Figure focus: the figure card's fullscreen button. Same overlay shell as
+	// mermaid, carrying the raw svg and the card's invert state.
 	const [figureFocus, setFigureFocus] = useState<{ svg: string; inverted: boolean } | null>(null);
 
-	// Overlay mirrors for the layered-Esc gate (owner 2026-10-04): the
-	// lh:kbd-abort-turn handler reads these at EVENT time — declared here
-	// beside their states, consumed below wherever the states live.
+	// Overlay mirrors for the layered-Esc gate: the lh:kbd-abort-turn handler
+	// reads these at event time.
 	const mermaidFocusRef = useRef(mermaidFocus);
 	mermaidFocusRef.current = mermaidFocus;
-	// The figure focus rides the mermaid layer in the Esc gate — the same
-	// overlay class (session-scoped diagram focus, Esc claimed at the
-	// document level by the overlay itself); the window chain must stay out.
+	// The figure focus shares the mermaid layer in the Esc gate: the overlay
+	// claims Esc itself at the document level; the window chain stays out.
 	const figureFocusRef = useRef(figureFocus);
 	figureFocusRef.current = figureFocus;
 	const planOpenRef = useRef(planOpen);
@@ -812,18 +751,16 @@ export function Chat({
 	// The session's live plan (drives the top-bar chip; the marginalia
 	// derives its own from the same transcript).
 	const planTree = useMemo(() => latestTree(messages), [messages]);
-	// The lesson-tracking card (owner, 2026-11-02): the problem set and the
-	// mistake log, derived by the session model from the native record and
-	// the live executions (the tracking tools never render in the
-	// transcript view — core/lesson-tracking.ts). Since 2026-11-05 (owner)
-	// it also carries a teach lesson's plan — each step's position and check
-	// score, from the same transcript as the plan chip (core/plan-progress.ts);
-	// never in cram or practice. The chip shows while any section exists.
+	// The lesson-tracking card: the problem set and mistake log, derived by the
+	// session model from the native record and live executions (the tracking
+	// tools never render in the transcript; core/lesson-tracking.ts), plus a
+	// teach lesson's plan steps with their check scores (core/plan-progress.ts;
+	// never in cram or practice). The chip shows while any section exists.
 	const planProgress = useMemo(() => lessonPlanProgress(planTree, messages, { cram, practice: kind === "practice" }), [planTree, messages, cram, kind]);
 	const hasTracking = hasLessonTracking(tracking) || planProgress !== null;
 	const trackerCard = useLessonTrackerShown();
-	// "Practice weak spots" (owner, 2026-11-06): the card's button opens a
-	// new practice session in this lesson's project, seeded with its weak spots.
+	// "Practice weak spots": the card's button opens a new practice session in
+	// this lesson's project, seeded with its weak spots.
 	const router = useRouter();
 	const weakSpotsStarterRef = useRef(new SessionStarter());
 	const practiceWeakSpots = useCallback(async (spots: string[]) => {
@@ -856,20 +793,18 @@ export function Chat({
 	const [planInCard, setPlanInCard] = useState(false);
 	const planDiagram = hasPlan && !(pinned.docked && !progressOverPin) ? <PlanMarginalia messages={messages} /> : undefined;
 	const toggleTracker = pinned.docked ? () => setProgressOverPin((v) => !v) : trackerCard.toggle;
-	// Room for the card (owner, "make room"): while it shows on a session
-	// area wide enough for both, the transcript column keeps clear of it.
+	// While the card shows on a session area wide enough for both, the
+	// transcript column keeps clear of it.
 	const trackerRoom = lessonTrackerRoom(hasTracking && trackerCard.shown && !pinned.docked);
 
-	// ── Session usage (wave-4 stats bar) ──
-	// The money channel: the record's turns log and read-time server Pi
-	// pricing projection. Seeded once on mount (the page doesn't carry turns),
+	// ── Session usage (the stats bar) ──
+	// The record's turns log and the server's read-time pricing projection.
+	// Seeded once on mount (the page doesn't carry turns),
 	// refreshed when the local stream settles (each turn appends to the log
 	// server-side), and kept fresh by syncFromServer whenever it already
 	// fetches the record. No turns yet → the bar renders "—" everywhere.
 	const [turns, setTurns] = useState<TurnUsage[]>([]);
 	const [pricing, setPricing] = useState<SessionPricing | undefined>();
-	// The per-chat model control state (model-picker writes via PUT; the
-	// record is the source of truth, lifted here so the stats bar re-renders).
 	const syncTurns = useCallback(async () => {
 		try {
 			const res = await fetch(`/api/chats/${chatId}?only=stats`);
@@ -889,38 +824,29 @@ export function Chat({
 	const prevStatusRef = useRef(status);
 	useEffect(() => {
 		const transitioned = prevStatusRef.current !== "ready" && status === "ready";
-		// Every path (the old early-return skipped this on the transition
-		// branch — the re-fire-on-dep-churn wart, fixed S3).
+		// Updated on every path, so dep churn never re-fires the transition.
 		prevStatusRef.current = status;
 		if (!transitioned) return;
-		// The coverage ring re-reads at turn settle too (extraction-UX
-		// redesign, 2026-09-24); the ring's own running-poll handles runs.
+		// The coverage ring re-reads at turn settle; its own poll handles runs.
 		setCoverageTick((t) => t + 1);
-		// CANONIZATION (fix B, the duplicate-previous-message bug, 2026-10-02):
-		// turn-settled for OUR OWN turn arrives while the stream is still open
-		// (endTurn emits from onFinish before the response terminates, so the
-		// SSE frame reliably beats [DONE]) — the handler below cannot sync
-		// there, it flags instead, and THIS flip consumes the flag: the record
-		// reflects durable truth (a failed settlement retains its notice,
-		// not its unsaved reply), so replacing the view absorbs the tail's
-		// streamed c_-id copies into base under their server ids. Without
-		// this the tail kept those copies forever and the next send's
-		// steer-adoption window rendered them a second time. The wake handoff
-		// cannot be missed by this sync: the wake fires only after the idle
-		// gates + grace (≥750ms past this flip), so its turn-started event
-		// lands at an idle, already-canonical view and attaches normally.
+		// Canonization: turn-settled for our own turn arrives while the stream
+		// is still open (endTurn emits before the response terminates), so the
+		// handler below only flags it and this flip consumes the flag. The
+		// record reflects durable truth (a failed settlement keeps its notice,
+		// not its unsaved reply); replacing the view absorbs the tail's
+		// streamed c_-id copies into base under their server ids, so the next
+		// send never renders them twice. A wake can't be missed: it fires only
+		// after the idle gates + grace (≥750ms past this flip), so its
+		// turn-started event lands on an idle, canonical view.
 		if (settleAnnouncedRef.current) {
 			settleAnnouncedRef.current = false;
 			void syncFromServer().then(ok => { if (!ok) void syncTurns(); });
 		} else void syncTurns();
-		// (The extraction-discovery nudges that lived here died at S5: the
-		// pipeline announces every phase on the events channel.)
 	}, [status, syncTurns, syncFromServer]);
 
-	// A stream that died MID-FLIGHT (network): the runner decoupled the turn
-	// from its view, so the server turn runs ON behind the error banner —
-	// re-enter the in-flight watch (the 1500ms fallback poll adopts at
-	// settle) instead of leaving the session blind until the next send's
+	// A stream that died mid-flight (network): the server turn runs on behind
+	// the error banner, so re-enter the in-flight state (turn-settled adopts
+	// the record) instead of leaving the session blind until the next send's
 	// 409 merge-retry heals it. One record check per error transition.
 	const prevErrorStatusRef = useRef(status);
 	useEffect(() => {
@@ -946,31 +872,24 @@ export function Chat({
 	}, [status, chatId, syncFromServer]);
 
 	// ── Central job observability (contracts.ts "THE ASYNC PROTOCOL" §4) ──
-	// ONE fetch of /api/jobs drives every job surface (transcript dispatch
-	// cards, the sub-agents panel) and re-syncs the transcript exactly once
-	// when a job settles. PUSH (architecture S4, 2026-10-02): the store
-	// announces every job write on the events channel; the interval poll and
-	// its pollMs/jobPartCount gating are RETIRED. The view fetches once on
-	// mount, once per jobs-changed announcement (trailing-debounced — a
-	// sub-agent run writes activity-line bursts; 250ms coalesces them at or
-	// below the old 1s poll cadence), and once on channel resync.
+	// One fetch of /api/jobs drives every job surface (transcript dispatch
+	// cards, the sub-agents panel) and re-syncs the transcript once when a job
+	// settles. The store announces every job write on the events channel; the
+	// view fetches on mount, per jobs-changed (trailing 250ms debounce: a
+	// sub-agent run writes activity-line bursts), and on channel resync.
 	//
-	// A settle no longer implies the record is complete: CONTINUATION
-	// COALESCING flips the job done at claim time — while the learner's own
-	// answer turn is still streaming (and a settle can race a second job's
-	// wake turn). Syncing mid-turn would swap in a stale snapshot
-	// mid-stream, which breaks the SDK's in-place continuation merge
-	// (duplicate message ids). So: a settle during a busy turn defers the
-	// sync; the next idle fetch adopts the finished record.
+	// A settle doesn't imply the record is complete: continuation coalescing
+	// flips the job done at claim time, while the learner's own answer turn
+	// may still be streaming (and a settle can race another job's wake turn).
+	// A full sync mid-stream would collide with the streaming tail (duplicate
+	// message ids), so a settle during a busy turn defers the sync to the next
+	// idle fetch.
 	const [jobs, setJobs] = useState<JobRecord[]>([]);
 	const localStreamRef = useRef(false);
 	localStreamRef.current = localStream;
 	const jobStatusRef = useRef<Map<string, string>>(new Map());
 	// A settle seen during a busy turn — the sync is owed, not dropped.
 	const pendingSyncRef = useRef(false);
-	// (The dispatch nudge effect that lived here — refreshActivity per new
-	// dispatch tool part — died at S5: the store announces jobs-changed at
-	// the dispatch write; the dock subscribes.)
 	// The trailing debounce for jobs-changed announcements (one timer), and
 	// the ref the timer fires through (a stale closure must never fetch an
 	// old chatId).
@@ -995,10 +914,8 @@ export function Chat({
 				if (busy) void adoptAppendOnly(); else void syncFromServer();
 			}
 			setJobs(list);
-			// (Wake-turn adoption that lived here — the turnInFlight attach
-			// line — died at S3: turn-started on the events channel owns
-			// discovery now. turnInFlight is STILL READ above: the settle
-			// logic's idle check needs it.)
+			// Turn discovery belongs to turn-started; turnInFlight is read above
+			// only for the settle logic's idle check.
 		} catch {
 			/* transient fetch failure — the next jobs-changed announcement re-fetches */
 		}
@@ -1023,25 +940,22 @@ export function Chat({
 		[],
 	);
 
-	// ── Server-initiated turn discovery (push-architecture S3, 2026-10-02) ──
-	// Every turn THIS chat runs is announced on the events channel — the
-	// probe→teach handoff, a job wake, another tab's send, the
-	// missed-on-mount case. This replaces the retired watch loop and the
-	// 1500ms fallback record poll: discovery is no longer a polling window
-	// that can expire. Handlers read REFS, not closure state — events fire
-	// between renders, and a ref holds the live value at event time.
+	// ── Server-initiated turn discovery ──
+	// Every turn this chat runs is announced on the events channel: the
+	// probe→teach handoff, a job wake, another tab's send, the missed-on-mount
+	// case. Handlers read refs, not closure state: events fire between
+	// renders, and a ref holds the live value at event time.
 	const statusRef = useRef(status);
 	statusRef.current = status;
-	/** Fix B (2026-10-02): turn-settled arrived for OUR OWN turn — the
-	 * record is durable (endTurn fires only after persistTurn); the ready
-	 * flip consumes this flag to canonize the view onto the record. See the
-	 * settle effect and the turn-settled handler below. */
+	/** turn-settled arrived for our own turn, so the record is durable (endTurn
+	 * fires only after persistTurn); the ready flip consumes this flag to
+	 * canonize the view onto the record (the settle effect above). */
 	const settleAnnouncedRef = useRef(false);
 	useServerEvent("turn-started", (p) => {
 		// Known non-issue: beginTurn emits before registerTurn in the same
 		// synchronous request flow; a GET /stream inside that sub-ms window
-		// gets a settled response — unwinnable by a network round-trip,
-		// self-healing via the eventual turn-settled. Do not engineer around.
+		// gets a settled response. No round-trip can win that race, and the
+		// eventual turn-settled heals it. Do not engineer around it.
 		if (p.chatId !== chatId) return;
 		if (localStreamRef.current) return; // our OWN turn — the 409-race guard
 		if (turnInFlightRef.current) return; // already attached
@@ -1050,22 +964,18 @@ export function Chat({
 	useServerEvent("turn-settled", (p) => {
 		if (p.chatId !== chatId) return;
 		if (localStreamRef.current) {
-			// Our own [DONE] path owns the BUSY settle — but not a no-op (fix B,
-			// 2026-10-02): the event is the record-durable guarantee (endTurn
-			// fires only after persistTurn), and it reliably beats [DONE] here
-			// (endTurn emits from onFinish before the response terminates). Flag
-			// it; the ready flip consumes the flag and canonizes the view onto
-			// the record. (If [DONE] somehow won this race instead, this branch
-			// didn't run and the fully-idle branch below already synced.)
+			// Our own [DONE] path owns the busy settle, but the event still
+			// matters: it guarantees the record is durable and reliably beats
+			// [DONE]. Flag it; the ready flip canonizes the view onto the record.
+			// (If [DONE] won instead, the fully-idle branch below already synced.)
 			settleAnnouncedRef.current = true;
 			return;
 		}
 		if (turnInFlightRef.current) {
-			// The attached stream's terminal frame owns the normal settle —
-			// syncing HERE would swap a stale snapshot mid-stream (the
-			// continuation-coalescing law, see the jobs poll above). Only
-			// the error case heals: the attached stream died, and the settle
-			// says persistTurn has made the record durable truth.
+			// The attached stream's terminal frame owns the normal settle;
+			// syncing here would swap a stale snapshot mid-stream (see the jobs
+			// fetch above). Only the error case heals: the attached stream died,
+			// and the settle says the record is now durable.
 			if (statusRef.current === "error") {
 				setTurnInFlight(false);
 				clearError();
@@ -1077,20 +987,20 @@ export function Chat({
 		void syncFromServer();
 	});
 	useServerEvent("compaction-changed", (p) => {
-		// The settle-kick's background summary: while it runs, sends gate
-		// (the next turn's server-side ensureCompacted awaits it anyway —
-		// this only keeps the affordance honest). On finish, record-changed
-		// (emitted by the compaction write itself) carries the marker in.
+		// The background summary after a settle: while it runs, sends gate
+		// (the next turn's server-side ensureCompacted awaits it anyway; this
+		// keeps the affordance honest). On finish, record-changed (emitted by
+		// the compaction write) carries the marker in.
 		if (p.chatId !== chatId) return;
 		setCompacting(p.running);
 	});
 	useServerEvent("record-changed", (p) => {
-		// The silent dismissal write (A2, 2026-10-03): no turn ever ran, so
-		// only the record moved. Other tabs and post-error windows adopt;
-		// our OWN dismissal already rendered its optimistic append — syncing
-		// here too is harmless (the adoption law swaps local ids for the
-		// server's). Busy states ignore it: a running turn owns the view,
-		// and the write is 409-guarded against exactly that anyway.
+		// A write with no turn (e.g. the silent dismissal): only the record
+		// moved. Other tabs and post-error windows adopt; our own dismissal
+		// already rendered its optimistic append, and syncing again is
+		// harmless (adoption swaps local ids for the server's). Busy states
+		// ignore it: a running turn owns the view, and the write is
+		// 409-guarded against that anyway.
 		if (p.chatId !== chatId) return;
 		if (localStreamRef.current || turnInFlightRef.current) return;
 		void syncFromServer();
@@ -1098,10 +1008,10 @@ export function Chat({
 
 	const onSend = () => {
 		if (pending || compacting) return;
-		/* FINISH DICTATION FIRST (owner, 2026-10-01): a learner who keeps
-		 * talking right through Enter must not lose the tail — stop the run,
-		 * let the last finals land in the composer, then send the REF value
-		 * (the flush lands via setState, invisible to this closure). */
+		/* Finish dictation first: a learner who talks right through Enter must
+		 * not lose the tail. Stop the run, let the last finals land, then send
+		 * the ref value (the flush lands via setState, invisible to this
+		 * closure). */
 		if (!dictation.active) {
 			doSteerOrSend();
 			return;
@@ -1184,34 +1094,25 @@ export function Chat({
 		<JobsContext.Provider value={jobs}>
 		<PinnedVisualContext.Provider value={pinned.context}>
 		{/* The session surface: the transcript column (header + scroller) and
-		    the plan-tree panel as full-height SIBLINGS — the panel spans top to
-		    bottom exactly like the left sidebar, and the header (name + phase
-		    chip) spans from the left sidebar's edge to the panel's edge. The
-		    dock overlays the column bottom (outside the scroller); a spacer in
-		    the transcript reserves its height. */}
+		    the side tutor as full-height siblings. The dock overlays the column
+		    bottom (outside the scroller); a spacer in the transcript reserves
+		    its height. */}
 		<div className="relative flex lh-h-screen">
 			<div className="flex min-w-0 flex-1 flex-col">
-				{/* The top bar is its own block (owner, top-fade round 4): in flow
-				    above the scroller on the plain page background — no gradient. Its
-				    bottom outline (border-b border-border) matches the one that
-				    separates the left sidebar — same width, same color (owner, r5).
-				    h-15 (60px), not py-2: the toggle (a size-9 icon button) renders
-				    only while the sidebar is CLOSED — an auto-height row would
-				    collapse when it disappears and slide the title + chip up.
-				    60px is an ALIGNMENT, not just a size: it equals the sidebar's
-				    LH wordmark band, so the header's border-b continues that
-				    band's bottom edge as one line across the app (owner, round 6). */}
+				{/* The top bar: in flow above the scroller. Fixed 60px height, not
+				    padding: the sidebar toggle renders only while the sidebar is
+				    closed, and an auto-height row would collapse without it. 60px
+				    also equals the sidebar's wordmark band, so the two bottom
+				    borders form one line across the app. */}
 				<TopBar
-					// While renaming the bar is NOT a drag surface: app-region:drag
+					// While renaming, the bar is not a drag surface: app-region:drag
 					// would eat the mousedown, so click-to-escape (below) could
-					// never fire. Rename mode is interactive mode (owner ask) —
-					// TopBar's one escape hatch.
+					// never fire.
 					drag={!renaming}
 					onMouseDown={(e) => {
-						// Escape hitbox: any mousedown outside the input itself blurs
-						// it, running the existing onBlur commit path. The input is
-						// shrink-to-fit (field-sizing), so the rest of the bar is
-						// this spacer + inert chips — all click-to-exit (owner ask).
+						// Any mousedown outside the input blurs it, running the onBlur
+						// commit. The input is shrink-to-fit (field-sizing), so the
+						// rest of the bar is click-to-exit.
 						if (renaming && e.target !== titleInputRef.current) titleInputRef.current?.blur();
 					}}
 				>
@@ -1223,8 +1124,8 @@ export function Chat({
 								onChange={(e) => setTitleDraft(e.target.value)}
 								onKeyDown={(e) => {
 									if (e.key === "Enter") void commitRename(titleDraft);
-									// stopPropagation claims the Esc (keyboard wave A):
-									// closing rename must not also abort a turn.
+									// stopPropagation claims the Esc: closing rename
+									// must not also abort a turn.
 									else if (e.key === "Escape") {
 										e.stopPropagation();
 										setRenaming(false);
@@ -1268,9 +1169,8 @@ export function Chat({
 					<Hint label="Temporary side tutor" action="toggle-side-tutor" side="bottom">
 						<button type="button" aria-label="Open side tutor" aria-expanded={sideTutor !== null} onClick={toggleSideTutor} className="lh-no-drag flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border/80 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:border-border hover:text-foreground"><MessageCircleQuestionIcon className="size-3.5 text-primary" aria-hidden />Side tutor</button>
 					</Hint>
-					{/* The plan chip (owner, plan-placement round): session-level
-					    structure beside the phase chip — access to the full-DAG popup
-					    at every width; the marginalia is the wide-screen glance view. */}
+					{/* The plan chip opens the full-DAG popup at every width; the
+					    marginalia is the wide-screen glance view. */}
 					{planTree && (
 						<Hint label="Open the full plan" side="bottom">
 <button
@@ -1288,22 +1188,18 @@ export function Chat({
 </Hint>
 					)}
 					{hasTracking && <LessonTrackerChip shown={trackerShown} onToggle={toggleTracker} />}
-					{/* The extraction ring (owner-locked redesign, 2026-09-24): fills
-					    with uncovered vs the chunk threshold, pulses while a run is in
-					    flight, vanishes when the graph is off. Click → the exact
-					    numbers. Before the phase label — the chips cluster right. */}
-					{/* Practice (owner, 2026-10-04): the coverage ring hides —
-				    practice never extracts, so an ever-filling ring with no
-				    run behind it would lie. */}
 					{kind !== "practice" && <CramToggle chatId={chatId} on={cram} beginSave={beginCramSave} />}
-					{/* The lesson's question type (owner, 2026-11-03): the teacher's
-					    tools, so never for practice and not while the prober runs. */}
+					{/* The lesson's question type: the teacher's tools, so never for
+					    practice and not while the prober runs. */}
 					{showsQuestionTypeChip(kind, phases.at(-1) ?? "probe") && (
 						<QuestionTypeChip chatId={chatId} stored={lessonQuestionType.questionType} cram={cram} initialAgentTools={agentTools} beginSave={lessonQuestionType.begin} />
 					)}
+					{/* The extraction ring: fills with uncovered vs the chunk
+					    threshold, pulses while a run is in flight, vanishes when the
+					    graph is off; click for the numbers. Hidden in practice, which
+					    never extracts. */}
 					{kind !== "practice" && <CoverageRing chatId={chatId} refreshKey={coverageTick} />}
-					{/* Practice sessions: no phase arc — a quiet Practice tag
-					    instead of the phase chip. */}
+					{/* Practice has no phase arc: a Practice tag replaces the chip. */}
 					{kind === "practice" ? (
 						<span
 							data-testid="phase-chip"
@@ -1346,32 +1242,24 @@ export function Chat({
 								onOpenPlan={openPlan}
 							/>
 
-							{/* THE placeholder, ACTION-gated (owner, optimistic round
-							    3, 2026-10-02): spinner + shimmered Thinking… from the
-							    instant of any action that produces tokens — send,
-							    answer, session start, reattach (status flips to
-							    submitted SYNCHRONOUSLY with the action) — until the
-							    turn's first APPLIED event, where the stream takes over
-							    with the same look: an arrived-but-empty message renders
-							    the thinking ROW (view.ts projects one empty reasoning
-							    part), so submitted ⟺ placeholder and streaming ⟺ a
-							    rendered row, mutually exclusive by construction.
-							    Protocol events (agent_start) apply nothing and release
-							    nothing — the placeholder covers the whole
-							    provider-connect gap. turnInFlight: the same state
-							    entered by external discovery (wake) / the poll
-							    fallback. Never collapsible itself. */}
-							{/* Compaction (owner round 15): the same register as the
-						    thinking placeholder — a visible session-wide state while
-						    the summarizer holds the model gate. Mutually exclusive with
-						    the THINKING placeholder by construction (the gate sits
-						    BEFORE beginTurn; the settle kick runs after endTurn). */}
+							{/* Compaction: shown while the summarizer holds the model gate.
+							    Never coexists with the Thinking placeholder (the gate sits
+							    before beginTurn; the settle summary runs after endTurn). */}
 							{compacting && (
 								<span className="flex items-center gap-2 font-ui text-xs font-medium uppercase tracking-wide text-muted-foreground">
 									<BrailleSpinner label="Compacting context" />
 									<Shimmer duration={1}>COMPACTING CONTEXT…</Shimmer>
 								</span>
 							)}
+							{/* The Thinking placeholder: from the instant of any action
+							    that produces tokens (status flips to submitted
+							    synchronously) until the turn's first applied event, where
+							    an arrived-but-empty message renders the thinking row
+							    (view.ts projects one empty reasoning part). So submitted ⟺
+							    placeholder and streaming ⟺ a rendered row. Protocol events
+							    (agent_start) apply nothing, so it covers the whole
+							    provider-connect gap. turnInFlight is the same state entered
+							    by external discovery. */}
 							{(status === "submitted" || turnInFlight) && (
 								<span className="flex items-center gap-2 font-ui text-xs font-medium uppercase tracking-wide text-muted-foreground">
 									<BrailleSpinner label="Thinking" />
@@ -1395,18 +1283,14 @@ export function Chat({
 						</div>
 
 						{/* The dock's reserved tail (DockOverlay reports its height):
-						    keeps at-rest transcript content scrolling fully clear of
-						    the overlay — the flow-space replacement for the old
-						    sticky dock. Zero only pre-measurement (the first layout
-						    effect reports before paint). */}
+						    at-rest transcript content scrolls fully clear of the
+						    overlay. The first layout effect reports before paint. */}
 						<div aria-hidden data-testid="dock-spacer" style={{ height: dockReserve }} />
 				</ConversationContent>
 				{/* The dock: an overlay sibling of the scroller (the
-				    use-stick-to-bottom pattern). The scroll-down button lives
-				    INSIDE the overlay now (owner refinement round, 2026-09-24):
-				    anchored to the dock block's top edge, so it rides every
-				    height morph (typing, a question growing the band, the
-				    fold) and NEVER overlaps the composer. */}
+				    use-stick-to-bottom pattern). Its scroll-down button is anchored
+				    to the dock block's top edge, so it rides every height change
+				    and never overlaps the composer. */}
 				<DockOverlay
 					pending={pending}
 					initialQuestionDraft={pending ? questionDraft(pending.key)?.form : undefined}
@@ -1456,10 +1340,9 @@ export function Chat({
 					}
 					composer={
 						<ChatSessionComposer
-							// Stop aborts ANY in-flight turn (stream-reattach wave): the
-							// square renders while a reattached/wake turn runs too — the
-							// abort channel kills it server-side; stop() alone would
-							// only detach our view.
+							// Stop aborts any in-flight turn, reattached and wake turns
+							// included: the abort channel kills it server-side (stop()
+							// alone would only detach our view).
 							busy={busy}
 							value={textRef.current}
 							revision={composerDraftRevision}
@@ -1470,9 +1353,8 @@ export function Chat({
 							sendAllowed={sendAllowed}
 							dictationActive={dictation.active}
 							onEscape={dictation.active ? dictation.cancel : undefined}
-							// The pause affordance (owner round 16): the placeholder
-							// IS the hint — empty state, exactly where Enter-on-empty
-							// applies.
+							// In the practice pause the placeholder is the hint, shown
+							// exactly where Enter-on-empty applies.
 							nextProblem={nextReady}
 							onNext={sendNext}
 							placeholder={nextReady ? "Ask anything, or press Enter for the next one." : undefined}
@@ -1480,14 +1362,13 @@ export function Chat({
 					}
 					onSubmitAnswer={(output) => {
 						if (!pending) return;
-						// THE ANSWER IS THE QUESTION CALL'S TOOL RESULT (fork 1, owner
-						// 2026-09-26): one input event, one turn — the hook appends
-						// the optimistic graded result (the AnsweredCard shows at
-						// once) and the server's write-ahead persists it before the
-						// turn; the teacher's reaction streams below it. Dismissals
-						// ride the same callback (QuestionAnswerData.dismissed). The
-						// reading-thinking draft rides along (owner 2026-10-03) — the
-						// check answer is its only carrier.
+						// The answer is the question call's tool result: one input
+						// event, one turn. The hook appends the optimistic graded result
+						// (the AnsweredCard shows at once), the server persists it
+						// before the turn, and the teacher's reaction streams below.
+						// Dismissals use the same callback (QuestionAnswerData.dismissed).
+						// The reading-thinking draft rides along: the check answer is
+						// its only carrier.
 						saveQuestionDraft(pending.key, { readingThinking: readingThinkingRef.current });
 						const reading = readingThinkingRef.current.trim() || undefined;
 						// The pending-id effect clears this only when the question
@@ -1504,10 +1385,9 @@ export function Chat({
 				{hasTracking && trackerShown && <LessonTrackerCard tracking={tracking} plan={planProgress} bottomReserve={Math.max(0, dockReserve - GRADIENT_H)} onPracticeWeakSpots={configured && !zeroKeys ? practiceWeakSpots : undefined} planView={pending ? planDiagram : undefined} onPlanViewPlaced={setPlanInCard} onOpenPlan={openPlan} />}
 				{pinned.drawerTab}
 
-				{/* The session-scoped focuses (chrome-melt wave, 2026-09-19): mounted
-				    INSIDE the session area — absolute inset-0 siblings of the scroller,
-				    so they own the area below the drag bar, right of the sidebar, and
-				    the top bar stays sharp + draggable while a focus is open. */}
+				{/* The session-scoped focuses: absolute inset-0 siblings of the
+				    scroller inside the session area, so the top bar stays usable and
+				    draggable while a focus is open. */}
 				{mermaidFocus !== null && (
 					<MermaidOverlay chart={mermaidFocus} onClose={() => setMermaidFocus(null)} />
 				)}
@@ -1527,42 +1407,36 @@ export function Chat({
 		</PinnedVisualContext.Provider>
 		</JobsContext.Provider>
 		</SessionMermaidContext.Provider>
-		{/* The BYOK setup flow (owner, 2026-09-22): one mount serves the
-		    persistent CTA, the refused-send interception, and the job cards'
-		    deep-link. Save keeps the draft in the composer — it never sends
-		    (owner ruling 2026-10-09); Esc also keeps it (the dialog is
-		    closable by design — the gate is the server, not this modal). */}
+		{/* The BYOK setup flow: one mount serves the setup CTA, the
+		    refused-send interception, and the job cards' deep link. Save and Esc
+		    both leave the draft in the composer; nothing auto-sends (the gate is
+		    the server, not this modal). */}
 		<SetupDialog
 			open={setupOpen}
 			onClose={() => setSetupOpen(false)}
 			onDone={() => {
 				setSetupOpen(false);
-				// Save only saves (owner ruling 2026-10-09): the draft went
-				// home into the composer at refusal time and STAYS there —
-				// the learner sends it themselves.
+				// Save only saves: the refused draft is already back in the
+				// composer, and the learner sends it themselves.
 			}}
 		/>
 		</ChatActionsContext.Provider>
 	);
 }
 
-/** The layered-Esc ruling (owner, 2026-10-04): an open overlay claims Esc —
- *  closing itself — before the abort chain may open its confirm. A mermaid
- *  focus, the plan popup, or the setup dialog over a pending question must
- *  close the OVERLAY, never dismiss the question underneath. Priority is
- *  stacking order: the abort confirm (topmost, claims via its own dialog),
- *  then the session overlays (mermaid paints above plan — later in DOM),
- *  then setup (self-closing — the gate only must not fire), then the
- *  2026-10-02 abort chain proper (question before turn). */
+/** Layered Esc: an open overlay claims Esc, closing itself, before the abort
+ *  chain may open its confirm, so a mermaid focus, the plan popup, or the
+ *  setup dialog over a pending question never dismisses the question
+ *  underneath. Priority is stacking order: the abort confirm (claims via its
+ *  own dialog), the session overlays, setup (self-closing; the gate must
+ *  only not fire), then the abort chain proper (question, problem, turn). */
 export type EscAbortTarget = "mermaid" | "pin-expanded" | "plan" | "setup" | "pin-drawer" | "question" | "problem" | "turn" | null;
-	/**
- * Does the opening topic still owe its first send? The topic is the
- * server's ?prompt= or the sessionStorage stash. The gate is "no real
- * conversation yet" (no user/assistant message) — NOT emptiness: a
- * session started with map picks carries a graph-context MARKER as
- * message[0], and that scaffolding must never swallow the first send
- * (owner report, 2026-10-04: the turn went dead behind it — the old
- * `length === 0` check saw the marker and refused to fire).
+
+/**
+ * Does the opening topic still owe its first send? The topic is the server's
+ * ?prompt= or the sessionStorage stash. The gate is "no user/assistant
+ * message yet", not emptiness: a session started with map picks carries a
+ * graph-context marker as message[0], which must not swallow the first send.
  */
 export function initialPromptOwed(messages: readonly { role: string }[], prompt: string | undefined): boolean {
 	if (!prompt) return false;
@@ -1575,11 +1449,9 @@ export function escAbortTarget(s: {
 	planOpen: boolean;
 	setupOpen: boolean;
 	pending: boolean;
-	/** An active practice problem (practice sessions, 2026-10-04): Esc
-	 *  opens the discard confirm — below a pending question (the two
-	 *  never coexist, but the layering stays strict), above the turn
-	 *  abort (a live turn can be running BEHIND an idle problem only in
-	 *  teaching sessions — practice problems end their pose turns). */
+	/** An active practice problem: Esc opens the discard confirm, below a
+	 *  pending question (they never coexist, but the layering stays strict)
+	 *  and above the turn abort. */
 	problem: boolean;
 	busy: boolean;
 	/** A pinned demo shown over the whole area (components/pinned-visual.tsx). */
