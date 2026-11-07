@@ -433,7 +433,8 @@ it("makes room for the dock too: it centres on the narrowed column while the car
 	const chat = fs.readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
 	assert.match(chat, /const COLUMN = "mx-auto w-full max-w-none px-6";/);
 	assert.match(chat, /room=\{trackerRoom\.dock\}/);
-	assert.match(chat, /<div ref=\{blockRef\} data-testid="dock-block" className=\{`relative bg-background pb-5 \$\{room\}`\}>\s*<div className=\{DOCK\}>/);
+	const dock = fs.readFileSync(new URL("../components/dock-overlay.tsx", import.meta.url), "utf8");
+	assert.match(dock, /<div ref=\{blockRef\} data-testid="dock-block" className=\{`relative bg-background pb-5 \$\{room\}`\}>\s*<div className=\{DOCK\}>/);
 });
 
 it("plan: screen readers get each step's status and its score in words; the visual design is unchanged", async () => {

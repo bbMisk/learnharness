@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { questionArrivalExpanded, revealArrival, shouldStampGeometryMute } from "../components/chat.tsx";
+import { questionArrivalExpanded, revealArrival, shouldStampGeometryMute } from "../components/dock-overlay.tsx";
 
 /**
  * The geometry-mute's growth rule (flicker round, 2026-09-26): reserve

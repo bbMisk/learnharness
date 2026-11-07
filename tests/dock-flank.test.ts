@@ -69,10 +69,10 @@ it("measures the block's live padding", () => {
 });
 
 it("the chat positions the marginalia from the measured flank and re-measures when the room changes", () => {
-	const chat = fs.readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
-	assert.match(chat, /const next = measureDockFlank\(block\);/);
-	assert.match(chat, /style=\{\{ left: flank\.left, right: flank\.right \}\}/);
-	assert.match(chat, /expanded && flankW >= MARGIN_MIN_W/);
-	assert.match(chat, /ro\.observe\(block\);\s*return \(\) => ro\.disconnect\(\);\s*\}, \[room\]\);/);
-	assert.doesNotMatch(chat, /right-4 top-0 cursor-pointer/, "no fixed right edge left behind");
+	const dock = fs.readFileSync(new URL("../components/dock-overlay.tsx", import.meta.url), "utf8");
+	assert.match(dock, /const next = measureDockFlank\(block\);/);
+	assert.match(dock, /style=\{\{ left: flank\.left, right: flank\.right \}\}/);
+	assert.match(dock, /expanded && flankW >= MARGIN_MIN_W/);
+	assert.match(dock, /ro\.observe\(block\);\s*return \(\) => ro\.disconnect\(\);\s*\}, \[room\]\);/);
+	assert.doesNotMatch(dock, /right-4 top-0 cursor-pointer/, "no fixed right edge left behind");
 });
