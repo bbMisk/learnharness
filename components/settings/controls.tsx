@@ -9,8 +9,34 @@
  * control together) and the control itself locks — the row owns the dim.
  */
 
-import { useState, type ComponentPropsWithRef, type ReactNode } from "react";
+import { useState, type ComponentPropsWithRef, type ReactNode, type RefObject } from "react";
 import { cn } from "@/lib/utils";
+
+/** The settings dropdown dismissal, bound while a menu is open; returns
+ *  the cleanup. A pointerdown inside the anchor or a portaled menu
+ *  ([data-lh-menu]) is ignored; one elsewhere inside the dialog closes the
+ *  menu; one outside the dialog is left to the dialog's own close. Esc
+ *  closes and is CLAIMED (stopPropagation) so the dialog behind stays open. */
+export function bindSettingsMenuDismiss(anchorRef: RefObject<Element | null>, close: () => void): () => void {
+	const onPointerDown = (e: PointerEvent) => {
+		const target = e.target as Node;
+		if (anchorRef.current?.contains(target)) return;
+		if (target instanceof Element && target.closest("[data-lh-menu]")) return;
+		if (target instanceof Element && target.closest('[role="dialog"]')) close();
+	};
+	const onKeyDown = (e: KeyboardEvent) => {
+		if (e.key === "Escape") {
+			e.stopPropagation();
+			close();
+		}
+	};
+	document.addEventListener("pointerdown", onPointerDown);
+	document.addEventListener("keydown", onKeyDown);
+	return () => {
+		document.removeEventListener("pointerdown", onPointerDown);
+		document.removeEventListener("keydown", onKeyDown);
+	};
+}
 
 /** A section block: pronounced mono heading + content. */
 export function SettingsSection({

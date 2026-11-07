@@ -41,7 +41,7 @@ import { MenuShell } from "@/components/menu-shell";
 import { Hint } from "@/components/ui/hint";
 import { useAppearance } from "./appearance.tsx";
 import { FontMenuList } from "./model-menu";
-import { CommitInput, SettingsMenuTrigger, SettingsRow, ThinSelect, Toggle } from "./controls.tsx";
+import { bindSettingsMenuDismiss, CommitInput, SettingsMenuTrigger, SettingsRow, ThinSelect, Toggle } from "./controls.tsx";
 
 /** The factory reading family — the DEFAULT row's identity (unset =
  *  this). Exported for tests. */
@@ -156,32 +156,10 @@ export function AppearanceSection({
 		onSectionChange(composeFontFamily(appearance, family));
 	};
 
-	// The dropdown contract (agent-section's, mirrored): any click
-	// outside the open menu — or an Esc — closes it. Esc is CLAIMED with
-	// stopPropagation so the settings dialog behind does NOT also close.
+	// Any click outside the open menu, or Esc, closes it (bindSettingsMenuDismiss).
 	useEffect(() => {
 		if (!fontMenuOpen) return;
-		const onPointerDown = (e: PointerEvent) => {
-			const target = e.target as Node;
-			if (menuAnchorRef.current?.contains(target)) return;
-			if (target instanceof Element && target.closest("[data-lh-menu]")) return;
-			if (target instanceof Element && target.closest('[role="dialog"]')) {
-				setFontMenuOpen(false);
-			}
-			// else: outside the dialog — the dialog's own close handles it.
-		};
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				e.stopPropagation();
-				setFontMenuOpen(false);
-			}
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
+		return bindSettingsMenuDismiss(menuAnchorRef, () => setFontMenuOpen(false));
 	}, [fontMenuOpen]);
 
 	return (

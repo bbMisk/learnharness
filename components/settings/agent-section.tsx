@@ -75,7 +75,7 @@ import {
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { prettyModel } from "@/components/usage-format";
 import { cn } from "@/lib/utils";
-import { SettingsGroup, SettingsRow, SettingsMenuTrigger, Toggle, CommitInput } from "./controls.tsx";
+import { bindSettingsMenuDismiss, SettingsGroup, SettingsRow, SettingsMenuTrigger, Toggle, CommitInput } from "./controls.tsx";
 import { FlashcardAgentSection } from "./flashcard-agent-section";
 import { ModelInstructionsSection } from "./model-instructions-section";
 import { ModelMenuList, ThinkingMenuList } from "./model-menu";
@@ -412,34 +412,10 @@ export function AgentSection({
 		refreshSearch();
 	}, [agent?.search?.engine]);
 
-	// The dropdown contract (the chat model selector's, mirrored): any
-	// click outside the open menu — or an Esc — closes it. Esc is CLAIMED
-	// with stopPropagation so the settings dialog behind does NOT also
-	// close. A pointerdown on the backdrop is left for the dialog (its own
-	// click closes everything); a click inside the dialog just closes us.
+	// Any click outside the open menu, or Esc, closes it (bindSettingsMenuDismiss).
 	useEffect(() => {
 		if (openMenu === null) return;
-		const onPointerDown = (e: PointerEvent) => {
-			const target = e.target as Node;
-			if (menuAnchorRef.current?.contains(target)) return;
-			if (target instanceof Element && target.closest("[data-lh-menu]")) return;
-			if (target instanceof Element && target.closest('[role="dialog"]')) {
-				setOpenMenu(null);
-			}
-			// else: outside the dialog — the dialog's own close handles it.
-		};
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				e.stopPropagation();
-				setOpenMenu(null);
-			}
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
+		return bindSettingsMenuDismiss(menuAnchorRef, () => setOpenMenu(null));
 	}, [openMenu]);
 
 	async function saveSegment(path: string, text: string) {

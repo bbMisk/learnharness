@@ -34,7 +34,7 @@ import {
 	type CustomModel,
 	type CustomModelOverride,
 } from "@/src/core";
-import { SettingsGroup } from "./controls.tsx";
+import { bindSettingsMenuDismiss, SettingsGroup } from "./controls.tsx";
 import { SubscriptionConnections } from "./subscription-connections.tsx";
 import { ClaudeCodeInstallationStatus } from "./claude-code-status.tsx";
 import { ProviderMenuList } from "./model-menu.tsx";
@@ -312,24 +312,7 @@ function AddProviderRow({
 
 	useEffect(() => {
 		if (!open) return;
-		const onPointerDown = (e: PointerEvent) => {
-			const target = e.target as Node;
-			if (anchorRef.current?.contains(target)) return;
-			if (target instanceof Element && target.closest("[data-lh-menu]")) return;
-			if (target instanceof Element && target.closest('[role="dialog"]')) setOpen(false);
-		};
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				e.stopPropagation();
-				setOpen(false);
-			}
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
+		return bindSettingsMenuDismiss(anchorRef, () => setOpen(false));
 	}, [open]);
 
 	return (
