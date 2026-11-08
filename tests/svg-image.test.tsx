@@ -8,7 +8,7 @@ import { createRoot } from "react-dom/client";
 import { parseHTML } from "linkedom";
 import { VisualOutputCard } from "../components/artifacts/visual-card.tsx";
 import { svgImageSource } from "../components/artifacts/svg-image.tsx";
-import { MermaidOverlay, SessionMermaidContext } from "../components/session-overlay.tsx";
+import { MermaidOverlay, SessionOverlayContext } from "../components/session-overlay.tsx";
 
 // Structure-only checks: linkedom does not load images or implement CSS cascade.
 // No fixture script, link, or external reference is executed by these tests.
@@ -161,10 +161,10 @@ it("the fullscreen button opens the same SVG image and inversion; download keeps
 	function Harness() {
 		const [focus, setFocus] = useState<{ svg: string; inverted: boolean } | null>(null);
 		return (
-			<SessionMermaidContext.Provider value={{ openMermaid: () => {}, openFigure: (svg, inverted) => setFocus({ svg, inverted }) }}>
+			<SessionOverlayContext.Provider value={{ openMermaid: () => {}, openFigure: (svg, inverted) => setFocus({ svg, inverted }), openPlan: () => {} }}>
 				<VisualOutputCard output={{ svg: originalSvg }} initialInverted />
 				{focus && <MermaidOverlay svg={focus.svg} inverted={focus.inverted} onClose={() => setFocus(null)} />}
-			</SessionMermaidContext.Provider>
+			</SessionOverlayContext.Provider>
 		);
 	}
 	try {

@@ -15,6 +15,7 @@ import { fitGraphView, fitZoomFor, zoomedGraphView, type Viewport } from "@/comp
 import type { PlanBlockData, PlanNodeStatus, PlanTree } from "@/src/core";
 import { derivedNodeStatus, derivePlanStatuses } from "@/src/core";
 import { Hint } from "@/components/ui/hint";
+import { useSessionOverlay } from "@/components/session-overlay";
 
 /**
  * PLAN BLOCKS — the plan lives in the chat: persisted `data-plan-block`
@@ -602,7 +603,8 @@ export function PlanDiagram({
  * never re-derived): borderless and column-filling, it opens the live plan
  * popup. Always the full plan — position derives live in the popup.
  */
-export function PlanBlock({ data, onOpen }: { data: PlanBlockData; onOpen: () => void }) {
+export function PlanBlock({ data }: { data: PlanBlockData }) {
+	const overlay = useSessionOverlay();
 	const markerId = useId().replace(/[^a-zA-Z0-9-]/g, "");
 	const statusMap = useMemo(() => new Map(data.nodes.map((n) => [n.id, n.status] as const)), [data]);
 	const statusOf = (id: string): PlanNodeStatus => statusMap.get(id) ?? "upcoming";
@@ -612,7 +614,7 @@ export function PlanBlock({ data, onOpen }: { data: PlanBlockData; onOpen: () =>
 			type="button"
 			data-testid="plan-block-full"
 			aria-label="Open the full plan"
-			onClick={onOpen}
+			onClick={overlay?.openPlan}
 			className="block w-full text-left"
 		>
 			{/* pad keeps centered strokes + the glow halo inside the frame; the

@@ -5,7 +5,7 @@ import { ChatActionsContext } from "@/components/chat-actions";
 import { DownloadIcon, MaximizeIcon } from "lucide-react";
 import { InvertDiscIcon } from "@/components/artifacts/invert-disc";
 import { Toggle } from "@/components/settings/controls";
-import { useSessionMermaid } from "@/components/session-overlay";
+import { useSessionOverlay } from "@/components/session-overlay";
 import { downloadFile } from "@/components/artifacts/download";
 import { DispatchCard } from "@/components/artifacts/dispatch-card";
 import { SvgImage } from "@/components/artifacts/svg-image";
@@ -59,7 +59,7 @@ export function VisualOutputCard({
 	const result = output as VisualResult | undefined;
 	const snapshot = useImageSnapshot(result?.image?.snapshotId, chatId);
 	const svg = result?.image && snapshot.image ? embedLearnerImage(result.svg, snapshot.image) : result?.svg ?? "";
-	const overlay = useSessionMermaid();
+	const overlay = useSessionOverlay();
 	const actions = useContext(ChatActionsContext);
 	// Pinned beside the chat (components/pinned-visual.tsx): the figure fits
 	// the panel's height too, and a click opens the zoomable fullscreen.

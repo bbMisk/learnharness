@@ -1,7 +1,7 @@
 "use client";
 
 import { DownloadIcon, MaximizeIcon } from "lucide-react";
-import { useSessionMermaid } from "@/components/session-overlay";
+import { useSessionOverlay } from "@/components/session-overlay";
 import { downloadFile } from "@/components/artifacts/download";
 import { ToolCallCard } from "@/components/artifacts/tool-call-card";
 import type { ArtifactPartProps, ImageSnapshot, ShowImageDetails } from "@/src/core";
@@ -67,7 +67,7 @@ function StoredImageCard({ details }: { details: ShowImageDetails }) {
 
 /** Resolved presentation shared by inline display, download and fullscreen. */
 export function ImagePresentation({ image }: { image: ImageSnapshot & Pick<ShowImageDetails, "path" | "caption"> }) {
-	const overlay = useSessionMermaid();
+	const overlay = useSessionOverlay();
 	const save = () => {
 		const bytes = Uint8Array.from(atob(image.data), (c) => c.charCodeAt(0));
 		downloadFile(imageDownloadName(image), bytes, image.mimeType);

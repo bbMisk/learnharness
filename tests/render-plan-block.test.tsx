@@ -146,7 +146,7 @@ describe("plan block render", () => {
 			],
 			edges: [{ from: "a", to: "b" }],
 		};
-		const html = renderToStaticMarkup(<PlanBlock data={data} onOpen={() => {}} />);
+		const html = renderToStaticMarkup(<PlanBlock data={data} />);
 		assert.match(html, /data-testid="plan-block-full"/);
 		// Borderless: the wrapper carries no border/rounded chrome.
 		assert.ok(!/data-testid="plan-block-full"[^>]*border/.test(html), "no wrapping chrome");

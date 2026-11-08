@@ -557,7 +557,7 @@ it("plan diagram: exactly one destination — the card while it has room, else t
 			const diagram = <svg data-testid="diagram" />;
 			return (
 				<>
-					<LessonTrackerCard tracking={deriveLessonTracking([])} plan={progress as never} bottomReserve={0} planView={pending ? diagram : undefined} onPlanViewPlaced={setInCard} onOpenPlan={() => {}} />
+					<LessonTrackerCard tracking={deriveLessonTracking([])} plan={progress as never} bottomReserve={0} planView={pending ? diagram : undefined} onPlanViewPlaced={setInCard} />
 					{pending && !inCard && <div data-testid="flank">{diagram}</div>}
 				</>
 			);

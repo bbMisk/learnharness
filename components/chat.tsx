@@ -38,7 +38,7 @@ import {
 } from "@/src/core";
 import { PlanPopup, latestTree } from "@/components/plan-block";
 import { PlanMarginalia, planExists } from "@/components/plan-window";
-import { MermaidOverlay, SessionMermaidContext } from "@/components/session-overlay";
+import { MermaidOverlay, SessionOverlayContext } from "@/components/session-overlay";
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
 import { DumbbellIcon, MessageCircleQuestionIcon, WaypointsIcon } from "lucide-react";
 import { SessionFind } from "@/components/session-find";
@@ -712,12 +712,10 @@ export function Chat({
 		return () => { timers.forEach(clearTimeout); timers.clear(); };
 	}, []);
 
-	// The live plan popup: opened by any transcript plan block, the top-bar
-	// plan chip, and the dock band's marginalia.
+	// The live plan popup: opened by the top-bar plan chip and, through the
+	// session-overlay context, by every plan control below it (transcript
+	// plan blocks, the dock band's marginalia, the progress card's diagram).
 	const [planOpen, setPlanOpen] = useState(false);
-	// The transcript rows are memoized (components/transcript-rows.tsx):
-	// their callbacks must be stable or every row re-renders per update.
-	const openPlan = useCallback(() => setPlanOpen(true), []);
 	const retryQuestion = useCallback((malformed: QuestionCall) => {
 		draftRef.current = null;
 		void send({ type: "retry-question", messageId: malformed.messageId, contentIndex: malformed.contentIndex, toolCallId: malformed.toolCallId });
@@ -736,6 +734,13 @@ export function Chat({
 	// Figure focus: the figure card's fullscreen button. Same overlay shell as
 	// mermaid, carrying the raw svg and the card's invert state.
 	const [figureFocus, setFigureFocus] = useState<{ svg: string; inverted: boolean } | null>(null);
+	// Stable, so a Chat render never re-renders the memoized transcript's
+	// overlay consumers (plan blocks, mermaid and figure cards).
+	const sessionOverlay = useMemo(() => ({
+		openMermaid: setMermaidFocus,
+		openFigure: (svg: string, inverted: boolean) => setFigureFocus({ svg, inverted }),
+		openPlan: () => setPlanOpen(true),
+	}), []);
 
 	// Overlay mirrors for the layered-Esc gate: the lh:kbd-abort-turn handler
 	// reads these at event time.
@@ -1086,12 +1091,7 @@ export function Chat({
 				openSetup: () => setSetupOpen(true),
 			}}
 		>
-		<SessionMermaidContext.Provider
-			value={{
-				openMermaid: setMermaidFocus,
-				openFigure: (svg, inverted) => setFigureFocus({ svg, inverted }),
-			}}
-		>
+		<SessionOverlayContext.Provider value={sessionOverlay}>
 		<JobsContext.Provider value={jobs}>
 		<PinnedVisualContext.Provider value={pinned.context}>
 		{/* The session surface: the transcript column (header + scroller) and
@@ -1240,7 +1240,6 @@ export function Chat({
 								questionPending={!!pending}
 								compacting={compacting}
 								onRetryQuestion={retryQuestion}
-								onOpenPlan={openPlan}
 							/>
 
 							{/* Compaction: shown while the summarizer holds the model gate.
@@ -1300,7 +1299,6 @@ export function Chat({
 					compactionRunning={compacting}
 					onSubmitThinking={submitThinking}
 					plan={planInCard ? undefined : planDiagram}
-					onOpenPlan={() => setPlanOpen(true)}
 					teachingCheck={teachingCheck}
 					requiresReveal={requiresReveal}
 					showReadingThinking={showReadingThinking}
@@ -1387,7 +1385,7 @@ export function Chat({
 				{pinned.dockColumn}
 				{/* The tracking card: top-right over the transcript, below the
 				    session-scoped focuses (z-40) and clear of the dock. */}
-				{hasTracking && trackerShown && <LessonTrackerCard tracking={tracking} plan={planProgress} bottomReserve={Math.max(0, dockReserve - GRADIENT_H)} onPracticeWeakSpots={configured && !zeroKeys ? practiceWeakSpots : undefined} planView={pending ? planDiagram : undefined} onPlanViewPlaced={setPlanInCard} onOpenPlan={openPlan} />}
+				{hasTracking && trackerShown && <LessonTrackerCard tracking={tracking} plan={planProgress} bottomReserve={Math.max(0, dockReserve - GRADIENT_H)} onPracticeWeakSpots={configured && !zeroKeys ? practiceWeakSpots : undefined} planView={pending ? planDiagram : undefined} onPlanViewPlaced={setPlanInCard} />}
 				{pinned.drawerTab}
 
 				{/* The session-scoped focuses: absolute inset-0 siblings of the
@@ -1411,7 +1409,7 @@ export function Chat({
 		</div>
 		</PinnedVisualContext.Provider>
 		</JobsContext.Provider>
-		</SessionMermaidContext.Provider>
+		</SessionOverlayContext.Provider>
 		{/* The BYOK setup flow: one mount serves the setup CTA, the
 		    refused-send interception, and the job cards' deep link. Save and Esc
 		    both leave the draft in the composer; nothing auto-sends (the gate is

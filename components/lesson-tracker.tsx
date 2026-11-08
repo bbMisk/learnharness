@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ListChecksIcon } from "lucide-react";
 import { Hint } from "@/components/ui/hint";
+import { useSessionOverlay } from "@/components/session-overlay";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { correctProblemCount, lessonWeakSpots, type LessonTracking, type PlanProgress, type PlanStepProgress, type TrackedProblem } from "@/src/core";
 
@@ -308,7 +309,7 @@ function PracticeWeakSpotsButton({ onStart }: { onStart: () => Promise<void> }) 
  * above the dock (`bottomReserve`: the dock's height, without its fade). A
  * longer card scrolls.
  */
-export function LessonTrackerCard({ tracking, plan = null, bottomReserve, onPracticeWeakSpots, planView, onPlanViewPlaced, onOpenPlan }: {
+export function LessonTrackerCard({ tracking, plan = null, bottomReserve, onPracticeWeakSpots, planView, onPlanViewPlaced }: {
 	tracking: LessonTracking;
 	plan?: PlanProgress | null;
 	bottomReserve: number;
@@ -318,8 +319,8 @@ export function LessonTrackerCard({ tracking, plan = null, bottomReserve, onPrac
 	planView?: ReactNode;
 	/** Whether the card shows `planView` (false again on unmount). */
 	onPlanViewPlaced?: (placed: boolean) => void;
-	onOpenPlan?: () => void;
 }) {
+	const overlay = useSessionOverlay();
 	const { problems, mistakes } = tracking;
 	const openMistakes = mistakes.filter((m) => !m.resolved).length;
 	const weakSpots = lessonWeakSpots(tracking, plan);
@@ -374,7 +375,7 @@ export function LessonTrackerCard({ tracking, plan = null, bottomReserve, onPrac
 						type="button"
 						data-testid="plan-marginalia"
 						data-placement="card"
-						onClick={onOpenPlan}
+						onClick={overlay?.openPlan}
 						className="block w-full shrink-0 cursor-pointer"
 						style={{ height: viewHeight }}
 					>

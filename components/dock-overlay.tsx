@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { useStickToBottomContext } from "use-stick-to-bottom";
 import { opensWaitingCheck } from "@/components/waiting-check-key";
 import { Hint } from "@/components/ui/hint";
+import { useSessionOverlay } from "@/components/session-overlay";
 import { ConversationScrollButton } from "@/components/ai-elements/conversation";
 import { dockStateKey } from "@/components/dock-state-key";
 import { forwardDockWheel, useDockHeight } from "@/components/dock-height";
@@ -105,7 +106,6 @@ export function DockOverlay({
 	onReserve,
 	room,
 	plan,
-	onOpenPlan,
 	dictationCancel,
 	setupCta,
 	queuedSteers,
@@ -148,8 +148,6 @@ export function DockOverlay({
 	/** The plan marginalia's content (the bare diagram) — rendered only
 	 *  while a question owns the band. Null until a plan exists. */
 	plan?: React.ReactNode;
-	/** Opens the full-DAG popup (the marginalia + chip share it). */
-	onOpenPlan: () => void;
 	/** Esc in a pending question's field stops dictation (the strip is the
 	 *  stats bar's; the stop belongs to the page-owned hook, threaded down). */
 	dictationCancel?: () => void;
@@ -160,6 +158,7 @@ export function DockOverlay({
 	setupCta?: React.ReactNode;
 }) {
 	const { isAtBottom, scrollToBottom, scrollRef } = useStickToBottomContext();
+	const overlay = useSessionOverlay();
 	// Render-fresh bottom state: the arrival block below reads it during
 	// render. Assigned per render like the other refs below.
 	const atBottomRef = useRef(isAtBottom);
@@ -583,7 +582,7 @@ export function DockOverlay({
 <button
 						type="button"
 						data-testid="plan-marginalia"
-						onClick={onOpenPlan}
+						onClick={overlay?.openPlan}
 						style={{ left: flank.left, right: flank.right }}
 						className={`absolute bottom-5 top-0 cursor-pointer transition-[filter,opacity] duration-300 ease-out ${
 							expanded && flankW >= MARGIN_MIN_W

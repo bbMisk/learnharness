@@ -85,7 +85,6 @@ function Harness({ initial, expose }: { initial: { messages: LhViewMessage[]; st
 				questionPending={false}
 				compacting={false}
 				onRetryQuestion={noop}
-				onOpenPlan={noop}
 			/>
 		</div>
 	);
@@ -181,5 +180,42 @@ describe("the thinking row follows the message being written", () => {
 		assert.ok(host.textContent!.includes("AGENT’S THINKING"));
 		await act(async () => setView({ messages: view, streaming: true, activeMessageId: "a1" }));
 		assert.ok(host.textContent!.includes("Thinking..."), "the message being written keeps its live thinking row");
+	});
+});
+
+describe("a transcript plan block opens the plan through the session overlay", () => {
+	const planRow = (): LhViewMessage[] => [{
+		id: "a1",
+		role: "assistant",
+		parts: [{ type: "data-plan-block", data: { kind: "full", at: "2026-09-09T12:00:00Z", current: null, nodes: [{ id: "a", title: "Alpha", status: "visited" }], edges: [] } }],
+	} as unknown as LhViewMessage];
+	async function mountRows(wrap: (rows: React.ReactNode) => React.ReactNode): Promise<HTMLElement> {
+		const host = document.createElement("div") as unknown as HTMLElement;
+		document.body.append(host);
+		const { createRoot } = await import("react-dom/client");
+		const root = createRoot(host);
+		roots.push({ root, host });
+		const rows = <TranscriptRows messages={planRow()} phases={[]} transcript={SHOW_ALL} streaming={false} malformedQuestions={[]} busy={false} questionPending={false} compacting={false} onRetryQuestion={noop} />;
+		await act(async () => root.render(wrap(rows)));
+		return host;
+	}
+	const click = async (host: HTMLElement) => {
+		const button = host.querySelector('[data-testid="plan-block-full"]') as unknown as HTMLButtonElement;
+		assert.ok(button, "the plan block renders its button");
+		await act(async () => button.dispatchEvent(new window.Event("click", { bubbles: true }) as unknown as Event));
+	};
+
+	it("inside a chat page the click calls openPlan", async () => {
+		const { SessionOverlayContext } = await import("../components/session-overlay.tsx");
+		let opened = 0;
+		const value = { openMermaid: noop, openFigure: noop, openPlan: () => void opened++ };
+		const host = await mountRows((rows) => <SessionOverlayContext.Provider value={value}>{rows}</SessionOverlayContext.Provider>);
+		await click(host);
+		assert.equal(opened, 1);
+	});
+
+	it("outside a provider the button still renders and the click is inert", async () => {
+		const host = await mountRows((rows) => rows);
+		await click(host);
 	});
 });

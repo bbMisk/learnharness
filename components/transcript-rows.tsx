@@ -81,7 +81,6 @@ export interface TranscriptRowsProps {
 	questionPending: boolean;
 	compacting: boolean;
 	onRetryQuestion: (call: QuestionCall) => void;
-	onOpenPlan: () => void;
 }
 
 /** Each row's anchored text part ids (one DOM anchor per native teacher
@@ -111,7 +110,6 @@ export function TranscriptRows({
 	questionPending,
 	compacting,
 	onRetryQuestion,
-	onOpenPlan,
 }: TranscriptRowsProps) {
 	const anchors = useMemo(() => rowAnchors(messages), [messages]);
 	const malformed = busy ? NO_MALFORMED : malformedQuestions;
@@ -132,7 +130,6 @@ export function TranscriptRows({
 				questionPending={questionPending}
 				compacting={compacting}
 				onRetryQuestion={onRetryQuestion}
-				onOpenPlan={onOpenPlan}
 			/>
 		),
 	);
@@ -153,7 +150,6 @@ interface RowProps {
 	questionPending: boolean;
 	compacting: boolean;
 	onRetryQuestion: (call: QuestionCall) => void;
-	onOpenPlan: () => void;
 }
 
 const TranscriptRow = memo(function TranscriptRow({
@@ -168,7 +164,6 @@ const TranscriptRow = memo(function TranscriptRow({
 	questionPending,
 	compacting,
 	onRetryQuestion,
-	onOpenPlan,
 }: RowProps) {
 	const anchored = useMemo(() => new Set(anchors ? anchors.split("\n") : []), [anchors]);
 	if (m.role === "user" && isSubagentSteer(m)) {
@@ -297,7 +292,6 @@ const TranscriptRow = memo(function TranscriptRow({
 									questionPending={malformed ? questionPending : false}
 									compacting={malformed ? compacting : false}
 									onRetryQuestion={onRetryQuestion}
-									onOpenPlan={onOpenPlan}
 								/>
 							);
 						})}
@@ -333,7 +327,6 @@ interface PartProps {
 	questionPending: boolean;
 	compacting: boolean;
 	onRetryQuestion: (call: QuestionCall) => void;
-	onOpenPlan: () => void;
 }
 
 const TranscriptPart = memo(function TranscriptPart({
@@ -347,7 +340,6 @@ const TranscriptPart = memo(function TranscriptPart({
 	questionPending,
 	compacting,
 	onRetryQuestion,
-	onOpenPlan,
 }: PartProps) {
 	// A tool call that errored BACK TO THE AGENT (validation
 	// failure, malformed args) is invisible work — the agent
@@ -381,7 +373,7 @@ const TranscriptPart = memo(function TranscriptPart({
 		case "data-plan-block":
 			// The plan in the chat: a frozen snapshot block, rendered as
 			// carried, never re-derived.
-			return <PlanBlock data={part.data as PlanBlockData} onOpen={onOpenPlan} />;
+			return <PlanBlock data={part.data as PlanBlockData} />;
 		case "tool-quiz":
 		case "tool-probe":
 		case "tool-ask_user_question":
