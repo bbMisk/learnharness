@@ -100,10 +100,9 @@ export interface CompactionDeps {
 	/** Eligibility only for NEW runs; structural waits still apply. */
 	canStart?: () => boolean;
 	chatStore: ChatStore;
-	/** The chat's conversation engine — also the summarizer's. */
+	/** The chat's conversation engine — also the summarizer's; its
+	 *  provider:id stamps the usage and the marker's provenance. */
 	engine: PiEngine;
-	/** provider:id of the engine (usage + marker provenance). */
-	modelId: string;
 	/** The session kind (summarizer wording: tutor vs practice). */
 	kind: "teach" | "practice" | "probe";
 	/** The effective trigger threshold, RESOLVED by the caller:
@@ -233,10 +232,11 @@ async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
 		if (!trimmed) return; // an empty summary is a refusal artifact — leave the record honest
 
 		const firstKept = messages[cut]!;
+		const modelId = `${deps.engine.model.provider}:${deps.engine.model.id}`;
 		const details: CompactionDetails = {
 			firstKeptMessageId: firstKept.id,
 			tokensBefore,
-			model: deps.modelId,
+			model: modelId,
 			at: new Date().toISOString(),
 		};
 		// Lesson tracking (owner, 2026-11-02): the problem/mistake ids can
@@ -261,7 +261,7 @@ async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
 				id: crypto.randomUUID(),
 				messageId: marker.id,
 				at: details.at,
-				model: deps.modelId,
+				model: modelId,
 				steps: [
 					{
 						inputTokens: usage.input,

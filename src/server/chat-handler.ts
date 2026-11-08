@@ -306,7 +306,6 @@ export async function handleChatInput(
 			chatStore: stores.chatStore,
 			engine: piEngineForSpec(conversation, true, undefined, retentionForSlot("strong")),
 			canStart: () => connectionBackgroundAllowed(conversation.provider),
-			modelId: modelIdForCompaction,
 			kind: record.kind === "practice" ? "practice" : hasProbeDone(record.messages) ? "teach" : "probe",
 			thresholdTokens: effectiveThresholdTokens(
 				effective.compaction?.thresholdTokens,
@@ -682,7 +681,6 @@ export async function handleChatInput(
 							chatStore: stores.chatStore,
 							engine: kickEngine,
 							canStart: () => connectionBackgroundAllowed(spec.provider),
-							modelId: kickModelId,
 							kind: freshRecord.kind === "practice" ? "practice" : hasProbeDone(freshRecord.messages) ? "teach" : "probe",
 							thresholdTokens: effectiveThresholdTokens(
 								fresh.compaction?.thresholdTokens,
