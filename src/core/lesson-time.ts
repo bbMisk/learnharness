@@ -6,8 +6,9 @@
  * Active time is the sum of the gaps between consecutive timestamped
  * record messages (learner and assistant messages, tool results, custom
  * markers — every LhMessage carries `timestamp`, Unix ms; an assistant's is
- * when its request started). Each gap counts at most GAP_CAP_MS, or
- * OPEN_GAP_CAP_MS while a question or a problem is open during it:
+ * when its request started). A gap longer than BREAK_AFTER_MS, or
+ * OPEN_BREAK_AFTER_MS while a question or a problem is open during it, is a
+ * break and counts nothing; a shorter gap counts in full:
  *   question — a QUESTION_TOOLS call (core/pending.ts) whose result has not
  *              arrived. Like the question gate (native-messages.ts
  *              questionCallsOf), only the newest assistant message's calls
@@ -15,7 +16,7 @@
  *   problem  — a cram problem started by problem_start and not yet left by
  *              problem_done: the tracker's current problem
  *              (core/lesson-tracking.ts, the card's own fold).
- * The state after a message decides the cap of the gap that follows it.
+ * The state after a message decides the threshold of the gap that follows it.
  * Nothing counts before the first timestamp or after the last. A timestamp
  * at or before the latest one seen (an out-of-order message) adds nothing,
  * and the next gap is measured from that latest time, so no stretch of time
@@ -30,10 +31,10 @@ import { QUESTION_TOOLS } from "./pending.ts";
 import { LessonTracker, PROBLEM_DONE_TOOL, PROBLEM_LIST_TOOL, PROBLEM_START_TOOL } from "./lesson-tracking.ts";
 
 const MINUTE_MS = 60_000;
-/** The most one gap can add while nothing is open. */
-export const GAP_CAP_MS = 10 * MINUTE_MS;
-/** The most one gap can add while a question or problem is open. */
-export const OPEN_GAP_CAP_MS = 25 * MINUTE_MS;
+/** A longer gap while nothing is open is a break. */
+export const BREAK_AFTER_MS = 10 * MINUTE_MS;
+/** A longer gap while a question or problem is open is a break. */
+export const OPEN_BREAK_AFTER_MS = 25 * MINUTE_MS;
 
 /** The record's measured active time, in ms (0 when nothing measurable). */
 export function lessonTimeMs(messages: readonly LhMessage[]): number {
@@ -46,8 +47,8 @@ export function lessonTimeMs(messages: readonly LhMessage[]): number {
 		const t = (m as { timestamp?: unknown }).timestamp;
 		if (typeof t === "number" && Number.isFinite(t)) {
 			if (latest !== null && t > latest) {
-				const cap = openQuestions.size > 0 || problemOpen ? OPEN_GAP_CAP_MS : GAP_CAP_MS;
-				total += Math.min(t - latest, cap);
+				const breakAfter = openQuestions.size > 0 || problemOpen ? OPEN_BREAK_AFTER_MS : BREAK_AFTER_MS;
+				if (t - latest <= breakAfter) total += t - latest;
 			}
 			if (latest === null || t > latest) latest = t;
 		}
