@@ -53,15 +53,11 @@ export interface SubagentRunResult {
 	text: string;
 }
 
-export function subagentEngine(role: ModelRole, override?: PiEngine): PiEngine {
+export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRunOptions): Promise<SubagentRunResult> {
 	// BYOK (owner, 2026-09-22): no factory pins — the override is the only
 	// real path (the runner injects settings-resolved engines); a missed
 	// injection hits the honest thrower in models.ts instead of a guess.
-	return override ?? piEngineFor(role);
-}
-
-export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRunOptions): Promise<SubagentRunResult> {
-	const engine = subagentEngine(opts.role, opts.engine);
+	const engine = opts.engine ?? piEngineFor(opts.role);
 	let turns = 0;
 	// Debug recorder (owner, 2026-10-04): raw provider events per job run.
 	const providerEvents = opts.chatId ? providerEventObserver(opts.chatId, `job:${opts.role}`) : undefined;
