@@ -175,8 +175,13 @@
 	--color-ring: var(--ring);
 }
 
-* {
-	border-color: var(--color-border);
+/* In the base layer, so every border-colour utility (border-primary,
+   border-green-500/60, border-border/60, hover:border-…) can override it;
+   unlayered, this beat them all and every border rendered #434343. */
+@layer base {
+	* {
+		border-color: var(--color-border);
+	}
 }
 
 body {
