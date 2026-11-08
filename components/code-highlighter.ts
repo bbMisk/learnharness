@@ -14,7 +14,15 @@ import type { CodeHighlighterPlugin } from "@streamdown/code";
 
 let plugin: CodeHighlighterPlugin | undefined;
 let loading: Promise<CodeHighlighterPlugin> | undefined;
-const load = () => (loading ??= import("@streamdown/code").then((m) => (plugin = m.code)));
+// A failed import is forgotten so the next code block retries (e.g. after a redeploy).
+const load = () =>
+	(loading ??= import("@streamdown/code").then(
+		(m) => (plugin = m.code),
+		(error: unknown) => {
+			loading = undefined;
+			throw error;
+		},
+	));
 
 // @streamdown/code's default themes (one array, as the plugin returns).
 const themes: ReturnType<CodeHighlighterPlugin["getThemes"]> = ["github-light", "github-dark"];
