@@ -262,8 +262,6 @@ export interface ProberToolContext extends ProbeDoneContext {
 	jobStore: JobStore;
 	/** Fire the background runner for a freshly created job. */
 	spawn: (job: JobRecord, input: ResearchInput | DemoInput | VisualInput | PdfInput) => void;
-	/** Retained search-status seam; research dispatch is available keylessly. */
-	searchAvailable?: () => boolean;
 	/** The prober's graph-map reader: present = the two map tools
 	 *  (list_sessions / list_propositions) are registered. The composition
 	 *  root passes it only when graphToolsEnabled(effective) — the graph
@@ -286,12 +284,7 @@ export function createProberTools(
 	const done = probeDoneTool(ctx);
 	// The job tools build over the SAME context/gates as the teacher's
 	// (one builder, one gating semantic); the prober carries a SUBSET:
-	const jobs = jobTools({
-		chatId: ctx.chatId,
-		jobStore: ctx.jobStore,
-		spawn: ctx.spawn,
-		searchAvailable: ctx.searchAvailable,
-	});
+	const jobs = jobTools({ chatId: ctx.chatId, jobStore: ctx.jobStore, spawn: ctx.spawn });
 	// Quizzing mechanics: free-recall swaps probe for recall — one quizzing
 	// tool at a time, whichever the settings arm. ask stays always-on. The
 	// registry keys are the PHASE names (probe/recall) — distinct from the
@@ -386,8 +379,6 @@ export interface TeacherToolContext extends PlanToolContext {
 	 *  rides along — the spawn fires mid-stream, before the tool part is
 	 *  persisted to the transcript (a transcript scan would race it). */
 	spawn: (job: JobRecord, input: ResearchInput | DemoInput | VisualInput | PdfInput) => void;
-	/** Retained search-status seam; research dispatch is available keylessly. */
-	searchAvailable?: () => boolean;
 	/** note_mistake's flashcard seam (lesson-tracking.ts). */
 	onMistake?: (mistake: { id: string; text: string }) => void;
 }
@@ -457,7 +448,7 @@ export function createTeacherTools(
 			// Lesson tracking: the mistake log for every
 			// teacher; the problem set for a cram teacher only.
 			...lessonTrackingTools(ctx, { problems: cram }),
-			...jobTools({ chatId: ctx.chatId, jobStore: ctx.jobStore, spawn: ctx.spawn, searchAvailable: ctx.searchAvailable }),
+			...jobTools({ chatId: ctx.chatId, jobStore: ctx.jobStore, spawn: ctx.spawn }),
 			pin_visual: pinVisualTool(ctx),
 		},
 		withoutMechanics(enabled),

@@ -36,7 +36,7 @@ import { fileAccessPolicy } from "./file-access.ts";
 import { collectToolCallIds } from "./pi/call-ids.ts";
 import { providerEventNote } from "../agent/provider-events.ts";
 import { effectiveSettings, stores } from "./stores.ts";
-import { searchAvailable, searchProvider } from "./search.ts";
+import { searchProvider } from "./search.ts";
 import { providerKeyPresent } from "./keys.ts";
 import { CLAUDE_CODE_PROVIDER } from "../core/contracts/claude-code.ts";
 import {
@@ -114,9 +114,8 @@ const jobRunner = createJobRunner({
 	providerKeyMissing: (provider, tier) =>
 		providerKeyPresent(provider) ? null : providerKeyMissingEnvelope(provider, [tier]),
 	// The researcher's web_search runs on this injected port, resolved FRESH
-	// per job (key rotations land immediately). null = unavailable; the
-	// registry drop (searchAvailable) uses the same signal so keyless servers
-	// never see the research tool at all.
+	// per job (key rotations land immediately). null = unavailable: web_search
+	// reports it as a recoverable tool result; research itself stays keyless.
 	searchProvider,
 });
 /** The app's ONE extraction pipeline instance — both front doors share it:
@@ -434,7 +433,6 @@ export async function handleChatInput(
 		// the same job wiring as the teacher's.
 		jobStore: stores.jobStore,
 		spawn: (job, input) => void jobRunner.runJob(job.id, input),
-		searchAvailable,
 		// The map reader: the prober reads the learner's knowledge graph
 		// through tools when graphToolsEnabled opens.
 		...(graphToolsEnabled(effective) ? { graphStore: stores.graphStore } : {}),
@@ -523,13 +521,12 @@ export async function handleChatInput(
 						// not just the session's picks (pickless sessions stay valid).
 						graphNodes: () => stores.graphStore.readNodes(),
 						// THE RARELY-NEEDED SET: research + pdf jobs (same runner/gating
-						// as the teacher's — research absent when no search engine is
-						// live) and the map readers behind the SAME gate as the prober's.
+						// as the teacher's) and the map readers behind the SAME gate as
+						// the prober's.
 						jobs: {
 							chatId,
 							jobStore: stores.jobStore,
 							spawn: (job, input) => void jobRunner.runJob(job.id, input),
-							searchAvailable,
 						},
 						...(graphToolsEnabled(effective) ? { graph: { chatStore: stores.chatStore, graphStore: stores.graphStore } } : {}),
 					},
@@ -542,9 +539,6 @@ export async function handleChatInput(
 						chatStore: stores.chatStore,
 						jobStore: stores.jobStore,
 						spawn: (job, input) => void jobRunner.runJob(job.id, input),
-						// The registry drop's signal: no live search engine = no
-						// research tool in the teacher's registry.
-						searchAvailable,
 						// A logged mistake becomes a flashcard (server/mistake-cards.ts).
 						onMistake: (mistake) => void writeMistakeCard(chatId, mistake),
 					},
