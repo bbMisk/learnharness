@@ -32,10 +32,6 @@ interface ReasoningContextValue {
   isStreaming: boolean;
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
-  /** Whether the content is mounted yet (see `prime`). */
-  primed: boolean;
-  /** Mount the closed content ahead of an open. */
-  prime: () => void;
 }
 
 const ReasoningContext = createContext<ReasoningContextValue | null>(null);
@@ -82,13 +78,6 @@ export const Reasoning = memo(
       },
       [onOpenChange]
     );
-    // Radix keeps a closed CollapsibleContent mounted, and each one forces a
-    // style and layout pass as it mounts; a long lesson has hundreds of rows.
-    // So the content mounts only once the trigger is hovered or focused (or
-    // the row opens), still closed, so the open animation plays as before.
-    const [hovered, setHovered] = useState(false);
-    const primed = hovered || isOpen;
-    const prime = useCallback(() => setHovered(true), []);
     const hasEverStreamedRef = useRef(isStreaming);
     const [hasAutoClosed, setHasAutoClosed] = useState(false);
 
@@ -110,8 +99,8 @@ export const Reasoning = memo(
     }, [isStreaming, isOpen, setIsOpen, hasAutoClosed]);
 
     const contextValue = useMemo(
-      () => ({ isOpen, isStreaming, setIsOpen, primed, prime }),
-      [isOpen, isStreaming, setIsOpen, primed, prime]
+      () => ({ isOpen, isStreaming, setIsOpen }),
+      [isOpen, isStreaming, setIsOpen]
     );
 
     return (
@@ -154,12 +143,10 @@ export const ReasoningTrigger = memo(
     getThinkingMessage = defaultGetThinkingMessage,
     ...props
   }: ReasoningTriggerProps) => {
-    const { isStreaming, isOpen, prime } = useReasoning();
+    const { isStreaming, isOpen } = useReasoning();
 
     return (
       <CollapsibleTrigger
-        onPointerEnter={prime}
-        onFocus={prime}
         className={cn(
           /* The heading register (owner round 4, 2026-10-05): the small
              mono caps of the card eyebrows — matching YOUR THINKING, whose
@@ -219,10 +206,7 @@ function ReasoningMarkdown({ children }: { children: string }) {
 }
 
 export const ReasoningContent = memo(
-  ({ className, children, ...props }: ReasoningContentProps) => {
-    const { primed } = useReasoning();
-    if (!primed) return null;
-    return (
+  ({ className, children, ...props }: ReasoningContentProps) => (
     <CollapsibleContent
       className={cn(
         "mt-4 text-sm",
@@ -233,8 +217,7 @@ export const ReasoningContent = memo(
     >
       <ReasoningMarkdown>{children}</ReasoningMarkdown>
     </CollapsibleContent>
-    );
-  }
+  )
 );
 
 Reasoning.displayName = "Reasoning";
