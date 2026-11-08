@@ -655,7 +655,7 @@ function QuestionDockForm({
 								>
 									{sel.dontKnow && <span className="size-1.5 rounded-full bg-current" />}
 								</span>
-								<span>I don't know</span>
+								<span className="lh-prose">I don't know</span>
 							</button>
 						)}
 

@@ -80,7 +80,7 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 											: "Question"}
 				{isQuiz &&
 					(answer.dontKnow ? (
-						<span className="rounded bg-muted px-1.5 py-0.5">didn't know</span>
+						<span className="rounded bg-muted-foreground/15 px-1.5 py-0.5 text-muted-foreground">didn't know</span>
 					) : answer.correct ? (
 						<span className="rounded bg-green-500/15 px-1.5 py-0.5 text-green-500">correct</span>
 					) : (
@@ -99,7 +99,7 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 			)}
 
 			{((answer.options?.length ?? 0) > 0 || answer.other) && (
-				<div className="flex flex-col gap-1.5 text-sm">
+				<div className="flex flex-col gap-2 text-sm">
 					{answer.options?.map((opt) => {
 						const sel = selectedIdx.has(opt.index);
 						const key = isQuiz && correctIdx.has(opt.index);
@@ -107,7 +107,7 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 							<div
 								key={opt.index}
 								className={cn(
-									"flex items-center gap-2 rounded-lg border px-3 py-1.5",
+									"flex items-center gap-2 rounded-lg border px-3 py-2",
 									sel && key && "border-green-500/60 bg-green-500/10",
 									sel && !key && isQuiz && "border-red-500/60 bg-red-500/10",
 									sel && !isQuiz && "border-primary bg-accent",
@@ -152,7 +152,7 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 					{answer.other && (
 						<div
 							data-testid="answered-other"
-							className="flex items-center gap-2 rounded-lg border border-primary bg-accent px-3 py-1.5"
+							className="flex items-center gap-2 rounded-lg border border-primary bg-accent px-3 py-2"
 						>
 							<span>“<PathText text={answer.other} />”</span>
 						</div>
