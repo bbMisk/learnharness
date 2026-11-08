@@ -10,7 +10,7 @@ import { healToolRecord } from "../src/agent/tools/heal.ts";
 import metadata from "../package.json" with { type: "json" };
 
 const factories = [
-	(opts: AgentBuildOptions) => createProberAgent({ chatId: opts.chatId, searchAvailable: () => false } as never, opts),
+	(opts: AgentBuildOptions) => createProberAgent({ chatId: opts.chatId } as never, opts),
 	(opts: AgentBuildOptions) => createTeacherAgent(undefined, opts),
 	(opts: AgentBuildOptions) => createPracticeAgent({} as never, opts),
 ];

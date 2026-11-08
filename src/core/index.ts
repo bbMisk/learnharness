@@ -37,6 +37,7 @@ export * from "./events.ts";
 export * from "./layout.ts";
 export * from "./plan-tree.ts";
 export * from "./lesson-tracking.ts";
+export * from "./pinned-visual.ts";
 export * from "./plan-progress.ts";
 export * from "./lesson-time.ts";
 export * from "./question-type.ts";
@@ -74,6 +75,7 @@ export * from "./fuzzy.ts";
 // view. Browser-safe — the Wave-4 panel imports these directly.
 export * from "./settings.ts";
 export * from "./file-access.ts";
+export * from "./model-instructions.ts";
 export * from "./dictation.ts";
 // graph-deletion.ts (wave 6): the whole module is PURE but storage-port
 // driven — the deletion RUNS server-side only. The shell needs exactly one

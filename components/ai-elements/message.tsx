@@ -2,7 +2,6 @@
 
 import { cn } from "@/lib/utils";
 import { cjk } from "@streamdown/cjk";
-import { code } from "@streamdown/code";
 import { createMathPlugin } from "@streamdown/math";
 
 import type { ComponentProps, HTMLAttributes } from "react";
@@ -14,6 +13,9 @@ import {
   type PluginConfig,
 } from "streamdown";
 import { mdComponents } from "@/components/md-blocks";
+import { memoizeRehypeKatex } from "@/components/katex-cache";
+import { CachedBlock } from "@/components/cached-block";
+import { code } from "@/components/code-highlighter";
 import { repairMathForDisplay, transformMathDelimiters } from "@/src/core";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
@@ -84,13 +86,18 @@ export type MessageResponseProps = ComponentProps<typeof Streamdown> & {
 // HTML sanitization remains enabled. Other streaming repairs stay active.
 export const streamdownRemend = { htmlTags: false };
 
+// Repeated equations render once (components/katex-cache.ts), and finished
+// blocks keep their parsed output across remounts (components/cached-block.tsx).
+const math = createMathPlugin({ singleDollarTextMath: true });
+const [rehypeKatex, katexOptions] = math.rehypePlugin as [Parameters<typeof memoizeRehypeKatex>[0], object];
+
 export const streamdownPlugins = {
   cjk: {
     ...cjk,
     remarkPluginsAfter: [...cjk.remarkPluginsAfter, remarkBreaks],
   },
   code,
-  math: createMathPlugin({ singleDollarTextMath: true }),
+  math: { ...math, rehypePlugin: [memoizeRehypeKatex(rehypeKatex), katexOptions] },
 } as unknown as PluginConfig;
 
 export const MessageResponse = memo(
@@ -115,6 +122,7 @@ export const MessageResponse = memo(
         plugins={streamdownPlugins}
         remend={streamdownRemend}
         parseIncompleteMarkdown={streaming}
+        BlockComponent={CachedBlock}
         {...props}
       >
         {content}

@@ -40,11 +40,10 @@ import { useGeneralSettings } from "@/components/general-settings";
 const STORAGE_KEY = "lh:sidebar-open";
 
 /*
- * Narrow-window behavior (owner, 2026-09-17): below SIDEBAR_AUTOCLOSE the
- * sidebar would squeeze the page below the 640px window floor (the two
- * numbers compose: 640 + 288 sidebar = 928), so it auto-closes — and
- * auto-RESTORES when the window widens again (owner choice: the sidebar
- * pops back, not a manual re-open). The whole behavior is one expression:
+ * Narrow-window behavior: below SIDEBAR_AUTOCLOSE the sidebar would squeeze
+ * the page below the 640px window floor (640 + 288 sidebar = 928), so it
+ * auto-closes — and auto-RESTORES when the window widens again. The whole
+ * behavior is one expression:
  * rendered = pref && !narrow, where pref is the persisted user choice.
  * Manual closes persist and stay closed; auto-close does not touch the
  * preference. Opening the sidebar while narrow asks the Electron shell to
@@ -85,7 +84,7 @@ declare global {
 			chatgpt?: ChatGPTControlBridge;
 			subscriptions?: NativeSubscriptionControlBridge;
 			expandWindow: () => void;
-			/** The zoom truth (owner round 7): subscribes to "lh:zoom" pushes; returns unsubscribe. */
+			/** The zoom truth: subscribes to "lh:zoom" pushes; returns unsubscribe. */
 			onZoom?: (cb: (factor: number) => void) => () => void;
 			getZoom?: () => Promise<number>;
 			/** Observational update events and a snapshot for late subscribers. */
@@ -123,7 +122,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 	const [mounted, setMounted] = useState(false);
 
 	useEffect(() => {
-		// Electron shell detection (merged chrome, 2026-09-17): keys the
+		// Electron shell detection: keys the
 		// .lh-electron CSS (app/globals.css) that turns the header bands
 		// into the window's drag surface. Post-mount only — server HTML
 		// and first client render must agree (no hydration mismatch),
@@ -133,7 +132,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 			document.documentElement.dataset.lhPlatform = window.lh?.platform ?? "";
 		}
 
-		// THE ZOOM TRUTH (owner round 7, 2026-10-05): ⌘±/⌘0 zoom the UI
+		// The zoom truth: ⌘±/⌘0 zoom the UI
 		// (Electron zoomFactor) while the native traffic lights stay
 		// physical-fixed — the CSS gutter lengths divide by this factor so
 		// their RENDERED size never moves. getZoom covers the first-paint
@@ -181,11 +180,8 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 	}, [narrow, open]);
 
 	// ⌘B: the global shortcut dispatches kbdEventForAction("toggle-sidebar")
-	// and the context answers on exactly that name — the shared spelling
-	// is the fix for the interlude bug (the listener sat on the pre-
-	// convention name "lh:toggle-sidebar" while the dispatcher sent
-	// "lh:kbd-toggle-sidebar", so ⌘B silently did nothing; owner
-	// 2026-09-25).
+	// and the context listens on exactly that name — derive both from the
+	// same helper, never a hand-spelled event string.
 	useEffect(() => {
 		const event = kbdEventForAction("toggle-sidebar");
 		const onToggle = () => toggle();
@@ -203,16 +199,13 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 
 /** Hamburger for page headers — only visible when the sidebar is closed.
  *
- *  Owner, round 6c: the toggle is ALWAYS MOUNTED, owning a slot whose
- *  width+margin animate in LOCKSTEP with the sidebar's own width
- *  transition (same duration-200, same easing, both gated on mount) —
- *  before, it mounted/unmounted in one frame, so its 48px footprint
- *  (button + gap) popped and dragged the title and chips sideways while
- *  the sidebar was still mid-slide. When open the slot is exactly zero
- *  (w-0 -mr-3: width 0, the negative margin cancels the header's gap-3),
- *  so resting layouts are pixel-identical to the old conditional render.
- *  The icon fades with the slot and is clipped by it as it collapses —
- *  no popping in either direction. */
+ *  The toggle is ALWAYS MOUNTED, owning a slot whose width+margin animate
+ *  in LOCKSTEP with the sidebar's own width transition (same duration-200,
+ *  same easing, both gated on mount), so its 48px footprint never pops
+ *  and drags the title sideways mid-slide. When open the slot is exactly
+ *  zero (w-0 -mr-3: width 0, the negative margin cancels the header's
+ *  gap-3). The icon fades with the slot and is clipped by it as it
+ *  collapses — no popping in either direction. */
 export function SidebarToggle() {
 	const { open, toggle } = useSidebar();
 	return (
@@ -232,9 +225,8 @@ export function SidebarToggle() {
 				onClick={toggle}
 				className={cn("sidebar-motion duration-200", open ? "pointer-events-none opacity-0" : "opacity-100")}
 			>
-				{/* Owner, round 6: size-4, SAME as the close glyph — the toggle
-				    must not grow when the sidebar is closed (it did: size-5 here).
-				    The small look is the standard, both directions. */}
+				{/* size-4, SAME as the close glyph — the toggle must not grow
+				    when the sidebar is closed. */}
 				<PanelLeftOpenIcon className="size-4" />
 			</Button>
 			</Hint>
@@ -243,15 +235,11 @@ export function SidebarToggle() {
 }
 
 /**
- * The row's status indicator (owner, minimal-color round): the braille
- * spinner, ONLY while a teach turn is in flight — monochrome motion, the
- * terminal's own glyph, existing exactly as long as the work does and
- * vanishing the moment it ends. Every other state renders NOTHING:
- * phases only advance (all sessions end in Teaching — phase-as-signal was
- * decoration, now retired app-wide), and question-pending is the dominant
- * RESTING state of real sessions — a resting state has no scan value, so
- * the meta line's "Waiting for input" text carries it. Idle is the
- * absence of a signal, by design.
+ * The row's status indicator: the braille spinner, ONLY while a teach turn
+ * is in flight — it exists exactly as long as the work does. Every other
+ * state renders NOTHING: question-pending is the dominant RESTING state of
+ * real sessions, so the meta line's "Waiting for input" text carries it.
+ * Idle is the absence of a signal, by design.
  */
 function SessionStatus({ busy }: { busy: boolean }) {
 	if (!busy) return null;
@@ -261,10 +249,8 @@ function SessionStatus({ busy }: { busy: boolean }) {
 /** Compact "how long ago": "just now", "5m ago", "3h ago", "2d ago",
  *  then a plain date. How long a session has been WAITING matters more
  *  than an absolute timestamp. Beyond a week the date renders ISO
- *  (YYYY-MM-DD, zero-padded) — the international standard: unambiguous
- *  in any locale and it sorts (owner, typography round 5; the old
- *  M/D/YYYY was the US convention. A user-locale setting can come later
- *  — trivial, a format function swap). Pure — exported for tests. */
+ *  (YYYY-MM-DD, zero-padded): unambiguous in any locale, and it sorts.
+ *  Pure — exported for tests. */
 export function timeAgo(iso: string, now = new Date()): string {
 	const ms = now.getTime() - new Date(iso).getTime();
 	if (ms < 60_000) return "just now";
@@ -281,10 +267,8 @@ export function timeAgo(iso: string, now = new Date()): string {
 }
 
 /** The row's second line: the state when a state exists (waiting/working),
- *  otherwise just how long ago. The message count is DROPPED (owner,
- *  typography round 5): it informed no decision — clutter. messageCount
- *  still rides the API payload, so this is a one-line flip back if it's
- *  ever wanted. */
+ *  otherwise just how long ago. No message count (messageCount is still
+ *  in the API payload). */
 export function sessionMeta(chat: ChatListItem): string {
 	if (chat.compacting) return `Compacting context · ${timeAgo(chat.updatedAt)}`;
 	if (chat.pendingQuestion) return `Waiting for input · ${timeAgo(chat.updatedAt)}`;
@@ -295,8 +279,8 @@ export function sessionMeta(chat: ChatListItem): string {
 	return timeAgo(chat.updatedAt);
 }
 
-/** The row's meta line. With time spent on (Settings → General, owner
- *  2026-11-05) the figure sits muted at the line's right end, never on the
+/** The row's meta line. With time spent on (Settings → General) the
+ *  figure sits muted at the line's right end, never on the
  *  title line, so titles keep their width. `gutter`: the line may run into
  *  the archive button's reserved right padding — the button sits beside the
  *  title line (top-1.5, 28px tall), so the line below it is free; a practice
@@ -337,10 +321,10 @@ export function SessionRow({
 	chat: ChatListItem;
 	active: boolean;
 	onOpen: () => void;
-	/** Keyboard-cycle highlight (shortcut wave A: Alt+↑/↓ + Alt+Enter) —
-	 *  visually distinct from the active session, which stays filled. */
+	/** Keyboard-walk highlight (the search's ↑/↓ walk) — visually distinct
+	 *  from the active session, which stays filled. */
 	kbdSelected?: boolean;
-	/** Right-click opens the context menu (wave 6: Rename / Delete). */
+	/** Right-click opens the session context menu. */
 	onContextMenu?: (e: React.MouseEvent<HTMLButtonElement>) => void;
 	onArchive?: () => Promise<unknown>;
 	/** Settings → General "Show time spent on lessons" (default off). */
@@ -365,17 +349,14 @@ export function SessionRow({
 			{chat.pinned && <PinIcon className="size-3 shrink-0 text-muted-foreground" aria-label="Pinned chat" />}
 			<SessionStatus busy={chat.busy || chat.compacting} />
 			<span className="min-w-0 flex-1">
-				{/* Titles are the learner's/teacher's WORDS — Source Sans 3, the
-				    same voice the words were typed in (every input is lh-prose);
-				    the meta line below stays JetBrains Mono (machine data). One
-				    rule, finally applied to the picker too (owner, typography
-				    round): mono = chrome, Source Sans = human words. */}
+				{/* Titles are the learner's/teacher's WORDS — the prose font,
+				    the same voice the words were typed in; the meta line below
+				    stays mono (machine data). Mono = chrome, prose = human words. */}
 				<span className="block truncate font-prose text-(length:--lh-prose-size)">{chat.title}</span>
 				<SessionMetaLine chat={chat} showTime={showTime} gutter={!!onArchive && (chat.kind ?? "teach") !== "practice"} className="block text-xs text-muted-foreground" />
 			</span>
-			{/* The dumbbell rides the FAR RIGHT (owner round 6, 2026-10-05) —
-			    was left of the name; right-aligned keeps the titles flush with
-			    the teaching rows and reads cleaner. */}
+			{/* The dumbbell rides the FAR RIGHT, keeping titles flush with the
+			    teaching rows. */}
 			{(chat.kind ?? "teach") === "practice" && (
 				<DumbbellIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-label="Practice session" />
 			)}
@@ -391,7 +372,7 @@ export function SessionRow({
 	);
 }
 
-/** The inline-rename row (wave 6): same geometry as SessionRow, but the
+/** The inline-rename row: same geometry as SessionRow, but the
  *  title line becomes a text input — select-all on entry (the click means
  *  "replace", the header rename's rule), Enter/blur commits, Esc discards.
  *  The meta line stays so the row never changes height mid-edit. */
@@ -410,13 +391,11 @@ export function RenameRow({ chat, onCommit, onCancel, showTime = false }: { chat
 			data-testid="session-rename-row"
 			className="relative mb-0.5 flex w-full items-center rounded-lg bg-accent px-3 py-2"
 		>
-			{/* NOTHING MOVES (owner, polish round): an idle row renders no
-			    status spacer (SessionStatus is null when not busy), so the
-			    title starts at the row's own px-3 — 12px in. The old rename
-			    row always carried a 14px spacer + gap + the input's border
-			    and padding, landing the text ~41px in (and the meta with
-			    it). The input here is borderless and padding-free at the
-			    exact title x; the underline is the only editing cue. */}
+			{/* NOTHING MOVES: an idle row renders no status spacer
+			    (SessionStatus is null when not busy), so the title starts at
+			    the row's own px-3 — 12px in. The input here is borderless and
+			    padding-free at the exact title x; the underline is the only
+			    editing cue. */}
 			<span className="flex min-w-0 w-full flex-col">
 				<input
 					ref={inputRef}
@@ -441,8 +420,8 @@ export function RenameRow({ chat, onCommit, onCancel, showTime = false }: { chat
 	);
 }
 
-/** The three-way kind filter (practice sessions, owner 2026-10-04):
- *  Teaching / All / Practice — a client-side filter over the same
+/** The three-way kind filter: Teaching / Practice / All — a client-side
+ *  filter over the same
  *  snapshot, persisted in localStorage, defaulting to All. */
 export type SessionKindFilter = "teach" | "all" | "practice";
 const KIND_FILTER_KEY = "lh:session-kind-filter";
@@ -458,7 +437,7 @@ function SessionsSidebar() {
 	const modes = useVisibleModes();
 	const showPractice = modes.includes("practice");
 	const kindFilter: SessionKindFilter = showPractice ? storedKindFilter : "all";
-	// Time spent (owner, 2026-11-05): every row carries it; Settings → General shows it (off by default).
+	// Time spent: every row carries it; Settings → General shows it (off by default).
 	const showTime = useGeneralSettings()?.showLessonTime ?? false;
 	useEffect(() => {
 		const stored = window.localStorage.getItem(KIND_FILTER_KEY);
@@ -472,15 +451,15 @@ function SessionsSidebar() {
 	const router = useRouter();
 	const { open: openSettings } = useSettingsDialog();
 
-	/* New session (owner, 2026-09-13): NO POST — the button opens the
-	   sessionless draft view; the session is created only when the first
-	   message is sent (and that message becomes its title). Search: a
-	   client-side filter over the poll snapshot — no server round trip. */
+	/* New session: NO POST — the button opens the sessionless draft view;
+	   the session is created only when the first message is sent (and that
+	   message becomes its title). Search: a client-side filter over the
+	   list snapshot — no server round trip. */
 	const newSession = useCallback(() => {
 		router.push("/chat/new");
 	}, [router]);
 
-	/* FUZZY (owner round 8, 2026-10-05): subsequence match ranked by
+	/* Fuzzy search: subsequence match ranked by
 	 * fuzzyScore — prefix beats word-boundary beats scattered. Empty query
 	 * keeps the natural list order (scores are all 0, sort is stable). */
 	const shown = useMemo(() => {
@@ -507,9 +486,9 @@ function SessionsSidebar() {
 
 	const { updateError, moveStatus, updateChat, moveChat, chatDrop } = useChatOrganization({ chats, projects, refresh });
 
-	/* Instant rename propagation (2026-09-17): the chat header's rename
-	   commits dispatch lh:chat-renamed; patch the snapshot in place instead
-	   of waiting for the 2.5s poll. */
+	/* Instant rename propagation: the chat header's rename commits
+	   dispatch lh:chat-renamed; patch the snapshot in place instead of
+	   waiting for a server round trip. */
 	useEffect(() => {
 		const onRenamed = (e: Event) => {
 			const { id, title } = (e as CustomEvent<{ id: string; title: string }>).detail;
@@ -519,37 +498,30 @@ function SessionsSidebar() {
 		return () => window.removeEventListener("lh:chat-renamed", onRenamed);
 	}, []);
 
-	/* PUSH (architecture S6, 2026-10-02): the 2.5s poll is RETIRED — the
-	   last standing network poll in the app. List truth arrives as
-	   events: chats-changed (create/rename/delete — the list-SHAPE
-	   writes), and turn-started/turn-settled for EVERY chat (unfiltered:
-	   any chat's turn flips busy/order/phase in this list). Announced
-	   fetches ride the 250ms trailing debounce (the S4/S5 law); resync
-	   (reconnect / dev-restart) is immediate. lh:turn-state +
-	   lh:chat-renamed stay for same-tab INSTANTS — local beats any
-	   round-trip. Both are wired in useChatListRefresh (above). */
+	/* Push-driven, no polling: list truth arrives as events —
+	   chats-changed (create/rename/delete — the list-SHAPE writes), and
+	   turn-started/turn-settled for EVERY chat (unfiltered: any chat's turn
+	   flips busy/order/phase in this list). Announced fetches ride a 250ms
+	   trailing debounce; resync (reconnect / dev-restart) is immediate.
+	   lh:turn-state + lh:chat-renamed carry same-tab INSTANTS — local beats
+	   any round-trip. Both are wired in useChatListRefresh (above). */
 
-	/* ── Keyboard seams (shortcut wave A, 2026-09-17; search-walk round
-	   2026-10-10) ── ⌘⇧F focuses the search field — and THE SEARCH OWNS THE
-	   WALK: ↑/↓ cycle the filtered list (wrap — "cycle"), Enter opens the
-	   walked row, or the FIRST match when nothing is walked (owner,
-	   2026-10-10 — the quick-open pattern: ⌘⇧F, type, Enter, done). The
-	   Alt+↑/↓/↵ global cycle was RETIRED the same round: barely used,
-	   felt laggy. The selection is a row index into `shown`, so the walk
-	   follows whatever the query + kind filter leave. Mouse and keyboard
-	   coexist: hovering doesn't claim, a click or an open clears the
-	   selection. */
+	/* ── Keyboard seams ── ⌘⇧F focuses the search field — and THE SEARCH
+	   OWNS THE WALK: ↑/↓ cycle the filtered list (wrap), Enter opens the
+	   walked row, or the FIRST match when nothing is walked (the quick-open
+	   pattern: ⌘⇧F, type, Enter, done). The selection is a row index into
+	   `shown`, so the walk follows whatever the query + kind filter leave.
+	   Mouse and keyboard coexist: hovering doesn't claim, a click or an
+	   open clears the selection. */
 	const [kbdIndex, setKbdIndex] = useState<number | null>(null);
 	const searchRef = useRef<HTMLInputElement>(null);
 	const listRef = useRef<HTMLDivElement>(null);
 
-	/* ── Wave 6 chunk A: context menu + inline rename + deletion ──
-	   Right-click a session row → MenuShell: the two management actions
-	   first (owner ruling), then — below a hairline — the extraction
-	   coverage block (owner-locked redesign 2026-09-24, order refined
-	   2026-09-24: Rename/Delete on top, the numbers + manual Extract
-	   affordance at the bottom). The anchor is the row that was
-	   right-clicked — assigned into a ref before the state flip so the
+	/* ── Context menu + inline rename + deletion ──
+	   Right-click a session row → MenuShell: Rename / Export / Delete, then
+	   — below a hairline — archive, pin, and move-to-project, with the
+	   extraction coverage block at the bottom. The anchor is the row that
+	   was right-clicked — assigned into a ref before the state flip so the
 	   shell measures it on its first (hidden) pass. */
 	const [ctxChatId, setCtxChatId] = useState<string | null>(null);
 	const ctxAnchorRef = useRef<HTMLElement | null>(null);
@@ -588,7 +560,7 @@ function SessionsSidebar() {
 		};
 	}, [ctxChatId]);
 
-	// Inline rename (owner ruling, wave 6): the row swaps to a text input;
+	// Inline rename: the row swaps to a text input;
 	// commit rides the SAME plumbing as the header rename — PUT the title,
 	// then lh:chat-renamed patches every listener (this sidebar's own
 	// listener patches the snapshot instantly; an open chat header hears
@@ -610,11 +582,11 @@ function SessionsSidebar() {
 		}
 	}, []);
 
-	// Delete success: patch the list instantly (the poll is the backstop),
-	// navigate home if the open session died (the chat view unmounts —
-	// drafts die with it, no orphan bubbles), and announce the graph
-	// revision so the graph view refetches (deletion is the one writer
-	// the status poll can't see — no run ever transitions some→none).
+	// Delete success: patch the list instantly (the chats-changed event is
+	// the backstop), navigate home if the open session died (the chat view
+	// unmounts — drafts die with it, no orphan bubbles), and announce the
+	// graph revision so the graph view refetches (its pipeline-status feed
+	// can't see a deletion).
 	const onDeleted = useCallback(
 		(id: string, _mode: ChatDeleteMode, graphRevision: number) => {
 			setDeleting(null);
@@ -647,7 +619,7 @@ function SessionsSidebar() {
 		if (!open) return;
 		void refresh();
 		// Opening + navigation refetch; while open, the events channel owns
-		// freshness (S6) — no interval, nothing standing.
+		// freshness — no interval.
 	}, [open, pathname, refresh]);
 
 	const renderChat = (chat: ChatListItem, index?: number) => renamingId === chat.id ? (
@@ -660,7 +632,7 @@ function SessionsSidebar() {
 
 	return (
 		<>
-		{/* The update notice (owner, 2026-11-01): a row above Settings while the
+		{/* The update notice: a row above Settings while the
 		    sidebar is open, a bottom-left pill while it is closed. */}
 		<DeployReload variant="floating" hidden={open} />
 		<aside
@@ -668,22 +640,20 @@ function SessionsSidebar() {
 			aria-hidden={!open}
 		>
 			<div className="flex h-full w-72 flex-col border-r bg-background">
-				{/* LH wordmark — the owner's header; close toggle sits at the edge.
-				    Merged chrome (2026-09-17): in Electron this band is the
-				    window's drag surface and starts after the traffic lights
-				    (.lh-lights-gutter); in the browser those classes are inert. */}
+				{/* LH wordmark header; close toggle sits at the edge. In
+				    Electron this band is the window's drag surface and starts
+				    after the traffic lights (.lh-lights-gutter); in the browser
+				    those classes are inert. */}
 				<div className="lh-drag lh-lights-gutter flex items-center justify-between px-4 py-3">
-					{/* The owner's mark (2026-09-17) replaces the "LH" text — still the
-					    home link, still vertically centered by the band's items-center.
-					    The 92px .lh-lights-gutter keeps it clear of the traffic lights
-					    with the lights' own edge-inset as the gap. */}
-					{/* Hover mirrors the ghost toggle buttons (owner ask, 2026-09-17):
-					    same size-9 chip geometry, same hover:bg-accent treatment. */}
+					{/* The mark is the home link, vertically centered by the band's
+					    items-center. The 92px .lh-lights-gutter keeps it clear of the
+					    traffic lights with the lights' own edge-inset as the gap.
+					    Hover mirrors the ghost toggle buttons: same size-9 chip
+					    geometry, same hover:bg-accent treatment. */}
 					<Hint
-						// Kept (owner, subtlety round 2026-09-25) but to the RIGHT
-						// of the logo, carrying its real shortcut: ⌘G jumps to
-						// the graph view (keyboard-shortcuts routes it to "/",
-						// the same destination as this logo).
+						// To the RIGHT of the logo, carrying its real shortcut: ⌘G
+						// jumps to the graph view (keyboard-shortcuts routes it to
+						// "/", the same destination as this logo).
 						label="Home"
 						action="jump-graph"
 						side="right"
@@ -709,10 +679,8 @@ function SessionsSidebar() {
 					</Hint>
 				</div>
 
-				{/* Two doors, STACKED (owner round 8, 2026-10-05 — was a
-				    half/half row): full-width rows read cleaner and give the
-				    labels room; teaching keeps the original draft route,
-				    practice carries its mode. */}
+				{/* Two doors, STACKED: full-width rows give the labels room;
+				    teaching keeps the draft route, practice carries its mode. */}
 				<div className="mx-3 mb-2 flex flex-col gap-1.5">
 					<button
 						type="button"
@@ -757,16 +725,13 @@ function SessionsSidebar() {
 								// a stale walk index would point at the wrong row.
 								setKbdIndex(null);
 							}}
-							// THE SEARCH OWNS THE WALK (owner, 2026-10-10 — the
-							// retired Alt+↑/↓/↵ cycle's successor): ↑/↓ cycle the
-							// filtered rows (wrap), Enter opens the walked row —
-							// or the FIRST match when nothing is walked (the
-							// quick-open pattern) — then blurs (focus returns to
-							// the app per the Enter law; the query stays for
-							// re-searching). Esc leaves the search (owner,
-							// keyboard wave): blur back to normal, and claim the
-							// key so the window Esc chain (dictation / abort)
-							// doesn't also fire.
+							// THE SEARCH OWNS THE WALK: ↑/↓ cycle the filtered
+							// rows (wrap), Enter opens the walked row — or the
+							// FIRST match when nothing is walked — then blurs
+							// (focus returns to the app; the query stays for
+							// re-searching). Esc leaves the search: blur, and
+							// claim the key so the window Esc chain (dictation /
+							// abort) doesn't also fire.
 							onKeyDown={(e) => {
 								if (e.key === "Escape") {
 									e.stopPropagation();
@@ -805,13 +770,11 @@ function SessionsSidebar() {
 					<button type="button" aria-label={showArchived ? "Show active chats" : "Show archived chats"} title={showArchived ? "Show active chats" : "Show archived chats"} aria-pressed={showArchived} data-testid="archive-view" onClick={() => { setShowArchived(!showArchived); setKbdIndex(null); }} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"><ArchiveIcon className="size-3.5" /></button>
 				</div>
 
-				{/* The three-way filter, HEADING THE LIST (owner round 8b,
-				    2026-10-05 — moved below the search): it scopes what the
-				    list shows, so it sits directly above it as a caption row;
-				    search stays the top muscle-memory target. Order: Teaching /
-				    Practice / All — the real modes first, "All" as the escape
-				    hatch on the right, mirroring the create-buttons above.
-				    Persisted client-side. */}
+				{/* The three-way filter, HEADING THE LIST: it scopes what the
+				    list shows, so it sits directly above it as a caption row,
+				    below the search. Order: Teaching / Practice / All — the real
+				    modes first, "All" as the escape hatch on the right, mirroring
+				    the create-buttons above. Persisted client-side. */}
 				{showPractice && (
 				<div className="mx-3 flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="session-kind-filter">
 					{(["teach", "practice", "all"] as const).map((f) => (
@@ -849,15 +812,14 @@ function SessionsSidebar() {
 					)}
 				</div>
 
-					{/* Background agents (owner, sidebar round): the section is
-					    ALWAYS here — empty means empty (the header sits alone); it
-					    populates and grows when processes run. The session list is
-					    flex-1, so this pins to the bottom. Sidebar closed = the
-					    learner opted out (no ambient signal, user decision). */}
+					{/* Background agents: the section is ALWAYS here — empty means
+					    empty (the header sits alone); it populates and grows when
+					    processes run. The session list is flex-1, so this pins to
+					    the bottom. Sidebar closed = no ambient signal. */}
 					<ActivitySection />
 					<DeployReload variant="row" />
 
-					{/* Settings entry (settings-app wave): same row language as
+					{/* Settings entry: same row language as
 					    New session — quiet, bottom-pinned, opens the centered
 					    dialog (also mod+, in the keyboard registry). */}
 					<div className="px-3 pb-3 pt-1">
@@ -875,10 +837,9 @@ function SessionsSidebar() {
 					</div>
 				</div>
 
-				{/* The context menu (wave 6 + the extraction-UX redesign): the
-				    coverage block above, then exactly two management actions
-				    (owner ruling — no more). MenuShell owns placement/focus/arrow
-				    cycling; the dismissal effect above owns the contract. */}
+				{/* The session context menu (contents described at the state
+				    above). MenuShell owns placement/focus/arrow cycling; the
+				    dismissal effect above owns the contract. */}
 				{ctxChatId !== null && (
 					<MenuShell
 						anchorRef={ctxAnchorRef}
@@ -886,12 +847,10 @@ function SessionsSidebar() {
 						preferredSide="down"
 						menuClass="flex w-52 flex-col gap-0.5 rounded-xl border bg-card p-2 text-xs shadow-xl"
 					>
-						{/* The two management actions first, then the extraction block
-						    (owner refinement round, 2026-09-24): Rename/Delete stay at the
-						    top, the coverage numbers + Extract affordance sit below the
-						    hairline — the block is info + a stateful affordance, the
-						    actions above it. Fetched on menu open (the block mounts WITH
-						    the menu); 409 = benign. Renders nothing on a failed read. */}
+						{/* Management actions first; the coverage block (numbers +
+						    Extract affordance) sits last. It fetches on menu open (it
+						    mounts WITH the menu); 409 = benign; renders nothing on a
+						    failed read. */}
 						<button
 							type="button"
 							data-testid="ctx-rename"
@@ -903,11 +862,9 @@ function SessionsSidebar() {
 						>
 							Rename
 						</button>
-						{/* Export as Markdown (owner, release polish 2026-10-06): the
-					    session-markdown engine's user-facing debut — same-origin
-						    anchor download; the route's Content-Disposition names the
-						    file. Sits with the management actions, above Delete (the
-						    destructive action stays last — the danger-fence law). */}
+						{/* Export as Markdown: a same-origin anchor download; the
+						    route's Content-Disposition names the file. Sits above Delete
+						    (the destructive action stays last). */}
 						<button
 							type="button"
 							data-testid="ctx-export-md"
@@ -947,7 +904,7 @@ function SessionsSidebar() {
 					</MenuShell>
 				)}
 
-				{/* The two-option delete dialog (wave 6) — portaled to body
+				{/* The two-option delete dialog — portaled to body
 				    by the component itself, lives here for state locality. */}
 				<DeleteSessionDialog
 					chat={deleting}
@@ -966,7 +923,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 			<GlobalFileDrop />
 			<SessionsSidebar />
 			<main className="relative min-w-0 flex-1">{children}</main>
-			{/* The single document-level keydown listener (keyboard wave A) —
+			{/* The single document-level keydown listener —
 			    after the content in the tree, but it's window-level so order only
 			    matters for the events it dispatches, never for DOM priority. */}
 			<KeyboardShortcuts />

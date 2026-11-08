@@ -1,14 +1,11 @@
 /**
- * THE VIEW MODEL (Wave D, owner-approved 2026-09-26): the client's transcript
- * view — native record messages (+ the live turn's working messages) grouped
- * into today's exact render shape. The golden master is the pre-Wave-D UI
- * (owner fork 1): everything the agent produces is ONE continuous document
- * per run — step separators between the loop's steps, artifact and answered
- * cards inline, the teacher's reaction continuing below an answered quiz.
+ * THE VIEW MODEL: the client's transcript view — native record messages (+
+ * the live turn's working messages) grouped into the render shape.
+ * Everything the agent produces is ONE continuous document per run — step
+ * separators between the loop's steps, artifact and answered cards inline,
+ * the teacher's reaction continuing below an answered quiz.
  *
- * This is the grouping canon of the deleted server-side projection
- * (core/projection.ts, Wave B), moved client-side, app-owned, with zero AI-SDK
- * types — plus the LIVE-TURN layer the projection never had: mid-turn tool
+ * Client-side and app-owned, with a LIVE-TURN layer: mid-turn tool
  * execution states (input-streaming → input-available/output-error/output),
  * so the dock mounts only after a call clears the validation boundary
  * (tool_execution_end) and the shimmer names the running activity.
@@ -23,11 +20,11 @@
  * splices into the preceding assistant group, IN FLOW right after the last
  * successful plan_init call (the presentation moment).
  *
- * Question tools on the wire (owner fork 2): the agent's closing
- * tool_execution_end carries the in-memory "Question posed" placeholder —
- * projectView IGNORES clean question executions (the part stays
- * input-available; the learner's answer arrives as a real toolResult). The
- * placeholder never persists, so settled records never see it.
+ * Question tools on the wire: the agent's closing tool_execution_end carries
+ * the in-memory "Question posed" placeholder — projectView IGNORES clean
+ * question executions (the part stays input-available; the learner's answer
+ * arrives as a real toolResult). The placeholder never persists, so settled
+ * records never see it.
  *
  * Pure and deterministic: client-safe (no node deps), same input → same view.
  */
@@ -38,15 +35,14 @@ import { PRACTICE_CONCLUDE_TOOL, problemInputForConclude, SEND_TO_USER_TOOL, sen
 import { activeCompactionOf, type CompactionDetails } from "./compaction.ts";
 import { QUESTION_TOOLS } from "./pending.ts";
 import { isLessonTrackingTool } from "./lesson-tracking.ts";
+import { PIN_VISUAL_TOOL } from "./pinned-visual.ts";
 import type { SubagentArtifactData, SubagentResultMeta } from "./contracts/jobs.ts";
 import type { PlanBlockData } from "./contracts/chat.ts";
 
-/** A view part — the loose part vocabulary the renderers consume (the same
- *  shape names the pre-Wave-D UIMessage dialect used, so the renderer
- *  switch and the phase/pending scanners transplant unchanged). The common
- *  fields are optional-typed so the pre-Wave-D renderer code compiles
- *  against it with minimal casts; anything else stays `unknown` through
- *  the index signature. */
+/** A view part — the loose part vocabulary the renderers consume. The
+ *  common fields are optional-typed so renderer code compiles against it
+ *  with minimal casts; anything else stays `unknown` through the index
+ *  signature. */
 export interface LhViewPart extends Record<string, unknown> {
 	type: string;
 	id?: string;
@@ -91,10 +87,10 @@ export interface LiveTurnState {
 	 *  input-streaming (the shimmer); settled dangling calls render
 	 *  input-available (the dock mounts from the record). */
 	inFlight: boolean;
-	/** Ids of the messages THIS consume is streaming (optimistic round 3,
-	 *  2026-10-02): an arrived-but-empty streaming message projects one
-	 *  empty reasoning part — the thinking row — so the placeholder's
-	 *  handoff is seamless; settled empty messages stay hidden. */
+	/** Ids of the messages THIS consume is streaming: an arrived-but-empty
+	 *  streaming message projects one empty reasoning part — the thinking
+	 *  row — so the placeholder's handoff is seamless; settled empty
+	 *  messages stay hidden. */
 	streamingIds: ReadonlySet<string>;
 }
 
@@ -147,15 +143,22 @@ export interface ViewFoldContext {
 	messages: readonly LhMessage[];
 	live?: LiveTurnState;
 	compaction: ActiveCompaction;
-	/** The settled send_to_user failure for this call id, if any. */
+	/** The settled send_to_user / pin_visual failure for this call id, if any. */
 	outputError(toolCallId: string): ToolResultMessage | undefined;
 }
 
-/** Settled send_to_user failures by call id (the last one wins). */
+/** The tools whose calls project no part unless they fail: send_to_user
+ *  (its prose renders as text) and pin_visual (pinned-visual.ts — invisible;
+ *  a failure keeps the "Retrying…" line). */
+export function isErrorOnlyTool(name: string): boolean {
+	return name === SEND_TO_USER_TOOL || name === PIN_VISUAL_TOOL;
+}
+
+/** Settled send_to_user / pin_visual failures by call id (the last one wins). */
 export function outputErrorsOf(messages: readonly LhMessage[]): Map<string, ToolResultMessage> {
 	const outputErrors = new Map<string, ToolResultMessage>();
 	for (const message of messages) {
-		if (message.role === "toolResult" && message.toolName === SEND_TO_USER_TOOL && message.isError) {
+		if (message.role === "toolResult" && isErrorOnlyTool(message.toolName) && message.isError) {
 			outputErrors.set(message.toolCallId, message);
 		}
 	}
@@ -168,11 +171,11 @@ export function projectView(messages: readonly LhMessage[], live?: LiveTurnState
 	// Output calls become text rather than tool parts, so read settled
 	// failures up front: a failed call must retain the normal error path.
 	const outputErrors = outputErrorsOf(messages);
-	// The active compaction (owner round 14): the fold emits the CUT
-	// DIVIDER — the longer, at-the-seam marker — immediately BEFORE the
-	// first kept message, so the transcript shows exactly where history
-	// was summarized away. Everything before it stays visible to the
-	// user (full history is never hidden); only the MODEL's context jumps.
+	// The active compaction: the fold emits the CUT DIVIDER — the longer,
+	// at-the-seam marker — immediately BEFORE the first kept message, so the
+	// transcript shows exactly where history was summarized away. Everything
+	// before it stays visible to the user (full history is never hidden); only
+	// the MODEL's context jumps.
 	const ctx: ViewFoldContext = {
 		messages,
 		live,
@@ -218,12 +221,12 @@ function findToolPart(state: ViewFoldState, toolCallId: string): { i: number; p:
 	if (!state.toolPartIds.has(toolCallId)) return undefined;
 	const out = state.out;
 	for (let i = out.length - 1; i >= 0; i--) {
-		// NEWEST-FIRST part scan within a group (the Lacan heal, 2026-10-04):
-		// a result pairs with the most RECENT call carrying its id. Unique
-		// ids (the uniquifier guarantees them for new turns) make scan order
-		// irrelevant; for legacy duplicate-id records (DeepSeek's per-response
-		// `call_0`) this routes each answer to its own call instead of letting
-		// a later result overwrite an earlier question's card.
+		// NEWEST-FIRST part scan within a group: a result pairs with the most
+		// RECENT call carrying its id. Unique ids (the uniquifier guarantees
+		// them for new turns) make scan order irrelevant; for legacy
+		// duplicate-id records (e.g. a provider's per-response `call_0`) this
+		// routes each answer to its own call instead of letting a later
+		// result overwrite an earlier question's card.
 		const parts = out[i]!.parts;
 		for (let p = parts.length - 1; p >= 0; p--) {
 			const part = parts[p]!;
@@ -276,33 +279,30 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
 
 	if (role === "assistant") {
 		const assistant = m as AssistantMessage;
-		// OWNER RULING (2026-09-26): reasoning ALWAYS renders above the
-		// message it belongs to. Providers emit trailing reasoning tokens
-		// (GLM fires a final reasoning burst after the answer), which
-		// lands the thinking block AFTER the text in the persisted
-		// content — presenting arrival order verbatim put the reasoning
-		// UNDER the message. The view canon owns presentation order:
-		// stable-partition each assistant message, reasoning parts first
-		// (their own order kept), then everything else.
+		// Reasoning ALWAYS renders above the message it belongs to. Some
+		// providers emit a trailing reasoning burst after the answer, which
+		// lands the thinking block AFTER the text in the persisted content.
+		// The view owns presentation order: stable-partition each assistant
+		// message, reasoning parts first (their own order kept), then
+		// everything else.
 		const rest: LhViewPart[] = [];
 		const reasoning: LhViewPart[] = [];
 		// A message whose only content is hidden tracking calls is not "silent":
 		// it must not get the arrival placeholder below.
 		let hiddenTracking = false;
 		let textN = 0;
-		// LIVE IS POSITIVE EVIDENCE (owner, 2026-10-05): a call renders
-		// live ONLY when its own message is streaming THIS turn — session
-		// busyness alone can never resurrect a settled call (the practice
-		// bug: a thinking submission flipped the POSE turn's problem call
-		// back to a spinner mid-transcript; live cards belong at the
-		// bottom, and this gate is what puts them there by construction).
+		// LIVE IS POSITIVE EVIDENCE: a call renders live ONLY when its own
+		// message is streaming THIS turn — session busyness alone can never
+		// resurrect a settled call as a spinner mid-transcript; live cards
+		// belong at the bottom, and this gate puts them there by
+		// construction.
 		const streamingMessage = live?.streamingIds.has(m.id) === true;
-		// THE COLLAPSED RECAP (owner, 2026-11-06): once this turn (the
-		// assistant group) has delivered prose through send_to_user, later
-		// ordinary text — usually a recap of what was just sent — renders as
-		// a collapsed thinking row instead of being shown twice. An answered
-		// question starts a new turn (answers are tool results, so they do not
-		// break the group): only parts after the last question card count.
+		// THE COLLAPSED RECAP: once this turn (the assistant group) has
+		// delivered prose through send_to_user, later ordinary text — usually a
+		// recap of what was just sent — renders as a collapsed thinking row
+		// instead of being shown twice. An answered question starts a new turn
+		// (answers are tool results, so they do not break the group): only
+		// parts after the last question card count.
 		let delivered = false;
 		const prev = out[out.length - 1];
 		if (prev?.role === "assistant") {
@@ -329,9 +329,9 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
 				if (!reasoning.length) reasoning.push({ type: "reasoning", id: `${m.id}-r0`, text: "", state: "done" });
 				if (block.thinking) reasoning[0]!.text = [reasoning[0]!.text, block.thinking].filter(Boolean).join("\n\n");
 			} else if (block.type === "toolCall") {
-				// Lesson tracking (owner, 2026-11-02): the four tracking tools
-				// never render in the transcript — no card, no live card, no
-				// retry line. The tracking card reads the record instead
+				// Lesson tracking: the four tracking tools never render in the
+				// transcript — no card, no live card, no retry line. The
+				// tracking card reads the record instead
 				// (core/lesson-tracking.ts); with no part, their results drop
 				// here too (applyResultTo's no-part path).
 				if (isLessonTrackingTool(block.name)) {
@@ -339,6 +339,15 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
 					continue;
 				}
 				const part = toolPartOf(block, live, streamingMessage);
+				// pin_visual is invisible like the tracking tools, except that a
+				// failed call keeps the quiet "Retrying…" line.
+				if (block.name === PIN_VISUAL_TOOL) {
+					const error = ctx.outputError(block.id);
+					if (error) applyResult(part, error);
+					if (part.state === "output-error") rest.push(part);
+					else hiddenTracking = true;
+					continue;
+				}
 				state.toolPartIds.add(block.id);
 				if ((QUESTION_TOOLS as readonly string[]).includes(block.name)) {
 					part.sourceMessageId = m.id;
@@ -363,9 +372,9 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
 					// ordinary prose, including while its arguments stream.
 					continue;
 				}
-				// The conclusion's reveal join (owner round, 2026-10-05): the
-				// hero of a conclude card is the modelSolution committed at POSE
-				// time — a record fold, enriched here so the card renders pure.
+				// The conclusion's reveal join: the hero of a conclude card is
+				// the modelSolution committed at POSE time — a record fold,
+				// enriched here so the card renders pure.
 				if (block.name === PRACTICE_CONCLUDE_TOOL) {
 					const input = problemInputForConclude(ctx.messages, block.id);
 					part.reveal = typeof input?.modelSolution === "string" ? input.modelSolution : undefined;
@@ -379,14 +388,13 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
 		const parts: LhViewPart[] =
 			hiddenTracking && rest.length === 0 && reasoning.every((r) => !r.text) ? [] : [...reasoning, ...rest];
 		if (parts.length === 0) {
-			// An arrived-but-silent STREAMING message (owner, optimistic
-			// round 3, 2026-10-02): the turn's first applied event can
-			// carry empty content — project ONE empty reasoning part so
-			// the message's ARRIVAL renders the thinking row (chat.tsx's
-			// Reasoning isStreamings the last part: the same spinner +
-			// shimmer as the placeholder it replaces — the handoff is
-			// seamless and the two can never double). Settled empty
-			// messages stay hidden (presentation-only).
+			// An arrived-but-silent STREAMING message: the turn's first applied
+			// event can carry empty content — project ONE empty reasoning part
+			// so the message's ARRIVAL renders the thinking row (chat.tsx's
+			// Reasoning isStreamings the last part: the same spinner + shimmer
+			// as the placeholder it replaces — the handoff is seamless and the
+			// two can never double). Settled empty messages stay hidden
+			// (presentation-only).
 			if (live?.streamingIds.has(m.id) && !hiddenTracking) {
 				parts.push({ type: "reasoning", id: `${m.id}-r0`, text: "", state: "done" });
 			} else {
@@ -413,19 +421,18 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
  *  mounts on the dangling call) and the practice pose (its ack is FINAL —
  *  details: null, never replaced — and the card + dock read the call's
  *  input; the placeholder must never flip the part to output-available).
- *  PRACTICE (2026-10-04): problem joins the placeholder fork; conclude is
- *  a NORMAL tool part (its result acks with no payload, details null —
- *  but the ConcludeCard reads the call's input, and output-available with
- *  output undefined renders fine). */
+ *  Conclude is a NORMAL tool part (its result acks with no payload, details
+ *  null — but the ConcludeCard reads the call's input, and output-available
+ *  with output undefined renders fine). */
 function isPlaceholderResultTool(name: string): boolean {
 	return (QUESTION_TOOLS as readonly string[]).includes(name) || name === "problem";
 }
 
 /** A tool call block → its view part, with the live execution layer.
- * `streamingMessage` — POSITIVE EVIDENCE (owner, 2026-10-05): this call's
- * own message is streaming THIS turn. The input-streaming shimmer keys on
- * it, never on session busyness: a call from a settled message can never
- * render live, whatever else is running. */
+ * `streamingMessage` — POSITIVE EVIDENCE: this call's own message is streaming
+ * THIS turn. The input-streaming shimmer keys on it, never on session busyness:
+ * a call from a settled message can never render live, whatever else is
+ * running. */
 function toolPartOf(
 	block: { id: string; name: string; arguments?: unknown },
 	live: LiveTurnState | undefined,
@@ -441,15 +448,15 @@ function toolPartOf(
 	if (exec) {
 		if (exec.isError) {
 			// An invalid call NEVER becomes input-available — the dock's mount
-			// gate keys on the clean execution end (the live modal-realism
-			// crash: a malformed quiz must never mount).
+			// gate keys on the clean execution end (a malformed quiz must never
+			// mount).
 			part.state = "output-error";
 			part.rawInput = block.arguments;
 			part.errorText = exec.errorText ?? "The tool call failed.";
 		} else if (isQuestion) {
-			// Fork 2: the clean "Question posed" placeholder is IGNORED —
-			// question tools are client-owned; the dock mounts on the clean
-			// end, the answer arrives as a real toolResult.
+			// The clean "Question posed" placeholder is IGNORED — question
+			// tools are client-owned; the dock mounts on the clean end, the
+			// answer arrives as a real toolResult.
 			part.state = "input-available";
 		} else {
 			part.state = "output-available";
@@ -467,22 +474,22 @@ function toolPartOf(
 
 function applyResultTo(part: LhViewPart | undefined, result: ToolResultMessage): void {
 	if (part) {
-		// Fork 2 (owner, Wave D): the clean "Question posed" placeholder
-		// (details: null — tool-execute questionResult) is client-owned
-		// question territory. The dock mounts on the dangling call; the
-		// AnsweredCard renders only the learner's REAL answer (details set).
-		// Flipping the part to output-available on the placeholder would hand
-		// AnsweredCard a null and crash the render (the live crash, 2026-09-26).
+		// The clean "Question posed" placeholder (details: null —
+		// tool-execute questionResult) is client-owned question territory.
+		// The dock mounts on the dangling call; the AnsweredCard renders only
+		// the learner's REAL answer (details set). Flipping the part to
+		// output-available on the placeholder would hand AnsweredCard a null
+		// and crash the render.
 		const tool = part.type.startsWith("tool-") ? part.type.slice("tool-".length) : part.type;
 		const isQuestion = isPlaceholderResultTool(tool);
 		if (isQuestion && !result.isError && result.details == null) {
-			// The placeholder fork (fork 2) stands: the clean pose/ask ack carries
-			// no card data — NEVER output-available. But the call IS settled
-			// (the practice bug, 2026-10-05: this early-return left the part on
-			// whatever toolPartOf guessed, which mid-turn resurrected a settled
-			// problem as a live spinner). input-available is the settled truth:
-			// the ProblemCard reads the call's input, the dock keys on the
-			// native fold — neither wants the ack's (null) payload.
+			// The clean pose/ask ack carries no card data — NEVER
+			// output-available. But the call IS settled, so set the state
+			// explicitly rather than keep whatever toolPartOf guessed (which
+			// mid-turn could show a settled problem as a live spinner).
+			// input-available is the settled truth: the ProblemCard reads the
+			// call's input, the dock keys on the native fold — neither wants
+			// the ack's (null) payload.
 			part.state = "input-available";
 			return;
 		}
@@ -496,9 +503,9 @@ function applyResultTo(part: LhViewPart | undefined, result: ToolResultMessage):
 function projectMarker(marker: LhMarkerMessage, state: ViewFoldState): void {
 	switch (marker.customType) {
 		case "graph-context": {
-			// The session's map context (owner, 2026-10-04): user-side —
-			// a minimal collapsible card ABOVE the first user message;
-			// never a text bubble (scaffolding, like the thinking card).
+			// The session's map context: user-side — a minimal collapsible card
+			// ABOVE the first user message; never a text bubble (scaffolding,
+			// like the thinking card).
 			pushRow(state, {
 				id: marker.id,
 				role: "user",
@@ -547,10 +554,9 @@ function projectMarker(marker: LhMarkerMessage, state: ViewFoldState): void {
 			return;
 		}
 		case "practice-thinking": {
-			// The learner's working trace / committed answer (practice
-			// sessions): a user-side card keyed on the structured details
-			// (problemCallId, commit, text) — the register lives in the card,
-			// not re-parsed from content.
+			// The learner's thinking submission (practice sessions): a
+			// user-side card keyed on the structured details (problemCallId,
+			// text), not re-parsed from content.
 			pushRow(state, {
 				id: marker.id,
 				role: "user",
@@ -559,10 +565,10 @@ function projectMarker(marker: LhMarkerMessage, state: ViewFoldState): void {
 			return;
 		}
 		case "practice-next": {
-			// The learner's explicit move-on signal (owner round 16): a compact
-			// centered system line — the mono-caps chrome register, not prose.
-			// The model reads the marker's content; the transcript never shows
-			// it (the label is chrome, single-sourced in the renderer).
+			// The learner's explicit move-on signal: a compact centered system
+			// line — the mono-caps chrome register, not prose. The model reads
+			// the marker's content; the transcript never shows it (the label is
+			// chrome, single-sourced in the renderer).
 			pushRow(state, {
 				id: marker.id,
 				role: "user",
@@ -575,11 +581,11 @@ function projectMarker(marker: LhMarkerMessage, state: ViewFoldState): void {
 			// pair — which rides the NEXT input — carries the record's face.
 			return;
 		case "compaction": {
-			// THE MOMENT DIVIDER (owner round 14): minimal centered small
-			// text at the compaction moment — where the user currently is
-			// (the marker appends at the record's tail). Clicking opens the
-			// full summary. The cut divider is emitted by the fold loop at
-			// the kept boundary (see projectView).
+			// THE MOMENT DIVIDER: minimal centered small text at the compaction
+			// moment — where the user currently is (the marker appends at the
+			// record's tail). Clicking opens the full summary. The cut divider
+			// is emitted by the fold loop at the kept boundary (see
+			// projectView).
 			pushRow(state, {
 				id: marker.id,
 				role: "user",

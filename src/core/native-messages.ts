@@ -1,7 +1,6 @@
 /**
- * THE NATIVE MESSAGE RECORD (Wave B, owner-approved 2026-09-26): chat
- * records store pi's own message shapes — the exact history the agent
- * loop builds — instead of AI-SDK UIMessages. Provider, model, usage,
+ * THE NATIVE MESSAGE RECORD: chat records store pi's own message shapes —
+ * the exact history the agent loop builds. Provider, model, usage,
  * stopReason, and thinking signatures are stamped by pi itself; replay is
  * `state.messages = record.messages` + `continue()` — the record IS the
  * agent state.
@@ -13,24 +12,23 @@
  * native shape. `toLlmMessages` strips it at the wire: the provider never
  * sees it (verified single site, below).
  *
- * UI-ONLY CONTENT (owner ruling, fork 1 + the plan's custom-message
- * taxonomy): the probe→teach handoff, sub-agent steers,
- * and plan blocks are LhMarkerMessage — this app's declaration-merged
+ * UI-ONLY CONTENT: the probe→teach handoff, sub-agent steers, practice
+ * markers and plan blocks are LhMarkerMessage — this app's declaration-merged
  * member of pi-agent-core's CustomAgentMessages extension point, shaped
  * exactly like pi's own CustomMessage ({role:"custom", customType,
  * content, display, details}). ONE seam — toLlmMessages, wired as the
  * agent's convertToLlm — owns every model-facing decision: markers
  * flatten to their canonical user text (single-sourced in
- * core/contracts), plan blocks are UI-only and filtered, and dangling
- * tool calls (an aborted turn) get the interrupted-result synthesis the
+ * core/contracts), UI-only markers are filtered, and dangling tool calls
+ * of completed generations get the interrupted-result synthesis the
  * provider protocol demands.
  *
- * Answers (fork 1, owner 2026-09-26): the learner's answer IS the tool
- * call's ToolResultMessage — appended natively at answer time. The
- * synthetic "question posed" placeholder is an in-memory loop device
- * (Wave A's terminate) and is never persisted: the record ends at the
- * unanswered call in the pose→answer window, where no turn can run (the
- * question gate holds steers; a POST would 409).
+ * Answers: the learner's answer IS the tool call's ToolResultMessage —
+ * appended natively at answer time. The synthetic "question posed"
+ * placeholder is an in-memory loop device (the question tool's terminate)
+ * and is never persisted: the record ends at the unanswered call in the
+ * pose→answer window, where no turn can run (the question gate holds
+ * steers; a POST would 409).
  */
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -47,9 +45,8 @@ import { compactAnswerForModel, type QuestionAnswerData } from "./question-core.
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
 import { parseQuestionInput } from "./tool-parts.ts";
 
-/** The hard-invariant wording for an aborted turn's unanswered calls —
- *  carried over verbatim from the pre-native era so the model's view
- *  never drifted. */
+/** The fixed wording of the synthesized result for an unanswered call
+ *  (toLlmMessages) — keep it stable so the model's view never drifts. */
 export const INTERRUPTED_TEXT =
 	"The question was interrupted — the learner never answered; continue without holding a result for it.";
 
@@ -168,9 +165,38 @@ export function failedOutputCallIds(messages: readonly LhMessage[]): ReadonlySet
 	return failed;
 }
 
+/** Each successful result of a `isTool` call, in record order: settled
+ *  toolResults, plus (client, mid-turn) `live` executions that ended before
+ *  their toolResult arrived, at their call's position. Once the toolResult
+ *  exists only it counts, so nothing is visited twice. */
+export function forEachToolSuccess(
+	messages: readonly LhMessage[],
+	isTool: (name: string) => boolean,
+	live: ReadonlyMap<string, { isError: boolean; output?: unknown }> | undefined,
+	visit: (toolName: string, toolCallId: string, details: unknown) => void,
+): void {
+	let settled: Set<string> | null = null;
+	if (live && live.size > 0) {
+		settled = new Set();
+		for (const m of messages) if (m.role === "toolResult") settled.add(m.toolCallId);
+	}
+	for (const m of messages) {
+		if (settled && m.role === "assistant") {
+			for (const block of m.content) {
+				if (block.type !== "toolCall" || !isTool(block.name) || settled.has(block.id)) continue;
+				const execution = live!.get(block.id);
+				if (execution && !execution.isError) visit(block.name, block.id, execution.output);
+			}
+			continue;
+		}
+		if (m.role !== "toolResult" || m.isError === true || !isTool(m.toolName)) continue;
+		visit(m.toolName, m.toolCallId, m.details);
+	}
+}
+
 // ─── id minting ──────────────────────────────────────────────────────────────
 
-/** The app-wide message id shape (same as the UIMessage-era mint). */
+/** The app-wide message id shape. */
 export function newMessageId(): string {
 	return `msg_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`;
 }
@@ -188,21 +214,20 @@ export function newUserMessage(text: string): LhMessage & UserMessage {
 	};
 }
 
-/** A steered user message (mid-turn composer steering, owner 2026-10-03):
- *  a plain user message with the CLIENT-minted steer id — the same object
- *  rides agent.steer(), the live stream's message events, and the settled
- *  record, so the optimistic queued indicator and the transcript card
- *  upsert by one identity. */
+/** A steered user message (mid-turn composer steering): a plain user message
+ *  with the CLIENT-minted steer id — the same object rides agent.steer(), the
+ *  live stream's message events, and the settled record, so the optimistic
+ *  queued indicator and the transcript card upsert by one identity. */
 export function newUserSteer(text: string, id: string): LhMessage & UserMessage {
 	return { id, role: "user", content: text, timestamp: Date.now() };
 }
 
-/** The learner's answer — the question call's tool result (fork 1).
- *  TWO AUDIENCES (owner, tool-result diet 2026-10-02): the MODEL sees the
- *  compact learner-only record (compactAnswerForModel — the call's own
- *  arguments already carry the question/options/explanation/commitment;
- *  restating them doubled every answer's tokens), while `details` keeps
- *  the FULL graded QuestionAnswerData for the record and the UI. */
+/** The learner's answer — the question call's tool result.
+ *  TWO AUDIENCES: the MODEL sees the compact learner-only record
+ *  (compactAnswerForModel — the call's own arguments already carry the
+ *  question/options/explanation/commitment, so restating them would double
+ *  every answer's tokens), while `details` keeps the FULL graded
+ *  QuestionAnswerData for the record and the UI. */
 export function newAnswerResult(
 	toolCallId: string,
 	toolName: string,
@@ -214,8 +239,8 @@ export function newAnswerResult(
 		toolCallId,
 		toolName,
 		content: [{ type: "text", text: JSON.stringify(compactAnswerForModel(answer as QuestionAnswerData)) }],
-		// 0.87.1 narrowed ToolResultMessage.details to JsonRepresentation —
-		// our payloads are JSON-safe answer structures, so the cast is honest.
+		// ToolResultMessage.details is JsonRepresentation — our payloads are
+		// JSON-safe answer structures, so the cast is honest.
 		details: answer as ToolResultMessage["details"],
 		isError: false,
 		timestamp: Date.now(),
@@ -254,7 +279,7 @@ export function newPlanBlockMessage(
 	};
 }
 
-// ─── practice sessions (owner, 2026-10-04) ───────────────────────────────────
+// ─── practice sessions ───────────────────────────────────────────────────────
 
 /** The practice agent's two tools (the conclude-before-next-problem gate's
  *  vocabulary — the tool-execute layer owns the tools themselves). */
@@ -269,25 +294,24 @@ export interface GraphContextPick {
 	statement: string;
 }
 
-/** The session's map context (owner, 2026-10-04): a SEPARATE custom
- *  message BEFORE the learner's first user message — the picked
- *  propositions plus the reasoning chains among them (pre-formatted
- *  lines, formatChainLine shape). The model reads `content` (flattened
- *  to a user message by toLlmMessages like every marker); `details`
- *  feeds the transcript's collapsible GraphContextCard. No more seed
- *  text glued into the first prompt. */
+/** The session's map context: a SEPARATE custom message BEFORE the
+ *  learner's first user message — the picked propositions plus the
+ *  reasoning chains among them (pre-formatted lines, formatChainLine
+ *  shape). The model reads `content` (flattened to a user message by
+ *  toLlmMessages like every marker); `details` feeds the transcript's
+ *  collapsible GraphContextCard. */
 export function newGraphContextMessage(picks: readonly GraphContextPick[], chains: readonly string[]): LhMarkerMessage {
-	// IDS FIRST (owner round 9, 2026-10-05 — the mastery-trace contract):
-	// each proposition is introduced ONCE with its id, name, and statement;
-	// the problem tool's `target` field takes these ids (names normalize to
-	// ids at the seam). Chains below stay NAMES — they are comprehension
-	// context, not tags; names read, ids reference.
+	// IDS FIRST (the mastery-trace contract): each proposition is introduced
+	// ONCE with its id, name, and statement; the problem tool's `target` field
+	// takes these ids (names normalize to ids at the seam). Chains below stay
+	// NAMES — they are comprehension context, not tags; names read, ids
+	// reference.
 	const lines = [
-		// PREAMBLE LAW (owner, 2026-10-10): custom markers flatten to
-		// USER-role messages on the wire (toLlmMessages) — this text arrives
-		// in the learner's voice channel, so it must not read like a system
-		// broadcast. The bracket convention (NEXT_PROBLEM_TEXT's kin) marks
-		// it honestly as injected session context, not learner speech.
+		// PREAMBLE LAW: custom markers flatten to USER-role messages on the
+		// wire (toLlmMessages) — this text arrives in the learner's voice
+		// channel, so it must not read like a system broadcast. The bracket
+		// convention (NEXT_PROBLEM_TEXT's kin) marks it honestly as injected
+		// session context, not learner speech.
 		"[Session context] — picked from the learner's knowledge map when starting this session:",
 		"",
 		"Propositions (id — name: statement; the problem tool's target field uses these ids):",
@@ -307,12 +331,11 @@ export function newGraphContextMessage(picks: readonly GraphContextPick[], chain
 	};
 }
 
-/** The learner's thinking submission (ONE send lane, owner round
- *  2026-10-05): the register is no longer declared by a button — the
- *  model READS the text to tell working traces from claimed answers. The
- *  content label is the single "Your thinking"; `details` keeps the raw
- *  payload for the transcript card. One problem may carry many
- *  submissions. */
+/** The learner's thinking submission (ONE send lane): no button declares
+ *  the register — the model READS the text to tell working traces from
+ *  claimed answers. The content label is the single THINKING_LABEL;
+ *  `details` keeps the raw payload for the transcript card. One problem
+ *  may carry many submissions. */
 export function newThinkingMessage(problemCallId: string, text: string): LhMarkerMessage {
 	return {
 		id: newMessageId(),
@@ -325,12 +348,11 @@ export function newThinkingMessage(problemCallId: string, text: string): LhMarke
 	};
 }
 
-/** The learner's explicit move-on signal (owner round 16): appended by
- *  the next input (the composer band's chip, or Enter on an empty
- *  composer during the between-problems pause). The content is the
- *  single-sourced NEXT_PROBLEM_TEXT — the model's unambiguous go-ahead;
- *  the transcript renders its own compact line off the marker (never
- *  the content). */
+/** The learner's explicit move-on signal: appended by the next input (the
+ *  composer band's chip, or Enter on an empty composer during the
+ *  between-problems pause). The content is the single-sourced NEXT_PROBLEM_TEXT
+ *  — the model's unambiguous go-ahead; the transcript renders its own compact
+ *  line off the marker (never the content). */
 export function newNextMessage(): LhMarkerMessage {
 	return {
 		id: newMessageId(),
@@ -343,12 +365,11 @@ export function newNextMessage(): LhMarkerMessage {
 	};
 }
 
-/** The problem-dismissal marker (ask-style discard, owner 2026-10-04):
- *  UI-ONLY — toLlmMessages filters it. The model's face arrives later, at
- *  the user's next input, as the synthesized conclude pair
- *  (concludedByDismissalPair below) — the agent sees the dismissal as a
- *  conclude call it "made" with outcome "dismissed", so the slot-freed
- *  state and the dismissal read through the one vocabulary it owns. */
+/** The problem-dismissal marker (ask-style discard): UI-ONLY — toLlmMessages
+ *  filters it. The model's face arrives later, at the user's next input, as the
+ *  synthesized conclude pair (concludedByDismissalPair below) — the agent sees
+ *  the dismissal as a conclude call it "made" with outcome "dismissed", so the
+ *  slot-freed state and the dismissal read through the one vocabulary it owns. */
 export function newProblemDismissedMarker(problemCallId: string): LhMarkerMessage {
 	return {
 		id: newMessageId(),
@@ -361,13 +382,12 @@ export function newProblemDismissedMarker(problemCallId: string): LhMarkerMessag
 	};
 }
 
-/** The dismissal's deferred conclude (owner ruling 2026-10-04): the pair
- *  prepended to the user's NEXT input — a synthetic assistant message
- *  carrying a conclude call (outcome "dismissed") plus its ack result, so
- *  both the record and the model context read the problem as concluded
- *  by dismissal, slot freed. Pure; ids are deterministic off the problem
- *  call id (idempotent shape — the pending-dismissal gate guarantees the
- *  pair appends at most once per marker). */
+/** The dismissal's deferred conclude: the pair prepended to the user's NEXT
+ *  input — a synthetic assistant message carrying a conclude call (outcome
+ *  "dismissed") plus its ack result, so both the record and the model context
+ *  read the problem as concluded by dismissal, slot freed. Pure; ids are
+ *  deterministic off the problem call id (idempotent shape — the
+ *  pending-dismissal gate guarantees the pair appends at most once per marker). */
 export function concludedByDismissalPair(
 	problemCallId: string,
 ): [LhMessage & AssistantMessage, LhMessage & ToolResultMessage] {
@@ -412,13 +432,8 @@ export function concludedByDismissalPair(
 	];
 }
 
-/** The active-problem fold (the conclude-before-next-problem gate): the
- *  NEWEST problem tool call with nothing concluding after it — either a
- *  conclude call or a dismissal marker deactivates. The ack result at pose
- *  time does NOT (the problem stays on screen through nudges; the dock's
- *  subject is the call, not a dangling result). */
 /** The ids of tool calls whose results are CLEAN (not errored) — the only
- *  calls that ever happened, per the honest-activation ruling. */
+ *  calls that count as having happened (see activeProblemOf). */
 function cleanToolCallIds(messages: readonly LhMessage[]): Set<string> {
 	const ids = new Set<string>();
 	for (const m of messages) {
@@ -429,12 +444,12 @@ function cleanToolCallIds(messages: readonly LhMessage[]): Set<string> {
 	return ids;
 }
 
-/** The conclusion's reveal (owner round, 2026-10-05): the hero of a
- *  conclude card is the modelSolution committed at POSE time — the newest
- *  cleanly-posed problem BEFORE this conclude call. The reveal is never
- *  re-authored (the slim schema dropped solutionReveal); legacy conclude
- *  inputs that still carry their own solutionReveal fall back to it at the
- *  card. Undefined when the pose carries no string solution. */
+/** The conclusion's reveal: the hero of a conclude card is the modelSolution
+ *  committed at POSE time — the newest cleanly-posed problem BEFORE this
+ *  conclude call. The reveal is never re-authored (the slim schema dropped
+ *  solutionReveal); legacy conclude inputs that still carry their own
+ *  solutionReveal fall back to it at the card. Undefined when the pose carries
+ *  no string solution. */
 export function modelSolutionForConclude(
 	messages: readonly LhMessage[],
 	concludeCallId: string,
@@ -443,11 +458,10 @@ export function modelSolutionForConclude(
 	return typeof input?.modelSolution === "string" ? input.modelSolution : undefined;
 }
 
-/** The full pose-side fold (owner round 17, 2026-10-06 — observability):
- * EVERYTHING the agent filled into the problem call — mode, target ids,
- * statement, the committed solution — joined onto the conclude part so
- * the card's collapsible "agent's data" drawer renders pure. Same walk
- * and refusal law as the reveal: a pose the record never acked (a
+/** The full pose-side fold: EVERYTHING the agent filled into the problem call —
+ * mode, target ids, statement, the committed solution — joined onto the
+ * conclude part so the card's collapsible "agent's data" drawer renders pure.
+ * Same walk and refusal law as the reveal: a pose the record never acked (a
  * refused call) folds nothing. */
 export function problemInputForConclude(
 	messages: readonly LhMessage[],
@@ -478,13 +492,16 @@ export function problemInputForConclude(
 	return undefined;
 }
 
+/** The active-problem fold (the conclude-before-next-problem gate): the
+ *  NEWEST cleanly-acked problem call with nothing concluding after it —
+ *  a clean conclude or a dismissal marker deactivates. The pose's ack does
+ *  NOT (the problem stays on screen through nudges). */
 export function activeProblemOf(
 	messages: readonly LhMessage[],
 ): { toolCallId: string; input: unknown } | null {
-	// HONEST ACTIVATION (owner ruling, 2026-10-05 — the BKT incident):
-	// calls count only through their RESULTS — a problem activates on its
-	// clean ack, a conclude frees on its clean ack; errored and dangling
-	// calls are skipped ("either it goes through or it doesn't").
+	// HONEST ACTIVATION: calls count only through their RESULTS — a problem
+	// activates on its clean ack, a conclude frees on its clean ack; errored
+	// and dangling calls are skipped.
 	const cleanCallIds = cleanToolCallIds(messages);
 	for (let mi = messages.length - 1; mi >= 0; mi--) {
 		const m = messages[mi]!;
@@ -570,8 +587,8 @@ function resultIdsFrom(messages: readonly AgentMessage[]): Set<string> {
  * - user / assistant / toolResult pass through VERBATIM — signatures,
  *   usage, provider stamps all native — minus our record-`id` field.
  * - markers flatten to a user message carrying their content (the
- *   canonical text single-sourced in core/contracts); plan blocks are
- *   UI-only and filtered.
+ *   canonical text single-sourced in core/contracts); plan blocks and
+ *   problem dismissals are UI-only and filtered.
  * - dangling calls from successfully generated assistant messages (for
  *   example, an unanswered question) get a synthesized interrupted result.
  *   Error/aborted generations do not: Pi drops those assistant messages,
@@ -581,12 +598,11 @@ function resultIdsFrom(messages: readonly AgentMessage[]): Set<string> {
  * through untouched rather than killing the loop.
  */
 export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
-	// THE COMPACTION CUT (owner round 14, 2026-10-05): the ACTIVE marker
-	// (the newest — chained compactions rule last) names the first kept
-	// message; everything before it is replaced by the marker's content
-	// (header + summary) rendered ONCE, up top. All compaction markers
-	// in the retained tail are then skipped, including older summaries
-	// whose stored positions still lie after the cut. A cut naming a
+	// THE COMPACTION CUT: the ACTIVE marker (the newest — chained compactions
+	// rule last) names the first kept message; everything before it is replaced
+	// by the marker's content (header + summary) rendered ONCE, up top. All
+	// compaction markers in the retained tail are then skipped, including older
+	// summaries whose stored positions still lie after the cut. A cut naming a
 	// missing id degrades honestly (everything renders — never throw).
 	const lhMessages = messages as readonly LhMessage[];
 	const active = activeCompactionOf(lhMessages);
@@ -603,17 +619,13 @@ export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
 			};
 		}
 	}
-	// THE LEADING SYSTEM MESSAGE IS REQUEST CHROME, NEVER COMPACTABLE
-	// PAYLOAD (the OpenRouter no-tools incident, owner 2026-10-05):
-	// pi-agent-core's Agent seeds a SystemMessage carrying the system
-	// prompt AND the tool declarations at state.messages[0]
-	// (createInitialSystemMessage — "messages declare the provider-visible
-	// loadout"). The record never persists it (ui-stream's settleWith
-	// filters the role), so RECORD-path callers never see it — but the
-	// Agent's convertToLlm DOES. The cut slices the RECORD's history;
-	// when [0] is the chrome it must carry through AHEAD of the
-	// compaction head, exactly as pi's own prepareRequest re-applies
-	// context.systemPrompt + context.tools around its projection.
+	// THE LEADING SYSTEM MESSAGE IS REQUEST CHROME, NEVER COMPACTABLE PAYLOAD:
+	// pi-agent-core's Agent seeds a SystemMessage carrying the system prompt
+	// AND the tool declarations at state.messages[0]
+	// (createInitialSystemMessage). The record never persists it (ui-stream's
+	// settleWith filters the role), but the Agent's convertToLlm sees it. The
+	// cut slices the RECORD's history, so when [0] is the chrome it carries
+	// through AHEAD of the compaction head.
 	const leading =
 		(messages[0] as { role?: string } | undefined)?.role === "system" ? (messages[0] as Message) : null;
 	const out: Message[] = [];
@@ -666,7 +678,7 @@ export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
 	return out;
 }
 
-// ─── native scans (the UIMessage-era pending/phase seams, natively) ──────────
+// ─── native scans (pending question, probe phase) ────────────────────────────
 
 /** The pending-question gate (findPendingToolCall's native twin): the
  *  NEWEST assistant message's FIRST answerable question-tool call with no
@@ -789,25 +801,8 @@ export function answeredCallIds(messages: readonly LhMessage[]): Set<string> {
 	return resultIdsFrom(messages);
 }
 
-// ─── the continuation fold (Wave D: the SDK's
-//     lastAssistantMessageIsCompleteWithToolCalls, natively) ──────────────────
+// ─── the continuation fold ───────────────────────────────────────────────────
 
-/**
- * Does the record END on un-consumed tool results — a turn that stopped
- * after its tools ran (a job dispatch's ack, an aborted answer turn),
- * leaving the agent owing a continuation? This is the mount/sync
- * continuation seam's gate (chat.tsx): when true and nothing runs, the
- * client sends {type:"continue"} and the teacher picks up from the record.
- *
- * The pre-Wave-D client asked the SDK's
- * lastAssistantMessageIsCompleteWithToolCalls (last view message is
- * assistant; its last step's tool calls all output-available or
- * output-error; at least one). The native fold over the record: the last
- * message is a toolResult, and the results' OWNING assistant message has
- * at least one call, ALL of them answered (a dangling question — the
- * dock's domain — fails the all-answered rule and never fires a turn,
- * exactly as the SDK's every(output-available) did).
- */
 /** Is this record message a user-dismissed question result? The full
  *  answer rides the toolResult's `details` (newAnswerResult) — the
  *  dismissal pause and the continuation fold both read it. */
@@ -817,12 +812,11 @@ function isDismissedResult(m: LhMessage): boolean {
 	return details?.dismissed === true;
 }
 
-/** The dismissal pause (owner design 2026-10-03, "A2"): the record ends
- *  in user dismissal — the session waits for the USER. While paused,
- *  nothing auto-wakes: the continuation fold demands nothing (below) and
- *  the wake pipeline holds job deliveries in the steer queue until the
- *  next send. Derived from the tail — no latch to persist or clear; any
- *  user message flips it off by changing the record. */
+/** The dismissal pause: the record ends in user dismissal — the session waits
+ *  for the USER. While paused, nothing auto-wakes: the continuation fold
+ *  demands nothing (below) and the wake pipeline holds job deliveries in the
+ *  steer queue until the next send. Derived from the tail — no latch to persist
+ *  or clear; any user message flips it off by changing the record. */
 export function endsInDismissal(messages: readonly LhMessage[]): boolean {
 	const last = messages[messages.length - 1];
 	return last !== undefined && isDismissedResult(last);
@@ -891,6 +885,18 @@ export function reconstructRequestCause(messages: readonly LhMessage[]): Reconst
 	return resolve();
 }
 
+/**
+ * Does the record END on un-consumed tool results — a turn that stopped
+ * after its tools ran (a job dispatch's ack, an aborted answer turn),
+ * leaving the agent owing a continuation? This is the mount/sync
+ * continuation seam's gate (chat.tsx): when true and nothing runs, the
+ * client sends {type:"continue"} and the teacher picks up from the record.
+ *
+ * The fold: the last message is a toolResult, and the results' OWNING
+ * assistant message has at least one call, ALL of them answered (a
+ * dangling question — the dock's domain — fails the all-answered rule and
+ * never fires a turn).
+ */
 export function needsContinuation(messages: readonly LhMessage[]): boolean {
 	const last = messages[messages.length - 1];
 	if (!last || (last as { role?: string }).role !== "toolResult") return false;
@@ -904,12 +910,10 @@ export function needsContinuation(messages: readonly LhMessage[]): boolean {
 	) {
 		start--;
 	}
-	// The dismissal rule (A2 + owner ruling 2026-10-03, round-1 incident):
-	// the batch's LAST resolution decides. Ending on a dismissal = the
-	// user signaled STOP — no wake, no reaction owed now; the answers'
-	// reactions ride the user's next plain message. Ending on a real
-	// answer = the reaction is owed. One law with the pump's pause
-	// (endsInDismissal reads the same last result), so continuation,
+	// The dismissal rule: the batch's LAST resolution decides. Ending on a
+	// dismissal = the user signaled STOP — no reaction owed now (it rides the
+	// user's next message); ending on a real answer = the reaction is owed.
+	// endsInDismissal reads the same last result, so continuation,
 	// delivery-holding, and the pause can never disagree.
 	if (isDismissedResult(messages[messages.length - 1]!) || endsInQuestionRecovery(messages)) {
 		return false;
@@ -919,12 +923,10 @@ export function needsContinuation(messages: readonly LhMessage[]): boolean {
 	const content = (owner as { content?: unknown }).content;
 	if (!Array.isArray(content)) return false;
 	const results = messages.slice(start) as ToolResultMessage[];
-	// PRACTICE (owner design, 2026-10-04): a batch acking a problem POSE
-	// owes nothing — terminate:true ended that turn DELIBERATELY (the
-	// learner's next thinking submission is the next turn), and unlike a
-	// question's placeholder this ack PERSISTS (the model reads its own
-	// "Problem posed" result later). Without this fold a reload after a
-	// pose would wake a phantom continuation turn.
+	// PRACTICE: a batch acking a problem POSE owes nothing — terminate:true
+	// ended that turn DELIBERATELY (the learner's next submission is the next
+	// turn). Unlike a question's placeholder this ack PERSISTS, so without
+	// this check a reload after a pose would wake a phantom continuation.
 	const posedProblem = results.some(
 		(m) => m.toolName === PRACTICE_PROBLEM_TOOL && !m.isError && m.details == null,
 	);

@@ -1,6 +1,5 @@
 "use client";
 
-import { useControllableState } from "@radix-ui/react-use-controllable-state";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import {
   Collapsible,
@@ -26,12 +25,17 @@ import { Streamdown } from "streamdown";
 import { transformMathDelimiters } from "@/src/core";
 import { streamdownPlugins, streamdownRemend } from "./message";
 import { mdComponents } from "@/components/md-blocks";
+import { CachedBlock } from "@/components/cached-block";
 import { Shimmer } from "./shimmer";
 
 interface ReasoningContextValue {
   isStreaming: boolean;
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
+  /** Whether the content is mounted yet (see `prime`). */
+  primed: boolean;
+  /** Mount the closed content ahead of an open. */
+  prime: () => void;
 }
 
 const ReasoningContext = createContext<ReasoningContextValue | null>(null);
@@ -69,13 +73,22 @@ export const Reasoning = memo(
     // it finished". Collapsed is the default; opening is always the
     // learner's click; the auto-close after the stream still tidies a
     // row the learner had opened.
-    const resolvedDefaultOpen = defaultOpen ?? false;
-
-    const [isOpen, setIsOpen] = useControllableState<boolean>({
-      defaultProp: resolvedDefaultOpen,
-      onChange: onOpenChange,
-      prop: open,
-    });
+    const [localOpen, setLocalOpen] = useState(defaultOpen ?? false);
+    const isOpen = open ?? localOpen;
+    const setIsOpen = useCallback(
+      (next: boolean) => {
+        setLocalOpen(next);
+        onOpenChange?.(next);
+      },
+      [onOpenChange]
+    );
+    // Radix keeps a closed CollapsibleContent mounted, and each one forces a
+    // style and layout pass as it mounts; a long lesson has hundreds of rows.
+    // So the content mounts only once the trigger is hovered or focused (or
+    // the row opens), still closed, so the open animation plays as before.
+    const [hovered, setHovered] = useState(false);
+    const primed = hovered || isOpen;
+    const prime = useCallback(() => setHovered(true), []);
     const hasEverStreamedRef = useRef(isStreaming);
     const [hasAutoClosed, setHasAutoClosed] = useState(false);
 
@@ -96,23 +109,16 @@ export const Reasoning = memo(
       }
     }, [isStreaming, isOpen, setIsOpen, hasAutoClosed]);
 
-    const handleOpenChange = useCallback(
-      (newOpen: boolean) => {
-        setIsOpen(newOpen);
-      },
-      [setIsOpen]
-    );
-
     const contextValue = useMemo(
-      () => ({ isOpen, isStreaming, setIsOpen }),
-      [isOpen, isStreaming, setIsOpen]
+      () => ({ isOpen, isStreaming, setIsOpen, primed, prime }),
+      [isOpen, isStreaming, setIsOpen, primed, prime]
     );
 
     return (
       <ReasoningContext.Provider value={contextValue}>
         <Collapsible
           className={cn("not-prose mb-4", className)}
-          onOpenChange={handleOpenChange}
+          onOpenChange={setIsOpen}
           open={isOpen}
           {...props}
         >
@@ -148,10 +154,12 @@ export const ReasoningTrigger = memo(
     getThinkingMessage = defaultGetThinkingMessage,
     ...props
   }: ReasoningTriggerProps) => {
-    const { isStreaming, isOpen } = useReasoning();
+    const { isStreaming, isOpen, prime } = useReasoning();
 
     return (
       <CollapsibleTrigger
+        onPointerEnter={prime}
+        onFocus={prime}
         className={cn(
           /* The heading register (owner round 4, 2026-10-05): the small
              mono caps of the card eyebrows — matching YOUR THINKING, whose
@@ -204,14 +212,17 @@ export type ReasoningContentProps = ComponentProps<
 function ReasoningMarkdown({ children }: { children: string }) {
   const { isStreaming } = useReasoning();
   return (
-    <Streamdown components={mdComponents} plugins={streamdownPlugins} remend={streamdownRemend} parseIncompleteMarkdown={isStreaming}>
+    <Streamdown components={mdComponents} plugins={streamdownPlugins} remend={streamdownRemend} parseIncompleteMarkdown={isStreaming} BlockComponent={CachedBlock}>
       {transformMathDelimiters(children)}
     </Streamdown>
   );
 }
 
 export const ReasoningContent = memo(
-  ({ className, children, ...props }: ReasoningContentProps) => (
+  ({ className, children, ...props }: ReasoningContentProps) => {
+    const { primed } = useReasoning();
+    if (!primed) return null;
+    return (
     <CollapsibleContent
       className={cn(
         "mt-4 text-sm",
@@ -222,7 +233,8 @@ export const ReasoningContent = memo(
     >
       <ReasoningMarkdown>{children}</ReasoningMarkdown>
     </CollapsibleContent>
-  )
+    );
+  }
 );
 
 Reasoning.displayName = "Reasoning";

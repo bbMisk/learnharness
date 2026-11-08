@@ -33,8 +33,8 @@ export interface DemoBuilderInput {
 }
 
 export interface DemoBuilderOptions {
-	/** Test seam: scripted engine; production uses the demoBuilder role. */
-	engine?: PiEngine;
+	/** The settings-resolved demoBuilder engine; tests pass a scripted one. */
+	engine: PiEngine;
 	headless?: HeadlessApi;
 	/** Max agent steps (each write/run/fix is one step). Default 24 ≈ 6 cycles. */
 	maxSteps?: number;
@@ -190,7 +190,7 @@ function failureSummary(result: DemoRunResult | null): string {
 	return details.length > 0 ? `${summarizeCounts(result)} — ${details.join(" | ")}` : summarizeCounts(result);
 }
 
-export async function runDemoBuilder(input: DemoBuilderInput, opts: DemoBuilderOptions = {}): Promise<DemoResult> {
+export async function runDemoBuilder(input: DemoBuilderInput, opts: DemoBuilderOptions): Promise<DemoResult> {
 	const headless = opts.headless ?? getHeadless();
 	const title = input.title.trim() || "Interactive demo";
 	const brief = input.brief.trim() || "(no brief)";

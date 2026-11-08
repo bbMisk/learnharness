@@ -3,17 +3,16 @@
  * imports, no UI: everything here is deterministic and unit-testable.
  *
  * The TypeBox schemas below are the tool INPUT contracts (agent/tools
- * declares the tools against them); the browser validates, shuffles, and
- * grades with these functions, then sends the verdict back as the tool
- * output via addToolOutput:
- *   1. The teacher model calls the `quiz` tool (question + options +
- *      correctAnswer + explanation). No server execute → the call lands in
- *      the UI as a typed tool part in `input-available` state.
- *   2. The learner answers in the card; the client grades with this module.
- *   3. addToolOutput sends the verdict (selection + correctness + note —
- *      never the explanation, the model authored that) back to the model.
+ * declares the tools against them); the browser shuffles and grades with
+ * these functions:
+ *   1. The model calls a question tool. Its execute checks the authoring
+ *      rules below and returns a placeholder that ends the turn; the call
+ *      stays pending in the record.
+ *   2. The learner answers in the dock; the client grades with buildAnswer.
+ *   3. The answer is POSTed as an `answer` input event and lands as the
+ *      call's tool result; the model sees only compactAnswerForModel.
  *
- * Because the pending question IS a persisted message part, a session can be
+ * Because the pending question IS a persisted tool call, a session can be
  * exited and resumed mid-question for free.
  */
 
@@ -31,8 +30,8 @@ export interface QuizOption {
 // ─── tool input schemas (the question contract) ─────────────────────────────
 // Parameter names mirror the prompt docs exactly — keep them in sync.
 
-/** One quiz answer option. Owner ruling (2026-09-26): NO `description`
- *  field — the model reliably used it to leak correctness ("that's not the
+/** One quiz answer option. NO `description` field — the model reliably
+ *  used it to leak correctness ("that's not the
  *  gradient", "close but…"), making quizzes answerable by elimination.
  *  Neutral elaboration belongs in the question text or the post-answer
  *  explanation; the option is a bare claim. */
@@ -54,7 +53,7 @@ const askOptionProps = {
 	),
 };
 
-/** GLM wobble guard (owner-approved, 2026-09-26): models sometimes emit
+/** GLM wobble guard: models sometimes emit
  *  `options` as a JSON-ENCODED STRING instead of an array. Parse it before
  *  use. Shared by the tools' prepareArguments (server, pre-validation) and
  *  normalizeOptions (client — the persisted call keeps the raw string, so
@@ -72,9 +71,9 @@ export function parseOptionsIfString<T>(options: string | T[] | undefined): unkn
 }
 
 // ─── cross-field authoring validation (tool-schema refinements) ──────────
-// Enforced at the tool-call boundary (see the superRefines below): an invalid
-// question NEVER reaches the learner — the SDK returns the validation error
-// to the teacher as a tool result and the teacher retries. The rules mirror
+// Enforced at the tool-call boundary (the tools' execute): an invalid
+// question NEVER reaches the learner — the validation error returns to the
+// model as a tool result and the model retries. The rules mirror
 // the grading path exactly (normalizeOptions / coerceCorrectAnswer /
 // resolveCorrect), so schema-valid ⇔ gradeable.
 
@@ -141,20 +140,17 @@ export function quizInputProblems(input: {
 	return problems;
 }
 
-// The SHARED quiz authoring fields — everything except `nodeId`. The probe
-// and teach agents use DIFFERENT tools under the same name (docs/probe-teach-
-// split.md §1): the prober's quiz has NO nodeId field at all (there is no
-// map to position on), the teacher's adds it (the position signal — the
+// The SHARED quiz authoring fields — everything except `type`/`nodeId`. The
+// prober's `probe` tool uses this base alone (there is no map to position
+// on); the teacher's `quiz` adds the role and position fields (the
 // per-session tree validation runs in the tool's execute, tools.ts).
-// Grading rules are identical, single-sourced here. The cross-field
-// authoring contract (quizInputProblems, above) is enforced at the
-// tool-call boundary in execute — TypeBox carries the structure to the
-// model, the problems function carries the refinements.
+// Grading rules are identical, single-sourced here. TypeBox carries the
+// structure to the model; quizInputProblems carries the refinements.
 //
-// Argument-order ruling (owner, 2026-09-25): the explanation is REASONING,
-// and reasoning happens BEFORE the answer is chosen — models emit tool
-// args in schema order, so explanation sits immediately BEFORE correctAnswer.
-// (All consumers read by key; the order is authoring guidance, nothing else.)
+// Argument order: the explanation is REASONING, and reasoning happens BEFORE
+// the answer is chosen — models emit tool args in schema order, so
+// explanation sits immediately BEFORE correctAnswer. (All consumers read by
+// key; the order is authoring guidance, nothing else.)
 export const quizInputBase = Type.Object({
 	question: Type.String({
 		description:
@@ -193,27 +189,22 @@ export const quizInputBase = Type.Object({
 });
 
 // The TEACH-side quiz object: the shared base + the plan-position field
-// + the ROLE field (owner design 2026-10-03, "two questions per teaching
-// unit"): `type` declares the question's role in the cycle. The ROLE
-// DOCTRINE lives in the system prompt (owner: tool descriptions stay
-// purely MECHANICAL — no instructions on what the questions should be);
-// the enum's one-liners below say only WHEN each kind fires.
-// nodeId means "this question is ABOUT this node" — a position signal,
-// never a completion signal (docs/archive/probe-teach-split.md §3). BOTH teaching
-// types carry it. The cross-field authoring contract (the Gate-3
-// hardening: a quiz whose correctAnswer can't be graded NEVER reaches the
-// learner — schema-valid ⇔ gradeable, the rules exactly what the grading
-// path accepts) runs at the CALL BOUNDARY in the tool's execute:
-// quizInputProblems here, the per-session plan-nodeId validation in
-// tools.ts (it reads the live chat record, which this core never touches).
+// + the ROLE field: `type` declares the question's role in the teaching
+// cycle. The role doctrine lives in the system prompt (tool descriptions
+// stay purely MECHANICAL); the enum's one-liners say only WHEN each kind
+// fires. nodeId means "this question is ABOUT this node" — a position
+// signal, never a completion signal. BOTH teaching types carry it. The
+// cross-field authoring contract runs at the CALL BOUNDARY in the tool's
+// execute: quizInputProblems here, the per-session plan-nodeId validation
+// in tools.ts (it reads the live chat record, which this core never touches).
 export const QUIZ_QUESTION_TYPES = ["predict", "check"] as const;
 export type QuizQuestionType = (typeof QUIZ_QUESTION_TYPES)[number];
 
 /** Normalize a persisted quiz `type` (display seam): old records carry
  *  none, and unhealable wobble degrades to undefined — callers render
- *  "Quiz" and the check-style card. The debris strip (whitehead,
- *  2026-10-09) heals the recorded `"\"predict\""` wobble — a raw
- *  persisted record displays its intended role. */
+ *  "Quiz" and the check-style card. The debris strip heals quote-wrapped
+ *  values like `"\"predict\""`, so a raw persisted record displays its
+ *  intended role. */
 export function normalizeQuizType(raw: unknown): QuizQuestionType | undefined {
 	if (typeof raw !== "string") return undefined;
 	const v = stripModelValueDebris(raw);
@@ -229,8 +220,8 @@ export function isTeachingCheck(tool: string, rawInput: unknown, phase: string):
 }
 
 /** The teaching-cycle role field, shared VERBATIM by both teach quizzing
- *  tools. Bare words, never quoted (the
- *  quote-copy wobble — see the whitehead pins, tests/tool-heal.test.ts). */
+ *  tools. Bare words, never quoted (the quote-copy wobble — see
+ *  tests/tool-heal.test.ts). */
 const predictCheckType = Type.Union([Type.Literal("predict"), Type.Literal("check")], {
 	description:
 		"REQUIRED — the question's role in the teaching cycle, as a bare word (no quotes): predict = posed BEFORE " +
@@ -241,8 +232,7 @@ const predictCheckType = Type.Union([Type.Literal("predict"), Type.Literal("chec
 
 
 /** The TEACH-side quiz object. The required pair leads the property
- *  order (owner, 2026-10-09): glm-5.3 dropped `type`/`nodeId` on long
- *  calls BECAUSE they trailed every content field — fields generated
+ *  order: models drop trailing fields on long calls, and fields generated
  *  first get dropped least. The order is also the authoring order:
  *  commit to the node and the question's role, then write the question. */
 export const quizInputObject = Type.Object({
@@ -259,13 +249,9 @@ export const quizInputObject = Type.Object({
 	...quizInputBase.properties,
 });
 
-/** The PROBE-side quiz declaration: the shared authoring contract, no
- *  nodeId and no `type` field at all — the session's map doesn't exist
- *  yet, and probing has exactly ONE question role (owner 2026-10-03: the
- *  prober keeps its own tool; the teaching cycle's types stay with the
- *  teacher, so nothing invites misuse). Structurally identical to
- *  quizInputBase (the old superRefine never reached the wire — it ran at
- *  the call boundary, where quizInputProblems runs now). */
+/** The PROBE-side quiz declaration: exactly quizInputBase — no nodeId and
+ *  no `type` field at all. The session's map doesn't exist yet, and probing
+ *  has exactly ONE question role, so nothing invites misuse. */
 export const probeQuizInputSchema = quizInputBase;
 
 /** The DISPLAY parse for persisted quiz calls (tool-parts.ts): the base
@@ -280,17 +266,16 @@ export const quizDisplayInputSchema = Type.Object({
 	type: Type.Optional(Type.String()),
 });
 
-// ─── the explain tool (free-recall quizzing, owner 2026-09-27) ─────────────
+// ─── the explain tool (free-recall quizzing) ───────────────────────────────
 //
 // Quiz mechanics WITHOUT options: the learner answers in his own words.
 // The SYCOPHANCY MITIGATION is structural — the model commits to the full
 // correct answer BEFORE posing (the commitment rides the persisted call
 // args, is revealed to the learner on submit, and is restated in the answer
 // result the model grades against; the client never grades free text).
-// ONE committed answer, reasoning included (owner ruling 2026-09-27: the
-// separate explanation field was quiz remnant — collapsed away).
-// Mechanics doctrine lives in the TOOL DESCRIPTIONS (pi-native ruling),
-// not in the system prompt.
+// ONE committed answer, reasoning included (no separate explanation field).
+// The commitment rule lives in the tool description (agent/tools.ts); the
+// softer craft doctrine lives in the system prompt.
 
 export const explainInputBase = Type.Object({
 	question: Type.String({
@@ -309,12 +294,10 @@ export const explainInputBase = Type.Object({
 	),
 });
 
-/** The TEACH-side explain object: base + the plan-position field (same
- *  semantics as the quiz's nodeId — the seam recognizes BOTH tools). */
 /** The TEACH-side explain object: base + the teaching-cycle role field
  *  and the plan-position field (same semantics as the quiz's — the seam
  *  recognizes BOTH tools). The required pair leads the property order,
- *  exactly as the teach quiz's (owner, 2026-10-09). */
+ *  exactly as the teach quiz's. */
 export const explainInputObject = Type.Object({
 	type: predictCheckType,
 	nodeId: Type.String({
@@ -348,18 +331,12 @@ export function explainInputProblems(input: { correctAnswer: string }): string[]
 	return [];
 }
 
-/** The tool names that carry the quizzing mechanic — the teach seam
- *  (phases), the plan-position fold, and the pending gate all recognize
- *  whichever is armed. */
-export const QUIZ_TOOL_NAMES = ["quiz", "explain"] as const;
-
 /** The TEACHER's quiz declaration (base + the position field). */
 export const quizInputSchema = quizInputObject;
 
 export const askInputSchema = Type.Object({
-	// No `mode` param — the pi original has none: the mode is inferred from
-	// whether options are present (the dock does exactly this). One less
-	// knob for the model to misuse.
+	// No `mode` param: the mode is inferred from whether options are present
+	// (the dock does exactly this). One less knob for the model to misuse.
 	question: Type.String({
 		description:
 			"The single question to ask the learner. ONE question per turn: ask, then end your turn — the answer determines the next question.",
@@ -386,8 +363,6 @@ export const askInputSchema = Type.Object({
 export type QuizToolInput = Static<typeof quizInputObject>;
 export type AskToolInput = Static<typeof askInputSchema>;
 export type ExplainToolInput = Static<typeof explainInputObject>;
-export type ProbeExplainToolInput = Static<typeof explainInputBase>;
-
 
 /** A real selected answer, in the order the options were displayed. */
 export interface OptionAnswer {
@@ -400,11 +375,11 @@ export type QuestionKind = "quiz" | "ask" | "explain";
 export type SelectMode = "single-select" | "multi-select";
 export type QuestionMode = SelectMode | "text";
 
-/** Full question data — stored in the `lh_question` custom entry. */
+/** Full question data — built by the dock from the persisted call. */
 export interface QuestionData {
 	id: string;
 	kind: QuestionKind;
-	/** quiz only (teach phase, owner 2026-10-03): the question's role in
+	/** quiz only (teach phase): the question's role in
 	 *  the cycle — predict (before the teaching, never collapsed) or check
 	 *  (after it). Both open automatically. Absent on probe quizzes and old
 	 *  records — everything check-shaped. */
@@ -422,16 +397,16 @@ export interface QuestionData {
 	createdAt: string;
 }
 
-/** The learner's answer — full structured record, stored in `lh_question_answered`.
- *  NO questionId (owner, tool-result diet 2026-10-02): it was the
- *  toolCallId restated — the toolResult message already carries it. */
+/** The learner's answer — full structured record, stored as the tool
+ *  result's details. NO questionId: the toolResult message already carries
+ *  the toolCallId. */
 export interface QuestionAnswerData {
 	kind: QuestionKind;
-	/** The persisted call's tool NAME (owner, 2026-10-09): probe-phase
+	/** The persisted call's tool NAME: probe-phase
 	 *  calls are `probe`/`recall`, teach calls `quiz`/`explain` — the
 	 *  cards label by it ("Probe"/"Recall"), so the phase boundary is
-	 *  visible in the transcript. Absent on pre-rename records: they
-	 *  keep the kind-based labels. */
+	 *  visible in the transcript. Absent on older records: they keep the
+	 *  kind-based labels. */
 	tool?: string;
 	/** quiz only (teach phase): the role snapshot for rendering (a
 	 *  prediction tucks its explanation) and later calibration splits.
@@ -443,18 +418,17 @@ export interface QuestionAnswerData {
 	answers: OptionAnswer[];
 	other?: string; // ask: "Other" free text
 	text?: string; // ask/explain: text-mode answer
-	/** The learner's reasoning on the QUESTION (renamed from `note`, owner
-	 *  2026-10-03 — "that's what it is"). */
+	/** The learner's reasoning on the QUESTION (formerly `note`). */
 	thinking?: string;
 	/** @deprecated the pre-rename key — never written again; old records
 	 *  replay through the same types, so it stays declared. Read via
 	 *  `thinking ?? note`. */
 	note?: string;
-	/** The learner's thinking WHILE READING the teaching prose (owner
-	 *  2026-10-03) — a separate channel from `thinking`, captured by the
+	/** The learner's thinking WHILE READING the teaching prose — a separate
+	 *  channel from `thinking`, captured by the
 	 *  reading field and riding the check answer. Absent when empty. */
 	readingThinking?: string;
-	confidence?: number; // quiz only: the learner's stated probability (0-100, raw) that his selected answer is correct — never sent on "I don't know" (owner, 2026-10-01)
+	confidence?: number; // quiz only: the learner's stated probability (0-100, raw) that his selected answer is correct — never sent on "I don't know"
 	correct?: boolean; // quiz only
 	correctIndices?: number[]; // quiz only (rendering)
 	committed?: string; // explain only (rendering): the model's committed answer
@@ -473,18 +447,18 @@ export interface ClientQuestion {
 	options: QuizOption[];
 }
 
-/** What the server passes to the bridge when the learner answers. */
+/** The dock's raw answer input, graded by buildAnswer. */
 export interface AnswerRequest {
 	dontKnow?: boolean;
 	values?: string[]; // option values
 	other?: string; // ask "Other"
 	text?: string; // ask text-mode
-	thinking?: string; // the reasoning-on-the-question channel (was `note`)
+	thinking?: string; // the reasoning-on-the-question channel
 	readingThinking?: string; // the thinking-while-reading channel (check answers)
-	confidence?: number; // quiz only: 0-100 raw probability — 50 is a real coin flip, always sent (owner, 2026-10-01)
+	confidence?: number; // quiz only: 0-100 raw probability — 50 is a real coin flip, always sent
 }
 
-/** The confidence slider's snap stops (owner, 2026-10-01): raw probability
+/** The confidence slider's snap stops: raw probability
  *  that the selected answer is correct, uneven on purpose — resolution
  *  concentrates at the top where the calibration signal lives (90 vs 100
  *  separates knows from mastered). 50 is a genuine coin flip and the
@@ -572,10 +546,6 @@ export function normalizeOptions(
 		});
 }
 
-/** Fisher-Yates over a copy. correctAnswer is keyed by value, so display
- *  order can be shuffled safely before resolving indices. */
-// ─── options ────────────────────────────────────────────────────────────────
-
 /** mulberry32 seeded by a string — deterministic shuffle for hydration-safe rendering. */
 export function seededRandom(seed: string): () => number {
 	let h = 2166136261;
@@ -597,7 +567,8 @@ export function seededRandom(seed: string): () => number {
  * Fisher–Yates with an injectable RNG. Pass `seededRandom(toolCallId)` in
  * rendered components: Math.random() shuffles differently on server vs client
  * and breaks hydration (React #418). A per-toolCallId seed keeps the order
- * stable across reloads while still varying it per question.
+ * stable across reloads while still varying it per question. correctAnswer is
+ * keyed by value, so display order can be shuffled before resolving indices.
  */
 export function shuffleOptions(options: QuizOption[], rand: () => number = Math.random): QuizOption[] {
 	const out = [...options];
@@ -614,11 +585,10 @@ export function shuffleOptions(options: QuizOption[], rand: () => number = Math.
 // ─── quiz grading ───────────────────────────────────────────────────────────
 
 /** Preserve an exact option key before trying copy-syntax cleanup: a
- *  label's final period, quotes, or backticks can be CONTENT (calculus
- *  incident, 2026-10-12), not model debris. The actual option values are
- *  required so no caller can strip a valid answer before membership.
- *  Non-matches keep the existing whitehead heal (`[":parmenides"]`) and
- *  JSON-stringified multi-select coercion. Shared by boundary, display,
+ *  label's final period, quotes, or backticks can be CONTENT, not model
+ *  debris. The actual option values are required so no caller can strip a
+ *  valid answer before membership. Non-matches get the debris heal
+ *  (`[":parmenides"]`) and JSON-stringified multi-select coercion. Shared by boundary, display,
  *  and grading; canonical option keys are never rewritten. */
 export function coerceCorrectAnswer(
 	correctAnswer: string | string[],
@@ -688,14 +658,9 @@ export function toClientQuestion(qd: QuestionData): ClientQuestion {
 	};
 }
 
-function formatOptionRef(options: QuizOption[], index: number): string {
-	const opt = options.find((o, i) => i + 1 === index);
-	return `${index}. ${opt ? opt.label : "(unknown)"}`;
-}
-
 /**
- * Turn an AnswerRequest into the full answer record + the user message the
- * agent will see. Quiz answers are graded here; ask answers are not.
+ * Turn an AnswerRequest into the full answer record. Quiz answers are
+ * graded here; ask and explain answers are not.
  */
 export function buildAnswer(qd: QuestionData, req: AnswerRequest, tool?: string): QuestionAnswerData {
 	const base: QuestionAnswerData = {
@@ -742,17 +707,8 @@ export function buildAnswer(qd: QuestionData, req: AnswerRequest, tool?: string)
 	return base;
 }
 
-/**
- * The MODEL-VISIBLE answer record (owner, tool-result diet 2026-10-02):
- * the tool call already carries everything the model itself authored —
- * the question, every option, the correct answer, the explanation, the
- * explain commitment — so the result returns ONLY what the learner added:
- * his selection or words, the graded verdict, his stated confidence, his
- * note. The full graded QuestionAnswerData rides `details` for the record
- * and the UI; this is the JSON the agent actually reads.
- */
-/** The dismissal record (ESC-abort from a pending question, owner
- *  2026-10-02): the minimum honest answer. The model sees
+/** The dismissal record (ESC-abort from a pending question): the minimum
+ *  honest answer. The model sees
  *  {kind, dismissed:true} via compactAnswerForModel; the answered card
  *  renders the question text + "skipped". Rides the same answer path —
  *  the teacher acknowledges the skip in its next turn, exactly like any
@@ -768,6 +724,15 @@ export function dismissedAnswer(kind: QuestionKind, questionText: string): Quest
 	};
 }
 
+/**
+ * The MODEL-VISIBLE answer record: the tool call already carries everything
+ * the model itself authored — the question, every option, the correct
+ * answer, the explanation, the explain commitment — so the result returns
+ * ONLY what the learner added: his selection or words, the graded verdict,
+ * his stated confidence, his thinking. The full graded QuestionAnswerData
+ * rides `details` for the record and the UI; this is the JSON the agent
+ * actually reads.
+ */
 export function compactAnswerForModel(ad: QuestionAnswerData): Record<string, unknown> {
 	if (ad.dismissed) return { kind: ad.kind, dismissed: true };
 	const out: Record<string, unknown> = { kind: ad.kind };
@@ -784,7 +749,7 @@ export function compactAnswerForModel(ad: QuestionAnswerData): Record<string, un
 	if (ad.correct !== undefined && !ad.dontKnow) out.correct = ad.correct;
 	if (ad.confidence !== undefined) out.confidence = ad.confidence;
 	// Two DISTINCT thinking channels, clearly keyed so the model never
-	// conflates them (owner 2026-10-03): reasoning on the question vs
+	// conflates them: reasoning on the question vs
 	// thinking while reading the teaching. `note` is the pre-rename key —
 	// old records replay through here too, so both feed `thinking`.
 	const thinking = ad.thinking ?? ad.note;

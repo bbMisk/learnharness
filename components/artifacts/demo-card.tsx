@@ -4,14 +4,14 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "r
 import { DownloadIcon } from "lucide-react";
 import { Toggle } from "@/components/settings/controls";
 import { InvertDiscIcon } from "@/components/artifacts/invert-disc";
-import { ChatActionsContext } from "@/components/chat";
+import { ChatActionsContext } from "@/components/chat-actions";
+import { useArtifactInversion } from "@/components/artifacts/artifact-ui";
 import { downloadFile, slugFilename } from "@/components/artifacts/download";
-import { DispatchCard } from "@/components/artifacts/dispatch-card";
+import { ExpandButton, PinButton } from "@/components/pinned-visual";
 import {
 	buildDemoDocument,
 	loadDemoRuntimes,
 	peekDemoRuntimes,
-	type ArtifactPartProps,
 	type DemoResult,
 	type DemoRenderer,
 	type DemoRuntimes,
@@ -114,14 +114,6 @@ export function reduceDemoBridgeState(state: DemoBridgeState, data: unknown): De
 
 // ─── the demo card ──────────────────────────────────────────────────────────
 
-/** The demo tool-call box: the part's output is the dispatch ack — the box
- * is the DispatchCard (live status via the chat view's jobs feed). The demo
- * itself renders from the steer message via DemoOutputCard. */
-export function DemoCard({ part }: ArtifactPartProps) {
-	if (part.state !== "output-available") return null;
-	return <DispatchCard toolCallId={part.toolCallId} kind="demo" />;
-}
-
 /** The demo artifact — exported: the steer card renders the delivered
  *  result. `messageId` + `initialInverted` carry the PERSISTED invert
  *  switch (details.ui.inverted via the artifact-ui route, owner 2026-10-07). */
@@ -175,23 +167,11 @@ function DemoFrame({
 	const actions = useContext(ChatActionsContext);
 	const iframeRef = useRef<HTMLIFrameElement | null>(null);
 	const [state, setState] = useState<DemoBridgeState>(INITIAL_DEMO_BRIDGE_STATE);
-	// Brightness inversion (owner, 2026-10-07): the switch state PERSISTS on
-	// the steer record (details.ui.inverted) — seeded here, written through
-	// the silent artifact-ui route on toggle. Without a chat page (tests,
-	// previews) the toggle stays local-only. The filter rides the iframe
-	// element, which carries the card's white backing, so one filter flips
-	// page + content together while hue-rotate(180deg) undoes invert's hue
-	// flip.
-	const [inverted, setInverted] = useState(initialInverted);
-	const toggleInverted = (next: boolean) => {
-		setInverted(next);
-		if (!actions?.chatId || !messageId) return;
-		void fetch(`/api/chats/${actions.chatId}/artifact-ui`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ input: { messageId, inverted: next } }),
-		}).catch(() => {});
-	};
+	// Brightness inversion, persisted on the steer record. The filter rides
+	// the iframe element, which carries the card's white backing, so one
+	// filter flips page + content together while hue-rotate(180deg) undoes
+	// invert's hue flip.
+	const [inverted, toggleInverted] = useArtifactInversion(messageId, initialInverted);
 	const { runtimes, failed: runtimesFailed, retry: retryRuntimes } = useDemoRuntimes(html, renderer);
 	const srcDoc = useMemo(() => (runtimes ? buildDemoSrcDoc(html, renderer, runtimes) : null), [html, renderer, runtimes]);
 
@@ -240,6 +220,8 @@ function DemoFrame({
 					>
 						<DownloadIcon className="size-3.5" />
 					</button>
+					<PinButton />
+					<ExpandButton />
 				</div>
 			</div>
 			{state.error && (

@@ -20,7 +20,7 @@ const depthMode: "off" | "vertical" | "radial" =
 import { incrementalLayout } from "../src/core/layout.ts";
 import { birthSessionPartition } from "../src/core/session-clusters.ts";
 import { deriveView, getGraph } from "../src/core/graph.ts";
-import type { GraphNode, Position } from "../src/core/contracts.ts";
+import type { Position } from "../src/core/contracts.ts";
 
 function main() {
 	const t0 = Date.now();
@@ -34,7 +34,6 @@ function main() {
 	const edges = view.edges;
 	const logicalEdges = view.logicalEdges;
 	const impLinks = view.impLinks;
-	const viewNodeById = new Map(view.nodes.map((n) => [n.id, n]));
 	const chains = graph.chains;
 	// An implication node is delivered the moment its chain is complete
 	// (conclusion + every premise delivered).
@@ -65,7 +64,6 @@ function main() {
 		positions = new Map();
 	}
 
-	const byId = new Map(nodes.map((n) => [n.id, n]));
 	const unmappedFallback = sources[sources.length - 1]?.id ?? "";
 
 	console.log(`[replay] ${nodes.length} nodes, ${chains.length} chains, ${sources.length} sources`);

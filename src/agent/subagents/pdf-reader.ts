@@ -4,12 +4,12 @@ import { normalizeContext } from "@earendil-works/pi-ai";
 import { processImage, type ProcessImageResult } from "../image-processing/index.ts";
 import { Type } from "typebox";
 import { resolveSourcePath } from "../tools/fs-shared.ts";
-import { piEngineFor, type PiEngine, type ThinkingLevel } from "../models.ts";
+import { type PiEngine, type ThinkingLevel } from "../models.ts";
 import { providerEventObserver, type ProviderEventObserver } from "../provider-events.ts";
 import { backgroundCaptureStream, createBackgroundCapture, type BackgroundCapture } from "../background-capture.ts";
 import type { PdfResult, PdfToolInput } from "../../core/contracts.ts";
 import { getHeadless, type HeadlessApi } from "./headless.ts";
-import { pdfExtract, pdfInfo, pdfProbe, pdfSearch, type PdfSearchHit } from "./pdf-ops.ts";
+import { pdfExtract, pdfInfo, pdfProbe, pdfSearch } from "./pdf-ops.ts";
 
 /**
  * The pdf-reader sub-agent (sources v0, 2026-09): reads a learner-provided
@@ -65,7 +65,8 @@ const RENDER_BATCH_CAP = 6;
 const EXTRACT_CAP = 24_000;
 
 export interface PdfReaderOptions {
-	engine?: PiEngine;
+	/** The settings-resolved pdfReader engine; tests pass a scripted one. */
+	engine: PiEngine;
 	abortSignal?: AbortSignal;
 	onUsage?: (usage: Usage) => void;
 	onActivity?: (line: string) => void;
@@ -165,7 +166,7 @@ const UNREAD_FINISH_MESSAGE =
 
 export async function runPdfReaderAgent(
 	input: PdfReaderInput,
-	opts: PdfReaderOptions = {},
+	opts: PdfReaderOptions,
 ): Promise<PdfResult> {
 	const maxIterations = opts.maxIterations ?? MAX_ITERATIONS;
 	let pdfPath = input.path;
@@ -188,9 +189,9 @@ export async function runPdfReaderAgent(
 
 	const tools = createPdfTools(pdfPath);
 	const toolDeclarations = Object.values(tools);
-	const engine = opts.engine ?? piEngineFor("pdfReader");
-	// BYOK (owner, 2026-09-22): the level rides the injected engine — no
-	// factory pin to consult (engine.level is the resolved/clamped value).
+	const { engine } = opts;
+	// The level rides the injected engine (engine.level is the
+	// resolved/clamped value).
 	const reasoning = engine.level;
 	const sessionId = randomUUID();
 	const capture = createBackgroundCapture({ role: "pdfReader", runId: sessionId, sourceId: opts.chatId });

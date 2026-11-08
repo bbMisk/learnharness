@@ -1,18 +1,17 @@
 "use client";
 /**
- * The model menu (extracted 2026-09-20 from model-picker.tsx, owner ask:
- * the agent settings' role selects use the EXACT same dropdown as the
- * chat model selector — same look, same machine). The fuzzy search +
- * arrow-walk + Enter pick machine lives here once; each mount owns only
- * the popover shell (positioning, outside-click, Esc — the chat control
- * opens UP from the bottom bar, the settings rows open DOWN inside the
- * dialog).
+ * The model menu: the agent settings' role selects use the EXACT same
+ * dropdown as the chat model selector — same look, same machine. The fuzzy
+ * search + arrow-walk + Enter pick machine lives here once; each mount owns
+ * only the popover shell (positioning, outside-click, Esc — the chat
+ * control opens UP from the bottom bar, the settings rows open DOWN inside
+ * the dialog).
  *
- * The appearance wave (2026-09-26) added the reading-font picker over the
- * same machine: FontMenuList (families instead of models, plus the
- * always-offerable DEFAULT row and a custom-family escape input).
+ * The same machine also drives the provider picker (ProviderMenuList) and
+ * the reading-font picker (FontMenuList: families instead of models, plus
+ * the always-offerable DEFAULT row and a custom-family action row).
  *
- * Keyboard machine (owner polish, 2026-09-17): focus STAYS in the search
+ * Keyboard machine: focus STAYS in the search
  * field — ↑/↓ walk the filtered results (clamped, no wrap), Enter picks
  * the walked row (or the first result when nothing is walked).
  * stopPropagation keeps these keys out of every other listener while the
@@ -46,8 +45,8 @@ export function ModelMenuList({
 	models: ModelCatalogEntry[] | undefined;
 	/** Currently effective id (the row gets the quiet highlight). */
 	effectiveId: string | undefined;
-	/** The effective id's provider (model-slots wave: the catalog
-	 *  federates multiple providers and ids can collide across them —
+	/** The effective id's provider (the catalog federates multiple
+	 *  providers and ids can collide across them —
 	 *  the highlight must match BOTH coordinates or it lands on the
 	 *  wrong row). */
 	effectiveProvider?: string;
@@ -60,9 +59,6 @@ export function ModelMenuList({
 	 *  Image-capable ones float to the top. */
 	vision?: boolean;
 }) {
-	// Vision slot: built-ins must report image input; custom-endpoint models
-	// stay selectable (the endpoint may not report a modality). Image-capable
-	// ones float to the top of the list.
 	const visionItems = vision
 		? models?.filter((m) => m.input.includes("image") || m.provider === CUSTOM_PROVIDER.id)
 		: models;
@@ -145,9 +141,8 @@ export function ThinkingMenuList({
 	);
 }
 
-/** The provider-picker dropdown body (keys wave-5 polish, 2026-09-21:
- *  the owner wanted the Add-provider control to match the app's dropdown
- *  language) — the same fuzzy-search + arrow-walk + Enter machine over
+/** The provider-picker dropdown body (the Add-provider control) — the
+ *  same fuzzy-search + arrow-walk + Enter machine over
  *  the pi-ai provider table. Rows read: provider label, its env var in
  *  quiet mono on the right. */
 export function ProviderMenuList({
@@ -157,85 +152,30 @@ export function ProviderMenuList({
 	providers: { id: string; envVar: string; label: string }[];
 	onPick: (provider: { id: string; envVar: string; label: string }) => void;
 }) {
-	const [query, setQuery] = useState("");
-	const [menuIdx, setMenuIdx] = useState<number | null>(null);
-	const searchRef = useRef<HTMLInputElement>(null);
-	const listRef = useRef<HTMLUListElement>(null);
-
-	useEffect(() => {
-		searchRef.current?.focus();
-	}, []);
-
-	useEffect(() => {
-		if (menuIdx === null) return;
-		listRef.current?.querySelector(`[data-idx="${menuIdx}"]`)?.scrollIntoView({ block: "nearest" });
-	}, [menuIdx]);
-
-	const results = providers
-		.map((p) => ({ p, s: fuzzyScore(query, p.id, p.envVar, p.label) }))
-		.filter((r) => r.s !== null)
-		.sort((a, b) => b.s! - a.s! || a.p.id.localeCompare(b.p.id))
-		.map((r) => r.p);
-
 	return (
-		<>
-			<input
-				ref={searchRef}
-				data-testid="provider-search"
-				value={query}
-				onChange={(e) => {
-					setQuery(e.target.value);
-					setMenuIdx(null);
-				}}
-				onKeyDown={(e) => {
-					if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-						e.preventDefault();
-						e.stopPropagation();
-						if (results.length === 0) return;
-						setMenuIdx((i) =>
-							e.key === "ArrowDown"
-								? Math.min((i ?? -1) + 1, results.length - 1)
-								: Math.max((i ?? results.length) - 1, 0),
-						);
-					} else if (e.key === "Enter") {
-						const chosen = results[menuIdx ?? 0];
-						if (chosen) {
-							e.preventDefault();
-							e.stopPropagation();
-							onPick(chosen);
-						}
-					}
-				}}
-				placeholder="Search providers…"
-				className="lh-input mb-1.5 w-full rounded-lg border bg-background px-2 py-1.5 text-foreground outline-none focus:ring-1 focus:ring-ring"
-			/>
-			{results.length === 0 && (
-				<div className="px-2 py-3 text-center text-muted-foreground">No providers match.</div>
-			)}
-			<ul ref={listRef} data-testid="provider-list" className="flex max-h-72 flex-col overflow-y-auto px-1">
-				{results.map((p, i) => (
-					<li key={p.id}>
-						<button
-							type="button"
-							data-testid={`provider-option-${p.id.replace(/[^a-z0-9-]/gi, "_")}`}
-							data-idx={i}
-							onClick={() => onPick(p)}
-							className={`flex w-full items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left outline-none transition-colors hover:bg-muted ${
-								i === menuIdx ? "bg-accent/40 ring-1 ring-inset ring-border" : ""
-							}`}
-						>
-							<span className="truncate text-card-foreground">{p.label}</span>
-							<span className="shrink-0 font-mono text-[11px] text-muted-foreground">{p.envVar}</span>
-						</button>
-					</li>
-				))}
-			</ul>
-		</>
+		<SearchMenuList
+			items={providers}
+			itemKey={(p) => p.id}
+			searchTerms={(p) => [p.id, p.envVar, p.label]}
+			compare={(a, b) => a.id.localeCompare(b.id)}
+			isSelected={() => false}
+			onPick={onPick}
+			searchTestid="provider-search"
+			listTestid="provider-list"
+			optionTestid={(p) => `provider-option-${p.id.replace(/[^a-z0-9-]/gi, "_")}`}
+			placeholder="Search providers…"
+			empty="No providers match."
+			rowClassName="items-center justify-between gap-3"
+			renderItem={(p) => <>
+				<span className="truncate text-card-foreground">{p.label}</span>
+				<span className="shrink-0 font-mono text-[11px] text-muted-foreground">{p.envVar}</span>
+			</>}
+		/>
 	);
 }
 
 /** The reading-font dropdown's row set — the SAME fuzzy + arrow-walk +
- *  Enter machine over font families (appearance wave, 2026-09-26). The
+ *  Enter machine over font families. The
  *  DEFAULT row (null) is a candidate like any family: it matches empty
  *  and "source"/"sans"/"default" queries, so an unfiltered list opens
  *  with the default first and a searched list drops it honestly — Enter
@@ -254,7 +194,7 @@ export function fontMenuResults(query: string, families: string[]): Array<string
 	return scored;
 }
 
-/** The custom-family action row's decision (pure, 2026-09-26): a typed
+/** The custom-family action row's decision (pure): a typed
  *  query that matches NO family becomes the "Use '<query>'" custom pick —
  *  a matching family is the better pick, so the action row only exists
  *  when there is nothing else to pick. Exported for tests. */
@@ -264,11 +204,10 @@ export function customFamilyFor(query: string, families: string[]): string | nul
 	return fontMenuResults(query, families).length === 0 ? trimmed : null;
 }
 
-/** The reading-font dropdown body — ONE search field (owner ask
- *  2026-09-26: "why two?"): the fuzzy machine filters the families, and
- *  when nothing matches, a "Use '<query>'" action row commits the typed
- *  text as a custom family — the old separate custom input is gone, the
- *  search field absorbed its job. `families === undefined` is the
+/** The reading-font dropdown body — ONE search field: the fuzzy machine
+ *  filters the families, and when nothing matches, a "Use '<query>'"
+ *  action row commits the typed text as a custom family.
+ *  `families === undefined` is the
  *  enumerating state; the curated fallback arrives as plain families with
  *  a footer that says so honestly. */
 export function FontMenuList({

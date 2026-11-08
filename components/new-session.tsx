@@ -7,16 +7,16 @@ import { Composer } from "@/components/composer";
 import { DictationBar, joinDictation, useDictation } from "@/components/dictation";
 import { useFieldCycle } from "@/components/field-cycle";
 import { SidebarToggle } from "@/components/sidebar";
-import { SetupDialog } from "@/components/setup-dialog";
+import { SetupDialog } from "@/components/setup-dialog-lazy";
 import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
 import { StatsBar } from "@/components/stats-bar";
-import { ChainTableOverlay } from "@/components/chain-table.tsx";
+import { ChainTableOverlay } from "@/components/chain-table-lazy";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { SessionStarter } from "@/components/start-session";
 import { ModeSwitch } from "@/components/mode-switch";
 import { useSessionMode } from "@/components/session-modes";
-import type { ChatSettings, GraphSnapshot, SessionMode } from "@/src/core";
+import type { GraphSnapshot, SessionMode } from "@/src/core";
 
 /** The draft's pick set (owner round 10): the SAME shape the home pick
  *  bar lifts — resolved nodes as the learner SAW them at pick time. */

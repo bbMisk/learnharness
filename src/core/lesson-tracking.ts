@@ -25,10 +25,10 @@
  *   current — the most recently started problem with no problem_done after
  *             that start; null when none.
  *
- * Pure and browser-safe (type-only imports).
+ * Pure and browser-safe.
  */
 
-import type { LhMessage } from "./native-messages.ts";
+import { forEachToolSuccess, type LhMessage } from "./native-messages.ts";
 import type { PlanProgress } from "./plan-progress.ts";
 
 export const PROBLEM_LIST_TOOL = "problem_list";
@@ -86,10 +86,49 @@ function isString(v: unknown): v is string {
 	return typeof v === "string";
 }
 
+/** A strict command's outcome: the tool's error, or the record-facing
+ *  `details` the fold reads plus the model's short `ack`. */
+export type TrackingCommandResult<D> = { ok: false; error: string } | { ok: true; details: D; ack: Record<string, unknown> };
+
+const SLUG = /^[a-z0-9][a-z0-9_-]*$/;
+const MAX_ID = 40;
+const MAX_LABEL = 80;
+const MAX_MISTAKE = 200;
+
+/** Problems with a problem_list input (empty = valid). */
+function problemListProblems(problems: ReadonlyArray<{ id: unknown; label: unknown }>): string[] {
+	const out: string[] = [];
+	if (problems.length === 0) out.push("problems is empty — list every problem in the set.");
+	const seen = new Set<string>();
+	problems.forEach((p, i) => {
+		const at = `problems[${i}]`;
+		if (typeof p.id !== "string" || !SLUG.test(p.id) || p.id.length > MAX_ID) {
+			out.push(`${at}.id "${String(p.id)}" is not a slug — use lowercase a-z, 0-9, hyphens/underscores (at most ${MAX_ID} characters), e.g. q3.`);
+		} else if (seen.has(p.id)) {
+			out.push(`${at}.id "${p.id}" is a duplicate — ids must be unique.`);
+		} else seen.add(p.id);
+		const label = typeof p.label === "string" ? p.label.trim() : "";
+		if (!label) out.push(`${at}.label is empty — give a short label, e.g. 'Q3: CRLB bound'.`);
+		else if (label.length > MAX_LABEL || /[\r\n]/.test(label)) {
+			out.push(`${at}.label is too long — one short line (at most ${MAX_LABEL} characters).`);
+		}
+	});
+	return out;
+}
+
+function listIds(ids: readonly string[]): string {
+	return ids.length > 8 ? `${ids.slice(0, 8).join(", ")}, …` : ids.join(", ");
+}
+
 /**
- * The fold's running state. The tools keep one per turn (seeded from the
- * record, then fed their own successful results); the card folds the
- * record from scratch. `apply` is the single reducer both use.
+ * The fold's running state, with two doors that never mix:
+ * - `apply` — PERMISSIVE replay of a recorded success (the card, the
+ *   lesson clock, the tools' seed): whatever the record holds folds,
+ *   unknown tools and shapes are ignored, nothing is rejected.
+ * - the STRICT commands (setProblems … resolveMistake) — the tools' live
+ *   writes: they validate against the current state, mint ids, and on
+ *   success fold their own details through `apply`, so a live write and
+ *   its later replay always agree.
  */
 export class LessonTracker {
 	private list: Array<{ id: string; label: string }> | null = null;
@@ -134,18 +173,72 @@ export class LessonTracker {
 		}
 	}
 
-	/** The latest list's ids, or null before any list. */
-	problemIds(): string[] | null {
-		return this.list ? this.list.map((p) => p.id) : null;
+	/** problem_list: replace the whole list (ids are slugs, labels trimmed). */
+	setProblems(problems: ReadonlyArray<{ id: string; label: string }>): TrackingCommandResult<ProblemListDetails> {
+		const issues = problemListProblems(problems);
+		if (issues.length > 0) return { ok: false, error: issues.join("\n") };
+		const details: ProblemListDetails = { ok: true, problems: problems.map((p) => ({ id: p.id, label: p.label.trim() })) };
+		this.apply(PROBLEM_LIST_TOOL, details);
+		return { ok: true, details, ack: { ok: true, problems: details.problems.length } };
 	}
 
-	mistake(id: string): TrackedMistake | undefined {
+	/** problem_start: an id from the latest list. */
+	startProblem(id: string): TrackingCommandResult<ProblemStartDetails> {
+		const error = this.unknownProblem(id);
+		if (error) return { ok: false, error };
+		const details: ProblemStartDetails = { ok: true, id };
+		this.apply(PROBLEM_START_TOOL, details);
+		return { ok: true, details, ack: { ok: true } };
+	}
+
+	/** problem_done: an id from the latest list and an outcome; the ack
+	 *  carries the card's correct / of count. */
+	finishProblem(id: string, outcome: ProblemOutcome): TrackingCommandResult<ProblemDoneDetails> {
+		const error = this.unknownProblem(id);
+		if (error) return { ok: false, error };
+		if (!PROBLEM_OUTCOMES.includes(outcome)) {
+			return { ok: false, error: `outcome "${String(outcome)}" is not one of: ${PROBLEM_OUTCOMES.join(", ")}.` };
+		}
+		const details: ProblemDoneDetails = { ok: true, id, outcome };
+		this.apply(PROBLEM_DONE_TOOL, details);
+		const problems = this.snapshot().problems ?? [];
+		return { ok: true, details, ack: { ok: true, correct: correctProblemCount(problems), of: problems.length } };
+	}
+
+	/** note_mistake: one short line; mints the next id (m1, m2, … in record
+	 *  order, per chat). */
+	noteMistake(text: string): TrackingCommandResult<NoteMistakeDetails> {
+		const line = text.trim();
+		if (!line) return { ok: false, error: "text is empty — name the mistake in one short line." };
+		if (line.length > MAX_MISTAKE || /[\r\n]/.test(line)) {
+			return { ok: false, error: `text is too long — one short line (at most ${MAX_MISTAKE} characters).` };
+		}
+		const details: NoteMistakeDetails = { ok: true, id: `m${this.mistakes.length + 1}`, text: line };
+		this.apply(NOTE_MISTAKE_TOOL, details);
+		return { ok: true, details, ack: { ok: true, id: details.id } };
+	}
+
+	/** resolve_mistake: an open mistake's id. */
+	resolveMistake(id: string): TrackingCommandResult<ResolveMistakeDetails> {
+		const mistake = this.mistake(id);
+		const open = this.mistakes.filter((m) => !m.resolved).map((m) => m.id);
+		const openText = open.length > 0 ? `Open mistakes: ${listIds(open)}.` : "No mistakes are open.";
+		if (!mistake) return { ok: false, error: `No mistake "${id}". ${openText}` };
+		if (mistake.resolved) return { ok: false, error: `Mistake "${id}" is already resolved. ${openText}` };
+		const details: ResolveMistakeDetails = { ok: true, id };
+		this.apply(RESOLVE_MISTAKE_TOOL, details);
+		return { ok: true, details, ack: { ok: true } };
+	}
+
+	/** The latest list's validation for a problem id, or null when valid. */
+	private unknownProblem(id: string): string | null {
+		if (this.list === null) return "No problem list yet — call problem_list first.";
+		const ids = this.list.map((p) => p.id);
+		return ids.includes(id) ? null : `No problem "${id}" in the current list. Ids: ${listIds(ids)}.`;
+	}
+
+	private mistake(id: string): TrackedMistake | undefined {
 		return this.mistakes.find((m) => m.id === id);
-	}
-
-	/** The next note_mistake id: m1, m2, … in record order, per chat. */
-	nextMistakeId(): string {
-		return `m${this.mistakes.length + 1}`;
 	}
 
 	/** The current problem among the latest list's ids, or null. */
@@ -190,29 +283,7 @@ export function lessonTrackerOf(
 	live?: ReadonlyMap<string, LiveTrackingExecution>,
 ): LessonTracker {
 	const tracker = new LessonTracker();
-	let settled: Set<string> | null = null;
-	if (live && live.size > 0) {
-		settled = new Set();
-		for (const m of messages) {
-			const r = m as { role?: string; toolCallId?: unknown };
-			if (r.role === "toolResult" && isString(r.toolCallId)) settled.add(r.toolCallId);
-		}
-	}
-	for (const m of messages) {
-		const r = m as { role?: string; toolName?: unknown; isError?: unknown; details?: unknown; content?: unknown };
-		if (settled && r.role === "assistant" && Array.isArray(r.content)) {
-			for (const block of r.content as Array<{ type?: string; id?: unknown; name?: unknown }>) {
-				if (block.type !== "toolCall" || !isString(block.id) || !isString(block.name)) continue;
-				if (!isLessonTrackingTool(block.name) || settled.has(block.id)) continue;
-				const execution = live!.get(block.id);
-				if (execution && !execution.isError) tracker.apply(block.name, execution.output);
-			}
-			continue;
-		}
-		if (r.role !== "toolResult" || r.isError === true || !isString(r.toolName)) continue;
-		if (!isLessonTrackingTool(r.toolName)) continue;
-		tracker.apply(r.toolName, r.details);
-	}
+	forEachToolSuccess(messages, isLessonTrackingTool, live, (name, _id, details) => tracker.apply(name, details));
 	return tracker;
 }
 

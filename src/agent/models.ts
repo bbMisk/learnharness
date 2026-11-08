@@ -97,11 +97,6 @@ export function piModels() {
 	return collection;
 }
 
-/** OpenRouter API key (BYOK); tests never read this — they inject engines. */
-export function openRouterApiKey(): string | undefined {
-	return process.env.OPENROUTER_API_KEY || undefined;
-}
-
 /** A fully-resolved model pin — the shape every engine now comes from:
  *  the settings-resolution chain's output (role override → slot, or the
  *  chat's conversation chain). thinkingLevel is OPTIONAL: unset means
@@ -183,16 +178,4 @@ export function piEngineForSpec(spec: ResolvedModelSpec, background: boolean | (
 			return stream(requestModel, context, requestOptions);
 		},
 	};
-}
-
-/** The LEGACY role entry point — BYOK made it an honest THROWER (owner,
- *  2026-09-22): no factory pins exist to fall back to, and this module
- *  cannot read settings (architecture law — the agent layer never
- *  imports the server layer). Production resolves the chain in
- *  chat-handler and ALWAYS injects engines; reaching this means a
- *  wiring bug, so it fails loudly instead of guessing a model. */
-export function piEngineFor(role: ModelRole): PiEngine {
-	throw new Error(
-		`no configured model for role "${role}" — set your model slots (settings → models)`,
-	);
 }

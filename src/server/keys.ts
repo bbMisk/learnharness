@@ -1,20 +1,17 @@
 /**
- * The auth/keys composition (auth-keys wave, 2026-09-19): the server-side
- * key manager behind GET/PUT/DELETE /api/keys.
+ * The auth/keys composition: the server-side key manager behind
+ * GET/PUT/DELETE /api/keys.
  *
- * THE ENV SEAM (the architecture keystone): every consumer — models.ts's
- * openRouterApiKey(), the sub-agents, web.ts, the STT route — reads
- * process.env directly, and the agent layer may not import the store
- * layer. Instead of rewiring five consumers across lanes, the store
- * REFLECTS itself into the child's env: at boot (idempotent, anchored on
- * globalThis like the extraction registry) every file var UNSET in the
- * real env is fill-gapped into process.env, and each save/delete updates
- * file + env together. Keys therefore take effect immediately — no restart
- * — which is also why main.cjs's old spawn-time injection HAD to retire:
- * an env copy made at spawn would shadow every settings-page change until
- * restart (env wins over file).
+ * THE ENV SEAM: key consumers (the sub-agents, web.ts, the STT route) read
+ * process.env directly, and the agent layer may not import the store layer.
+ * So the store reflects itself into the process env: at boot (idempotent,
+ * anchored on globalThis like the extraction registry) every file var unset
+ * in the real env is filled into process.env, and each save/delete updates
+ * file + env together. Keys take effect immediately, with no restart; an env
+ * copy made at spawn (e.g. by main.cjs) would shadow every settings-page
+ * change until restart, since env wins over file.
  *
- * PRECEDENCE (owner decision): real environment variables (incl.
+ * PRECEDENCE: real environment variables (incl.
  * .env.local in dev) always win over the file. Boot-time real-env vars
  * are snapshotted once per process and never mutated; a PUT to one of
  * them persists to the file (for when the env goes away) and the status
@@ -44,7 +41,6 @@ import {
 	AUTH_PROVIDER_KEYS,
 	AUTH_PROVIDER_ENV_VARS,
 	CUSTOM_PROVIDER,
-	type AuthKeyInfo,
 	type AuthKeyStatus,
 	genericProviderKeyGuard,
 	isKnownAuthKey,

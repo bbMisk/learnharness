@@ -1,16 +1,15 @@
 "use client";
 
-import { useContext, useState } from "react";
-import { ChatActionsContext } from "@/components/chat";
 import { DownloadIcon, MaximizeIcon } from "lucide-react";
 import { InvertDiscIcon } from "@/components/artifacts/invert-disc";
 import { Toggle } from "@/components/settings/controls";
-import { useSessionMermaid } from "@/components/session-overlay";
+import { useSessionOverlay } from "@/components/session-overlay";
+import { useArtifactInversion } from "@/components/artifacts/artifact-ui";
 import { downloadFile } from "@/components/artifacts/download";
-import { DispatchCard } from "@/components/artifacts/dispatch-card";
 import { SvgImage } from "@/components/artifacts/svg-image";
-import { embedLearnerImage, type ArtifactPartProps, type VisualResult } from "@/src/core";
+import { embedLearnerImage, type VisualResult } from "@/src/core";
 import { useImageSnapshot } from "./use-image-snapshot";
+import { PinButton, usePinnedSlot } from "@/components/pinned-visual";
 
 /**
  * Visual artifact card (W6 → ack protocol): the tool part's output is the
@@ -37,11 +36,6 @@ export function svgNaturalWidth(svg: string): number | null {
 	return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-export function VisualCard({ part }: ArtifactPartProps) {
-	if (part.state !== "output-available") return null;
-	return <DispatchCard toolCallId={part.toolCallId} kind="visual" />;
-}
-
 /** The figure itself — exported: the steer card renders the delivered artifact. */
 export function VisualOutputCard({
 	output,
@@ -58,23 +52,13 @@ export function VisualOutputCard({
 	const result = output as VisualResult | undefined;
 	const snapshot = useImageSnapshot(result?.image?.snapshotId, chatId);
 	const svg = result?.image && snapshot.image ? embedLearnerImage(result.svg, snapshot.image) : result?.svg ?? "";
-	const overlay = useSessionMermaid();
-	const actions = useContext(ChatActionsContext);
-	// Brightness inversion (owner, 2026-10-07): the switch state PERSISTS on
-	// the steer record (details.ui.inverted) — seeded here, written through
-	// the silent artifact-ui route on toggle; without a chat page (tests,
-	// previews) it stays local-only. The toggled state also feeds the
-	// fullscreen overlay (openFigure).
-	const [inverted, setInverted] = useState(initialInverted);
-	const toggleInverted = (next: boolean) => {
-		setInverted(next);
-		if (!actions?.chatId || !messageId) return;
-		void fetch(`/api/chats/${actions.chatId}/artifact-ui`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ input: { messageId, inverted: next } }),
-		}).catch(() => {});
-	};
+	const overlay = useSessionOverlay();
+	// Pinned beside the chat (components/pinned-visual.tsx): the figure fits
+	// the panel's height too, and a click opens the zoomable fullscreen.
+	const pinned = usePinnedSlot();
+	// Brightness inversion, persisted on the steer record. The toggled state
+	// also feeds the fullscreen overlay (openFigure).
+	const [inverted, toggleInverted] = useArtifactInversion(messageId, initialInverted);
 	const natural = result && typeof result.svg === "string" ? svgNaturalWidth(result.svg) : null;
 	if (!result || typeof result.svg !== "string") {
 		return (
@@ -119,15 +103,18 @@ export function VisualOutputCard({
 			   white→black together with the strokes; transparent areas ARE the
 			   backing. */}
 			<div
-				className="w-fit max-w-full overflow-hidden rounded-lg bg-white"
+				className={`w-fit max-w-full overflow-hidden rounded-lg bg-white${pinned && overlay ? " cursor-zoom-in" : ""}`}
 				style={{ width: invertible && natural === null ? 640 : undefined, filter: shownInverted ? "invert(1) hue-rotate(180deg)" : undefined }}
 				data-testid="visual-svg"
+				onClick={pinned && overlay ? () => overlay.openFigure(svg, shownInverted) : undefined}
 			>
 				<SvgImage
 					svg={svg}
 					width={natural ?? undefined}
 					className={
-						!invertible
+						pinned
+							? "block h-auto w-auto max-w-full max-h-[var(--lh-pin-h)]"
+							: !invertible
 							? "block h-auto w-auto max-h-[60vh] max-w-full"
 							: "block h-auto w-auto max-w-full max-h-[min(55vh,32rem)]"
 					}
@@ -161,6 +148,7 @@ export function VisualOutputCard({
 					>
 						<DownloadIcon className="size-3.5" />
 					</button>
+					<PinButton />
 					{overlay && (
 						<button
 							type="button"

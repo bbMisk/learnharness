@@ -171,6 +171,15 @@ describe("learner image source safety", () => {
 		} finally { if (old === undefined) delete process.env.HOME; else process.env.HOME = old; }
 	});
 
+	it("treats a blank image path as no image (GPT fills optional fields with \"\")", async () => {
+		let job: JobRecord | undefined;
+		const inputs: unknown[] = [];
+		const store = { findJobByToolCallId: () => job, createJob: (input: object) => job = { ...input, id: "job_blank" } as JobRecord } as unknown as JobStore;
+		const tools = jobTools({ chatId: "x", jobStore: store, spawn: (_job, input) => inputs.push(input) });
+		await tools.visual!.execute("blank", { brief: "draw it", image: " " });
+		assert.deepEqual(inputs, [{ brief: "draw it" }]);
+	});
+
 	it("keeps visual dispatch idempotent if the source disappears after the first call", async () => {
 		let job: JobRecord | undefined;
 		let spawned = 0;

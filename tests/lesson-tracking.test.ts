@@ -640,7 +640,6 @@ describe("the compaction line", () => {
 			{
 				chatStore,
 				engine: { model: { provider: "faux", id: "test", contextWindow: 1_000_000 } } as never,
-				modelId: "faux:test",
 				kind: "teach",
 				thresholdTokens: 40_000,
 				systemPromptTokens: 100,
@@ -677,7 +676,6 @@ describe("the compaction line", () => {
 			{
 				chatStore,
 				engine: { model: { provider: "faux", id: "test", contextWindow: 1_000_000 } } as never,
-				modelId: "faux:test",
 				kind: "teach",
 				thresholdTokens: 40_000,
 				systemPromptTokens: 100,

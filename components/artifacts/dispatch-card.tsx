@@ -3,17 +3,21 @@
 import { useContext, useEffect, useState } from "react";
 import { CheckIcon, ChevronDownIcon, SettingsIcon, XIcon } from "lucide-react";
 import { JobsContext } from "@/components/jobs-context";
-import { ChatActionsContext } from "@/components/chat";
-import { isModelsRefusal, isProviderKeyRefusal, type JobKind, type JobRecord } from "@/src/core";
+import { ChatActionsContext } from "@/components/chat-actions";
+import { isModelsRefusal, isProviderKeyRefusal, type ArtifactPartProps, type JobKind } from "@/src/core";
 import { BrailleSpinner } from "@/components/braille-spinner";
-import { JobDetails } from "@/components/job-details";
+import { JobDetails, JobResult } from "@/components/job-details";
 import { jobDisplay, jobElapsedMs } from "@/src/core";
 
 /**
  * The dispatch card (contracts.ts "THE ASYNC PROTOCOL" §4): the tool-call
- * box for a background sub-agent. The tool part's output is the FIRE-AND-
- * FORGET ACK (a string) — never the result. Live status comes from the
- * chat-view jobs feed via JobsContext, matched by toolCallId:
+ * box for a background sub-agent — the registry's renderer for every
+ * dispatch tool (research, pdf, demo, visual), the job kind read from the
+ * part's tool name. The tool part's output is the FIRE-AND-FORGET ACK (a
+ * string) — never the result, which rides the steer message below (the
+ * kind's own output card). Nothing renders until the ack lands. Live
+ * status comes from the chat-view jobs feed via JobsContext, matched by
+ * toolCallId:
  *
  *   job unknown → "dispatched" pulse (the jobs feed hasn't seen it yet)
  *   running     → live activity card (activity line + elapsed)
@@ -28,7 +32,12 @@ const KIND_LABEL: Record<JobKind, string> = {
 	pdf: "PDF reader",
 };
 
-export function DispatchCard({ toolCallId, kind }: { toolCallId: string; kind: JobKind }) {
+export function DispatchCard({ part }: ArtifactPartProps) {
+	if (part.state !== "output-available") return null;
+	return <DispatchStatus toolCallId={part.toolCallId} kind={part.type.slice("tool-".length) as JobKind} />;
+}
+
+function DispatchStatus({ toolCallId, kind }: { toolCallId: string; kind: JobKind }) {
 	const jobs = useContext(JobsContext);
 	const job = jobs.find((j) => j.toolCallId === toolCallId) ?? null;
 	const label = KIND_LABEL[kind];
@@ -40,9 +49,14 @@ export function DispatchCard({ toolCallId, kind }: { toolCallId: string; kind: J
 		const timer = setInterval(() => setNow(Date.now()), 1000);
 		return () => clearInterval(timer);
 	}, [working]);
+	// Opening the inspector shows the result at once: warm its renderers.
+	const hasResult = job?.result !== undefined;
+	useEffect(() => {
+		if (hasResult) void JobResult.preload().catch(() => {});
+	}, [hasResult]);
 
 	if (!job) {
-		return <DispatchActivityCard job={job} label={label} />;
+		return <DispatchPendingCard label={label} />;
 	}
 	// BYOK (owner, 2026-09-22): a job refused for missing models is INFO,
 	// not scary-error — gray glyph + "needs model setup" + the deep-link
@@ -96,11 +110,8 @@ function DispatchRefusedCard({ label, line, button }: { label: string; line: str
 	);
 }
 
-function DispatchActivityCard({ job, label }: { job: JobRecord | null; label: string }) {
-	// Elapsed from createdAt — jobs appear here only via the jobs feed (post-mount),
-	// so no SSR/hydration mismatch.
-	const elapsed =
-		job && job.createdAt ? Math.max(0, Math.round((Date.now() - Date.parse(job.createdAt)) / 1000)) : null;
+/** The dispatched pulse: the ack landed, the jobs feed hasn't seen the job. */
+function DispatchPendingCard({ label }: { label: string }) {
 	return (
 		<div
 			className="rounded-xl border bg-card p-4 text-card-foreground"
@@ -109,22 +120,13 @@ function DispatchActivityCard({ job, label }: { job: JobRecord | null; label: st
 			<div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 				{/* The working-state grammar (owner, streaming round 2026-10-01):
 				    the Braille spinner replaces the pulsing dot — one indicator
-				    everywhere. This is the ONLY dispatch-card change; the card's
-				    shape is untouched. */}
+				    everywhere. */}
 				<BrailleSpinner label={`${label} running`} />
 				{label}
-				{elapsed !== null && <span className="font-normal">· {elapsed}s</span>}
 			</div>
-			{job?.activity && (
-				<div className="mt-1 truncate text-sm text-muted-foreground" data-testid="dispatch-activity-line">
-					{job.activity}
-				</div>
-			)}
-			{!job && (
-				<div className="mt-1 text-sm text-muted-foreground" data-testid="dispatch-pending">
-					Dispatched…
-				</div>
-			)}
+			<div className="mt-1 text-sm text-muted-foreground" data-testid="dispatch-pending">
+				Dispatched…
+			</div>
 		</div>
 	);
 }

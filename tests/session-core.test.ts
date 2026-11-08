@@ -374,7 +374,7 @@ describe("send (one input event, verbatim consumption)", () => {
 			throw new Error(`unexpected fetch: ${String(input)}`);
 		}) as typeof globalThis.fetch;
 		const m = model({ initialMessages: [newUserMessage("hi"), quizCall] });
-		const pending = m.submitAnswer("quiz", "call-1", { correct: true } as never);
+		const pending = m.submitAnswer("call-1", { correct: true } as never);
 		// The dock's AnsweredCard state — before any server round-trip:
 		const state = m.getState();
 		const quizPart = state.messages
@@ -992,11 +992,11 @@ describe("answer submission recovery", () => {
 			if (String(url).endsWith("/stream")) return sseResponse("[DONE]");
 			return Response.json({ messages: [question], turnInFlight: false });
 		} });
-		await m.submitAnswer("quiz", "q1", answer);
+		await m.submitAnswer("q1", answer);
 		assert.equal(m.getState().messages[0]!.parts.find(p => p.toolCallId === "q1")!.state, "input-available");
 		assert.equal(m.status, "error");
 		m.clearError(); // dismissing the banner must not disable recovery
-		await m.submitAnswer("quiz", "q1", answer);
+		await m.submitAnswer("q1", answer);
 		assert.equal(posts, 2, "error must not permanently close the send gate");
 		assert.deepEqual(calls.slice(0, 3), ["/api/chat", "/api/chats/chat_x", "/api/chat"]);
 	});
@@ -1006,7 +1006,7 @@ describe("answer submission recovery", () => {
 		const m = model({ initialMessages: [question], fetch: async () => { throw new TypeError("offline"); } });
 		m.saveQuestionDraft("q1", { form });
 		m.saveQuestionDraft("q1", { readingThinking: "reading reasoning" });
-		await m.submitAnswer("quiz", "q1", answer);
+		await m.submitAnswer("q1", answer);
 		assert.deepEqual(m.questionDraft("q1"), { form, readingThinking: "reading reasoning" });
 		m.setMessages([question]);
 		assert.deepEqual(m.questionDraft("q1"), { form, readingThinking: "reading reasoning" });
@@ -1017,7 +1017,7 @@ describe("answer submission recovery", () => {
 
 	it("a final 409 restores the question instead of leaving an optimistic answer", async () => {
 		const m = model({ initialMessages: [question], waitMaxMs: 0, fetch: async () => new Response("busy", { status: 409 }) });
-		await m.submitAnswer("quiz", "q1", answer);
+		await m.submitAnswer("q1", answer);
 		assert.equal(m.getState().nativeMessages.length, 1);
 		assert.equal(m.status, "error");
 	});
@@ -1029,8 +1029,8 @@ describe("answer submission recovery", () => {
 			if (String(url) === "/api/chat") { posts++; throw new TypeError("failed fetch"); }
 			return Response.json({ messages: saved, turnInFlight: false });
 		} });
-		await m.submitAnswer("quiz", "q1", answer);
-		await m.submitAnswer("quiz", "q1", answer);
+		await m.submitAnswer("q1", answer);
+		await m.submitAnswer("q1", answer);
 		assert.equal(posts, 1);
 		assert.equal(m.status, "ready");
 		assert.deepEqual(m.getState().nativeMessages, saved);
@@ -1044,8 +1044,8 @@ describe("answer submission recovery", () => {
 			if (String(url).endsWith("/stream")) return sseResponse("[DONE]");
 			return Response.json({ messages: [question, newAnswerResult("q1", "quiz", answer)], turnInFlight: true });
 		} });
-		await m.submitAnswer("quiz", "q1", answer);
-		await m.submitAnswer("quiz", "q1", answer);
+		await m.submitAnswer("q1", answer);
+		await m.submitAnswer("q1", answer);
 		assert.deepEqual(calls, ["/api/chat", "/api/chats/chat_x", "/api/chats/chat_x/stream"]);
 		assert.equal(m.status, "ready");
 	});
@@ -1053,8 +1053,8 @@ describe("answer submission recovery", () => {
 	it("keeps the question and makes no further POST while reconciliation is unreachable", async () => {
 		const calls: string[] = [];
 		const m = model({ initialMessages: [question], fetch: async (url) => { calls.push(String(url)); throw new TypeError("offline"); } });
-		await m.submitAnswer("quiz", "q1", answer);
-		await m.submitAnswer("quiz", "q1", answer);
+		await m.submitAnswer("q1", answer);
+		await m.submitAnswer("q1", answer);
 		assert.deepEqual(calls, ["/api/chat", "/api/chats/chat_x"]);
 		assert.equal(m.status, "error");
 		assert.equal(m.getState().nativeMessages.some(m => m.role === "toolResult"), false);
@@ -1082,10 +1082,10 @@ describe("answer submission recovery", () => {
 			if (++reads === 1) throw new TypeError("record read failed");
 			return Response.json({ messages: saved, turnInFlight: false });
 		} });
-		await m.submitAnswer("quiz", "q1", answer);
+		await m.submitAnswer("q1", answer);
 		assert.equal(m.status, "error");
 		assert.equal(m.getState().nativeMessages.some(m => m.role === "toolResult"), false);
-		await m.submitAnswer("quiz", "q1", answer);
+		await m.submitAnswer("q1", answer);
 		assert.equal(posts, 1, "the acknowledged answer must not be reposted");
 		assert.equal(m.status, "ready");
 		assert.deepEqual(m.getState().nativeMessages, saved);
@@ -1127,8 +1127,8 @@ describe("answer submission recovery", () => {
 			const key = pendingQuestionOf([question])!.key;
 			if (dismiss) await m.dismissQuestion("q1", answer, key);
 			else {
-				await m.submitAnswer("quiz", "q1", answer, key);
-				await m.submitAnswer("quiz", "q1", answer, key);
+				await m.submitAnswer("q1", answer, key);
+				await m.submitAnswer("q1", answer, key);
 			}
 			assert.equal(posts, dismiss ? 1 : 2, "placeholder must not reject the render's question identity");
 		}
@@ -1144,8 +1144,8 @@ describe("answer submission recovery", () => {
 		} });
 		const key = pendingQuestionOf(record)!.key;
 		m.saveQuestionDraft(key, { readingThinking: "NEW reasoning" });
-		await m.submitAnswer("quiz", "q1", answer, key);
-		await m.submitAnswer("quiz", "q1", answer, key);
+		await m.submitAnswer("q1", answer, key);
+		await m.submitAnswer("q1", answer, key);
 		assert.equal(posts, 2, "an older occurrence's result does not forbid retrying this one");
 		assert.equal(m.questionDraft(key)?.readingThinking, "NEW reasoning");
 		m.setMessages([...record, newAnswerResult("q1", "quiz", answer)]);
@@ -1160,8 +1160,8 @@ describe("answer submission recovery", () => {
 			return Response.json({ messages: [question, newer], turnInFlight: false });
 		} });
 		const key = pendingQuestionOf([question])!.key;
-		await m.submitAnswer("quiz", "q1", answer, key);
-		await m.submitAnswer("quiz", "q1", answer, key);
+		await m.submitAnswer("q1", answer, key);
+		await m.submitAnswer("q1", answer, key);
 		assert.equal(posts, 1);
 		assert.equal(m.status, "ready");
 		assert.equal(pendingQuestionOf(m.getState().nativeMessages)?.messageId, "new-question");
@@ -1173,7 +1173,7 @@ describe("answer submission recovery", () => {
 		const oldKey = pendingQuestionOf([question])!.key;
 		const newer = { ...question, id: "new-question" } as LhMessage;
 		m.setMessages([question, newer]);
-		await m.submitAnswer("quiz", "q1", answer, oldKey);
+		await m.submitAnswer("q1", answer, oldKey);
 		await m.dismissQuestion("q1", answer, oldKey);
 		assert.equal(requests, 0);
 		assert.equal(m.getState().nativeMessages.length, 2, "no optimistic answer targets the newer question");
@@ -1190,7 +1190,7 @@ describe("answer submission recovery", () => {
 				if (result?.role === "toolResult") optimisticTool = result.toolName;
 			};
 			if (dismiss) await m.dismissQuestion("q1", answer, key);
-			else await m.submitAnswer("quiz", "q1", answer, key);
+			else await m.submitAnswer("q1", answer, key);
 			assert.equal(optimisticTool, "quiz");
 		}
 	});
@@ -1221,8 +1221,8 @@ describe("answer submission recovery", () => {
 			if (String(url) === "/api/chat") { posts++; throw new TypeError("failed fetch"); }
 			return Response.json({ messages: [question, newer], turnInFlight: false });
 		} });
-		await m.submitAnswer("quiz", "q1", answer);
-		await m.submitAnswer("quiz", "q1", answer);
+		await m.submitAnswer("q1", answer);
+		await m.submitAnswer("q1", answer);
 		assert.equal(posts, 1);
 		assert.deepEqual(m.getState().nativeMessages, [question, newer]);
 		assert.equal(m.status, "ready");

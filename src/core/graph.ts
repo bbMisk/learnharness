@@ -1,41 +1,37 @@
 /**
  * The knowledge graph: merger (the deterministic final stage of the
- * extraction pipeline — vision §1 construction) + derivation (reads).
+ * extraction pipeline) + derivation (reads).
  *
- * The extraction pipeline is the SOLE graph writer, tree-blind and post-hoc
- * (2026-09-27 cleanup — clear separation of work):
+ * The extraction pipeline is the SOLE graph writer, tree-blind and post-hoc:
  *
  *   extractor (LLM)  → SessionFindings: the raw reasoning chains —
  *                      propositions (lonely relevant ones included) and
  *                      chains, from the stretch (one batch) PLUS the
- *                      same-source digest (digest-aware, 2026-09-30
- *                      evening: the extractor continues its own source,
- *                      references existing ids verbatim, assembles
+ *                      same-source digest (the extractor continues its own
+ *                      source, references existing ids verbatim, assembles
  *                      cross-stretch itself). Session propositions carry
- *                      their passage's messageId (2026-10-13) — the
- *                      merger's provenance anchor. Fully trusted: no
- *                      stage re-checks it.
+ *                      their passage's messageId — the merger's provenance
+ *                      anchor. Fully trusted: no stage re-checks it.
  *   auditor (LLM)    → AuditVerdicts: identity links (local id → an existing
- *                      node, or create) via graph-exploration tools —
- *                      links ONLY (owner, 2026-09-28 evening: the auditor
+ *                      node, or create) from ranked candidates plus
+ *                      graph-exploration tools — links ONLY (the auditor
  *                      never mints edges; cross-source connection happens
  *                      solely through identified equivalences). Never sees
  *                      the source; never drops; never sees chains — its
  *                      input is the fresh propositions only.
  *   merger (HERE)    → mergeFindings(): deterministic ledger appends
  *                      + the chain-simplification maintenance pass
- *                      (2026-09-30 evening — simplifyChains below).
+ *                      (simplifyChains below).
  *
  * The merger is deliberately the ONLY stage that touches the ledgers, and it
  * is pure code: the LLM supplies exactly the judgment calls (what the
- * propositions are, what follows/supports what, whether a proposition IS an
+ * propositions are, what derives from what, whether a proposition IS an
  * existing node), while timestamps/provenance — anything the model could
  * silently mis-copy — are rebuilt deterministically. Idempotent +
- * incremental: edges dedupe by (from,to,type)-already-asserted-by-this-chat,
- * mapping lines dedupe by (chat, sourceId), and coverage entries /
- * sessions.jsonl checkpoints which messages and chats have been extracted
- * (never the same turns twice). No events: the events ledger is GONE
- * (2026-09-27) — the graph carries propositions + edges, nothing else.
+ * incremental: chains dedupe by (premises, conclusion) already asserted by
+ * this chat, and coverage entries / sessions.jsonl checkpoints record which
+ * messages and chats have been extracted (never the same turns twice). The
+ * graph carries propositions + chains, nothing else (edges are derived).
  *
  * Identity across re-encounters is the AUDITOR's judgment (link-or-create
  * with an equivalence bias — paraphrases merge), not string matching.
@@ -95,10 +91,10 @@ function chainKey(premises: ReadonlyArray<string>, conclusion: string): string {
 
 /** What one merge run merges FROM (the caller supplies it — the merger never
  *  reads the chat store): the coverage checkpoint for a session batch, or —
- *  for the format-agnostic notes front door (2026-09-13) — no coverage at
- *  all: the whole-file checkpoint stamps the import.
+ *  for the format-agnostic notes front door — no coverage at all: the
+ *  whole-file checkpoint stamps the import.
  *
- *  Coverage (vision-extraction-coverage.md, settled 2026-09-15): a chat merge
+ *  Coverage (vision-extraction-coverage.md): a chat merge
  *  passes the BATCH it extracted — the caller computed the fingerprints
  *  before the run, from the same snapshot the merger sees — and the final
  *  step appends one CoverageEntry per message on success ("covered" means
@@ -108,16 +104,15 @@ export interface MergeSource {
 	foldedAt: string;
 	/** The batch being merged (chat path): one entry per message in the
 	 *  extracted batch — undefined (notes path / coverage-less callers) →
-	 *  the legacy whole-chat checkpoint is written instead. */
+	 *  the whole-source checkpoint is written instead. */
 	coverage?: CoverageEntry[];
 }
 
-/** The run's provenance point. Chat-level by default (submit-schema slim,
- *  2026-09-28 — the run's source key is the whole point); since the anchor
- *  restore (owner, 2026-10-13) a SESSION birth may carry its passage's
- *  message id — the extractor-copied messageId, validated at the submit
- *  seam against the current batch. Chains, notes imports, and
- *  legacy/core callers lacking an anchor keep "" (chat-level). */
+/** The run's provenance point. Chat-level by default (the run's source key);
+ *  a SESSION proposition may carry its passage's message id — the
+ *  extractor-copied messageId, validated at the submit seam against the
+ *  current batch. Chains, notes imports, and legacy/core callers lacking an
+ *  anchor keep "" (chat-level). */
 function pointOf(chatId: string, messageId?: string): ProvenancePoint[] {
 	return [{ chatId, messageId: messageId ?? "" }];
 }
@@ -129,12 +124,11 @@ const samePoint = (a: ProvenancePoint, b: ProvenancePoint): boolean =>
 
 /**
  * Merge one job's audited findings into the graph ledgers — the pipeline's
- * apply stage. Deterministic. Each chunk/batch job merges INDEPENDENTLY
- * (owner, 2026-09-29): resolution is a job-local in-memory map from this
- * submit's proposition ids to graph node ids — nothing persists between
- * jobs, so no job can see (or collide with) another's ids. Cross-job
- * identity is the auditor's alone: it links this job's propositions to
- * existing nodes before this function is ever called.
+ * apply stage. Deterministic. Each chunk/batch job merges INDEPENDENTLY:
+ * resolution is a job-local in-memory map from this submit's proposition ids to
+ * graph node ids — nothing persists between jobs, so no job can see (or collide
+ * with) another's ids. Cross-job identity is the auditor's alone: it links this
+ * job's propositions to existing nodes before this function is ever called.
  *
  * Identity inside the job is the auditor's link-or-create verdict: `linkTo`
  * an existing node (validated against the ledger — an unknown id falls
@@ -157,25 +151,24 @@ export function mergeFindings(
 	const stats: EmissionStats = { nodes: 0, chains: 0 };
 
 	// 1. Resolution: THIS job's propositions → graph node ids, built
-	//    in-memory as the propositions resolve (owner, 2026-09-29: the
-	//    mappings ledger is gone — a persisted table was a shared namespace
-	//    across independent jobs, and cross-job id collisions silently
-	//    dropped propositions and welded wrong edges). Dedupe across runs
-	//    is the coverage ledger (nothing re-extracts) and the auditor's
-	//    equivalence links (re-encountered knowledge merges in).
+	//    in-memory as the propositions resolve. Never persisted: local ids
+	//    are per-submit, so a shared table would let independent jobs
+	//    collide. Dedupe across runs is the coverage ledger (nothing
+	//    re-extracts) and the auditor's equivalence links (re-encountered
+	//    knowledge merges in).
 	const existingIds = new Set(ledgers.readNodes().map((n) => n.id));
 	const mapping = new Map<string, string>();
 	const now = new Date().toISOString();
 	const linkOf = new Map(verdicts.links.map((l) => [l.id, l.linkTo]));
 
-	// VERDICTS-ONLY (owner, 2026-09-28): the propositions come from the
-	// extractor's findings verbatim; the auditor's links join here by id.
+	// VERDICTS-ONLY: the propositions come from the extractor's findings
+	// verbatim; the auditor's links join here by id.
 	for (const p of findings.propositions) {
 		if (mapping.has(p.id)) continue; // duplicate id WITHIN this submit — first resolution stands
-		// The anchor (2026-10-13): a session proposition may carry its
-		// passage's messageId — it rides BOTH the create and the link-append
-		// line (each re-encounter anchors to ITS passage); absent (notes,
-		// legacy/core callers) → "", chat-level as before.
+		// The anchor: a session proposition may carry its passage's
+		// messageId — it rides BOTH the create and the link-append line (each
+		// re-encounter anchors to ITS passage); absent (notes, legacy/core
+		// callers) → "", chat-level.
 		const points = pointOf(chatId, p.messageId);
 		const linkTo = linkOf.get(p.id);
 		let graphNodeId: string;
@@ -211,13 +204,12 @@ export function mergeFindings(
 		mapping.set(p.id, graphNodeId);
 	}
 
-	// 2. Chains — the extractor's alone since the digest-aware redesign
-	//    (owner, 2026-09-30 evening: the extractor continues its own
-	//    source, so ITS chains may span stretches and digests). Endpoints
-	//    resolve through the job-local map OR pass through verbatim when
-	//    they name an existing node (digest references, ids verbatim);
-	//    chains carry the run's chat-level provenance point and
-	//    dedupe by (premises, conclusion) already asserted by THIS chat —
+	// 2. Chains — the extractor's alone (it continues its own source, so
+	//    ITS chains may span stretches and digests). Endpoints resolve
+	//    through the job-local map OR pass through verbatim when they name
+	//    an existing node (digest references, ids verbatim); chains carry
+	//    the run's chat-level provenance point and dedupe by (premises,
+	//    conclusion) already asserted by THIS chat —
 	//    an assertion by another chat stays untouched (provenance unions
 	//    at read time; a known argument re-stated appends under the SAME
 	//    arg_ id — link-style, exactly like node link-appends; the first
@@ -230,11 +222,10 @@ export function mergeFindings(
 		if (line.provenance.some((pt) => pt.chatId === chatId)) assertedByChat.add(key);
 	}
 	const emitChain = (chain: ExtractedChain): void => {
-		// Mixed namespace (digest-aware extraction, 2026-09-30): an
-		// endpoint resolves through the job-local map (this submit's
-		// propositions) OR passes through verbatim when it names an
-		// existing node (THE GRAPH SO FAR references, ids verbatim).
-		// Anything else is unresolvable — skip.
+		// Mixed namespace: an endpoint resolves through the job-local map (this
+		// submit's propositions) OR passes through verbatim when it names an
+		// existing node (THE GRAPH SO FAR references, ids verbatim). Anything
+		// else is unresolvable — skip.
 		const resolve = (endpoint: string): string | undefined =>
 			mapping.get(endpoint) ?? (existingIds.has(endpoint) ? endpoint : undefined);
 		const conclusion = resolve(chain.conclusion);
@@ -253,11 +244,11 @@ export function mergeFindings(
 		assertedByChat.add(key);
 		stats.chains!++;
 	};
-	for (const chain of findings.chains) emitChain(chain); // the extractor's chains — the one chain source (digest-aware, owner 2026-09-30)
+	for (const chain of findings.chains) emitChain(chain); // the extractor's chains — the one chain source
 
-	// 2b. Simplification (owner, 2026-09-30 evening) — the deterministic
-	//     dedupe pass over the WHOLE chain ledger (this merge runs inside
-	//     the serialized audit section, so the rewrite is race-free). Two
+	// 2b. Simplification — the deterministic dedupe pass over the WHOLE
+	//     chain ledger (this merge runs inside the serialized audit
+	//     section, so the rewrite is race-free). Two
 	//     rules, decided per conclusion group, greedy in (premiseCount,
 	//     createdAt, key) order — the leanest, earliest derivation stands:
 	//     • prefer-fewest-premises: a chain whose premise set strictly
@@ -289,11 +280,10 @@ export function mergeFindings(
 	return stats;
 }
 
-/** The deterministic chain-simplification pass (owner, 2026-09-30
- *  evening): strips redundant derivations — same-conclusion chains whose
- *  premises add nothing a leaner kept chain doesn't already derive. Pure
- *  over the input list; the caller owns the ledger rewrite. Exported for
- *  tests.
+/** The deterministic chain-simplification pass: strips redundant derivations —
+ *  same-conclusion chains whose premises add nothing a leaner kept chain
+ *  doesn't already derive. Pure over the input list; the caller owns the ledger
+ *  rewrite. Exported for tests.
  *
  *  Same (premises, conclusion) lines are ONE logical chain (read-time
  *  merge semantics) — a key is kept or dropped as a whole, every
@@ -384,11 +374,10 @@ export function simplifyChains(lines: GraphChain[]): GraphChain[] {
 
 // ─── derivation (reads only — everything below is recomputable) ─────────────
 
-/** The merged STORED truth: propositions + chains (chains-primary, owner
- *  2026-09-30). `nodes` are PROPOSITIONS ONLY — no derived implication
- *  nodes; the auditor's and prober's views see the world, not the
- *  rendering. The canvas-facing VIEW (implication nodes + untyped
- *  arrows) is deriveView() below — the lossy image. */
+/** The merged STORED truth: propositions + chains. `nodes` are PROPOSITIONS
+ *  ONLY — no derived implication nodes; the auditor's and prober's views see
+ *  the world, not the rendering. The canvas-facing VIEW (implication nodes +
+ *  untyped arrows) is deriveView() below — the lossy image. */
 export interface DerivedGraph {
 	nodes: GraphNode[];
 	chains: GraphChain[];
@@ -448,8 +437,7 @@ export function getGraph(graphStore: Pick<GraphStore, "readNodes" | "readChains"
  *  (id = the chain's arg_ id; name "⟹"; statement = the chain line;
  *  the chain's provenance/createdAt) plus arrows: each premise → the
  *  implication node, the implication node → the conclusion — the
- *  canvas renders imp nodes as pure geometry (owner, rendering arc:
- *  invisible, unpickable; co-premise lines converge headless to a
+ *  canvas renders imp nodes as pure geometry (invisible, unpickable; co-premise lines converge headless to a
  *  point, one arrowed line leaves it). Physics keeps imp nodes as
  *  regular citizens (half link distance — layout.ts). Dangling chains
  *  (a member node missing) drop here — the deletion cascades should
@@ -465,10 +453,10 @@ export function deriveView(graph: DerivedGraph): {
 	const live = new Set(graph.nodes.map((node) => node.id));
 	const impNodes: GraphNode[] = [];
 	const edges: GraphEdge[] = [];
-	// The LOGICAL edge set (owner, 2026-09-30): every chain contracted to
-	// direct premise→conclusion arrows over PROPOSITION ids only —
-	// what inference semantics (the depth pass) consumes. The drawn edges
-	// are the canvas image; these are the meaning.
+	// The LOGICAL edge set: every chain contracted to direct premise→conclusion
+	// arrows over PROPOSITION ids only — what inference semantics (the depth
+	// pass) consumes. The drawn edges are the canvas image; these are the
+	// meaning.
 	const impLinks: Array<{ id: string; premises: string[]; conclusion: string }> = [];
 	const logicalEdges: GraphEdge[] = [];
 	const logicalSeen = new Set<string>();
@@ -482,7 +470,7 @@ export function deriveView(graph: DerivedGraph): {
 		if (!live.has(chain.conclusion) || !chain.premises.every((premise) => live.has(premise))) continue;
 		for (const premise of chain.premises) emitLogical(premise, chain.conclusion);
 		// Single premise: the argument IS a plain arrow — no geometry
-		// point needed (the 1-in/1-out collapse; rendering arc, owner).
+		// point needed (the 1-in/1-out collapse).
 		if (chain.premises.length === 1) {
 			edges.push({ from: chain.premises[0]!, to: chain.conclusion });
 			continue;
@@ -496,7 +484,7 @@ export function deriveView(graph: DerivedGraph): {
 			provenance: [...chain.provenance],
 		});
 		// The junction's linkage — what the depth pass needs for the
-		// midpoint anchor (owner, 2026-09-30).
+		// midpoint anchor.
 		impLinks.push({ id: chain.id, premises: [...chain.premises], conclusion: chain.conclusion });
 		for (const premise of chain.premises) edges.push({ from: premise, to: chain.id });
 		edges.push({ from: chain.id, to: chain.conclusion });
@@ -511,8 +499,7 @@ export function graphSnapshot(deps: GraphDeps, sourceNames: Readonly<Record<stri
 	const graph = getGraph(deps.graphStore);
 	// The canvas-facing lossy image: propositions + derived implication
 	// nodes, untyped arrows. `chains` (the stored truth) ride along for
-	// the chain table — it reads the truth, never the derived fan-out,
-	// never the derived fan-out.
+	// the chain table — it reads the truth, never the derived fan-out.
 	const view = deriveView(graph);
 	const nodes = view.nodes;
 
@@ -562,16 +549,15 @@ export function graphSnapshot(deps: GraphDeps, sourceNames: Readonly<Record<stri
 		if (ids.length > 0) nodeSessions[nodeId] = ids;
 	}
 
-	// BIRTH-SESSION CLUSTERS (wave 7, owner-locked 2026-09-23): embeddings
-	// are dead — a cluster is the SESSION THAT CREATED ITS PROPOSITIONS,
-	// derived on read from provenance (core/session-clusters.ts). The label
-	// is the session's NAME (chat title / file path): no LLM naming pass, no
-	// persisted partition to invalidate. MIN_CLUSTER_SIZE stays the hull
+	// BIRTH-SESSION CLUSTERS: a cluster is the SESSION THAT CREATED ITS
+	// PROPOSITIONS, derived on read from provenance (core/session-clusters.ts).
+	// The label is the session's NAME (chat title / file path): no LLM naming
+	// pass, no persisted partition to invalidate. MIN_CLUSTER_SIZE is the hull
 	// presentation rule (a region needs >= 3 propositions for a hull). A
 	// birth session whose record is gone (deleted chat) keeps its members
 	// but renders unlabeled — honest, never guessed.
-	// PROPOSITIONS ONLY (owner, 2026-09-30): derived implication nodes
-	// never partition — the stored world clusters, its image follows.
+	// PROPOSITIONS ONLY: derived implication nodes never partition — the
+	// stored world clusters, its image follows.
 	const communities = birthSessionPartition(graph.nodes);
 	const clusters: Cluster[] = communities
 		.filter((community) => community.members.length >= MIN_CLUSTER_SIZE)
@@ -586,17 +572,17 @@ export function graphSnapshot(deps: GraphDeps, sourceNames: Readonly<Record<stri
 				members: community.members,
 			};
 		});
-	// IMP-NODE CLUSTER ASSIGNMENT (owner, 2026-09-30): majority among the
-	// premises' birth sessions, ties to the chain's own birth — attached
-	// AFTER the hull filter so a two-proposition community + its bundle
-	// never resurrects a hull (the filter counts propositions). Both
-	// cluster-membership consumers — the sim's centroid pull and the
-	// canvas's region rasterization — read it through this one list.
+	// IMP-NODE CLUSTER ASSIGNMENT: majority among the premises' birth sessions,
+	// ties to the chain's own birth — attached AFTER the hull filter so a
+	// two-proposition community + its bundle never resurrects a hull (the
+	// filter counts propositions). Both cluster-membership consumers — the
+	// sim's centroid pull and the canvas's region rasterization — read it
+	// through this one list.
 	attachImpToCommunities(clusters, graph.nodes, graph.chains);
 
-	// Resting layout (Option A): the positions ledger, when the settle has
-	// ever run. Absent on a fresh graph — the view falls back to its own
-	// one-shot pass until the first merge writes the ledger.
+	// Resting layout: the positions ledger, when the settle has ever run.
+	// Absent on a fresh graph — the view falls back to its own one-shot pass
+	// until the first merge writes the ledger.
 	const positions = deps.graphStore.readPositions();
 
 	return {
@@ -614,11 +600,11 @@ export function graphSnapshot(deps: GraphDeps, sourceNames: Readonly<Record<stri
 	};
 }
 
-// ─── Prober graph tools — the data seam (wave 7, owner-locked 2026-09-23) ───
+// ─── Prober graph tools — the data seam ──────────────────────────────────────
 
 /** One session in the prober's graph view: every provenance anchor the
  *  graph can name — a real chat (deep-linkable) or an imported notes file
- *  (owner ruling 2026-09-23: files are birth-sessions too, kind "file").
+ *  (files are birth-sessions too, kind "file").
  *  The prober's session-list tool renders these; the per-session view is
  *  graphSessionPropositions below. Pure derivation over the same ports
  *  the snapshot reads — Teacher's tool handlers call these in-process. */
@@ -682,9 +668,8 @@ export function graphSessionIndex(deps: GraphDeps): GraphSessionEntry[] {
 	);
 }
 
-/** One birth proposition of one session — WHAT WAS COVERED there (2026-09-27
- *  cleanup: no understanding levels; assessment is
- *  territory and nothing writes it until that module exists). */
+/** One birth proposition of one session — WHAT WAS COVERED there (no
+ *  understanding levels). */
 export interface GraphSessionProposition {
 	nodeId: string;
 	/** The compact handle — the same name the canvas shows. */
@@ -700,7 +685,7 @@ export function graphSessionPropositions(deps: GraphDeps, sessionId: string): Gr
 		.sort((a, b) => (a.nodeId < b.nodeId ? -1 : 1));
 }
 
-// Re-export: the contract owns the shape; legacy importers still reach it.
+// Re-export for importers of this module; the contract owns the shape.
 export type { EmissionStats };
 
 

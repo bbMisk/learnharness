@@ -4,6 +4,7 @@ import { piEngineForSpec } from "../agent/models.ts";
 import { providerKeyPresent } from "./keys.ts";
 import { prepareConnectionCatalog } from "./model-catalog.ts";
 import { resolveConversationSpec } from "../core/settings-resolution.ts";
+import { modelInstructionsFor } from "../core/model-instructions.ts";
 import { parseSideRequest, sideLessonContext, type SideFrame } from "../core/side-chat.ts";
 import type { PiEngine } from "../agent/models.ts";
 import { sideUserContent } from "./side-images.ts";
@@ -112,7 +113,7 @@ export async function sideChatResponse(request: Request, chatId: string, deps = 
 								} satisfies AssistantMessage),
 					),
 				];
-				for await (const event of engine.streamFn(engine.model, normalizeContext({ systemPrompt: SYSTEM, messages }), { signal })) {
+				for await (const event of engine.streamFn(engine.model, normalizeContext({ systemPrompt: [SYSTEM, modelInstructionsFor(deps.settings().agent.modelInstructions, body.snapshot.model)].filter(Boolean).join("\n\n"), messages }), { signal })) {
 					if (event.type === "text_delta") send({ type: "delta", text: event.delta });
 					if (event.type === "error") throw new Error(event.error.errorMessage || "The side tutor could not finish.");
 					if (event.type === "done") {

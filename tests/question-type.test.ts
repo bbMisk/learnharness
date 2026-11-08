@@ -259,6 +259,70 @@ describe("the settings route", () => {
 		assert.equal((await model.response).status, 200);
 		assert.deepEqual(chatStore.getChat(chat.id)!.settings, { model: MODEL, thinkingLevel: "low", questionType: "mixed" });
 	});
+
+	it("wire envelopes: every status and body, byte for byte", async () => {
+		const raw = async (id: string, body: string) => {
+			const response = await settingsRoute.PUT(
+				new Request(`http://test/api/chats/${id}/settings`, { method: "PUT", headers: { "content-type": "application/json" }, body }),
+				{ params: Promise.resolve({ id }) },
+			);
+			return { status: response.status, text: await response.text() };
+		};
+		const getResponse = await settingsRoute.GET(new Request("http://test"), { params: Promise.resolve({ id: "no-such-chat" }) });
+		assert.deepEqual({ status: getResponse.status, text: await getResponse.text() }, { status: 404, text: '{"error":"Not found"}' });
+		assert.deepEqual(await raw("no-such-chat", "{not json"), { status: 404, text: '{"error":"Not found"}' });
+		assert.deepEqual(await raw("no-such-chat", "{}"), { status: 404, text: '{"error":"Not found"}' });
+
+		const chat = chatStore.createChat("Envelopes");
+		chatStore.saveSettings(chat.id, { model: MODEL, thinkingLevel: "low" });
+		const read = await settingsRoute.GET(new Request("http://test"), { params: Promise.resolve({ id: chat.id }) });
+		assert.equal(read.status, 200);
+		assert.equal(read.headers.get("cache-control"), "no-store");
+		assert.equal(await read.text(), JSON.stringify({ settings: { model: MODEL, thinkingLevel: "low" } }));
+		const rejects: [string, string][] = [
+			["{not json", "Invalid JSON body"],
+			["null", "Invalid JSON body"],
+			["[]", "Invalid JSON body"],
+			['"text"', "Invalid JSON body"],
+			['{"model":"x"}', "model must be {provider, id}"],
+			['{"model":{"provider":"openrouter"}}', "model must be {provider, id}"],
+			['{"thinkingLevel":3}', "thinkingLevel must be a string"],
+			['{"questionType":"essay"}', "questionType must be one of mcq, saq, mixed"],
+		];
+		for (const [body, error] of rejects) {
+			assert.deepEqual(await raw(chat.id, body), { status: 400, text: JSON.stringify({ error }) }, body);
+		}
+		const unknownProvider = await raw(chat.id, JSON.stringify({ model: { provider: "nowhere", id: "x" } }));
+		assert.equal(unknownProvider.status, 400);
+		assert.deepEqual(Object.keys(JSON.parse(unknownProvider.text)), ["error"]);
+		assert.match(JSON.parse(unknownProvider.text).error, /^Unknown provider "nowhere" — configured: /);
+		assert.deepEqual(await raw(chat.id, JSON.stringify({ model: { provider: "openrouter", id: "nope/nope" } })), { status: 400, text: '{"error":"No model \\"nope/nope\\" in the openrouter catalog"}' });
+		assert.deepEqual(chatStore.getChat(chat.id)!.settings, { model: MODEL, thinkingLevel: "low" }, "no rejected write saved anything");
+
+		assert.deepEqual(await raw(chat.id, JSON.stringify({ thinkingLevel: "xhigh", extra: 1 })), {
+			status: 200,
+			text: JSON.stringify({ settings: { model: MODEL, thinkingLevel: "max" } }),
+		});
+		assert.deepEqual(await raw(chat.id, "{}"), { status: 200, text: JSON.stringify({ settings: { model: MODEL, thinkingLevel: "max" } }) });
+	});
+
+	it("a chat deleted while the body is still arriving is a 404 and saves nothing", async () => {
+		const chat = chatStore.createChat("Race: deleted");
+		chatStore.saveSettings(chat.id, { model: MODEL });
+		const seen: unknown[] = [];
+		const off = subscribe((event) => seen.push(event));
+		try {
+			const late = slowPut(chat.id, { questionType: "saq" });
+			await tick();
+			assert.equal(chatStore.deleteChat(chat.id), true);
+			late.release();
+			assert.deepEqual(await late.response, { status: 404, body: { error: "Not found" } });
+		} finally {
+			off();
+		}
+		assert.equal(chatStore.getChat(chat.id), null);
+		assert.equal(seen.filter((e) => (e as { type: string }).type === "chat-settings-changed").length, 0);
+	});
 });
 
 describe("effective value", () => {

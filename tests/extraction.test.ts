@@ -560,6 +560,23 @@ describe("the extraction pipeline (extractor → auditor → merger)", () => {
 		assert.equal(ledgers.readCoverage().length, 0);
 	});
 
+	it("a chain emptied between the gate and a stage fails that batch with the no-configured-model error", async (t) => {
+		const { chatId } = fixtureChat();
+		const ledgers = memoryLedgers();
+		let reads = 0;
+		const pipeline = createExtractionPipeline({
+			chatStore,
+			graphStore: ledgers,
+			// The gate reads both stages; the extractor stage's fresh read finds the slot cleared.
+			engineFor: (role) => (reads++ < 2 ? (role === "extractor" ? submitModel("submit_findings", FINDINGS) : submitModel("submit_review", { links: [] })) : undefined),
+		});
+		const logged = t.mock.method(console, "error", () => {});
+		assert.deepEqual(await pipeline.runExtraction(chatId), { nodes: 0, chains: 0 });
+		const failure = logged.mock.calls.map((c) => c.arguments[1]).find((a) => a instanceof Error) as Error | undefined;
+		assert.equal(failure?.message, 'no configured model for role "extractor" — set your model slots (settings → models)');
+		assert.equal(ledgers.readCoverage().length, 0);
+	});
+
 	it("key-presence refusal: a stage engine whose provider key is gone throws before any batch (provider-key interlude, 2026-09-25)", async () => {
 		const { chatId } = fixtureChat();
 		const ledgers = memoryLedgers();

@@ -20,7 +20,7 @@ import { QuestionDock } from "../components/question-dock.tsx";
 import { ProbeDoneCard } from "../components/artifacts/probe-done-card.tsx";
 import { DispatchCard } from "../components/artifacts/dispatch-card.tsx";
 import { JobsContext } from "../components/jobs-context.ts";
-import { ChatActionsContext } from "../components/chat.tsx";
+import { ChatActionsContext } from "../components/chat-actions.ts";
 import type { JobRecord } from "../src/core/contracts.ts";
 import { AnsweredCard } from "../components/answered-card.tsx";
 import {
@@ -120,7 +120,7 @@ describe("DispatchCard — the BYOK refusal tone (owner, 2026-09-22)", () => {
 			<ChatActionsContext.Provider
 				value={{ chatId: "c1", syncFromServer: async () => true, sendText: () => {}, openSetup: () => {} }}
 			>
-				<DispatchCard toolCallId="t1" kind="research" />
+				<DispatchCard part={{ type: "tool-research", state: "output-available", toolCallId: "t1" }} />
 			</ChatActionsContext.Provider>
 		</JobsContext.Provider>
 	);

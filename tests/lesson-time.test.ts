@@ -1,6 +1,6 @@
 /**
  * Time spent on a lesson (owner, 2026-11-05 — src/core/lesson-time.ts):
- * the record-only measurement (gap caps, the open question/problem cap,
+ * the record-only measurement (breaks, the open question/problem threshold,
  * ordering, empty and single-event records), the sidebar's rounding and
  * wording, the General switch (default off, strict writes, round trip), and
  * the chat list: projected once per record change and sent on every row;
@@ -17,7 +17,7 @@ const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "lh-lesson-time-"));
 process.env.LH_DATA_DIR = path.join(scratch, "data");
 process.env.LH_AUTH_FILE = path.join(scratch, "auth.json");
 fs.mkdirSync(process.env.LH_DATA_DIR, { recursive: true });
-const { lessonTimeMs, formatLessonTime, GAP_CAP_MS, OPEN_GAP_CAP_MS } = await import("../src/core/lesson-time.ts");
+const { lessonTimeMs, formatLessonTime, BREAK_AFTER_MS, OPEN_BREAK_AFTER_MS } = await import("../src/core/lesson-time.ts");
 const { QUESTION_TOOLS } = await import("../src/core/pending.ts");
 const { FACTORY_SETTINGS, sanitizeUserSettings } = await import("../src/core/settings.ts");
 const { resolveSettings } = await import("../src/core/settings-resolution.ts");
@@ -91,16 +91,16 @@ describe("lessonTimeMs", () => {
 		assert.equal(lessonTimeMs(record), 10 * MIN);
 	});
 
-	it("caps each gap at 10 minutes while nothing is open", () => {
-		assert.equal(GAP_CAP_MS, 10 * MIN);
+	it("a gap longer than 10 minutes while nothing is open is a break and counts nothing", () => {
+		assert.equal(BREAK_AFTER_MS, 10 * MIN);
 		assert.equal(lessonTimeMs([user(0), assistant(9 * MIN)]), 9 * MIN);
 		assert.equal(lessonTimeMs([user(0), assistant(10 * MIN)]), 10 * MIN);
-		assert.equal(lessonTimeMs([user(0), assistant(11 * MIN)]), 10 * MIN);
-		assert.equal(lessonTimeMs([user(0), assistant(3 * MIN), user(3 * 60 * MIN)]), 13 * MIN, "a three-hour break adds 10 minutes");
+		assert.equal(lessonTimeMs([user(0), assistant(11 * MIN)]), 0);
+		assert.equal(lessonTimeMs([user(0), assistant(3 * MIN), user(3 * 60 * MIN)]), 3 * MIN, "a three-hour break adds nothing");
 	});
 
-	it("caps a gap at 25 minutes while a question waits for its answer", () => {
-		assert.equal(OPEN_GAP_CAP_MS, 25 * MIN);
+	it("allows 25 minutes of thinking while a question waits; longer is a break", () => {
+		assert.equal(OPEN_BREAK_AFTER_MS, 25 * MIN);
 		const quiz = { id: "q1", name: "quiz" };
 		assert.equal(
 			lessonTimeMs([user(0), assistant(1 * MIN, [quiz]), result(21 * MIN, "q1", "quiz")]),
@@ -109,18 +109,18 @@ describe("lessonTimeMs", () => {
 		);
 		assert.equal(
 			lessonTimeMs([user(0), assistant(1 * MIN, [quiz]), result(61 * MIN, "q1", "quiz")]),
-			26 * MIN,
-			"an hour away counts 25",
+			1 * MIN,
+			"an hour away counts nothing",
 		);
-		// Answered: the next gap is back under the normal cap.
-		assert.equal(lessonTimeMs([assistant(0, [quiz]), result(20 * MIN, "q1", "quiz"), user(40 * MIN)]), 30 * MIN);
+		// Answered: the next gap is back under the normal threshold.
+		assert.equal(lessonTimeMs([assistant(0, [quiz]), result(20 * MIN, "q1", "quiz"), user(40 * MIN)]), 20 * MIN);
 	});
 
 	it("every question tool opens a question; other tool calls do not", () => {
 		for (const name of QUESTION_TOOLS) {
 			assert.equal(lessonTimeMs([assistant(0, [{ id: "q", name }]), result(20 * MIN, "q", name)]), 20 * MIN, name);
 		}
-		assert.equal(lessonTimeMs([assistant(0, [{ id: "j", name: "research" }]), result(20 * MIN, "j", "research")]), 10 * MIN);
+		assert.equal(lessonTimeMs([assistant(0, [{ id: "j", name: "research" }]), result(20 * MIN, "j", "research")]), 0);
 	});
 
 	it("an error result, a dismissal or any other result closes the question", () => {
@@ -129,18 +129,18 @@ describe("lessonTimeMs", () => {
 			result(2 * MIN, "q", "ask_user_question", { dismissed: true }, true),
 			user(22 * MIN),
 		];
-		assert.equal(lessonTimeMs(record), 12 * MIN);
+		assert.equal(lessonTimeMs(record), 2 * MIN);
 	});
 
 	it("a failed or aborted generation poses no question", () => {
 		for (const stop of ["error", "aborted"] as const) {
-			assert.equal(lessonTimeMs([assistant(0, [{ id: "q", name: "quiz" }], stop), user(20 * MIN)]), 10 * MIN, stop);
+			assert.equal(lessonTimeMs([assistant(0, [{ id: "q", name: "quiz" }], stop), user(20 * MIN)]), 0, stop);
 		}
 	});
 
 	it("a newer assistant message leaves an older unanswered question closed (the question gate's rule)", () => {
 		const record = [assistant(0, [{ id: "q", name: "quiz" }]), user(2 * MIN), assistant(3 * MIN), user(23 * MIN)];
-		assert.equal(lessonTimeMs(record), 3 * MIN + 10 * MIN);
+		assert.equal(lessonTimeMs(record), 3 * MIN);
 	});
 
 	it("parallel questions stay open until the last one is answered", () => {
@@ -153,10 +153,10 @@ describe("lessonTimeMs", () => {
 			result(40 * MIN, "q2", "quiz"),
 			user(60 * MIN),
 		];
-		assert.equal(lessonTimeMs(record), 20 * MIN + 20 * MIN + 10 * MIN);
+		assert.equal(lessonTimeMs(record), 20 * MIN + 20 * MIN);
 	});
 
-	it("caps a gap at 25 minutes while a cram problem is started and not done", () => {
+	it("allows 25 minutes while a cram problem is started and not done; longer is a break", () => {
 		const list = {
 			ok: true,
 			problems: [
@@ -168,18 +168,18 @@ describe("lessonTimeMs", () => {
 			result(0, "l", "problem_list", list),
 			result(1 * MIN, "s1", "problem_start", { ok: true, id: "q1" }),
 			user(21 * MIN), // 20: open
-			assistant(51 * MIN), // 25: still open, capped
+			assistant(51 * MIN), // 30: still open, a break
 			result(52 * MIN, "d1", "problem_done", { ok: true, id: "q1", outcome: "correct" }),
-			user(72 * MIN), // 10: done, normal cap
+			user(72 * MIN), // 20: done, a break
 		];
-		assert.equal(lessonTimeMs(record), 1 * MIN + 20 * MIN + 25 * MIN + 1 * MIN + 10 * MIN);
+		assert.equal(lessonTimeMs(record), 1 * MIN + 20 * MIN + 1 * MIN);
 	});
 
 	it("a failed problem_start opens nothing; a re-list that drops the started problem closes it", () => {
 		const list = { ok: true, problems: [{ id: "q1", label: "Q1" }] };
 		assert.equal(
 			lessonTimeMs([result(0, "l", "problem_list", list), result(0, "s", "problem_start", { ok: false }, true), user(20 * MIN)]),
-			10 * MIN,
+			0,
 		);
 		const relist = { ok: true, problems: [{ id: "q2", label: "Q2" }] };
 		assert.equal(
@@ -189,7 +189,7 @@ describe("lessonTimeMs", () => {
 				result(0, "l2", "problem_list", relist),
 				user(20 * MIN),
 			]),
-			10 * MIN,
+			0,
 		);
 	});
 
@@ -209,7 +209,8 @@ describe("lessonTimeMs", () => {
 
 	it("an untimed message still updates what is open", () => {
 		const untimedAnswer = { ...result(0, "q", "quiz"), timestamp: undefined } as unknown as LhMessage;
-		assert.equal(lessonTimeMs([assistant(0, [{ id: "q", name: "quiz" }]), untimedAnswer, user(20 * MIN)]), 10 * MIN);
+		// The untimed answer closes the question, so the 20-minute gap is a break.
+		assert.equal(lessonTimeMs([assistant(0, [{ id: "q", name: "quiz" }]), untimedAnswer, user(20 * MIN)]), 0);
 	});
 });
 
@@ -272,9 +273,9 @@ describe("the chat list", () => {
 			result(21 * MIN, "q", "quiz"),
 			user(41 * MIN),
 		]);
-		assert.equal(chatStore.listChats().find((c) => c.id === chat.id)?.timeSpentMs, 31 * MIN);
+		assert.equal(chatStore.listChats().find((c) => c.id === chat.id)?.timeSpentMs, 21 * MIN, "1 + 20 thinking; the last 20-minute gap is a break");
 
-		assert.equal((await listed()).find((c) => c.id === chat.id)?.timeSpentMs, 31 * MIN, "sent with the switch off too");
+		assert.equal((await listed()).find((c) => c.id === chat.id)?.timeSpentMs, 21 * MIN, "sent with the switch off too");
 		assert.equal((await put({ showLessonTime: true })).status, 200);
 		const saved = (await (await settingsRoute.GET()).json()).settings;
 		assert.equal(saved.general.showLessonTime, true, "the switch round-trips");

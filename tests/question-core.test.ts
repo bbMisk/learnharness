@@ -268,6 +268,12 @@ describe("coerceCorrectAnswer", () => {
 		assert.deepEqual(coerceCorrectAnswer("[not json", values), ["[not json"]);
 	});
 
+	it("strips the full-width punctuation GPT models leak after a value", () => {
+		assert.deepEqual(coerceCorrectAnswer("a】【：", values), ["a"]);
+		assert.deepEqual(coerceCorrectAnswer("a】【。", values), ["a"]);
+		assert.deepEqual(quizInputProblems({ options: [{ label: "A", value: "a" }, { label: "B", value: "b" }], correctAnswer: "a】【：" }), []);
+	});
+
 	it("preserves an exact key even when it looks like a JSON array", () => {
 		const key = '["a", "b"]';
 		assert.deepEqual(coerceCorrectAnswer(key, [...values, key]), [key]);

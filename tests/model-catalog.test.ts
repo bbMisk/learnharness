@@ -333,11 +333,6 @@ describe("pi thinking truth (pinned against pi-ai upgrades)", () => {
 			assert.equal(engine.level, "off");
 		}
 	});
-
-	it("the legacy piEngineFor role entry point throws honestly (BYOK: no pins)", async () => {
-		const { piEngineFor } = await import("../src/agent/models.ts");
-		assert.throws(() => piEngineFor("prober"), /no configured model for role "prober"/);
-	});
 });
 /** Runs fn with PATH and HOME pointed at a temp dir, so the CLI lookup only
  *  finds a claude binary when installed is true. */

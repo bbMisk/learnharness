@@ -55,10 +55,8 @@
  */
 
 import type {
-	CoverageEntry,
 	GraphChain,
 	GraphNode,
-	SessionCheckpoint,
 } from "./contracts.ts";
 import type { GraphStore } from "./ports.ts";
 
@@ -282,10 +280,6 @@ export interface NodeDeletionStats {
 
 function nodeLinesOf(graphStore: GraphStore, nodeId: string): GraphNode[] {
 	return graphStore.readNodes().filter((line) => line.id === nodeId);
-}
-
-function chainLinesOf(graphStore: GraphStore, chainId: string): GraphChain[] {
-	return graphStore.readChains().filter((line) => line.id === chainId);
 }
 
 /**

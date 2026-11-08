@@ -3,14 +3,12 @@ import type { AgentEvent, AgentMessage, AgentRequestUpdate, AgentTool, PrepareRe
 import { invalidInputResult, questionResult } from "./tool-execute.ts";
 import { providerEventObserver } from "./provider-events.ts";
 import { createInitialSystemMessage, toToolDeclaration, type Usage } from "@earendil-works/pi-ai";
-import { PATHS } from "../../config.ts";
-import { APP_IDENTITY, piEngineFor, type PiEngine } from "./models.ts";
+import { APP_IDENTITY, type PiEngine } from "./models.ts";
 import { effectivePromptSegments } from "./prompt-segments.ts";
 import {
 	askUserQuestionTool,
 	createProberTools,
 	createTeacherTools,
-	type ProbeDoneContext,
 	type ProberToolContext,
 	type TeacherToolContext,
 } from "./tools.ts";
@@ -29,12 +27,12 @@ import type { QuestionType, RequestFingerprint } from "../core/contracts.ts";
 import { sharedHandoffMessages, sharedHandoffSupported, type AgentLoadout } from "./shared-handoff.ts";
 
 /**
- * The two teaching-side agents (docs/archive/probe-teach-split.md): the PROBER and
- * the TEACHER. Same transcript, different prompts and tool sets; the
- * chat-handler constructs ONE per request off the transcript's seam
- * (probe_done = teacher) — the STATELESS per-turn engine (docs/
- * docs/archive/pi-engine-swap.md §2): the persisted record is the source of truth, the
- * agent is rebuilt from it every POST and discarded at turn end.
+ * The session agents (docs/archive/probe-teach-split.md): the PROBER, the
+ * TEACHER, and the PRACTITIONER. Same transcript, different prompts and tool
+ * sets; the chat-handler constructs one per request off the transcript's seam
+ * (probe_done = teacher). The engine is stateless per turn
+ * (docs/archive/pi-engine-swap.md §2): the persisted record is the source of
+ * truth; the agent is rebuilt from it every POST and discarded at turn end.
  *
  * Engines are injectable so tests can pass a scripted faux engine and drive
  * deterministic lessons (see tests/chat-flow.test.ts).
@@ -44,39 +42,29 @@ import { sharedHandoffMessages, sharedHandoffSupported, type AgentLoadout } from
  * that agent's directory (src/agent/prompts/prober/ or
  * src/agent/prompts/teacher/), in sorted filename order, then the shared/
  * fragments as a trailing appendix (question tools, learner files,
- * formatting) — the 2026-09-27 reorder: the agent's job and method lead,
- * the mechanics trail. Joined with `---` separators.
+ * formatting): the agent's job and method lead, the mechanics trail. Joined
+ * with `---` separators.
  *
  * ONLY numeric-prefix files load — the loader enforces the convention, so
  * non-fragment documentation (README.md, …) can live in the directories
  * without ever leaking into the model's prompt.
  */
 
-/** Which agent's prompt directory to compose. Practice (2026-10-04)
- *  composes ONLY its own directory — see prompt-segments.ts. */
+/** Which agent's prompt directory to compose. Practice composes only its
+ *  own directory (see prompt-segments.ts). */
 export type AgentKind = "prober" | "teacher" | "practice";
 
-// P2 (2026-09-19): segment discovery + override resolution live in ONE
-// canonical place now — src/store/prompt-overrides.ts (listSourceSegments
-// mirrors this loader's rules, shared/ included). The agent imports it for
-// the static-file seam; the local fragment discovery helpers are retired.
+// Segment discovery + override resolution live in one place:
+// src/agent/prompt-segments.ts (effectivePromptSegments).
 
-/** Exported for tests: assert what composes into the model's prompt.
- *  Composition order: shared base → shared/ fragments (both agents, the
- *  sources-v1 seam for cross-agent doctrine) → the agent's own fragments.
- *
- *  P2 reconciliation (2026-09-19): composition is DELEGATED to the store
- *  module's effectivePromptSegments — one canonical segment-discovery
- *  rule (its listSourceSegments mirrors this loader's, now including
- *  shared/) — so per-segment OVERRIDES ride the same path: a segment
- *  whose switch is ON and whose override file exists composes the
- *  override text instead of the source. `switches` is the settings
- *  record's agent.prompts map (absent key = off), threaded per turn via
+/** Exported for tests: what composes into the model's prompt, delegated to
+ *  effectivePromptSegments, so per-segment overrides ride the same path: a
+ *  segment whose switch is ON and whose override file exists composes the
+ *  override text instead of the source. `switches` is the settings record's
+ *  agent.prompts map (absent key = off), threaded per turn via
  *  AgentBuildOptions.promptSwitches; a switches-less call composes pure
- *  source (byte-identical to the pre-refactor loader — pinned in
- *  tests/prompt-overrides.test.ts). Overrides are a static-file read
- *  through config paths, not request state — the store import carries no
- *  chat/job machinery. */
+ *  source (pinned in tests/prompt-overrides.test.ts). Overrides are a
+ *  static-file read through config paths, not request state. */
 export function composeInstructions(kind: AgentKind, switches?: Record<string, boolean>): string {
 	const segments = effectivePromptSegments(kind, switches ?? {});
 	return segments
@@ -96,8 +84,8 @@ const composedInstructions: Record<AgentKind, string> = {
 	practice: composeInstructions("practice"),
 };
 
-// Money channel (wave 4): the chat-handler passes a per-turn collector;
-// every model call's usage lands in the chat record's turns log
+// Usage: the chat-handler passes a per-turn collector; every model call's
+// usage lands in the chat record's turns log
 // (ChatStore.appendTurnUsage). The narrow param keeps the seam honest.
 // The optional fingerprint (cache-miss diagnostics) describes the request
 // that produced this usage; absent where the engine cannot observe its body.
@@ -106,8 +94,9 @@ export type StepUsageCollector = (usage: Usage, request?: RequestFingerprint) =>
 /** Per-request construction options (the handler wires all of these). */
 export interface AgentBuildOptions {
 	projectContext?: string;
-	/** Model + stream function — tests inject a scripted faux engine. */
-	engine?: PiEngine;
+	/** Model + stream function — the handler injects the session's
+	 *  conversation engine; tests inject a scripted faux engine. */
+	engine: PiEngine;
 	callPurpose?: { background: boolean };
 	requestCycle?: ChatGPTRequestCycle;
 	/** The initial transcript, as pi messages (the record IS agent state). */
@@ -117,19 +106,18 @@ export interface AgentBuildOptions {
 	/** Tests may pass a bare tool registry to drive deterministic flows.
 	 *  An explicit registry is NEVER toggle-filtered — the caller owns it. */
 	tools?: Record<string, AgentTool<any>>;
-	/** The resolved per-user tool toggles (core/pending EnabledTools — the
-	 *  2026-09-19 P2 bridge: Platform's chat-handler passes
-	 *  effective.agent.tools; the factories drop any tool explicitly false.
-	 *  THE DEFINITIVE toggleable set is TOGGLEABLE_TOOLS (job tools only);
-	 *  the filtering is generic, but writes validate against the list). */
+	/** The resolved per-user tool toggles (core/pending EnabledTools): the
+	 *  chat-handler passes effective.agent.tools; the factories drop any tool
+	 *  explicitly false. The toggleable set is TOGGLEABLE_TOOLS (job tools
+	 *  only); the filtering is generic, but writes validate against it. */
 	toolToggles?: EnabledTools;
-	/** The lesson's effective question type (owner, 2026-11-03 —
-	 *  core/question-type.ts): the TEACHER's quizzing tools — "mcq" quiz,
-	 *  "saq" explain, "mixed" both. Absent = the toolToggles mechanic. The
-	 *  prober and the practitioner never read it. */
+	/** The lesson's effective question type (core/question-type.ts): the
+	 *  teacher's quizzing tools ("mcq" quiz, "saq" explain, "mixed" both).
+	 *  Absent = the toolToggles mechanic. The prober and the practitioner
+	 *  never read it. */
 	questionType?: QuestionType;
-	/** The lesson's question type as it stands NOW (owner, 2026-11-03: a change
-	 *  applies from the tutor's next question). Read before every model call of
+	/** The lesson's question type as it stands now (a change applies from the
+	 *  tutor's next question). Read before every model call of
 	 *  a teacher run; when it differs from the type in use, the teacher's
 	 *  request is rebuilt exactly as a fresh run would build it — quizzing
 	 *  tools, prompt (`projectContextFor`) and, under the shared handoff, the
@@ -166,26 +154,20 @@ export interface AgentBuildOptions {
 }
 
 /**
- * The turn's question-stop rule (docs/archive/pi-engine-swap.md §2; Wave A
- * 2026-09-26, owner Option A): a question tool call (quiz /
- * ask_user_question) that RESOLVED — its synthetic "question posed" result
- * is not an error — ends the run: the learner's answer arrives as the next
- * POST. A call that FAILED authoring validation (error result) must NOT
- * stop the run — the model retries within the same turn, exactly the old
- * InvalidToolInputError semantics.
+ * The turn's question-stop rule (docs/archive/pi-engine-swap.md §2): a
+ * question tool call (quiz / ask_user_question) that resolved (its synthetic
+ * "question posed" result is not an error) ends the run; the learner's answer
+ * arrives as the next POST. A call that failed authoring validation (error
+ * result) must not stop the run: the model retries within the same turn.
  *
  * Question results also carry terminate: true (tool-execute's
- * questionResult), so single-question batches stop natively at the pi
- * loop's own batch check; this finishTurn hook (0.87.1 rename of
- * shouldStopAfterTurn) is the
- * belt-and-suspenders HALF for the mixed batch (a question + other calls
- * in one message) that terminate-only semantics would let run on — the
- * learner cannot answer while a turn is in flight (per-chat 409), so a
- * cleanly-posed question MUST always end the turn. Practice's problem pose
- * has the same wait-for-the-learner contract, including mixed output/problem
- * batches; failed poses must still retry. maxTurns is gone
- * (owner ruling 2026-09-25: no maximum-agent-turns net on the teaching
- * turn).
+ * questionResult), so single-question batches stop natively at the pi loop's
+ * batch check; this finishTurn hook covers the mixed batch (a question +
+ * other calls in one message) that terminate-only semantics would let run
+ * on. The learner cannot answer while a turn is in flight (per-chat 409), so
+ * a cleanly-posed question must always end the turn. Practice's problem pose
+ * has the same contract, including mixed output/problem batches; failed
+ * poses still retry. There is deliberately no max-turns limit.
  */
 function makeQuestionStopper(kind: AgentKind) {
 	return (context: {
@@ -261,11 +243,7 @@ function baseAgentOptions(
 	/** The teacher's registry for another question type (the live swap). */
 	retool?: (questionType: QuestionType) => AgentTool<any, any>[],
 ) {
-	// Practice never reaches the role fallback (the handler ALWAYS injects
-	// the session's conversation engine — practice rides the same
-	// conversation-spec resolution as teaching); the cast keeps AgentKind
-	// ("practice" is not a ModelRole) honest about that.
-	const engine = opts.engine ?? piEngineFor(kind as "prober" | "teacher");
+	const { engine } = opts;
 	const stopper = makeQuestionStopper(kind);
 	const loadout = agentLoadout(kind, opts, tools, engine.model, opts.projectContext);
 	const narrationGuard = narrationGuardApplies(kind, engine.model, opts.tools !== undefined);
@@ -274,8 +252,8 @@ function baseAgentOptions(
 	// update; null (unsupported model, no concluded probe, compacted past the
 	// handoff) keeps today's request exactly.
 	const handoff = handoffSeed(kind, opts, opts.messages ?? [], loadout, engine.model);
-	// THE LIVE QUESTION TYPE (owner, 2026-11-03): before each model call of a
-	// teacher run, re-resolve the lesson's type; on a change, rebuild the
+	// The live question type: before each model call of a teacher run,
+	// re-resolve the lesson's type; on a change, rebuild the
 	// request's system messages and executable tools exactly as a fresh run
 	// would (the record never holds system messages, so the history is every
 	// non-system message). Unchanged → no update, the request is untouched.
@@ -292,7 +270,7 @@ function baseAgentOptions(
 		const messages = handoffSeed(kind, nextOpts, history, nextLoadout, request.model) ?? [...(leading ? [leading] : []), ...history];
 		return { context: { messages, tools: nextLoadout.tools } };
 	};
-	// Debug recorder (owner, 2026-10-04): raw provider events when
+	// Debug recorder: raw provider events when
 	// LH_PROVIDER_EVENTS=1 and the caller handed a chatId; undefined is
 	// the normal no-observer path (tests, env-off).
 	const providerEvents = opts.chatId ? providerEventObserver(opts.chatId, kind) : undefined;
@@ -327,22 +305,20 @@ function baseAgentOptions(
 		// Narration-marked thinking is not learner-facing delivery. The
 		// paired hooks track successful output before allowing its question.
 		...(narrationGuard ? makeNarrationGuard() : {}),
-		// 0.87.1: shouldStopAfterTurn → finishTurn. Same call point (after
-		// tool results attach, before turn_end) and `{ action: "end" }` still
-		// exits BEFORE the steering poll — the parked-marker stranding our
-		// Wave C registerLiveAgent-before-runPiTurn design depends on.
-		// undefined preserves normal scheduling (the old boolean false).
+		// finishTurn runs after tool results attach, before turn_end, and
+		// `{ action: "end" }` exits BEFORE the steering poll: the parked-marker
+		// stranding the registerLiveAgent-before-runPiTurn design depends on.
+		// undefined preserves normal scheduling.
 		finishTurn: (turn) => (stopper(turn) ? { action: "end" } : undefined),
-		// Wave C (2026-09-26, owner correction same day): markers handed to a
-		// live run drain from pi's STEERING queue — the lesson loop is one
-		// continuous teach→quiz→teach run, so delivery must inject at turn
-		// boundaries INSIDE the run, not wait for it to stop (follow-ups).
+		// Markers handed to a live run drain from pi's steering queue: the
+		// lesson loop is one continuous teach→quiz→teach run, so delivery must
+		// inject at turn boundaries inside the run, not wait for it to stop.
 		// "all" joins every handed marker at one boundary, matching the idle
 		// wake's carry-everything semantics (the default "one-at-a-time"
 		// would spend one teacher turn per marker).
 		steeringMode: "all",
-		// Wave B (owner-approved 2026-09-26): the model-facing conversion is
-		// THE app seam — markers flatten to their canonical user text
+		// The model-facing conversion is the app seam: markers flatten to
+		// their canonical user text
 		// (HANDOFF_TEXT / steer text, all single-sourced),
 		// UI-only markers (plan-block) drop, the app's id fields strip, and
 		// an abort's dangling question call gets its INTERRUPTED result. It
@@ -393,7 +369,7 @@ function baseAgentOptions(
  * handoff wake (see tools/probe.ts) and is the transcript seam the
  * handler keys teacher construction on.
  */
-export function createProberAgent(ctx: ProberToolContext, opts: AgentBuildOptions = {}) {
+export function createProberAgent(ctx: ProberToolContext, opts: AgentBuildOptions) {
 	return baseAgentOptions("prober", opts, Object.values(createProberTools(ctx, opts.toolToggles)));
 }
 
@@ -407,8 +383,8 @@ export function createTeacherAgent(
 	// Optional so tests can construct a bare mock-driven agent (no storage
 	// wiring): without ctx the tools fall back to the validation-free
 	// question set. The handler ALWAYS passes ctx (the composition root).
-	ctx?: TeacherToolContext,
-	opts: AgentBuildOptions = {},
+	ctx: TeacherToolContext | undefined,
+	opts: AgentBuildOptions,
 ) {
 	const tools = opts.tools ?? (ctx ? createTeacherTools(ctx, opts.toolToggles, opts.questionType, opts.cram) : bareQuestionTools());
 	// The live question-type swap rebuilds the registry for the new type;
@@ -440,9 +416,8 @@ export function bareQuestionTools(): Record<string, AgentTool<any>> {
 			return questionResult();
 		},
 	};
-	// healToolRecord (owner, 2026-10-09 — the whitehead generalization):
-	// the bare quiz carried NO prepareArguments at all — not even the
-	// options-unwrap; now it gets the full standard heal like every tool.
+	// healToolRecord: the bare quiz gets the full standard argument heal like
+	// every tool.
 	return healToolRecord({
 		quiz,
 		ask_user_question: askUserQuestionTool,
@@ -450,16 +425,15 @@ export function bareQuestionTools(): Record<string, AgentTool<any>> {
 }
 
 /**
- * The PRACTITIONER (practice sessions, owner design 2026-10-04): built
- * from turn 1 of a kind:"practice" session — no prober→teacher split,
- * no plan tools, no question tools. Its ENTIRE registry is
+ * The PRACTITIONER: built from turn 1 of a kind:"practice" session. No
+ * prober→teacher split, no plan tools, no question tools. Its ENTIRE registry is
  * problem + conclude (tools/practice.ts); the doctrine prompt
  * (prompts/practice/) carries the method. A successful problem pose ends
  * the run, natively for a problem-only batch and via the shared stop hook
  * for a mixed batch (including caller-injected legacy output tools).
  * Practice uses ordinary final prose, not the explicit output tool.
  */
-export function createPracticeAgent(ctx: PracticeToolContext, opts: AgentBuildOptions = {}) {
+export function createPracticeAgent(ctx: PracticeToolContext, opts: AgentBuildOptions) {
 	const tools = opts.tools ?? practiceTools(ctx);
 	return baseAgentOptions("practice", opts, Object.values(tools));
 }

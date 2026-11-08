@@ -295,10 +295,10 @@ describe("tool toggles (core/pending.ts + factories)", () => {
 			spawn: () => {},
 		};
 		const full = Object.keys(createTeacherTools(ctx)).sort();
-		assert.deepEqual(full, ["ask_user_question", "demo", "find", "grep", "ls", "note_mistake", "pdf", "plan_init", "quiz", "read", "research", "resolve_mistake", "show_image", "visual"]);
+		assert.deepEqual(full, ["ask_user_question", "demo", "find", "grep", "ls", "note_mistake", "pdf", "pin_visual", "plan_init", "quiz", "read", "research", "resolve_mistake", "show_image", "visual"]);
 
 		const noResearch = Object.keys(createTeacherTools(ctx, { research: false })).sort();
-		assert.deepEqual(noResearch, ["ask_user_question", "demo", "find", "grep", "ls", "note_mistake", "pdf", "plan_init", "quiz", "read", "resolve_mistake", "show_image", "visual"]);
+		assert.deepEqual(noResearch, ["ask_user_question", "demo", "find", "grep", "ls", "note_mistake", "pdf", "pin_visual", "plan_init", "quiz", "read", "resolve_mistake", "show_image", "visual"]);
 
 		// absent = enabled: an empty record and undefined behave identically
 		assert.deepEqual(
@@ -309,7 +309,7 @@ describe("tool toggles (core/pending.ts + factories)", () => {
 
 		// The mechanic switch (owner 2026-09-27): free-recall swaps the teach
 		// quiz for the teach explain — one quizzing tool, whichever is armed.
-		const freeFull = ["ask_user_question", "demo", "explain", "find", "grep", "ls", "note_mistake", "pdf", "plan_init", "read", "research", "resolve_mistake", "show_image", "visual"];
+		const freeFull = ["ask_user_question", "demo", "explain", "find", "grep", "ls", "note_mistake", "pdf", "pin_visual", "plan_init", "read", "research", "resolve_mistake", "show_image", "visual"];
 		assert.deepEqual(Object.keys(createTeacherTools(ctx, { explain: true })).sort(), freeFull);
 		assert.deepEqual(
 			Object.keys(createTeacherTools(ctx, { explain: true, research: false })).sort(),

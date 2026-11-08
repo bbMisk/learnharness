@@ -29,16 +29,20 @@ import { SvgImage } from "@/components/artifacts/svg-image";
 
 /** The expand seam: md-blocks' mermaid hover button calls openMermaid with
  *  the chart source; the figure card's fullscreen button calls openFigure
- *  with the raw svg (+ its invert state). The chat page (which provides
- *  this context) opens the overlay. Null when no chat page is mounted
- *  (sidebar previews etc.) — the buttons simply don't render there. */
-export const SessionMermaidContext = createContext<{
+ *  with the raw svg (+ its invert state); every plan control (the transcript
+ *  plan block, the dock marginalia, the progress card's diagram) calls
+ *  openPlan. The chat page (which provides this context) opens the overlay
+ *  and owns its Esc layering. Null when no chat page is mounted (sidebar
+ *  previews etc.): the expand buttons don't render there, and the plan
+ *  controls render but open nothing. */
+export const SessionOverlayContext = createContext<{
 	openMermaid: (chart: string) => void;
 	openFigure: (svg: string, inverted: boolean) => void;
+	openPlan: () => void;
 } | null>(null);
 
-export function useSessionMermaid() {
-	return useContext(SessionMermaidContext);
+export function useSessionOverlay() {
+	return useContext(SessionOverlayContext);
 }
 
 /** A chart svg's natural size — mermaid always emits a viewBox; this is the

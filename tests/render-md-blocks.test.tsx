@@ -16,7 +16,7 @@ import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MessageResponse } from "../components/ai-elements/message.tsx";
 import { ThinkingBlock, setAllUserThinkingOpen } from "@/components/thinking-block";
-import { MermaidOverlay, SessionMermaidContext, chartSize } from "../components/session-overlay.tsx";
+import { MermaidOverlay, SessionOverlayContext, chartSize } from "../components/session-overlay.tsx";
 import { PlanPopup } from "../components/plan-block.tsx";
 import { MarkdownCode, codeSource } from "../components/md-blocks.tsx";
 
@@ -174,14 +174,15 @@ describe("mermaid expand — the context seam", () => {
 		// owner is chat.tsx — geometry covered by the tests above.
 		const opened: string[] = [];
 		const html = renderToStaticMarkup(
-			<SessionMermaidContext.Provider
+			<SessionOverlayContext.Provider
 				value={{
 					openMermaid: (chart) => void opened.push(chart),
 					openFigure: () => {},
+					openPlan: () => {},
 				}}
 			>
 				<div />
-			</SessionMermaidContext.Provider>,
+			</SessionOverlayContext.Provider>,
 		);
 		assert.ok(html.length > 0, "provider renders");
 		assert.deepEqual(opened, [], "nothing opened by rendering alone");
