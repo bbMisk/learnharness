@@ -79,6 +79,9 @@ async function text(tool: AgentTool<any>, args: unknown): Promise<string> {
 	return (result.content[0] as { text: string }).text;
 }
 const denied = /Access denied: .* is a protected location/;
+/** The pdf-reader's required engine; a denial refuses before any model call. */
+const deniedPdfFaux = createFauxCore({ tokenSize: { min: 64, max: 64 } });
+const deniedPdfEngine = { model: deniedPdfFaux.getModel(), streamFn: (() => { throw new Error("must not call model"); }) as typeof deniedPdfFaux.streamSimple };
 
 describe("source access: configured credentials only", () => {
 	const protectedFiles = [
@@ -288,7 +291,7 @@ describe("source access: case-sensitive home-location variants", () => {
 				await assert.rejects(findTool.execute!("case-root", { path: folder, pattern: "*" }), denied);
 				await assert.rejects(grepTool.execute!("case-root", { path: folder, pattern: "CASE_VARIANT_SECRET" }), denied);
 				await assert.rejects(walkFiles(folder, () => assert.fail("protected target must not be visited")), denied);
-				const pdf = await runPdfReaderAgent({ path: path.join(folder, "key"), question: "synthetic" });
+				const pdf = await runPdfReaderAgent({ path: path.join(folder, "key"), question: "synthetic" }, { engine: deniedPdfEngine });
 				assert.match(pdf.brief, /^PDF failed: Access denied:/);
 			}
 			assert.equal(await text(grepTool, { path: root, pattern: "CASE_VARIANT_SECRET" }), "No matches found");
@@ -330,7 +333,7 @@ describe("source access: credential case aliases on the fixture filesystem", () 
 			}
 			await assert.rejects(readTool.execute!("case-alias", { path: alias }), denied);
 			await assert.rejects(grepTool.execute!("case-alias", { path: alias, pattern: "LH_SYNTHETIC_SECRET_MARKER" }), denied);
-			const pdf = await runPdfReaderAgent({ path: alias, question: "synthetic" });
+			const pdf = await runPdfReaderAgent({ path: alias, question: "synthetic" }, { engine: deniedPdfEngine });
 			assert.match(pdf.brief, /^PDF failed: Access denied:/);
 		}
 		assert.equal(await text(grepTool, { path: path.join(root, "KEYFILES"), pattern: "LH_SYNTHETIC_SECRET_MARKER" }), "No matches found");
@@ -347,7 +350,7 @@ describe("source access: credential case aliases on the fixture filesystem", () 
 			for (const alias of [path.join(root, "keyfiles", "CUSTOM-KEYS.JSON"), path.join(root, "KEYFILES", "custom-keys.json")]) {
 				await assert.rejects(readTool.execute!("case-auth", { path: alias }), denied);
 				await assert.rejects(grepTool.execute!("case-auth", { path: alias, pattern: "LH_SYNTHETIC_SECRET_MARKER" }), denied);
-				const pdf = await runPdfReaderAgent({ path: alias, question: "synthetic" });
+				const pdf = await runPdfReaderAgent({ path: alias, question: "synthetic" }, { engine: deniedPdfEngine });
 				assert.match(pdf.brief, /^PDF failed: Access denied:/);
 			}
 		} finally {

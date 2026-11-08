@@ -179,15 +179,3 @@ export function piEngineForSpec(spec: ResolvedModelSpec, background: boolean | (
 		},
 	};
 }
-
-/** The LEGACY role entry point — BYOK made it an honest THROWER (owner,
- *  2026-09-22): no factory pins exist to fall back to, and this module
- *  cannot read settings (architecture law — the agent layer never
- *  imports the server layer). Production resolves the chain in
- *  chat-handler and ALWAYS injects engines; reaching this means a
- *  wiring bug, so it fails loudly instead of guessing a model. */
-export function piEngineFor(role: ModelRole): PiEngine {
-	throw new Error(
-		`no configured model for role "${role}" — set your model slots (settings → models)`,
-	);
-}

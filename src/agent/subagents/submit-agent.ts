@@ -55,7 +55,7 @@ export async function runSubmitAgent<T>(opts: {
 	fill: (input: any) => T;
 	systemPrompt: string;
 	prompt: string;
-	engine: PiEngine | undefined;
+	engine: PiEngine;
 	signal: AbortSignal | undefined;
 	onStep: (usage: Usage, model: string, step: number, finishReason: string, tools: string) => void;
 	neverSubmitted: string;

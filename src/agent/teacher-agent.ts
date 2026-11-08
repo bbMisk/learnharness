@@ -3,7 +3,7 @@ import type { AgentEvent, AgentMessage, AgentRequestUpdate, AgentTool, PrepareRe
 import { invalidInputResult, questionResult } from "./tool-execute.ts";
 import { providerEventObserver } from "./provider-events.ts";
 import { createInitialSystemMessage, toToolDeclaration, type Usage } from "@earendil-works/pi-ai";
-import { APP_IDENTITY, piEngineFor, type PiEngine } from "./models.ts";
+import { APP_IDENTITY, type PiEngine } from "./models.ts";
 import { effectivePromptSegments } from "./prompt-segments.ts";
 import {
 	askUserQuestionTool,
@@ -94,8 +94,9 @@ export type StepUsageCollector = (usage: Usage, request?: RequestFingerprint) =>
 /** Per-request construction options (the handler wires all of these). */
 export interface AgentBuildOptions {
 	projectContext?: string;
-	/** Model + stream function — tests inject a scripted faux engine. */
-	engine?: PiEngine;
+	/** Model + stream function — the handler injects the session's
+	 *  conversation engine; tests inject a scripted faux engine. */
+	engine: PiEngine;
 	callPurpose?: { background: boolean };
 	requestCycle?: ChatGPTRequestCycle;
 	/** The initial transcript, as pi messages (the record IS agent state). */
@@ -242,11 +243,7 @@ function baseAgentOptions(
 	/** The teacher's registry for another question type (the live swap). */
 	retool?: (questionType: QuestionType) => AgentTool<any, any>[],
 ) {
-	// Practice never reaches the role fallback (the handler ALWAYS injects
-	// the session's conversation engine — practice rides the same
-	// conversation-spec resolution as teaching); the cast keeps AgentKind
-	// ("practice" is not a ModelRole) honest about that.
-	const engine = opts.engine ?? piEngineFor(kind as "prober" | "teacher");
+	const { engine } = opts;
 	const stopper = makeQuestionStopper(kind);
 	const loadout = agentLoadout(kind, opts, tools, engine.model, opts.projectContext);
 	const narrationGuard = narrationGuardApplies(kind, engine.model, opts.tools !== undefined);
@@ -372,7 +369,7 @@ function baseAgentOptions(
  * handoff wake (see tools/probe.ts) and is the transcript seam the
  * handler keys teacher construction on.
  */
-export function createProberAgent(ctx: ProberToolContext, opts: AgentBuildOptions = {}) {
+export function createProberAgent(ctx: ProberToolContext, opts: AgentBuildOptions) {
 	return baseAgentOptions("prober", opts, Object.values(createProberTools(ctx, opts.toolToggles)));
 }
 
@@ -386,8 +383,8 @@ export function createTeacherAgent(
 	// Optional so tests can construct a bare mock-driven agent (no storage
 	// wiring): without ctx the tools fall back to the validation-free
 	// question set. The handler ALWAYS passes ctx (the composition root).
-	ctx?: TeacherToolContext,
-	opts: AgentBuildOptions = {},
+	ctx: TeacherToolContext | undefined,
+	opts: AgentBuildOptions,
 ) {
 	const tools = opts.tools ?? (ctx ? createTeacherTools(ctx, opts.toolToggles, opts.questionType, opts.cram) : bareQuestionTools());
 	// The live question-type swap rebuilds the registry for the new type;
@@ -436,7 +433,7 @@ export function bareQuestionTools(): Record<string, AgentTool<any>> {
  * for a mixed batch (including caller-injected legacy output tools).
  * Practice uses ordinary final prose, not the explicit output tool.
  */
-export function createPracticeAgent(ctx: PracticeToolContext, opts: AgentBuildOptions = {}) {
+export function createPracticeAgent(ctx: PracticeToolContext, opts: AgentBuildOptions) {
 	const tools = opts.tools ?? practiceTools(ctx);
 	return baseAgentOptions("practice", opts, Object.values(tools));
 }

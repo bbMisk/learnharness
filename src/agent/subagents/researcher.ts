@@ -67,7 +67,7 @@ Numbered findings with inline source citations:
 What couldn't be answered. Suggested next steps.`;
 
 export interface ResearcherRunOptions {
-	engine?: PiEngine;
+	engine: PiEngine;
 	/** The search seam (search port wave, 2026-09-20): resolves the LIVE
 	 *  provider per call, null = honestly unavailable (the web_search tool
 	 *  reports that in its output — no crash, no silent fallback). Absent
@@ -90,7 +90,7 @@ export interface ResearcherRunOptions {
  * text = the brief. The engine and search seam are injectable so tests run
  * the loop scripted.
  */
-export async function runResearcherAgent(prompt: string, opts: ResearcherRunOptions = {}): Promise<string> {
+export async function runResearcherAgent(prompt: string, opts: ResearcherRunOptions): Promise<string> {
 	const tools = Object.values(createWebTools(opts.search ?? (() => null)));
 	if (opts.pdfDir) tools.push(...Object.values(createPdfReadTools(opts.pdfDir)));
 	const { text } = await runSubagent(tools, {

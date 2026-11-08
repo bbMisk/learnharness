@@ -4,7 +4,7 @@ import type { AssistantMessage, Message, Tool, ToolResultMessage, Usage } from "
 import { normalizeContext } from "@earendil-works/pi-ai";
 import { processImage, type ProcessImageResult } from "../image-processing/index.ts";
 import { Type } from "typebox";
-import { piEngineFor, type PiEngine, type ThinkingLevel } from "../models.ts";
+import { type PiEngine, type ThinkingLevel } from "../models.ts";
 import { providerEventObserver, type ProviderEventObserver } from "../provider-events.ts";
 import { backgroundCaptureStream, createBackgroundCapture, type BackgroundCapture } from "../background-capture.ts";
 import type { VisualResult } from "../../core/contracts.ts";
@@ -52,8 +52,8 @@ export interface VisualMakerInput {
 export { LEARNER_IMAGE_HREF };
 
 export interface VisualMakerOptions {
-	/** Test seam: scripted engine; production uses the visualMaker role. */
-	engine?: PiEngine;
+	/** The settings-resolved visualMaker engine; tests pass a scripted one. */
+	engine: PiEngine;
 	headless?: HeadlessApi;
 	/** Max model rounds (write/render cycles + final answer). Default 8. */
 	maxIterations?: number;
@@ -162,7 +162,7 @@ const LOOK_MESSAGE =
 const UNLOOKED_FINISH_MESSAGE =
 	"You finished without looking at a render of your final SVG. Above is its render. If it is correct and clean, reply with just your notes; otherwise call write_svg with fixes and render again.";
 
-export async function runVisualMaker(input: VisualMakerInput, opts: VisualMakerOptions = {}): Promise<VisualResult> {
+export async function runVisualMaker(input: VisualMakerInput, opts: VisualMakerOptions): Promise<VisualResult> {
 	const headless = opts.headless ?? getHeadless();
 	const brief = input.brief.trim() || "(no brief)";
 	const maxIterations = opts.maxIterations ?? 8;
@@ -174,9 +174,9 @@ export async function runVisualMaker(input: VisualMakerInput, opts: VisualMakerO
 
 	const tools = createVisualTools();
 	const toolDeclarations = Object.values(tools);
-	const engine = opts.engine ?? piEngineFor("visualMaker");
-	// BYOK (owner, 2026-09-22): the level rides the injected engine — no
-	// factory pin to consult (engine.level is the resolved/clamped value).
+	const { engine } = opts;
+	// The level rides the injected engine (engine.level is the
+	// resolved/clamped value).
 	const reasoning = engine.level;
 	const sessionId = randomUUID();
 	const capture = createBackgroundCapture({ role: "visualMaker", runId: sessionId, sourceId: opts.chatId });

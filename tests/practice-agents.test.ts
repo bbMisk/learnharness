@@ -218,8 +218,7 @@ describe("the practice agent", () => {
 	});
 
 	it("constructs with exactly the two practice tools", () => {
-		// baseAgentOptions needs an engine (the BYOK thrower is the only
-		// fallback) — inject a never-streamed faux engine for the smoke.
+		// The engine is required — inject a never-streamed faux engine for the smoke.
 		const agent = createPracticeAgent(ctxOf([]), {
 			engine: {
 				model: { api: "faux", provider: "faux", id: "faux-model", contextWindow: 8192 } as never,

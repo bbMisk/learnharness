@@ -450,7 +450,7 @@ export function sourceDigest(graph: DerivedGraph, sourceId: string): string {
  *  anchor boundary: every submitted proposition's messageId must name
  *  one of them (validateSessionAnchors at the submit seam). */
 function runExtractor(
-	engine: PiEngine | undefined,
+	engine: PiEngine,
 	sourceId: string,
 	prompt: string,
 	existingIds: ReadonlySet<string>,
@@ -486,7 +486,7 @@ function runExtractor(
  *  the BASE wire (no messageId: notes have no passages, and a stray one
  *  is stripped at the fill seam). */
 function runNotesExtractor(
-	engine: PiEngine | undefined,
+	engine: PiEngine,
 	sourceId: string,
 	prompt: string,
 	existingIds: ReadonlySet<string>,
@@ -543,7 +543,7 @@ existing record's name and statement and adds the incoming wording as an alias w
 /** The auditor — one shape for both front doors. An agentic loop:
  *  graph-exploration tools plus the one submit call. */
 function runAuditor(
-	engine: PiEngine | undefined,
+	engine: PiEngine,
 	sourceId: string,
 	prompt: string,
 	signal: AbortSignal | undefined,
@@ -755,6 +755,15 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 	// an honest refusal.
 	const stageEngine = (role: ModelRole, override?: PiEngine): PiEngine | undefined =>
 		override ?? deps.engineFor?.(role);
+	/** The engine one stage call runs on. The gate below refuses an empty
+	 *  chain before any batch starts, but the chain is read FRESH here: a
+	 *  settings PUT that empties it mid-run fails this batch (its messages
+	 *  stay uncovered; siblings keep merging). */
+	const requireStageEngine = (role: ModelRole, override?: PiEngine): PiEngine => {
+		const engine = stageEngine(role, override);
+		if (!engine) throw new Error(`no configured model for role "${role}" — set your model slots (settings → models)`);
+		return engine;
+	};
 	/** The per-need refusal guard: which slot tiers the pipeline's stages
 	 *  found unset (test values count as configured — they ARE engines),
 	 *  and whether a configured stage's provider key is gone — both refuse
@@ -888,7 +897,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		const t0 = performance.now();
 
 		const findings = await runExtractor(
-			stageEngine("extractor", deps.extractor),
+			requireStageEngine("extractor", deps.extractor),
 			sourceId,
 			prompt,
 			new Set(graph.nodes.map((n) => n.id)),
@@ -919,7 +928,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		// not signal.
 		const review = prepareAuditorReview({ chatStore, graphStore }, findings.propositions);
 		const auditResult = await runAuditor(
-			stageEngine("auditor", deps.auditor),
+			requireStageEngine("auditor", deps.auditor),
 			sourceId,
 			`Review these proposed findings against the supplied existing records. matches points from finding ids to candidateIds; candidates contains those records:\n\n` +
 				`${JSON.stringify(
@@ -1221,7 +1230,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		);
 		const t0 = performance.now();
 		const findings = await runNotesExtractor(
-			stageEngine("extractor", deps.extractor),
+			requireStageEngine("extractor", deps.extractor),
 			input.id,
 			prompt,
 			new Set(graph.nodes.map((n) => n.id)),
