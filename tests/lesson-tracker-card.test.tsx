@@ -155,7 +155,7 @@ it("renders both sections with symbols and counts", async () => {
 	// Narrow: stops above the dock (its height + a margin); wide (room made): the pane's full height.
 	assert.match(card.getAttribute("style") ?? "", /--lh-card-reserve:\s*224px/);
 	assert.match(card.getAttribute("class")!, /max-h-\[calc\(100%-var\(--lh-card-reserve\)\)\]/);
-	assert.match(card.getAttribute("class")!, /@min-\[64rem\]\/session:max-h-\[calc\(100%-1\.5rem\)\]/, "the room breakpoint the dock uses");
+	assert.match(card.getAttribute("class")!, /@min-\[60rem\]\/session:max-h-\[calc\(100%-1\.5rem\)\]/, "the room breakpoint the dock uses");
 });
 
 it("shows only the sections that exist", async () => {
@@ -251,12 +251,12 @@ it("makes room: while shown on a wide session area the column clears the card; o
 	assert.deepEqual(lessonTrackerRoom(false), { area: "", column: "", dock: "" }, "hidden or absent: no layout change");
 	const room = lessonTrackerRoom(true);
 	// The classes compile to a container query on the session area: at
-	// 64rem and up the column's right padding is the card's lane (16rem
+	// 60rem and up the column's right padding is the card's lane (16rem
 	// card + 0.75rem gap) plus the column's own 1.5rem gutter.
 	const { compile } = await import("tailwindcss");
 	const css = (await compile("@tailwind utilities;", { base: process.cwd() })).build([room.area, room.column]);
 	assert.match(css, /container-type: inline-size;\s*container-name: session;/);
-	assert.match(css, /@container session \(width >= 64rem\) \{[^}]*\{\s*padding-right: 18\.25rem;/);
+	assert.match(css, /@container session \(width >= 60rem\) \{[^}]*\{\s*padding-right: 18\.25rem;/);
 	// The card's geometry matches the lane the padding reserves.
 	const host = await mount(<LessonTrackerCard tracking={deriveLessonTracking(record)} bottomReserve={0} />);
 	const cls = host.querySelector('[data-testid="lesson-tracker"]')!.getAttribute("class")!.split(" ");
@@ -416,7 +416,7 @@ it("makes room for the dock too: it centres on the narrowed column while the car
 	const room = lessonTrackerRoom(true);
 	const { compile } = await import("tailwindcss");
 	const build = async (classes: string[]) => (await compile("@tailwind utilities;", { base: process.cwd() })).build(classes);
-	const QUERY = /@container session \(width >= 64rem\) \{([\s\S]*?)\n\}/;
+	const QUERY = /@container session \(width >= 60rem\) \{([\s\S]*?)\n\}/;
 	const inQuery = (css: string, prop: string) => css.match(QUERY)?.[1]?.match(new RegExp(`\\b${prop}: ([^;]+);`))?.[1];
 	const dockCss = await build(room.dock.split(" "));
 	const columnCss = await build([room.column]);
@@ -534,12 +534,12 @@ it("weak spots: the click creates a practice chat in the lesson's project, opene
 
 it("plan diagram: under the plan list when the card has its own lane and room below its sections, else none", async () => {
 	const { planViewHeight, PLAN_VIEW_MIN_H, PLAN_VIEW_MAX_H } = await import("../components/lesson-tracker.tsx");
-	// A wide area (≥ 64rem: the card sits in its own lane), plenty of room: capped.
+	// A wide area (≥ 60rem: the card sits in its own lane), plenty of room: capped.
 	assert.equal(planViewHeight(1152, 800, 300), PLAN_VIEW_MAX_H);
 	// Just enough room (the gap above the diagram counts).
 	assert.equal(planViewHeight(1152, 300 + 16 + PLAN_VIEW_MIN_H, 300), PLAN_VIEW_MIN_H);
 	assert.equal(planViewHeight(1152, 300 + 16 + PLAN_VIEW_MIN_H - 1, 300), null, "no room below the list: the flank keeps it");
-	assert.equal(planViewHeight(1000, 800, 300), null, "a narrow area (the card overlays the chat): the flank keeps it");
+	assert.equal(planViewHeight(900, 800, 300), null, "a narrow area (the card overlays the chat): the flank keeps it");
 	assert.equal(planViewHeight(1152, Number.NaN, 300), null, "no max-height read: none");
 });
 
@@ -585,7 +585,7 @@ it("plan diagram: exactly one destination — the card while it has room, else t
 		await resize();
 		assert.equal(where(), "flank", "the room is gone");
 		area.clientHeight = 900;
-		area.clientWidth = 1000;
+		area.clientWidth = 900;
 		await resize();
 		assert.equal(where(), "flank", "a narrow area: the card overlays the chat");
 		area.clientWidth = 1152;

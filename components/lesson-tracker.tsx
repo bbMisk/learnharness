@@ -70,8 +70,9 @@ export function useLessonTrackerShown(): { shown: boolean; toggle: () => void } 
  * column's right padding clears the card's lane, so the card sits in the
  * margin beside a narrower column instead of covering content. 18.25rem =
  * the card (w-64, 16rem) + its gap from the edge (right-3, 0.75rem) + the
- * column's own gutter (px-6, 1.5rem). "Wide enough" is a 64rem session
- * area: the lane plus a reading column as wide as the dock (46rem). Below
+ * column's own gutter (px-6, 1.5rem). "Wide enough" is a 60rem session
+ * area: the lane plus a ~40rem reading column, so a 1280px window with the
+ * sidebar open (a ~62rem area) still gives the card its own lane. Below
  * that the card overlays, as before. A container query on the session
  * area (not the viewport), so the sidebar's width counts; the classes
  * apply only while the card shows — hidden or absent changes nothing.
@@ -84,8 +85,8 @@ export function useLessonTrackerShown(): { shown: boolean; toggle: () => void } 
  * so the 46rem dock centres in exactly the column's content box.
  */
 export const TRACKER_ROOM_AREA = "@container/session";
-export const TRACKER_ROOM_COLUMN = "@min-[64rem]/session:pr-[18.25rem]";
-export const TRACKER_ROOM_DOCK = "@min-[64rem]/session:pl-[1.5rem] @min-[64rem]/session:pr-[18.25rem]";
+export const TRACKER_ROOM_COLUMN = "@min-[60rem]/session:pr-[18.25rem]";
+export const TRACKER_ROOM_DOCK = "@min-[60rem]/session:pl-[1.5rem] @min-[60rem]/session:pr-[18.25rem]";
 
 export function lessonTrackerRoom(active: boolean): { area: string; column: string; dock: string } {
 	return active ? { area: TRACKER_ROOM_AREA, column: TRACKER_ROOM_COLUMN, dock: TRACKER_ROOM_DOCK } : { area: "", column: "", dock: "" };
@@ -94,9 +95,9 @@ export function lessonTrackerRoom(active: boolean): { area: string; column: stri
 /**
  * The plan diagram's height under the card's plan list, or null for no room
  * (the dock band's flank keeps it then): the card must have its own lane
- * (a 64rem session area) and PLAN_VIEW_MIN_H px free below its sections.
+ * (a 60rem session area) and PLAN_VIEW_MIN_H px free below its sections.
  */
-export const PLAN_VIEW_MIN_AREA = 64 * 16;
+export const PLAN_VIEW_MIN_AREA = 60 * 16;
 export const PLAN_VIEW_MIN_H = 140;
 export const PLAN_VIEW_MAX_H = 224;
 /** The card's flex gap (gap-4) above the diagram. */
@@ -356,7 +357,7 @@ export function LessonTrackerCard({ tracking, plan = null, bottomReserve, onPrac
 			ref={asideRef}
 			data-testid="lesson-tracker"
 			aria-label="Lesson progress"
-			className="absolute right-3 top-3 z-20 flex max-h-[calc(100%-var(--lh-card-reserve))] w-64 max-w-[calc(100%-1.5rem)] flex-col gap-4 overflow-y-auto rounded-xl border border-border/80 bg-card/95 px-3.5 py-3 font-ui text-xs text-foreground shadow-sm backdrop-blur-sm @min-[64rem]/session:max-h-[calc(100%-1.5rem)]"
+			className="absolute right-3 top-3 z-20 flex max-h-[calc(100%-var(--lh-card-reserve))] w-64 max-w-[calc(100%-1.5rem)] flex-col gap-4 overflow-y-auto rounded-xl border border-border/80 bg-card/95 px-3.5 py-3 font-ui text-xs text-foreground shadow-sm backdrop-blur-sm @min-[60rem]/session:max-h-[calc(100%-1.5rem)]"
 			style={{ "--lh-card-reserve": `${bottomReserve + 24}px` } as CSSProperties}
 		>
 			{plan && (

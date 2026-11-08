@@ -793,12 +793,15 @@ export function Chat({
 	const [progressOverPin, setProgressOverPin] = useState(false);
 	const pinnedJob = pinned.target?.jobId ?? null;
 	useEffect(() => setProgressOverPin(false), [pinnedJob]);
-	const trackerShown = pinned.docked ? progressOverPin : trackerCard.shown;
+	// An open pin drawer covers the card's corner: the card steps aside until
+	// the drawer closes, and the PROGRESS chip closes the drawer to bring it back.
+	const drawerOpen = pinned.escState.drawer === "open";
+	const trackerShown = pinned.docked ? progressOverPin : trackerCard.shown && !drawerOpen;
 	// The plan diagram goes under the card's plan list when the card has room
 	// for it, else to the dock band's flank — never both; a docked pin hides it.
 	const [planInCard, setPlanInCard] = useState(false);
 	const planDiagram = hasPlan && !(pinned.docked && !progressOverPin) ? <PlanMarginalia messages={messages} /> : undefined;
-	const toggleTracker = pinned.docked ? () => setProgressOverPin((v) => !v) : trackerCard.toggle;
+	const toggleTracker = pinned.docked ? () => setProgressOverPin((v) => !v) : drawerOpen ? pinned.toggleDrawer : trackerCard.toggle;
 	// While the card shows on a session area wide enough for both, the
 	// transcript column keeps clear of it.
 	const trackerRoom = lessonTrackerRoom(hasTracking && trackerCard.shown && !pinned.docked);
@@ -1157,7 +1160,7 @@ export function Chat({
 								setTitleDraft(titleText);
 								setRenaming(true);
 							}}
-							className="lh-no-drag -mx-1.5 min-w-4 shrink cursor-text truncate rounded-md px-1.5 text-left font-title text-3xl tracking-tight transition-colors hover:bg-accent"
+							className="lh-no-drag -mx-1.5 min-w-[8ch] shrink cursor-text truncate rounded-md px-1.5 text-left font-title text-3xl tracking-tight transition-colors hover:bg-accent"
 						>
 							{titleText}
 							</button>
@@ -1167,6 +1170,10 @@ export function Chat({
 							<div className="min-w-4 flex-1" aria-hidden="true" />
 					</>
 					)}
+					{/* The chip row scrolls sideways when the bar is too narrow (phone
+					    widths) instead of widening the page; the extraction ring and
+					    phase tag stay outside it — the ring's popover would clip. */}
+					<div className="flex min-w-0 items-center gap-3 overflow-x-auto [scrollbar-width:none]">
 					<Hint label="Temporary side tutor" action="toggle-side-tutor" side="bottom">
 						<button type="button" aria-label="Open side tutor" aria-expanded={sideTutor !== null} onClick={toggleSideTutor} className="lh-no-drag flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border/80 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:border-border hover:text-foreground"><MessageCircleQuestionIcon className="size-3.5 text-primary" aria-hidden />Side tutor</button>
 					</Hint>
@@ -1195,6 +1202,7 @@ export function Chat({
 					{showsQuestionTypeChip(kind, phases.at(-1) ?? "probe") && (
 						<QuestionTypeChip chatId={chatId} stored={lessonQuestionType.questionType} cram={cram} initialAgentTools={agentTools} beginSave={lessonQuestionType.begin} />
 					)}
+					</div>
 					{/* The extraction ring: fills with uncovered vs the chunk
 					    threshold, pulses while a run is in flight, vanishes when the
 					    graph is off; click for the numbers. Hidden in practice, which
