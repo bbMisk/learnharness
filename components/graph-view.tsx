@@ -679,7 +679,7 @@ export function GraphChromeRow({
 							placeholder="Search nodes…"
 							aria-label="Search nodes"
 							spellCheck={false}
-							className="h-7 w-full rounded-lg border bg-background pl-8 text-xs outline-none placeholder:text-muted-foreground focus:border-ring"
+							className="h-7 w-full rounded-lg border-0 bg-transparent pl-8 text-xs outline-none placeholder:text-muted-foreground"
 						/>
 					</div>
 					</Hint>

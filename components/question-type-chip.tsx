@@ -185,7 +185,7 @@ export function QuestionTypeChip({
 						setOpen((o) => !o);
 						setError("");
 					}}
-					className="lh-no-drag flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border/80 px-2 py-0.5 text-xs font-medium tracking-wide text-muted-foreground transition-colors hover:border-border hover:text-foreground disabled:cursor-default"
+					className="lh-no-drag flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border/80 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:border-border hover:text-foreground disabled:cursor-default"
 				>
 					<CircleHelpIcon className="size-3.5 text-primary" aria-hidden />
 					Qs: {QUESTION_TYPE_LABEL[effective]}
