@@ -78,6 +78,7 @@ import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/th
 import { FACTORY_SETTINGS } from "@/src/core";
 import { useReadingThinkingRefresh } from "@/components/reading-thinking-refresh";
 import { DockOverlay, GRADIENT_H } from "@/components/dock-overlay";
+import { StatsBar } from "@/components/stats-bar";
 import { useSessionRename } from "@/components/session-rename";
 
 /** The transcript column: full session width with a thin px-6 margin. The
@@ -1298,8 +1299,6 @@ export function Chat({
 					practice={activeProblem}
 					compactionRunning={compacting}
 					onSubmitThinking={submitThinking}
-					chatId={chatId}
-					onModelChange={setSelectedModel}
 					plan={planInCard ? undefined : planDiagram}
 					onOpenPlan={() => setPlanOpen(true)}
 					teachingCheck={teachingCheck}
@@ -1309,13 +1308,19 @@ export function Chat({
 					readingThinkingRevision={readingThinkingSeed.revision}
 					onReadingThinking={applyReadingThinking}
 					phase={phases.at(-1) ?? "probe"}
-					turns={turns}
-					contextTokens={contextTokens}
-					cliContextWindow={cliContextWindowOf(nativeMessages)}
-					pricing={pricing}
+					footer={
+						<StatsBar
+							turns={turns}
+							contextTokens={contextTokens}
+							cliContextWindow={cliContextWindowOf(nativeMessages)}
+							pricing={pricing}
+							dictationSlot={<DictationBar dictation={dictation} />}
+							chatId={chatId}
+							onModelChange={setSelectedModel}
+						/>
+					}
 					onReserve={setDockReserve}
 					room={trackerRoom.dock}
-					dictationSlot={<DictationBar dictation={dictation} />}
 					dictationCancel={dictation.cancel}
 					queuedSteers={visibleQueuedSteers(steerQueue, nativeMessages)}
 					setupCta={

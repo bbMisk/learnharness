@@ -9,13 +9,12 @@ import { dockStateKey } from "@/components/dock-state-key";
 import { forwardDockWheel, useDockHeight } from "@/components/dock-height";
 import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-steers";
 import { finishDictation } from "@/components/dictation";
-import { StatsBar } from "@/components/stats-bar";
 import { QuestionDock } from "@/components/question-dock";
 import { PracticeDock } from "@/components/practice-dock";
 import { MARGIN_MIN_W, dockFlank, measureDockFlank, type DockFlank } from "@/components/dock-flank";
 import { rememberRevealed, wasRevealed } from "@/components/revealed-questions";
 import { ReadingThinkingField } from "@/components/reading-thinking";
-import type { cliContextWindowOf, pendingQuestionOf, Phase3, QuestionAnswerData, QuestionFormDraft, TurnUsage, SessionPricing } from "@/src/core";
+import type { pendingQuestionOf, Phase3, QuestionAnswerData, QuestionFormDraft } from "@/src/core";
 
 /** The dock column: narrower than the transcript, ~46rem centered. */
 const DOCK = "mx-auto w-full max-w-[46rem] px-4";
@@ -100,19 +99,13 @@ export function DockOverlay({
 	readingThinkingRevision,
 	onReadingThinking,
 	phase,
-	turns,
-	contextTokens,
-	cliContextWindow,
-	pricing,
 	composer,
 	onSubmitAnswer,
-	chatId,
-	onModelChange,
+	footer,
 	onReserve,
 	room,
 	plan,
 	onOpenPlan,
-	dictationSlot,
 	dictationCancel,
 	setupCta,
 	queuedSteers,
@@ -140,16 +133,11 @@ export function DockOverlay({
 	onReadingThinking: (v: string) => void;
 	/** Session phase at the pending question — scales the thinking field. */
 	phase: Phase3;
-	/** The session's usage log — the stats bar beneath the composer folds it. */
-	turns: TurnUsage[];
-	contextTokens: number | null;
-	cliContextWindow: ReturnType<typeof cliContextWindowOf>;
-	pricing?: SessionPricing;
 	composer: React.ReactNode;
 	onSubmitAnswer: (output: QuestionAnswerData) => void;
-	/** The model control's pass-through (the stats bar hosts it). */
-	chatId: string;
-	onModelChange: (model: string | undefined) => void;
+	/** The stats row beneath the composer/question shell (Chat's StatsBar):
+	 *  placed here, outside the morphing shell; its behavior is its own. */
+	footer: React.ReactNode;
 	/** Reports the dock's settled height (block + gradient); Chat's
 	 *  dockReserve feeds the transcript's spacer from it. */
 	onReserve: (h: number) => void;
@@ -162,9 +150,6 @@ export function DockOverlay({
 	plan?: React.ReactNode;
 	/** Opens the full-DAG popup (the marginalia + chip share it). */
 	onOpenPlan: () => void;
-	/** The dictation strip (mic button + live meter, components/dictation.tsx),
-	 *  rendered in the stats bar's middle slot. */
-	dictationSlot?: React.ReactNode;
 	/** Esc in a pending question's field stops dictation (the strip is the
 	 *  stats bar's; the stop belongs to the page-owned hook, threaded down). */
 	dictationCancel?: () => void;
@@ -578,15 +563,7 @@ export function DockOverlay({
 					{/* The stats row: beneath the composer/question shell, not
 					    flush to the screen bottom — static height, outside the
 					    morphing shell so it never joins a height animation. */}
-					<StatsBar
-						turns={turns}
-						contextTokens={contextTokens}
-						cliContextWindow={cliContextWindow}
-						pricing={pricing}
-						dictationSlot={dictationSlot}
-						chatId={chatId}
-						onModelChange={onModelChange}
-					/>
+					{footer}
 					{/* The scroll-down disc: anchored to the block's top edge, in the
 					    gradient's transparent band, so it never overlaps any dock
 					    element and rides every height change live (typing, a
