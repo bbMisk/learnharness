@@ -1,11 +1,10 @@
 "use client";
 
-import { useContext, useState } from "react";
-import { ChatActionsContext } from "@/components/chat-actions";
 import { DownloadIcon, MaximizeIcon } from "lucide-react";
 import { InvertDiscIcon } from "@/components/artifacts/invert-disc";
 import { Toggle } from "@/components/settings/controls";
 import { useSessionOverlay } from "@/components/session-overlay";
+import { useArtifactInversion } from "@/components/artifacts/artifact-ui";
 import { downloadFile } from "@/components/artifacts/download";
 import { SvgImage } from "@/components/artifacts/svg-image";
 import { embedLearnerImage, type VisualResult } from "@/src/core";
@@ -54,25 +53,12 @@ export function VisualOutputCard({
 	const snapshot = useImageSnapshot(result?.image?.snapshotId, chatId);
 	const svg = result?.image && snapshot.image ? embedLearnerImage(result.svg, snapshot.image) : result?.svg ?? "";
 	const overlay = useSessionOverlay();
-	const actions = useContext(ChatActionsContext);
 	// Pinned beside the chat (components/pinned-visual.tsx): the figure fits
 	// the panel's height too, and a click opens the zoomable fullscreen.
 	const pinned = usePinnedSlot();
-	// Brightness inversion (owner, 2026-10-07): the switch state PERSISTS on
-	// the steer record (details.ui.inverted) — seeded here, written through
-	// the silent artifact-ui route on toggle; without a chat page (tests,
-	// previews) it stays local-only. The toggled state also feeds the
-	// fullscreen overlay (openFigure).
-	const [inverted, setInverted] = useState(initialInverted);
-	const toggleInverted = (next: boolean) => {
-		setInverted(next);
-		if (!actions?.chatId || !messageId) return;
-		void fetch(`/api/chats/${actions.chatId}/artifact-ui`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ input: { messageId, inverted: next } }),
-		}).catch(() => {});
-	};
+	// Brightness inversion, persisted on the steer record. The toggled state
+	// also feeds the fullscreen overlay (openFigure).
+	const [inverted, toggleInverted] = useArtifactInversion(messageId, initialInverted);
 	const natural = result && typeof result.svg === "string" ? svgNaturalWidth(result.svg) : null;
 	if (!result || typeof result.svg !== "string") {
 		return (
