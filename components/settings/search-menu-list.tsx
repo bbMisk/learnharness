@@ -4,12 +4,13 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { fuzzyScore } from "@/src/core";
 
 /** The model picker's search, arrow-walk, row styling and scrolling machine.
- * Models and dictation languages supply only their catalog and row content.
+ * Models, providers and dictation languages supply only their catalog and
+ * row content.
  * The caller owns the shared MenuShell and dismissal behavior. */
 export function SearchMenuList<T>({
 	items, itemKey, searchTerms, compare, prioritize, isSelected, onPick, renderItem,
 	searchTestid, listTestid, optionTestid, placeholder, ariaLabel, loading, empty,
-	disabled = false,
+	disabled = false, rowClassName = "flex-col gap-0.5",
 }: {
 	items: readonly T[] | undefined;
 	itemKey: (item: T) => string;
@@ -30,6 +31,9 @@ export function SearchMenuList<T>({
 	loading?: string;
 	empty: string;
 	disabled?: boolean;
+	/** The option row's inner layout: stacked lines by default, one
+	 *  horizontal line for the provider picker. */
+	rowClassName?: string;
 }) {
 	const [query, setQuery] = useState("");
 	const [menuIdx, setMenuIdx] = useState<number | null>(null);
@@ -92,7 +96,7 @@ export function SearchMenuList<T>({
 					data-idx={i}
 					disabled={disabled}
 					onClick={() => onPick(item)}
-					className={`flex w-full flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left outline-none transition-colors hover:bg-muted ${
+					className={`flex w-full ${rowClassName} rounded-lg px-2 py-1.5 text-left outline-none transition-colors hover:bg-muted ${
 						i === menuIdx ? "bg-accent/40 ring-1 ring-inset ring-border" : ""
 					}${isSelected(item) && i !== menuIdx ? " bg-muted/60" : ""}`}
 				>{renderItem(item)}</button>

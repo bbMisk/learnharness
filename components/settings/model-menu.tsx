@@ -152,80 +152,25 @@ export function ProviderMenuList({
 	providers: { id: string; envVar: string; label: string }[];
 	onPick: (provider: { id: string; envVar: string; label: string }) => void;
 }) {
-	const [query, setQuery] = useState("");
-	const [menuIdx, setMenuIdx] = useState<number | null>(null);
-	const searchRef = useRef<HTMLInputElement>(null);
-	const listRef = useRef<HTMLUListElement>(null);
-
-	useEffect(() => {
-		searchRef.current?.focus();
-	}, []);
-
-	useEffect(() => {
-		if (menuIdx === null) return;
-		listRef.current?.querySelector(`[data-idx="${menuIdx}"]`)?.scrollIntoView({ block: "nearest" });
-	}, [menuIdx]);
-
-	const results = providers
-		.map((p) => ({ p, s: fuzzyScore(query, p.id, p.envVar, p.label) }))
-		.filter((r) => r.s !== null)
-		.sort((a, b) => b.s! - a.s! || a.p.id.localeCompare(b.p.id))
-		.map((r) => r.p);
-
 	return (
-		<>
-			<input
-				ref={searchRef}
-				data-testid="provider-search"
-				value={query}
-				onChange={(e) => {
-					setQuery(e.target.value);
-					setMenuIdx(null);
-				}}
-				onKeyDown={(e) => {
-					if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-						e.preventDefault();
-						e.stopPropagation();
-						if (results.length === 0) return;
-						setMenuIdx((i) =>
-							e.key === "ArrowDown"
-								? Math.min((i ?? -1) + 1, results.length - 1)
-								: Math.max((i ?? results.length) - 1, 0),
-						);
-					} else if (e.key === "Enter") {
-						const chosen = results[menuIdx ?? 0];
-						if (chosen) {
-							e.preventDefault();
-							e.stopPropagation();
-							onPick(chosen);
-						}
-					}
-				}}
-				placeholder="Search providers…"
-				className="lh-input mb-1.5 w-full rounded-lg border bg-background px-2 py-1.5 text-foreground outline-none focus:ring-1 focus:ring-ring"
-			/>
-			{results.length === 0 && (
-				<div className="px-2 py-3 text-center text-muted-foreground">No providers match.</div>
-			)}
-			<ul ref={listRef} data-testid="provider-list" className="flex max-h-72 flex-col overflow-y-auto px-1">
-				{results.map((p, i) => (
-					<li key={p.id}>
-						<button
-							type="button"
-							data-testid={`provider-option-${p.id.replace(/[^a-z0-9-]/gi, "_")}`}
-							data-idx={i}
-							onClick={() => onPick(p)}
-							className={`flex w-full items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left outline-none transition-colors hover:bg-muted ${
-								i === menuIdx ? "bg-accent/40 ring-1 ring-inset ring-border" : ""
-							}`}
-						>
-							<span className="truncate text-card-foreground">{p.label}</span>
-							<span className="shrink-0 font-mono text-[11px] text-muted-foreground">{p.envVar}</span>
-						</button>
-					</li>
-				))}
-			</ul>
-		</>
+		<SearchMenuList
+			items={providers}
+			itemKey={(p) => p.id}
+			searchTerms={(p) => [p.id, p.envVar, p.label]}
+			compare={(a, b) => a.id.localeCompare(b.id)}
+			isSelected={() => false}
+			onPick={onPick}
+			searchTestid="provider-search"
+			listTestid="provider-list"
+			optionTestid={(p) => `provider-option-${p.id.replace(/[^a-z0-9-]/gi, "_")}`}
+			placeholder="Search providers…"
+			empty="No providers match."
+			rowClassName="items-center justify-between gap-3"
+			renderItem={(p) => <>
+				<span className="truncate text-card-foreground">{p.label}</span>
+				<span className="shrink-0 font-mono text-[11px] text-muted-foreground">{p.envVar}</span>
+			</>}
+		/>
 	);
 }
 
