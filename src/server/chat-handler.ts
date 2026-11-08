@@ -54,8 +54,8 @@ import { hasProbeDone, hasUnresolvedQuestion } from "../core/native-messages.ts"
 import { withTeachingStyle } from "../core/cram.ts";
 import { effectiveQuestionType } from "../core/question-type.ts";
 import { composeInstructions } from "../agent/teacher-agent.ts";
-import { ensureCompacted, kickCompaction, effectiveThresholdTokens } from "./compaction.ts";
-import { catalogContextLimits, prepareConnectionCatalog } from "./model-catalog.ts";
+import { ensureCompacted, kickCompaction } from "./compaction.ts";
+import { prepareConnectionCatalog } from "./model-catalog.ts";
 import { emit } from "../core/events.ts";
 import { settledTurnResponse } from "./turn-runs.ts";
 import { asAgentMessages } from "../core/native-messages.ts";
@@ -300,17 +300,13 @@ export async function handleChatInput(
 		await projectInstructions(record.projectId),
 		modelInstructionsFor(effective.agent.modelInstructions, conversation),
 	].filter(Boolean).join("\n\n");
-	const modelIdForCompaction = `${conversationEngine.model.provider}:${conversationEngine.model.id}`;
 	await ensureCompacted(
 		{
 			chatStore: stores.chatStore,
 			engine: piEngineForSpec(conversation, true, undefined, retentionForSlot("strong")),
 			canStart: () => connectionBackgroundAllowed(conversation.provider),
 			kind: record.kind === "practice" ? "practice" : hasProbeDone(record.messages) ? "teach" : "probe",
-			thresholdTokens: effectiveThresholdTokens(
-				effective.compaction?.thresholdTokens,
-				catalogContextLimits().get(modelIdForCompaction),
-			),
+			thresholdTokens: effective.compaction?.thresholdTokens,
 			systemPromptTokens: Math.ceil((composeInstructions(record.kind === "practice" ? "practice" : "teacher").length + projectContext.length) / 4),
 		},
 		chatId,
@@ -676,16 +672,12 @@ export async function handleChatInput(
 						if (!spec || !connectionBackgroundAllowed(spec.provider)) return null;
 						let kickEngine: PiEngine;
 						try { kickEngine = piEngineForSpec(spec, true, undefined, retentionForSlot("strong")); } catch { return null; }
-						const kickModelId = `${kickEngine.model.provider}:${kickEngine.model.id}`;
 						return {
 							chatStore: stores.chatStore,
 							engine: kickEngine,
 							canStart: () => connectionBackgroundAllowed(spec.provider),
 							kind: freshRecord.kind === "practice" ? "practice" : hasProbeDone(freshRecord.messages) ? "teach" : "probe",
-							thresholdTokens: effectiveThresholdTokens(
-								fresh.compaction?.thresholdTokens,
-								catalogContextLimits().get(kickModelId),
-							),
+							thresholdTokens: fresh.compaction?.thresholdTokens,
 							systemPromptTokens: Math.ceil(composeInstructions(freshRecord.kind === "practice" ? "practice" : "teacher").length / 4),
 						};
 					}, chatId);
