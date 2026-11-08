@@ -4,16 +4,20 @@ import { useContext, useEffect, useState } from "react";
 import { CheckIcon, ChevronDownIcon, SettingsIcon, XIcon } from "lucide-react";
 import { JobsContext } from "@/components/jobs-context";
 import { ChatActionsContext } from "@/components/chat-actions";
-import { isModelsRefusal, isProviderKeyRefusal, type JobKind, type JobRecord } from "@/src/core";
+import { isModelsRefusal, isProviderKeyRefusal, type ArtifactPartProps, type JobKind, type JobRecord } from "@/src/core";
 import { BrailleSpinner } from "@/components/braille-spinner";
 import { JobDetails, JobResult } from "@/components/job-details";
 import { jobDisplay, jobElapsedMs } from "@/src/core";
 
 /**
  * The dispatch card (contracts.ts "THE ASYNC PROTOCOL" §4): the tool-call
- * box for a background sub-agent. The tool part's output is the FIRE-AND-
- * FORGET ACK (a string) — never the result. Live status comes from the
- * chat-view jobs feed via JobsContext, matched by toolCallId:
+ * box for a background sub-agent — the registry's renderer for every
+ * dispatch tool (research, pdf, demo, visual), the job kind read from the
+ * part's tool name. The tool part's output is the FIRE-AND-FORGET ACK (a
+ * string) — never the result, which rides the steer message below (the
+ * kind's own output card). Nothing renders until the ack lands. Live
+ * status comes from the chat-view jobs feed via JobsContext, matched by
+ * toolCallId:
  *
  *   job unknown → "dispatched" pulse (the jobs feed hasn't seen it yet)
  *   running     → live activity card (activity line + elapsed)
@@ -28,7 +32,12 @@ const KIND_LABEL: Record<JobKind, string> = {
 	pdf: "PDF reader",
 };
 
-export function DispatchCard({ toolCallId, kind }: { toolCallId: string; kind: JobKind }) {
+export function DispatchCard({ part }: ArtifactPartProps) {
+	if (part.state !== "output-available") return null;
+	return <DispatchStatus toolCallId={part.toolCallId} kind={part.type.slice("tool-".length) as JobKind} />;
+}
+
+function DispatchStatus({ toolCallId, kind }: { toolCallId: string; kind: JobKind }) {
 	const jobs = useContext(JobsContext);
 	const job = jobs.find((j) => j.toolCallId === toolCallId) ?? null;
 	const label = KIND_LABEL[kind];

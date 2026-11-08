@@ -55,7 +55,7 @@ describe("agent visibility without changing delivery", () => {
 		assert.equal(JSON.stringify(ready), before);
 	});
 	it("keeps delivered details accessible and mounts previews only when opened", () => {
-		const html = renderToStaticMarkup(<JobsContext.Provider value={[{ ...ready, status: "done" }]}><DispatchCard toolCallId="draw" kind="visual" /></JobsContext.Provider>);
+		const html = renderToStaticMarkup(<JobsContext.Provider value={[{ ...ready, status: "done" }]}><DispatchCard part={{ type: "tool-visual", state: "output-available", toolCallId: "draw" }} /></JobsContext.Provider>);
 		assert.match(html, /<details/); assert.match(html, /Inspect Figure agent/); assert.match(html, /Delivered/);
 		assert.doesNotMatch(html, /data-testid="visual-svg"/, "closed inspectors do not mount expensive previews");
 	});

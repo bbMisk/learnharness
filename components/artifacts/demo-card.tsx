@@ -6,13 +6,11 @@ import { Toggle } from "@/components/settings/controls";
 import { InvertDiscIcon } from "@/components/artifacts/invert-disc";
 import { ChatActionsContext } from "@/components/chat-actions";
 import { downloadFile, slugFilename } from "@/components/artifacts/download";
-import { DispatchCard } from "@/components/artifacts/dispatch-card";
 import { ExpandButton, PinButton } from "@/components/pinned-visual";
 import {
 	buildDemoDocument,
 	loadDemoRuntimes,
 	peekDemoRuntimes,
-	type ArtifactPartProps,
 	type DemoResult,
 	type DemoRenderer,
 	type DemoRuntimes,
@@ -114,14 +112,6 @@ export function reduceDemoBridgeState(state: DemoBridgeState, data: unknown): De
 }
 
 // ─── the demo card ──────────────────────────────────────────────────────────
-
-/** The demo tool-call box: the part's output is the dispatch ack — the box
- * is the DispatchCard (live status via the chat view's jobs feed). The demo
- * itself renders from the steer message via DemoOutputCard. */
-export function DemoCard({ part }: ArtifactPartProps) {
-	if (part.state !== "output-available") return null;
-	return <DispatchCard toolCallId={part.toolCallId} kind="demo" />;
-}
 
 /** The demo artifact — exported: the steer card renders the delivered
  *  result. `messageId` + `initialInverted` carry the PERSISTED invert

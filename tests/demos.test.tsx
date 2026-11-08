@@ -36,17 +36,15 @@ import { PATHS } from "../config.ts";
 import {
 	buildDemoSrcDoc,
 	DEMO_BRIDGE_SCRIPT,
-	DemoCard,
 	DemoErrorChip,
 	INITIAL_DEMO_BRIDGE_STATE,
 	reduceDemoBridgeState,
 } from "../components/artifacts/demo-card.tsx";
-import { svgNaturalWidth, VisualCard, VisualOutputCard } from "../components/artifacts/visual-card.tsx";
+import { svgNaturalWidth, VisualOutputCard } from "../components/artifacts/visual-card.tsx";
 import { slugFilename } from "../components/artifacts/download.ts";
 import { chartSize } from "../components/session-overlay.tsx";
 import { SubagentSteerCard } from "../components/artifacts/steer-card.tsx";
 import { DispatchCard } from "../components/artifacts/dispatch-card.tsx";
-import { JobCard, PdfJobCard } from "../components/artifacts/job-card.tsx";
 import { ToolCallCard } from "../components/artifacts/tool-call-card.tsx";
 import { JobsContext } from "../components/jobs-context.ts";
 import { demoInputSchema, jobTools, pdfInputSchema, visualInputSchema } from "../src/agent/tools/jobs.ts";
@@ -262,7 +260,7 @@ describe("dispatch card rendering (the tool-call ack box)", () => {
 	it("renders a live activity card while the job runs", () => {
 		const html = renderToStaticMarkup(
 			<JobsContext.Provider value={[mkJob("running")]}>
-				<JobCard part={ackPart as never} />
+				<DispatchCard part={ackPart as never} />
 			</JobsContext.Provider>,
 		);
 		assert.match(html, /Research agent/);
@@ -273,7 +271,7 @@ describe("dispatch card rendering (the tool-call ack box)", () => {
 	it("renders the dispatched pulse when the poll has not seen the job yet", () => {
 		const html = renderToStaticMarkup(
 			<JobsContext.Provider value={[]}>
-				<JobCard part={ackPart as never} />
+				<DispatchCard part={ackPart as never} />
 			</JobsContext.Provider>,
 		);
 		assert.match(html, /Research agent/);
@@ -283,7 +281,7 @@ describe("dispatch card rendering (the tool-call ack box)", () => {
 	it("settles to a quiet finished one-liner when the worker is done", () => {
 		const html = renderToStaticMarkup(
 			<JobsContext.Provider value={[mkJob("done", "delivered")]}>
-				<JobCard part={ackPart as never} />
+				<DispatchCard part={ackPart as never} />
 			</JobsContext.Provider>,
 		);
 		assert.match(html, /Research agent/);
@@ -294,7 +292,7 @@ describe("dispatch card rendering (the tool-call ack box)", () => {
 	it("marks a failed job as failed", () => {
 		const html = renderToStaticMarkup(
 			<JobsContext.Provider value={[mkJob("error")]}>
-				<JobCard part={ackPart as never} />
+				<DispatchCard part={ackPart as never} />
 			</JobsContext.Provider>,
 		);
 		assert.match(html, /failed/i);
@@ -303,14 +301,14 @@ describe("dispatch card rendering (the tool-call ack box)", () => {
 	it("renders nothing for a still-streaming tool input", () => {
 		const html = renderToStaticMarkup(
 			<JobsContext.Provider value={[]}>
-				<JobCard part={{ ...ackPart, state: "input-streaming" } as never} />
+				<DispatchCard part={{ ...ackPart, state: "input-streaming" } as never} />
 			</JobsContext.Provider>,
 		);
 		assert.equal(html, "");
 	});
 
 	// sources v0 — the live browser smoke (2026-09-19) caught the pdf dispatch
-	// part rendering nothing: PdfJobCard is the fix.
+	// part rendering nothing: the registry maps pdf to DispatchCard.
 	it("pdf dispatch renders the live PDF-reader card while the job runs", () => {
 		const pdfJob: JobRecord = ({
 			id: "jp1",
@@ -324,7 +322,7 @@ describe("dispatch card rendering (the tool-call ack box)", () => {
 		}) as JobRecord;
 		const html = renderToStaticMarkup(
 			<JobsContext.Provider value={[pdfJob]}>
-				<PdfJobCard part={ackPart as never} />
+				<DispatchCard part={{ ...ackPart, type: "tool-pdf" } as never} />
 			</JobsContext.Provider>,
 		);
 		assert.match(html, /PDF reader/);
@@ -344,7 +342,7 @@ describe("dispatch card rendering (the tool-call ack box)", () => {
 		}) as JobRecord;
 		const html = renderToStaticMarkup(
 			<JobsContext.Provider value={[pdfJob]}>
-				<PdfJobCard part={ackPart as never} />
+				<DispatchCard part={{ ...ackPart, type: "tool-pdf" } as never} />
 			</JobsContext.Provider>,
 		);
 		assert.match(html, /PDF reader/);
@@ -1041,11 +1039,10 @@ describe("tool + renderer registry wiring", () => {
 		assert.equal(Value.Check(pdfInputSchema, { path: "/tmp/doc.pdf" }), false, "pdf requires a question");
 	});
 
-	it("the artifact renderer registry maps demo/visual to the W6 cards", () => {
-		assert.equal(artifactRenderers.demo, DemoCard);
-		assert.equal(artifactRenderers.visual, VisualCard);
-		// sources v0 — pdf maps to its dispatch card (the live-smoke gap)
-		assert.equal(artifactRenderers.pdf, PdfJobCard);
+	it("the artifact renderer registry maps every dispatch tool to the dispatch card", () => {
+		for (const t of ["research", "demo", "visual", "pdf"]) {
+			assert.equal(artifactRenderers[t], DispatchCard, `${t} renders the dispatch card`);
+		}
 		// sources v1 — the learner-filesystem set maps to the generic tool-call card
 		for (const t of ["read", "ls", "find", "grep"]) {
 			assert.equal(artifactRenderers[t], ToolCallCard, `${t} renders the tool-call card`);

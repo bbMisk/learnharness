@@ -7,9 +7,8 @@ import { InvertDiscIcon } from "@/components/artifacts/invert-disc";
 import { Toggle } from "@/components/settings/controls";
 import { useSessionOverlay } from "@/components/session-overlay";
 import { downloadFile } from "@/components/artifacts/download";
-import { DispatchCard } from "@/components/artifacts/dispatch-card";
 import { SvgImage } from "@/components/artifacts/svg-image";
-import { embedLearnerImage, type ArtifactPartProps, type VisualResult } from "@/src/core";
+import { embedLearnerImage, type VisualResult } from "@/src/core";
 import { useImageSnapshot } from "./use-image-snapshot";
 import { PinButton, usePinnedSlot } from "@/components/pinned-visual";
 
@@ -36,11 +35,6 @@ export function svgNaturalWidth(svg: string): number | null {
 	if (!px) return null;
 	const n = Number.parseFloat(px[1]!);
 	return Number.isFinite(n) && n > 0 ? n : null;
-}
-
-export function VisualCard({ part }: ArtifactPartProps) {
-	if (part.state !== "output-available") return null;
-	return <DispatchCard toolCallId={part.toolCallId} kind="visual" />;
 }
 
 /** The figure itself — exported: the steer card renders the delivered artifact. */

@@ -120,7 +120,7 @@ describe("DispatchCard — the BYOK refusal tone (owner, 2026-09-22)", () => {
 			<ChatActionsContext.Provider
 				value={{ chatId: "c1", syncFromServer: async () => true, sendText: () => {}, openSetup: () => {} }}
 			>
-				<DispatchCard toolCallId="t1" kind="research" />
+				<DispatchCard part={{ type: "tool-research", state: "output-available", toolCallId: "t1" }} />
 			</ChatActionsContext.Provider>
 		</JobsContext.Provider>
 	);
