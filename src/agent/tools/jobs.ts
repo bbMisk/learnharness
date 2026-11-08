@@ -26,10 +26,6 @@ export interface JobToolContext {
 	 *  input rides along because the spawn happens MID-STREAM, before
 	 *  onFinish persists the tool part — a transcript scan would race it. */
 	spawn: (job: JobRecord, input: ResearchInput | DemoInput | VisualInput | PdfInput) => void;
-	/** Search-provider availability, retained for existing composition seams.
-	 *  Research dispatch does not depend on it: web_fetch is keyless and
-	 *  web_search reports a missing provider as a recoverable tool result. */
-	searchAvailable?: () => boolean;
 }
 
 export const researchInputSchema = Type.Object({

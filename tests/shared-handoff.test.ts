@@ -242,7 +242,7 @@ test("Anthropic: the same record gives the prober's system and tools, plus a nat
 	const real = piEngineForSpec({ provider: "anthropic", id: "claude-opus-5-5", thinkingLevel: "off" });
 	const payloads: any[] = [];
 	const engine = { ...real, streamFn: ((m, c, o) => real.streamFn(m, c, { ...o, onPayload: (value: unknown) => { payloads.push(value); throw new Error("CLOSED: captured payload"); } })) as typeof real.streamFn };
-	const ctx = { chatId: record.id, chatStore, jobStore: undefined as never, deliver: () => {}, spawn: () => {}, searchAvailable: false };
+	const ctx = { chatId: record.id, chatStore, jobStore: undefined as never, deliver: () => {}, spawn: () => {} };
 	const proberTools = Object.values(createProberTools(ctx as never));
 	const teacher = createTeacherAgent(undefined, { engine, messages, sharedHandoff: { proberTools } });
 	await teacher.continue();

@@ -25,10 +25,8 @@ export interface SubagentRunOptions {
 	/** Test seam: a scripted engine replaces the role's production one. */
 	engine?: PiEngine;
 	systemPrompt: string;
-	/** Initial transcript (continuation semantics: ends user / toolResult). */
-	messages?: AgentMessage[];
-	/** Fresh-run prompt text (mutually exclusive with a continuation). */
-	prompt?: string;
+	/** The run's one user message; every run starts fresh from it. */
+	prompt: string;
 	/** Max model calls (the old stepCountIs safety net). */
 	maxTurns: number;
 	/** Abort mid-model-call (the real-kill semantics). */
@@ -55,15 +53,11 @@ export interface SubagentRunResult {
 	text: string;
 }
 
-export function subagentEngine(role: ModelRole, override?: PiEngine): PiEngine {
+export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRunOptions): Promise<SubagentRunResult> {
 	// BYOK (owner, 2026-09-22): no factory pins — the override is the only
 	// real path (the runner injects settings-resolved engines); a missed
 	// injection hits the honest thrower in models.ts instead of a guess.
-	return override ?? piEngineFor(role);
-}
-
-export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRunOptions): Promise<SubagentRunResult> {
-	const engine = subagentEngine(opts.role, opts.engine);
+	const engine = opts.engine ?? piEngineFor(opts.role);
 	let turns = 0;
 	// Debug recorder (owner, 2026-10-04): raw provider events per job run.
 	const providerEvents = opts.chatId ? providerEventObserver(opts.chatId, `job:${opts.role}`) : undefined;
@@ -78,7 +72,6 @@ export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRu
 			model: engine.model,
 			thinkingLevel: engine.level,
 			tools,
-			messages: opts.messages ?? [],
 		},
 		streamFn: backgroundCaptureStream(engine.streamFn, capture),
 		...(providerEvents ? { onProviderStreamEvent: providerEvents } : {}),
@@ -95,7 +88,6 @@ export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRu
 	const onAbort = () => agent.abort();
 	opts.abortSignal?.addEventListener("abort", onAbort, { once: true });
 
-	const before = opts.messages?.length ?? 0;
 	let step = 0;
 	let errorMessage: string | undefined;
 	let aborted = false;
@@ -128,12 +120,11 @@ export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRu
 					break;
 			}
 		});
-		if (opts.prompt !== undefined) await agent.prompt({
+		await agent.prompt({
 			role: "user",
 			content: opts.prompt,
 			timestamp: Date.now(),
 		});
-		else await agent.continue();
 	} catch (error) {
 		runFailure = error;
 		throw error;
@@ -151,11 +142,8 @@ export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRu
 	if (errorMessage !== undefined) throw new Error(errorMessage);
 
 	// 0.87.1: drop the seeded leading SystemMessage (transcript rework —
-	// see ui-stream's settleWith) before slicing past the input count, or
-	// the seed displaces the slice and the last INPUT message leaks in.
-	const newMessages = agent.state.messages
-		.filter((m) => (m as { role?: string }).role !== "system")
-		.slice(before);
+	// see ui-stream's settleWith).
+	const newMessages = agent.state.messages.filter((m) => (m as { role?: string }).role !== "system");
 	const assistants = newMessages.filter((m) => (m as { role?: string }).role === "assistant") as AssistantMessage[];
 	const last = assistants[assistants.length - 1];
 	const text = last

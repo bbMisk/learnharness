@@ -1,10 +1,14 @@
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { abortExtraction, extractionStatuses } from "../agent/subagents/extraction.ts";
 import { isJobLive } from "../agent/subagents/aborts.ts";
 import { coverageOf, storedCoverageSlots } from "../core/coverage.ts";
 import { deleteChatTraces, type ChatDeleteMode, type ChatDeletionStats } from "../core/graph-deletion.ts";
-import { titleFromPrompt, type ChatRecord } from "../core/contracts.ts";
+import { titleFromPrompt, type ChatRecord, type ChatSettings } from "../core/contracts.ts";
+import { emit } from "../core/events.ts";
 import { graphRevision } from "./graph.ts";
-import { stores } from "./stores.ts";
+import { clampChatLevel, validateChatSettings } from "./model-catalog.ts";
+import { parseSettingsBody } from "./settings-body.ts";
+import { effectiveSettings, stores } from "./stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
 import { clearTurnFailure } from "./turn-runs.ts";
 import { discardChatDeliveries } from "./jobs.ts";
@@ -202,4 +206,100 @@ export function sessionCoverage(record: ChatRecord | null): SessionCoverage | nu
 		running: extractionStatuses().some((run) => run.kind === "chat" && run.chatId === chatId),
 		lastFoldedAt,
 	};
+}
+
+/** What updateChatSettings did — the route maps it straight to HTTP
+ *  (`supported` rides only a catalog rejection, and only when set). */
+export type ChatSettingsUpdate =
+	| { ok: true; settings: ChatSettings }
+	| { ok: false; status: 400 | 404; error: string; supported?: ThinkingLevel[] };
+
+/**
+ * The per-chat settings write (PUT /api/chats/[id]/settings) — the model
+ * control (model-control wave) and the lesson's question type (owner,
+ * 2026-11-03). PER-SESSION MODELS (owner, 2026-09-28): this is THE
+ * in-session writer — the composer's control binds the session's own
+ * record; the strong slot is only the birth default and never reaches an
+ * existing session again.
+ *
+ * FIELD-LEVEL writes (fix, 2026-11-03): `body` names the fields it changes
+ * and they merge into the CURRENT record (see mergeChatSettings). The model
+ * picker sends a model pick as the pair and a level change as
+ * { thinkingLevel } alone, the Qs chip only `questionType`, so none can
+ * restore another's older value; a full object still replaces every group
+ * it names. Unknown keys are dropped; `{}` changes nothing.
+ *
+ * Validation is the catalog gate (src/server/model-catalog.ts): a model the
+ * write CHANGES must be in the catalog (unknown provider/model is a 400);
+ * the saved model re-sent unchanged is never re-checked
+ * (validateModelsSettings' discipline). Thinking levels never reject (owner,
+ * interlude 2026-09-22): a pinned level clamps to the named model's
+ * nearest supported and the clamped value is stored. The model pair is
+ * checked and clamped only when the write names it: a question-type write
+ * leaves a stored pin exactly as it was. Effective next turn by
+ * construction (agents are stateless per turn).
+ *
+ * THE WRITE BOUNDARY: synchronous end to end — nothing awaits between
+ * reading the current record and saving the merge, so a write that landed
+ * while this body was still arriving is the base, never lost and never
+ * compared against a stale snapshot. Open views of the chat (other tabs,
+ * other devices) refetch its settings on the narrow `chat-settings-changed`
+ * event — the transcript did not change.
+ */
+export function updateChatSettings(id: string, body: unknown): ChatSettingsUpdate {
+	const parsed = parseSettingsBody(body);
+	if (!parsed.ok) return { ok: false, status: 400, error: parsed.error };
+	const chat = getChat(id);
+	if (!chat) return { ok: false, status: 404, error: "Not found" };
+	const merged = mergeChatSettings(chat.settings, body, parsed.settings);
+	let settings = merged;
+	if (namesModelPair(body)) {
+		if (!sameModel(merged.model, chat.settings?.model)) {
+			const verdict = validateChatSettings(merged);
+			if (!verdict.ok) return { ok: false, status: 400, error: verdict.error, supported: verdict.supported };
+		}
+		// Clamp-on-write: against the merged model, else the record's strong slot.
+		settings = clampChatLevel(merged, effectiveSettings().models.strong);
+	}
+	stores.chatStore.saveSettings(id, settings);
+	emit("chat-settings-changed", { chatId: id });
+	return { ok: true, settings };
+}
+
+function asRecord(body: unknown): Record<string, unknown> {
+	return body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
+}
+
+/** Does the body name the model pair ({model, thinkingLevel})? */
+function namesModelPair(body: unknown): boolean {
+	const raw = asRecord(body);
+	return "model" in raw || "thinkingLevel" in raw;
+}
+
+/** The FIELD-LEVEL merge: the parsed body's fields applied onto the CURRENT
+ *  record's settings, each group only when the body names it:
+ *  - `model` named → the pair comes from the body (an absent level is
+ *    cleared — the picker's {model} still drops a stale level);
+ *  - only `thinkingLevel` named → the level changes on the CURRENT saved
+ *    model, so a window holding an older model can never write it back;
+ *  - `questionType`.
+ *  Anything else the record holds rides through. */
+function mergeChatSettings(current: ChatSettings | undefined, body: unknown, parsed: ChatSettings): ChatSettings {
+	const raw = asRecord(body);
+	const out: ChatSettings = { ...current };
+	if ("model" in raw) {
+		delete out.model;
+		delete out.thinkingLevel;
+		if (parsed.model) out.model = parsed.model;
+		if (parsed.thinkingLevel !== undefined) out.thinkingLevel = parsed.thinkingLevel;
+	} else if ("thinkingLevel" in raw) {
+		delete out.thinkingLevel;
+		if (parsed.thinkingLevel !== undefined) out.thinkingLevel = parsed.thinkingLevel;
+	}
+	if (parsed.questionType !== undefined) out.questionType = parsed.questionType;
+	return out;
+}
+
+function sameModel(a: ChatSettings["model"], b: ChatSettings["model"]): boolean {
+	return a?.provider === b?.provider && a?.id === b?.id;
 }

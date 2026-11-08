@@ -29,18 +29,16 @@ function isToolUIPart(part: UIMessage["parts"][number]): boolean {
  * Job tool parts (research/demo/visual) never pend client-side — the async
  * protocol resolves them server-side with an immediate ack (see
  * contracts/jobs.ts "THE ASYNC PROTOCOL"), so job tools are NOT returned
- * here. This file carries only the question gate and the shared scan helper.
+ * here. This file carries only the question gate.
  */
-export interface PendingToolCall {
+/** A pending question call. The occurrence fields are client-only identity:
+ * projection may group several native assistants. Never persisted or sent
+ * as part of an answer event. */
+export interface PendingQuestion {
 	toolCallId: string;
 	tool: string;
 	/** Tool input (quiz/ask args) — lets the composer pick note vs answer mode. */
 	input: unknown;
-}
-
-/** Client-only identity: projection may group several native assistants.
- * Never persisted or sent as part of an answer event. */
-export interface PendingQuestion extends PendingToolCall {
 	messageId: string;
 	contentIndex: number;
 	/** Unique call ids stay stable across live → persisted message stamps.
@@ -110,38 +108,24 @@ export function filterEnabledTools<T>(tools: Record<string, T>, enabled?: Enable
 	return out;
 }
 
-function findPending(messages: UIMessage[], names: readonly string[], authority?: string | PendingQuestion): PendingToolCall | null {
+/** The view's pending question: the native authority's exact occurrence
+ * (pendingQuestionOf — id, tool, source message and content index), found
+ * still input-available in the grouped view. Grouped view messages lose
+ * native assistant boundaries, so only that OWN part counts — it must have
+ * cleared validation; never fall back to an older available question.
+ * null authority = no native pending question. */
+export function findPendingToolCall(messages: UIMessage[], authority: PendingQuestion | null): PendingQuestion | null {
+	if (authority === null) return null;
 	for (let m = messages.length - 1; m >= 0; m--) {
-		const msg = messages[m]!;
-		for (let p = 0; p < msg.parts.length; p++) {
-			const part = msg.parts[p]!;
-			if (isToolUIPart(part) && part.state === "input-available") {
-				const tool = part.type.slice("tool-".length);
-				if (!names.includes(tool)) continue;
-				if (typeof authority === "object") {
-					if (part.toolCallId !== authority.toolCallId || tool !== authority.tool ||
-						part.sourceMessageId !== authority.messageId || part.sourceContentIndex !== authority.contentIndex) continue;
-					return authority;
-				}
-				if (authority === undefined || part.toolCallId === authority) {
-					return { toolCallId: part.toolCallId as string, tool, input: part.input };
-				}
-			}
+		for (const part of messages[m]!.parts) {
+			if (!isToolUIPart(part) || part.state !== "input-available") continue;
+			const tool = part.type.slice("tool-".length);
+			if (!(QUESTION_TOOLS as readonly string[]).includes(tool)) continue;
+			if (part.toolCallId === authority.toolCallId && tool === authority.tool &&
+				part.sourceMessageId === authority.messageId && part.sourceContentIndex === authority.contentIndex) return authority;
 		}
 	}
 	return null;
-}
-
-/** Grouped view messages lose native assistant boundaries. Native callers
- * supply the exact occurrence, not just an id: its OWN part must have cleared
- * validation. Never fall back to an older available question.
- * null means no native pending question; undefined keeps view-only callers.
- * The string overload is retained for view-only/id-filter consumers. */
-export function findPendingToolCall(messages: UIMessage[], authority: PendingQuestion | null): PendingQuestion | null;
-export function findPendingToolCall(messages: UIMessage[], authority?: string | null): PendingToolCall | null;
-export function findPendingToolCall(messages: UIMessage[], authority?: string | PendingQuestion | null): PendingToolCall | null {
-	if (authority === null) return null;
-	return findPending(messages, QUESTION_TOOLS, authority);
 }
 
 // ─── Turn activity label (2026-09-19, the “Writing a question…” fix) ──────

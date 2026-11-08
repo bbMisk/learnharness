@@ -50,6 +50,7 @@ import type { ChatStore } from "../core/ports.ts";
 import type { TurnUsage } from "../core/contracts.ts";
 import type { PiEngine } from "../agent/models.ts";
 import { runSubagent } from "../agent/subagents/pi-run.ts";
+import { catalogContextLimits } from "./model-catalog.ts";
 
 /** The summarizer's system prompt — server-owned operational framing,
  *  not model-facing doctrine (buildCompactionPrompt carries the shape). */
@@ -100,17 +101,15 @@ export interface CompactionDeps {
 	/** Eligibility only for NEW runs; structural waits still apply. */
 	canStart?: () => boolean;
 	chatStore: ChatStore;
-	/** The chat's conversation engine — also the summarizer's. */
+	/** The chat's conversation engine — also the summarizer's; its
+	 *  provider:id stamps the usage and the marker's provenance. */
 	engine: PiEngine;
-	/** provider:id of the engine (usage + marker provenance). */
-	modelId: string;
 	/** The session kind (summarizer wording: tutor vs practice). */
 	kind: "teach" | "practice" | "probe";
-	/** The effective trigger threshold, RESOLVED by the caller:
-	 *  min(settings threshold, contextWindow − reserve) — the owner's
-	 *  effective-trigger ruling. The catalog window lookup is the
-	 *  caller's (chat-handler has the model id at hand). */
-	thresholdTokens: number;
+	/** The settings threshold (absent = the default). The service
+	 *  tightens it to the engine's catalog window — the owner's
+	 *  effective-trigger ruling (effectiveThresholdTokens). */
+	thresholdTokens?: number;
 	/** The composed system prompt's token estimate (chars/4) — the
 	 *  projection the provider actually receives starts with it. */
 	systemPromptTokens: number;
@@ -151,6 +150,15 @@ export function effectiveThresholdTokens(settingTokens: number | undefined, cont
 	return Math.min(setting, Math.max(contextWindowTokens - COMPACTION_RESERVE_TOKENS, 1));
 }
 
+function engineModelId(engine: PiEngine): string {
+	return `${engine.model.provider}:${engine.model.id}`;
+}
+
+/** The deps' effective trigger: the setting against the engine's window. */
+function triggerTokens(deps: CompactionDeps): number {
+	return effectiveThresholdTokens(deps.thresholdTokens, catalogContextLimits().get(engineModelId(deps.engine)));
+}
+
 // ─── the estimate over the ACTIVE projection ────────────────────────────────
 
 /** The projected context estimate: what the next LLM call would carry.
@@ -175,12 +183,12 @@ export function projectedContextTokens(messages: readonly LhMessage[], systemPro
  *  caller — ensureCompacted). Reads the record fresh, cuts, summarizes,
  *  appends the marker, records usage, notifies. Never throws upward
  *  past the registry cleanup. */
-async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
+async function compact(deps: CompactionDeps, chatId: string, thresholdTokens: number): Promise<void> {
 	const record = deps.chatStore.getChat(chatId);
 	if (!record) return;
 	const messages = record.messages;
 	const tokensBefore = projectedContextTokens(messages, deps.systemPromptTokens);
-	if (tokensBefore <= deps.thresholdTokens) return; // settled beneath while we waited
+	if (tokensBefore <= thresholdTokens) return; // settled beneath while we waited
 
 	const cut = compactionCutIndex(messages);
 	if (cut <= 0 || cut >= messages.length) return; // no history can be dropped
@@ -233,10 +241,11 @@ async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
 		if (!trimmed) return; // an empty summary is a refusal artifact — leave the record honest
 
 		const firstKept = messages[cut]!;
+		const modelId = engineModelId(deps.engine);
 		const details: CompactionDetails = {
 			firstKeptMessageId: firstKept.id,
 			tokensBefore,
-			model: deps.modelId,
+			model: modelId,
 			at: new Date().toISOString(),
 		};
 		// Lesson tracking (owner, 2026-11-02): the problem/mistake ids can
@@ -261,7 +270,7 @@ async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
 				id: crypto.randomUUID(),
 				messageId: marker.id,
 				at: details.at,
-				model: deps.modelId,
+				model: modelId,
 				steps: [
 					{
 						inputTokens: usage.input,
@@ -307,6 +316,7 @@ async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
  * under concurrency through the registry mutex.
  */
 export async function ensureCompacted(deps: CompactionDeps, chatId: string): Promise<void> {
+	const thresholdTokens = triggerTokens(deps);
 	// Skipped under tests, the extraction-trigger precedent: scripted
 	// chats are fixtures — the service itself is tested directly with an
 	// injected summarizer.
@@ -315,9 +325,9 @@ export async function ensureCompacted(deps: CompactionDeps, chatId: string): Pro
 	if (deps.canStart?.() === false) return;
 	const record = deps.chatStore.getChat(chatId);
 	if (!record) return;
-	if (projectedContextTokens(record.messages, deps.systemPromptTokens) <= deps.thresholdTokens) return;
+	if (projectedContextTokens(record.messages, deps.systemPromptTokens) <= thresholdTokens) return;
 	if (state().inFlight.has(chatId)) return; // a concurrent caller started it while we awaited
-	const run = compact(deps, chatId);
+	const run = compact(deps, chatId, thresholdTokens);
 	state().inFlight.set(chatId, run);
 	try {
 		await run;
@@ -337,11 +347,13 @@ export async function ensureCompacted(deps: CompactionDeps, chatId: string): Pro
 export function kickCompaction(buildDeps: () => CompactionDeps | null, chatId: string): void {
 	if (state().inFlight.has(chatId)) return;
 	const deps = buildDeps();
-	if (!deps || deps.canStart?.() === false) return;
+	if (!deps) return;
+	const thresholdTokens = triggerTokens(deps);
+	if (deps.canStart?.() === false) return;
 	const record = deps.chatStore.getChat(chatId);
 	if (!record) return;
-	if (projectedContextTokens(record.messages, deps.systemPromptTokens) <= deps.thresholdTokens) return;
-	const run = compact(deps, chatId);
+	if (projectedContextTokens(record.messages, deps.systemPromptTokens) <= thresholdTokens) return;
+	const run = compact(deps, chatId, thresholdTokens);
 	state().inFlight.set(chatId, run);
 	void run.finally(() => state().inFlight.delete(chatId));
 }

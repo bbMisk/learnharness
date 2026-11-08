@@ -286,11 +286,6 @@ export function searchStatus(): SearchStatus {
 	return { available, engine, reason };
 }
 
-/** Search status only — research itself remains available without a key. */
-export function searchAvailable(): boolean {
-	return searchStatus().available;
-}
-
 /** The LIVE adapter, or null when unavailable. Composed fresh each call —
  *  the tool layer (Teacher stream) calls this once per search, so key
  *  rotations take effect immediately. */
