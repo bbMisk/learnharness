@@ -115,7 +115,9 @@ test("the real picker searches by language, chooses with Arrow/Enter, and restor
 		assert.ok(trigger().className.split(" ").includes(token), `shared settings trigger: ${token}`);
 	}
 	await click(trigger());
-	assert.match(input().className, /lh-input/);
+	for (const token of ["h-7", "font-ui", "text-xs"]) {
+		assert.ok(input().className.split(" ").includes(token), `menu-sized search field: ${token}`);
+	}
 	assert.equal(document.activeElement, input());
 	assert.equal(document.querySelector('[data-testid="dictation-language-list"] button')!.textContent, "Multilingual");
 	await search("Polish");

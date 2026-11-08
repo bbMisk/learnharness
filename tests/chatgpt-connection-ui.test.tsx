@@ -201,7 +201,7 @@ test("email-only connected selector and Manage remain responsive; account select
  assert.doesNotMatch(byTest("chatgpt-connection").textContent!, /private-registration|private-issued| · active|signed-out/);
  assert.match(byTest("chatgpt-connection").firstElementChild!.className, /items-center/);
  const row = byTest("chatgpt-connection").firstElementChild!;
- assert.equal(row.children[0]!.textContent, "ChatGPT"); assert.equal(row.children[1]!.tagName, "SELECT"); assert.equal(row.children[2]!.textContent, "Manage…");
+ assert.equal(row.children[0]!.textContent, "ChatGPT"); assert.equal(row.children[1]!.querySelector("select")?.tagName, "SELECT"); assert.equal(row.children[2]!.textContent, "Manage…");
  assert.match(row.children[2]!.className, /text-muted-foreground/); assert(!row.textContent?.includes("Connected"));
  await selectAccount("ChatGPT account", "second"); assert.deepEqual(f.calls.select, ["second"]); assert.equal(f.status.allowBackgroundUse, false);
  await click(button("Manage…")); assert(byTest("chatgpt-managed-identity").textContent?.includes("second@example.invalid"));
@@ -317,7 +317,7 @@ test("missing eligibility remains compatible but never implies authorization rec
 });
 test("connected setup row retains the email dropdown before muted Manage", async () => {
  fixture(connected()); await mount(<ChatGPTConnection setup />);
- const row = byTest("chatgpt-connection").firstElementChild!; assert.equal(row.children[1]!.tagName, "SELECT"); assert.equal(row.children[2]!.textContent, "Manage…"); assert.match(row.children[2]!.className, /text-muted-foreground/);
+ const row = byTest("chatgpt-connection").firstElementChild!; assert.equal(row.children[1]!.querySelector("select")?.tagName, "SELECT"); assert.equal(row.children[2]!.textContent, "Manage…"); assert.match(row.children[2]!.className, /text-muted-foreground/);
 });
 test("Add accounts reuses the existing dialog's initial focus for the pre-auth transition", async () => {
  const previous = HTMLElement.prototype.focus; const focused: HTMLElement[] = [];

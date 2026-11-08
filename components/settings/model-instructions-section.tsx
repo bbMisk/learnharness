@@ -7,7 +7,7 @@ import {
 	type AgentSettings,
 	type ModelCatalogEntry,
 } from "@/src/core";
-import { SettingsGroup } from "./controls";
+import { SettingsGroup, ThinSelect } from "./controls";
 
 /** Optional per-model tutor instructions (core/model-instructions.ts). */
 export function ModelInstructionsSection({
@@ -53,19 +53,19 @@ export function ModelInstructionsSection({
 				<p className="text-xs text-muted-foreground">Connect a model provider to add instructions.</p>
 			) : (
 				<div className="space-y-2 py-1">
-					<select
-						aria-label="Model"
-						data-testid="model-instructions-model"
+					<ThinSelect
+						ariaLabel="Model"
+						testid="model-instructions-model"
 						value={key}
-						onChange={(event) => setSelected(event.target.value)}
-						className="w-full min-w-0 rounded-sm border border-border bg-background px-2 py-1.5 text-sm text-foreground"
+						onChange={setSelected}
+						className="w-full min-w-0"
 					>
 						{options.map((o) => (
 							<option key={o.key} value={o.key}>
 								{saved[o.key] ? `${o.label} ·` : o.label}
 							</option>
 						))}
-					</select>
+					</ThinSelect>
 					<textarea
 						aria-label="Instructions for this model"
 						data-testid="model-instructions-text"

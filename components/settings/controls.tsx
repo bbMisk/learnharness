@@ -193,7 +193,8 @@ export function Toggle({
 	);
 }
 
-/** A thin select — native element, options as given. */
+/** A thin select — native element, options as given, dressed like the
+ *  custom ▾ menu triggers (SettingsMenuTrigger): no native arrow, an inline ▾. */
 export function ThinSelect({
 	value,
 	onChange,
@@ -201,6 +202,7 @@ export function ThinSelect({
 	ariaLabel,
 	testid,
 	disabled,
+	className,
 }: {
 	value: string;
 	onChange: (next: string) => void;
@@ -208,21 +210,26 @@ export function ThinSelect({
 	ariaLabel: string;
 	testid?: string;
 	disabled?: boolean;
+	/** Sizing for the wrapper (e.g. "w-full min-w-0"). */
+	className?: string;
 }) {
 	return (
-		<select
-			value={value}
-			aria-label={ariaLabel}
-			data-testid={testid}
-			disabled={disabled}
-			onChange={(e) => onChange(e.target.value)}
-			className={cn(
-				"h-7 rounded-sm border border-border bg-background px-1.5 font-ui text-xs text-foreground outline-none",
-				disabled && "cursor-not-allowed",
-			)}
-		>
-			{children}
-		</select>
+		<span className={cn("relative inline-flex", className)}>
+			<select
+				value={value}
+				aria-label={ariaLabel}
+				data-testid={testid}
+				disabled={disabled}
+				onChange={(e) => onChange(e.target.value)}
+				className={cn(
+					"h-7 w-full min-w-0 appearance-none rounded-sm border border-border bg-background pl-1.5 pr-5 font-ui text-xs text-foreground outline-none transition-colors",
+					disabled ? "cursor-not-allowed" : "hover:border-muted-foreground/50",
+				)}
+			>
+				{children}
+			</select>
+			<span aria-hidden className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 font-ui text-xs text-muted-foreground">▾</span>
+		</span>
 	);
 }
 

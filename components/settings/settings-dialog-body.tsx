@@ -280,7 +280,11 @@ export function SettingsDialogBody({
 									? "bg-accent text-foreground"
 									: "text-muted-foreground hover:bg-accent hover:text-foreground"
 							}`}
-							onClick={() => setActive(s.id)}
+							onClick={() => {
+								// Each section opens at its top, not the last one's scroll.
+								if (contentRef.current) contentRef.current.scrollTop = 0;
+								setActive(s.id);
+							}}
 						>
 							{s.label}
 						</button>

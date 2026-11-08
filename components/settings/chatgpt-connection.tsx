@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { ChatGPTStatus } from "@/src/core";
 import { ConnectionDialog, ConnectionFooter, ConnectionRow } from "./connection-controls";
 import { Button } from "@/components/ui/button";
-import { Toggle } from "./controls";
+import { ThinSelect, Toggle } from "./controls";
 import { useChatGPTBridge } from "./subscription-client";
 
 export const CHATGPT_NOTICE = "LearnHarness stores your ChatGPT account details and credentials in an unencrypted local file on this device. When this connection is used, relevant conversation context, learning material, and tool results are sent directly to OpenAI. ChatGPT plan limits apply; any additional credits are authorized and managed in ChatGPT, not LearnHarness.";
@@ -336,9 +336,9 @@ export function ChatGPTConnection({ labelClassName }: { setup?: boolean; labelCl
 	const accounts = ui.status.accounts.filter((a) => a.connected);
 	return <div className="flex flex-col gap-2" data-testid="chatgpt-connection">
 		<ConnectionRow label="ChatGPT" labelClassName={labelClassName} actionTestid={active ? undefined : "chatgpt-login"} action={active ? "Manage…" : "Connect"} disabled={!ui.status.available || ui.busy || ui.status.pending} onAction={() => active ? ui.manage(active.id) : ui.connect()}>
-			{active && <select aria-label="ChatGPT account" value={active.id} disabled={ui.busy || ui.status.pending} onChange={(event) => ui.select(event.target.value)} className="min-w-0 rounded-sm border border-border bg-background px-2 py-1 text-xs text-foreground">
+			{active && <ThinSelect ariaLabel="ChatGPT account" value={active.id} disabled={ui.busy || ui.status.pending} onChange={(id) => ui.select(id)} className="min-w-0">
 				{accounts.map((a) => <option key={a.id} value={a.id}>{a.email || "ChatGPT account"}</option>)}
-			</select>}
+			</ThinSelect>}
 		</ConnectionRow>
 		{ui.inlineError && <p role="alert" className="text-xs text-red-400">{ui.inlineError}</p>}
 		{ui.warning && <div role="alert" data-testid="chatgpt-revocation-warning" className="rounded-sm border border-border px-3 py-2 text-xs text-muted-foreground">{ui.warning}<button type="button" className="ml-2 cursor-pointer underline underline-offset-2" onClick={ui.dismissWarning}>Dismiss</button></div>}

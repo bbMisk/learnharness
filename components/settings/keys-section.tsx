@@ -201,8 +201,8 @@ function KeyTableRow({
 	if (expanded && !envOwned) {
 		return (
 			<div data-testid={testid}>
-				<div className="flex items-center gap-2 rounded-sm px-1 py-1.5" data-testid={`${testid}-editor`}>
-					<span className="shrink-0 font-ui text-xs text-foreground">{label}</span>
+				<div className="-mx-1 flex items-center gap-2 rounded-sm px-1 py-1.5" data-testid={`${testid}-editor`}>
+					<span className="shrink-0 font-prose text-(length:--lh-prose-size) text-foreground">{label}</span>
 					<input
 						type="text"
 						value={value}
@@ -263,11 +263,11 @@ function KeyTableRow({
 				aria-expanded={expanded}
 				data-testid={`${testid}-row`}
 				onClick={() => !envOwned && onToggle()}
-				className={`flex w-full items-center justify-between gap-3 rounded-sm px-1 py-1.5 text-left ${
+				className={`-mx-1 flex w-[calc(100%+0.5rem)] items-center justify-between gap-3 rounded-sm px-1 py-1.5 text-left ${
 					envOwned ? "cursor-default" : "cursor-pointer transition-colors hover:bg-accent/50"
 				}`}
 			>
-				<span className="font-ui text-xs text-foreground">{label}</span>
+				<span className="font-prose text-(length:--lh-prose-size) text-foreground">{label}</span>
 				<span className="flex items-center gap-2">
 					{docsUrl && (
 						<a
@@ -318,7 +318,7 @@ function AddProviderRow({
 				aria-expanded={open}
 				data-testid="add-provider"
 				onClick={() => setOpen((v) => !v)}
-				className="flex w-full items-center justify-between gap-3 rounded-sm px-1 py-1.5 text-left font-ui text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+				className="-mx-1 flex w-[calc(100%+0.5rem)] items-center justify-between gap-3 rounded-sm px-1 py-1.5 text-left font-ui text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
 			>
 				<span>+ Add a provider</span>
 				{addable.length > 0 && <span className="font-mono text-[11px]">{addable.length}</span>}
@@ -536,14 +536,14 @@ export function KeysSection({
 					/>
 				)}
 				{adding && (
-					<div className="flex items-center gap-2 rounded-sm px-1 py-1.5" data-testid={`key-${adding.id}-editor`}>
-						<span className="shrink-0 font-ui text-xs text-foreground">{adding.label}</span>
+					<div className="-mx-1 flex items-center gap-2 rounded-sm px-1 py-1.5" data-testid={`key-${adding.id}-editor`}>
+						<span className="shrink-0 font-prose text-(length:--lh-prose-size) text-foreground">{adding.label}</span>
 						<AddProviderEditor provider={adding} onSave={(v) => void saveNewProvider(adding, v)} onCancel={() => setAdding(null)} error={addError} />
 					</div>
 				)}
 				{unknownRows.length > 0 && <div data-testid="group-unknown-keys">
-					{unknownRows.map((status) => <div key={status.id} data-testid={`unknown-${status.id}`} className="flex items-center justify-between gap-3 px-1 py-1.5 opacity-40">
-						<span className="font-mono text-xs text-foreground">{status.id}</span>
+					{unknownRows.map((status) => <div key={status.id} data-testid={`unknown-${status.id}`} className="-mx-1 flex items-center justify-between gap-3 px-1 py-1.5 opacity-40">
+						<span className="font-prose text-(length:--lh-prose-size) text-foreground">{status.id}</span>
 						<span className="font-mono text-[11px] text-muted-foreground">{status.masked}</span>
 					</div>)}
 				</div>}
@@ -578,7 +578,7 @@ export function KeysSection({
 				))}
 				{label === "Dictation" && <>
 					<DictationLanguageSetting />
-					<p data-testid="dictation-setup-hint" className="px-1 text-[11px] leading-relaxed text-muted-foreground/70">
+					<p data-testid="dictation-setup-hint" className="text-[11px] leading-relaxed text-muted-foreground/70">
 						Create a <a
 							href="https://console.deepgram.com/"
 							target="_blank"
@@ -681,9 +681,9 @@ function CustomEndpointRow({
 				data-testid="custom-endpoint-row-btn"
 				aria-expanded={expanded}
 				onClick={onToggle}
-				className="flex w-full items-center justify-between gap-3 rounded-sm px-1 py-1.5 text-left cursor-pointer transition-colors hover:bg-accent/50"
+				className="-mx-1 flex w-[calc(100%+0.5rem)] items-center justify-between gap-3 rounded-sm px-1 py-1.5 text-left cursor-pointer transition-colors hover:bg-accent/50"
 			>
-				<span className="font-ui text-xs text-foreground">Custom endpoint</span>
+				<span className="font-prose text-(length:--lh-prose-size) text-foreground">Custom endpoint</span>
 				<span data-testid="custom-endpoint-status" className="max-w-[60%] truncate font-mono text-[11px] text-muted-foreground">
 					{line}
 				</span>
@@ -854,9 +854,9 @@ function CustomEndpointEditor({
 	}
 
 	return (
-		<div data-testid="custom-endpoint-editor" className="flex flex-col gap-2 rounded-sm px-1 py-1.5">
+		<div data-testid="custom-endpoint-editor" className="-mx-1 flex flex-col gap-2 rounded-sm px-1 py-1.5">
 			<div className="flex items-center gap-2">
-				<span className="shrink-0 font-ui text-xs text-foreground">Custom endpoint</span>
+				<span className="shrink-0 font-prose text-(length:--lh-prose-size) text-foreground">Custom endpoint</span>
 				<input
 					type="text"
 					value={baseUrl}
