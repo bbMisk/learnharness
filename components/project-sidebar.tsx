@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useChatDrop } from "@/components/chat-drag";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -28,6 +28,24 @@ export function ProjectSidebar({
 		[saving, setSaving] = useState(false);
 	const router = useRouter(),
 		pathname = usePathname();
+	// The list is capped at 40vh: when more rows sit below the fold, its
+	// bottom edge fades out, so a clipped list reads as scrollable.
+	const listRef = useRef<HTMLElement>(null);
+	const [more, setMore] = useState(false);
+	useEffect(() => {
+		const el = listRef.current;
+		if (!el) return;
+		const check = () => setMore(el.scrollHeight - el.scrollTop - el.clientHeight > 1);
+		const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(check);
+		observer?.observe(el);
+		for (const child of el.children) observer?.observe(child);
+		el.addEventListener("scroll", check, { passive: true });
+		check();
+		return () => {
+			observer?.disconnect();
+			el.removeEventListener("scroll", check);
+		};
+	}, [projects]);
 	const create = async () => {
 		if (!name.trim() || saving) return;
 		setSaving(true);
@@ -51,7 +69,7 @@ export function ProjectSidebar({
 		}
 	};
 	return (
-		<section className="mx-3 mt-2 max-h-[40vh] shrink-0 overflow-y-auto" aria-label="Projects">
+		<section ref={listRef} className={`mx-3 mt-2 max-h-[40vh] shrink-0 overflow-y-auto${more ? " [mask-image:linear-gradient(to_bottom,#000_calc(100%-2.5rem),transparent)]" : ""}`} aria-label="Projects">
 			<div className="mb-1 flex h-8 items-center justify-between px-2 text-xs text-muted-foreground">
 				<span className="uppercase tracking-widest text-muted-foreground/70">Projects</span>
 				<button
