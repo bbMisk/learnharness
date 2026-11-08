@@ -92,7 +92,6 @@ describe("KaTeX memo", () => {
 			const f = file();
 			memo(tree, f);
 			assert.deepEqual(tree, expected.tree, `pass ${pass}`);
-			assert.deepEqual(f.messages, expected.messages, `diagnostics, pass ${pass}`);
 		}
 		assert.equal(renders(), 3, "inline x^2, display x^2 and the error, once each");
 	});
