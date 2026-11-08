@@ -857,8 +857,7 @@ export class SessionModel {
 
 	/** The answer path (the dock): the answer is the question call's tool
 	 *  result, sent as its input event. */
-	submitAnswer(tool: string, toolCallId: string, output: QuestionAnswerData, questionKey?: string): Promise<void> {
-		void tool;
+	submitAnswer(toolCallId: string, output: QuestionAnswerData, questionKey?: string): Promise<void> {
 		return this.send({ type: "answer", toolCallId, answer: output }, undefined, questionKey).then(() => undefined);
 	}
 
