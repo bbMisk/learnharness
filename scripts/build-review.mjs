@@ -15,7 +15,7 @@ async function files(directory) {
 	const entries = await fs.readdir(directory, { withFileTypes: true });
 	return (await Promise.all(entries.filter(entry => !entry.name.startsWith(".")).map(entry => entry.isDirectory() ? files(path.join(directory, entry.name)) : [path.join(directory, entry.name)]))).flat().sort();
 }
-const inputs = [...await files(source), path.join(root, "src/core/review.ts"), path.join(root, "src/core/math-delims.ts"), path.join(root, "src/core/review-engine.ts"), path.join(vendor, "manifest.json"), path.join(root, "package-lock.json"), path.join(root, "scripts/build-review.mjs"), path.join(vendor, "THIRD_PARTY_NOTICES.txt"), path.join(root, "LICENSE"), path.join(root, "node_modules/katex/LICENSE")];
+const inputs = [...await files(source), path.join(root, "src/core/review.ts"), path.join(root, "src/core/math-delims.ts"), path.join(root, "src/core/review-engine.ts"), path.join(vendor, "manifest.json"), path.join(root, "package-lock.json"), path.join(root, "scripts/build-review.mjs"), path.join(vendor, "THIRD_PARTY_NOTICES.txt"), path.join(root, "LICENSE"), path.join(root, "node_modules/katex/LICENSE"), path.join(root, "public/fonts/cmunbx.ttf"), path.join(root, "public/fonts/OFL.txt")];
 const fingerprint = createHash("sha256");
 for (const file of inputs) fingerprint.update(path.relative(root, file)).update(await fs.readFile(file));
 const version = fingerprint.digest("hex").slice(0, 20);
@@ -39,7 +39,8 @@ for (const size of [192, 512]) await fs.copyFile(path.join(source, `icon-${size}
 const notices = await fs.readFile(path.join(vendor, "THIRD_PARTY_NOTICES.txt"), "utf8");
 const katexLicense = await fs.readFile(path.join(root, "node_modules/katex/LICENSE"), "utf8");
 const license = await fs.readFile(path.join(root, "LICENSE"), "utf8");
-await fs.writeFile(path.join(output, "licenses.txt"), notices + "\n\nKaTeX\n" + katexLicense + "\n\nAnki interval-policy excerpt: Copyright Ankitects Pty Ltd and contributors, AGPL-3.0-or-later.\nhttps://github.com/ankitects/anki/tree/26.09.3/rslib/src/scheduler/states\n\nLearnHarness and its adapter are AGPL-3.0-only.\n" + license);
+const cmuLicense = await fs.readFile(path.join(root, "public/fonts/OFL.txt"), "utf8");
+await fs.writeFile(path.join(output, "licenses.txt"), notices + "\n\nKaTeX\n" + katexLicense + "\n\nCMU Serif (titles)\n" + cmuLicense + "\n\nAnki interval-policy excerpt: Copyright Ankitects Pty Ltd and contributors, AGPL-3.0-or-later.\nhttps://github.com/ankitects/anki/tree/26.09.3/rslib/src/scheduler/states\n\nLearnHarness and its adapter are AGPL-3.0-only.\n" + license);
 await fs.writeFile(path.join(output, "manifest.webmanifest"), JSON.stringify({
 	id: "/review/", name: "LearnHarness Flashcards", short_name: "LearnHarness", start_url: "/review/index.html", scope: "/review/", display: "standalone",
 	background_color: "#141414", theme_color: "#141414", icons: [192, 512].map(size => ({ src: `./icon-${size}.png`, sizes: `${size}x${size}`, type: "image/png" })),
