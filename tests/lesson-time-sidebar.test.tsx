@@ -158,13 +158,13 @@ const steps = (from: number, count: number, startAt: number): LhMessage[] =>
 		timestamp: startAt + (i + 1) * 10 * MIN,
 	}));
 
-/** A timed lesson (10, the first gap capped, + 8 × 10 = 90 minutes) and an empty one. */
+/** A timed lesson (9 gaps × 10 = 90 minutes) and an empty one. */
 function seedLessons(): { id: string; lesson: LhMessage[] } {
 	const timed = chatStore.createChat("Timed lesson");
 	const lesson: LhMessage[] = [
 		{ id: "u1", role: "user", content: "hi", timestamp: 0 },
-		{ id: "u2", role: "user", content: "again", timestamp: 80 * MIN },
-		...steps(3, 8, 80 * MIN),
+		{ id: "u2", role: "user", content: "again", timestamp: 10 * MIN },
+		...steps(3, 8, 10 * MIN),
 	];
 	chatStore.saveMessages(timed.id, lesson);
 	chatStore.createChat("Empty lesson");
@@ -221,7 +221,7 @@ it("catches a switch flipped while disconnected on the reconnect", async () => {
 
 it("a silent record write (a dismissal's record-changed) updates the figure", async () => {
 	const before = served.lists;
-	chatStore.saveMessages(timed.id, [...timed.lesson, ...steps(11, 2, 160 * MIN)]);
+	chatStore.saveMessages(timed.id, [...timed.lesson, ...steps(11, 2, 90 * MIN)]);
 	await act(async () => emit("record-changed", { chatId: timed.id }));
 	await settle();
 	assert.equal(served.lists, before + 1, "one debounced list fetch");
