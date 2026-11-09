@@ -179,6 +179,17 @@ it("an empty filtered list names the filter instead of saying there are no chats
 	await act(async () => (document.querySelector('[data-testid="kind-filter-all"]') as HTMLElement).click());
 });
 
+it("Move to project marks where the chat is now", async () => {
+	const search = document.querySelector('[data-testid="session-search"]')!;
+	await act(async () => void window.dispatchEvent(new CustomEvent("lh:kbd-sessions-search")));
+	await settle();
+	await key(search, "ArrowDown");
+	await key(search, "F10", { shiftKey: true });
+	const noProject = [...menu()!.querySelectorAll("button")].find((b) => b.textContent === "No project")!;
+	assert.equal(noProject.getAttribute("aria-current"), "true");
+	await key(document as unknown as Element, "Escape");
+});
+
 it("the delete dialog focuses Delete, so Enter confirms", () => {
 	const html = renderToStaticMarkup(
 		<DeleteSessionBody chat={{ id: "c1", title: "T" }} traces={false} busy={false} failure={null} onTraces={() => {}} onClose={() => {}} onRun={() => {}} />,

@@ -73,6 +73,13 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 	useEffect(() => {
 		void refresh();
 	}, [initial.id]);
+	useEffect(() => {
+		const previous = document.title;
+		document.title = project.name;
+		return () => {
+			document.title = previous;
+		};
+	}, [project.name]);
 	useServerEvent("chats-changed", refresh);
 	useServerEvent("turn-started", refresh);
 	useServerEvent("turn-settled", refresh);

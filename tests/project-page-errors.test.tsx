@@ -243,3 +243,11 @@ it("a deleted project (404, e.g. Back after a delete) shows the not-found page",
 	assert.match(text, /Go home/);
 	assert.doesNotMatch(text, /Delete project|Could not load project details/);
 });
+
+it("the window title names the open project", async () => {
+	document.title = "Learning Harness";
+	await mount(200);
+	assert.equal(document.title, "Fixture");
+	await act(async () => root.unmount());
+	assert.equal(document.title, "Learning Harness");
+});

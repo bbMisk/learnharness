@@ -10,7 +10,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode } from "@/src/core";
-import { ArchiveIcon, ArchiveRestoreIcon, DumbbellIcon, LayersIcon, PinIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { ArchiveIcon, ArchiveRestoreIcon, CheckIcon, DumbbellIcon, LayersIcon, PinIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
@@ -965,7 +965,7 @@ function SessionsSidebar() {
                         <button data-testid="ctx-archive" className="rounded-lg px-2.5 py-1.5 text-left hover:bg-accent" onClick={() => { const chat = listed?.find(c => c.id === ctxChatId); if (chat) void updateChat(chat.id, { archived: !chat.archived }); setCtxChatId(null); returnFocus(); }}>{listed?.find(c => c.id === ctxChatId)?.archived ? "Restore chat" : "Archive chat"}</button>
                         <button className="rounded-lg px-2.5 py-1.5 text-left hover:bg-accent" onClick={()=>{const chat=listed?.find(c=>c.id===ctxChatId);if(chat)void updateChat(chat.id,{pinned:!chat.pinned});setCtxChatId(null);returnFocus();}}>{listed?.find(c=>c.id===ctxChatId)?.pinned?'Unpin chat':'Pin chat'}</button>
                         <div className="my-1 border-t border-border/60"/><span className="px-2.5 pt-1 text-[11px] text-muted-foreground">Move to project</span>
-                        {[{id:'',name:'No project'},...projects].map(project=><button key={project.id} className="truncate rounded-lg px-2.5 py-1.5 text-left hover:bg-accent" onClick={()=>{void updateChat(ctxChatId,{projectId:project.id||null});setCtxChatId(null);returnFocus();}}>{project.name}</button>)}
+                        {[{id:'',name:'No project'},...projects].map(project=>{const current=(listed?.find(c=>c.id===ctxChatId)?.projectId??'')===project.id;return <button key={project.id} aria-current={current||undefined} className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-accent" onClick={()=>{void updateChat(ctxChatId,{projectId:project.id||null});setCtxChatId(null);returnFocus();}}><span className="min-w-0 flex-1 truncate">{project.name}</span>{current&&<CheckIcon className="size-3 shrink-0 text-muted-foreground" aria-hidden />}</button>;})}
 						<CoverageMenuBlock chatId={ctxChatId} />
 					</MenuShell>
 				)}
