@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { parseModelsRefusal, parseProviderKeyRefusal, retryFailedResponse } from "../components/chat.tsx";
+import { isNetworkFailure, parseModelsRefusal, parseProviderKeyRefusal, retryFailedResponse, setupFixesError } from "../components/chat.tsx";
 import { SessionModel } from "../components/session-core.ts";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { newUserMessage, type LhMessage } from "../src/core/native-messages.ts";
@@ -224,5 +224,19 @@ describe("setupStage — unknown is not keyless", () => {
 		assert.equal(setupStage(null), "loading");
 		assert.equal(setupStage([{ id: "x", keyPresent: false }]), "keys");
 		assert.equal(setupStage([{ id: "x", keyPresent: true }]), "pickers");
+	});
+});
+describe("the error banner's recovery hints", () => {
+	it("offers setup for connection failures, not for other errors", () => {
+		assert.equal(setupFixesError("Provider is not configured: openai"), true);
+		assert.equal(setupFixesError("401 Incorrect API key provided: sk-xx"), true);
+		assert.equal(setupFixesError("Failed to fetch"), false);
+		assert.equal(setupFixesError("The stream was interrupted."), false);
+	});
+
+	it("recognizes the browsers' network failures only", () => {
+		for (const text of ["Failed to fetch", "Load failed", "NetworkError when attempting to fetch resource."]) assert.equal(isNetworkFailure(text), true);
+		assert.equal(isNetworkFailure("Provider is not configured: openai"), false);
+		assert.equal(isNetworkFailure("Upload failed to fetch the file"), false);
 	});
 });

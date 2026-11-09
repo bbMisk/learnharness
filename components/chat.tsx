@@ -127,6 +127,16 @@ export function retryFailedResponse(
 	void send({ type: "retry" });
 }
 
+/** A failed turn that points at the model connection: the banner offers setup. */
+export function setupFixesError(message: string): boolean {
+	return /not configured|api key|\b401\b|unauthori[sz]ed|authentication/i.test(message);
+}
+
+/** The browsers' wording for a fetch that never reached the server. */
+export function isNetworkFailure(message: string): boolean {
+	return /^(Failed to fetch|Load failed|NetworkError when attempting to fetch resource\.?)$/.test(message);
+}
+
 /** Keep a rejected prompt even when the learner has already started another draft. */
 export function restoreInterruptedDraft(current: string, rejected: string): string {
 	return current ? `${current}\n\n${rejected}` : rejected;
@@ -554,6 +564,10 @@ export function Chat({
 		// (setMessages/clearError are stable per session; the flow keys on
 		//  [error, chatId].)
 	}, [error, chatId]);
+	// The events channel reconnected, so the server is reachable again.
+	useServerResync(() => {
+		if (error && isNetworkFailure(error.message)) clearError();
+	});
 	// Tab cycles the chat's fields: reading-thinking → the active dock's field
 	// → the composer, in visual order, forward-only with wrap; Tab from
 	// anywhere else focuses the first live field. Gathered from the live DOM at
@@ -1280,7 +1294,12 @@ export function Chat({
 							{settingsRefreshError && <p role="alert" className="text-xs text-destructive">{settingsRefreshError}</p>}
 							{error && (
 								<div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm">
-									<span>Something went wrong: {error.message}</span>
+									<span>{isNetworkFailure(error.message) ? "Can't reach the server." : `Something went wrong: ${error.message}`}</span>
+									{setupFixesError(error.message) && (
+										<Button variant="outline" size="xs" data-testid="error-open-setup" onClick={() => setSetupOpen(true)}>
+											Set up
+										</Button>
+									)}
 									{retryable && (
 										<Button variant="outline" size="xs" data-testid="retry-failed-turn" onClick={retryFailedTurn}>
 											Retry
