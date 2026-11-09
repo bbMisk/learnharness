@@ -132,7 +132,8 @@ export function affectsSessionFind(record: Pick<MutationRecord, "type" | "target
 	if (!target || target.closest(ROOT)) return true;
 	if (record.type === "attributes") return !!target.querySelector(ROOT);
 	if (record.type !== "childList") return false;
-	return [...record.addedNodes, ...record.removedNodes].some((node) => node.nodeType === 1 && ((node as Element).matches(ROOT) || !!(node as Element).querySelector(ROOT)));
+	return [...record.addedNodes, ...record.removedNodes].some((node) => !!node.parentElement?.closest(ROOT)
+		|| node.nodeType === 1 && ((node as Element).matches(ROOT) || !!(node as Element).querySelector(ROOT)));
 }
 
 export function sessionFindIndex(scope: HTMLElement): SessionFindIndex {
