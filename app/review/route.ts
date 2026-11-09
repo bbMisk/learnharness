@@ -1,3 +1,5 @@
-export async function GET(request: Request) {
-	return Response.redirect(new URL("/review/index.html", request.url), 307);
+// Relative Location: the browser resolves it against the host it used
+// (Tailscale IP, 127.0.0.1), never the server's bind host.
+export async function GET() {
+	return new Response(null, { status: 307, headers: { Location: "/review/index.html" } });
 }
