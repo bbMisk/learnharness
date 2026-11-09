@@ -40,7 +40,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
-import { useFocusReturn } from "@/components/focus-return";
+import { focusComposer, useFocusReturn } from "@/components/focus-return";
 import type React from "react";
 import { type ModelCatalogEntry, type ModelSlotName, type ModelsSettings, COMPACTION_THRESHOLD_FLOOR, CUSTOM_PROVIDER } from "@/src/core";
 import { prettyModel } from "@/components/usage-format";
@@ -293,8 +293,14 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 		keptPicks.picked = Object.fromEntries(edited.filter((slot) => picked[slot]).map((slot) => [slot, picked[slot]]));
 		keptPicks.levels = Object.fromEntries(edited.filter((slot) => levels[slot] !== undefined).map((slot) => [slot, levels[slot]]));
 	}, [picked, levels]);
-	// Closing hands focus back to whatever held it on open.
+	// Closing hands focus back to whatever held it on open. A save retires
+	// the setup pill, so focus on the pill (or on nothing) goes to the composer.
 	useFocusReturn();
+	const saved = useRef(false);
+	useEffect(() => () => {
+		const at = document.activeElement;
+		if (saved.current && (!at || at === document.body || at.closest('[data-testid="setup-cta"], [data-testid="setup-cta-keys"]'))) focusComposer();
+	}, []);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [openMenu, setOpenMenu] = useState<{ slot: ModelSlotName; kind: "model" | "thinking" } | null>(null);
@@ -476,6 +482,7 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 			return;
 		}
 		notifySettingsSaved("models");
+		saved.current = true;
 		onDone(models);
 	}
 

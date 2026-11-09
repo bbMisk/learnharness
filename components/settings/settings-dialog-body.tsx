@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
-import { useFocusReturn } from "@/components/focus-return";
+import { focusComposer, useFocusReturn } from "@/components/focus-return";
 import {
 	CURRENT_SETTINGS_VERSION,
 	type AgentSettings,
@@ -87,11 +87,6 @@ export function SettingsDialog({
 
 /** The dialog without the portal/backdrop — the SSR-testable frame
  *  (portals render nothing under renderToStaticMarkup). */
-/** The page's composer: where focus goes when Settings closes and nothing opened it. */
-function focusComposer(): void {
-	document.querySelector<HTMLElement>('[data-testid="composer"] [data-file-path-input], [data-file-path-default]')?.focus();
-}
-
 export function SettingsDialogBody({
 	onClose,
 	initialSection = "keys",
