@@ -121,6 +121,20 @@ class StaticRangeLike {
  * sessions. Rebuild it whenever the scope's DOM or layout changes. */
 export type SessionFindIndex = readonly DisplayRun[];
 
+const ROOT = "[data-session-find-root]";
+
+/** Whether a DOM change can change the index: anything inside a find root,
+ * a root added or removed, or an attribute on a root's ancestor (it may hide
+ * the root). Chrome around the roots (the dock's ↓ button, its fold
+ * animation) doesn't, and rebuilding for it made the next keystroke slow. */
+export function affectsSessionFind(record: Pick<MutationRecord, "type" | "target" | "addedNodes" | "removedNodes">): boolean {
+	const target = record.target.nodeType === 1 ? record.target as Element : record.target.parentElement;
+	if (!target || target.closest(ROOT)) return true;
+	if (record.type === "attributes") return !!target.querySelector(ROOT);
+	if (record.type !== "childList") return false;
+	return [...record.addedNodes, ...record.removedNodes].some((node) => node.nodeType === 1 && ((node as Element).matches(ROOT) || !!(node as Element).querySelector(ROOT)));
+}
+
 export function sessionFindIndex(scope: HTMLElement): SessionFindIndex {
 	const roots = [
 		...(scope.matches("[data-session-find-root]") ? [scope] : []),

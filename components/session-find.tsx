@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { ChevronDownIcon, ChevronUpIcon, SearchIcon, XIcon } from "lucide-react";
 import { kbdEventForAction, stepSessionMatch } from "@/src/core";
 import {
-	sameSessionRange, sessionFindIndex, sessionFindRanges, sessionRangeIdentity, type SessionFindIndex, type SessionRangeIdentity,
+	affectsSessionFind, sameSessionRange, sessionFindIndex, sessionFindRanges, sessionRangeIdentity, type SessionFindIndex, type SessionRangeIdentity,
 } from "@/components/session-find-dom";
 import { scrollSessionTarget, type SessionScrollContext } from "@/components/session-navigation";
 
@@ -127,7 +127,7 @@ export function SessionFind({ scopeRef, scrollContextRef }: {
 		const warmIndex = () => { indexCacheRef.current ??= sessionFindIndex(scope); };
 		const idle = typeof window.requestIdleCallback === "function";
 		const warm = idle ? window.requestIdleCallback(warmIndex) : window.setTimeout(warmIndex, 50);
-		const observer = new MutationObserver(invalidate);
+		const observer = new MutationObserver((records) => { if (records.some(affectsSessionFind)) invalidate(); });
 		observer.observe(scope, { subtree: true, childList: true, characterData: true, attributes: true,
 			attributeFilter: ["hidden", "style", "class", "data-state", "aria-expanded"] });
 		window.addEventListener("resize", invalidate);
