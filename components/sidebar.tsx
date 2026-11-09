@@ -589,6 +589,8 @@ function SessionsSidebar() {
 	   shell measures it on its first (hidden) pass. */
 	const [ctxChatId, setCtxChatId] = useState<string | null>(null);
 	const [ctxFromKbd, setCtxFromKbd] = useState(false);
+	// The menu belongs to the sidebar: it closes with it (⌘B, rotating into phone width).
+	if (!open && ctxChatId !== null) setCtxChatId(null);
 	const ctxAnchorRef = useRef<HTMLElement | null>(null);
 	const [renamingId, setRenamingId] = useState<string | null>(null);
 	// A failed rename reopens the row with what was typed.

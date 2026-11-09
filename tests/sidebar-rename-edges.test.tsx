@@ -190,3 +190,15 @@ it("the search walk's menu keeps the way back: Esc, Esc returns to the composer"
 	await settle();
 	assertSameNode(focused, composer(), "Esc 2: the composer");
 });
+
+it("closing the sidebar closes its chat menu", async () => {
+	const first = document.querySelector<HTMLElement>('[data-testid="session-row"]')!;
+	focused = first;
+	await act(async () => first.dispatchEvent(new dom.window.Event("contextmenu", { bubbles: true, cancelable: true })));
+	assert.ok(document.querySelector('[data-testid="ctx-rename"]'), "the menu is open");
+	await act(async () => void window.dispatchEvent(new CustomEvent("lh:kbd-toggle-sidebar")));
+	await settle();
+	assertSameNode(document.querySelector('[data-testid="ctx-rename"]'), null, "the menu closed with the sidebar");
+	await act(async () => void window.dispatchEvent(new CustomEvent("lh:kbd-toggle-sidebar")));
+	await settle();
+});
