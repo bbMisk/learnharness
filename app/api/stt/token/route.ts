@@ -17,11 +17,13 @@ import { keyValue } from "@/src/server";
 
 export async function GET() {
 	const key = keyValue("DEEPGRAM_API_KEY");
+	// Keyless is an answer, not a failure: a 200 keeps the warm pre-mint on
+	// every chat load out of the browser's error console.
 	if (!key) {
-		return Response.json(
-			{ message: "No DEEPGRAM_API_KEY — add it to auth.json (desktop) or .env.local (dev)." },
-			{ status: 503 },
-		);
+		return Response.json({
+			unavailable: true,
+			message: "No DEEPGRAM_API_KEY — add it to auth.json (desktop) or .env.local (dev).",
+		});
 	}
 
 	try {

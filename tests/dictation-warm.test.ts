@@ -101,3 +101,25 @@ describe("warm-token cache (mitigation D, owner 2026-09-27)", () => {
 		assert.equal(mints, 1);
 	});
 });
+
+describe("the keyless token answer is quiet", () => {
+	it("no key: the route answers 200 unavailable (no console error per chat load); the client reads it as keyless", async () => {
+		const saved = process.env.DEEPGRAM_API_KEY;
+		delete process.env.DEEPGRAM_API_KEY;
+		const realFetch = globalThis.fetch;
+		try {
+			const { GET } = await import("../app/api/stt/token/route.ts");
+			const res = await GET();
+			assert.equal(res.status, 200);
+			const body = (await res.json()) as { unavailable?: boolean; token?: string };
+			assert.equal(body.unavailable, true);
+			assert.equal(body.token, undefined);
+			const { mintFreshToken, DICTATION_KEYLESS } = await import("../components/dictation.tsx");
+			globalThis.fetch = (async () => Response.json(body)) as typeof fetch;
+			await assert.rejects(mintFreshToken(), new Error(DICTATION_KEYLESS));
+		} finally {
+			globalThis.fetch = realFetch;
+			if (saved !== undefined) process.env.DEEPGRAM_API_KEY = saved;
+		}
+	});
+});
