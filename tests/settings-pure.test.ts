@@ -441,9 +441,11 @@ describe("file-access folder entries", () => {
 
 describe("refusalFor", () => {
 	it("refuses the desktop menu's own chords", () => {
-		for (const chord of ["mod+h", "mod+alt+h", "mod+m", "mod+0", "mod+-", "mod+=", "mod+alt+i", "mod+shift+i"]) {
+		for (const chord of ["mod+h", "mod+alt+h", "mod+m", "mod+0", "mod+-", "mod+=", "mod++", "mod+shift++", "mod+alt+i", "mod+shift+i"]) {
 			assert.match(refusalFor("cheat-sheet", chord) ?? "", /reserved/, chord);
 		}
+		// Zoom In's ⌘⇧= arrives as "+"; the message names that key.
+		assert.match(refusalFor("cheat-sheet", "mod+shift++") ?? "", /^(⌘⇧|Ctrl\+Shift\+)\+ is reserved/);
 	});
 
 	it("accepts an F key with or without shift", () => {
