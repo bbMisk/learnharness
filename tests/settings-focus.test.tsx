@@ -68,6 +68,22 @@ describe("Settings keyboard focus", () => {
 		assert.equal(blurs, 0);
 	});
 
+	it("a field keeps the same input when its error appears or clears", async () => {
+		await render(<CommitInput value="20" ariaLabel="limit" testid="input" onCommit={(v) => (v === "bad" ? "Nope." : undefined)} />);
+		const input = host!.querySelector("input")!;
+		const commit = async (value: string) => {
+			Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input, value);
+			await act(async () => { input.dispatchEvent(new dom.window.Event("input", { bubbles: true })); });
+			await act(async () => { input.dispatchEvent(Object.assign(new dom.window.Event("keydown", { bubbles: true }), { key: "Enter" })); });
+		};
+		await commit("bad");
+		assert.ok(host!.querySelector('[data-testid="input-error"]'), "the error shows");
+		assert.ok(host!.querySelector("input") === input, "not remounted when the error appears");
+		await commit("30");
+		assert.equal(host!.querySelector('[data-testid="input-error"]'), null, "the error clears");
+		assert.ok(host!.querySelector("input") === input, "not remounted when the error clears");
+	});
+
 	it("Esc on a settings menu puts focus back on its trigger", () => {
 		const anchor = document.createElement("span");
 		anchor.innerHTML = `<button aria-expanded="false">a</button><button aria-expanded="true">b</button>`;

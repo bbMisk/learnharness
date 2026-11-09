@@ -305,13 +305,16 @@ export function CommitInput({
 			className="h-7 w-40 rounded-sm border border-border bg-background px-2 font-ui text-xs text-foreground outline-none placeholder:text-muted-foreground/60"
 		/>
 	);
-	if (!error) return input;
+	// One wrapper either way: toggling the error must not remount the
+	// input, or it loses focus.
 	return (
 		<span className="flex flex-col items-end gap-1">
 			{input}
-			<span role="alert" data-testid={testid ? `${testid}-error` : undefined} className="max-w-60 text-right text-xs text-red-500">
-				{error}
-			</span>
+			{error && (
+				<span role="alert" data-testid={testid ? `${testid}-error` : undefined} className="max-w-60 text-right text-xs text-red-500">
+					{error}
+				</span>
+			)}
 		</span>
 	);
 }
