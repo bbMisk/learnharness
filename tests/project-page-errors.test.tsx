@@ -366,3 +366,43 @@ it("the header's New chat and Delete project go icon-only on phones, so the head
 		assert.match(control.querySelector("span")!.className, /\bmax-sm:sr-only\b/, label);
 	}
 });
+
+/** Types new instructions and submits them, with `put` answering the save. */
+async function saveInstructions(put: () => Promise<Response>) {
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		if (init?.method === "PUT") return put();
+		if (String(input) === "/api/chats") return new Response(JSON.stringify({ chats: [] }), { status: 200 });
+		return new Response(JSON.stringify(project), { status: 200 });
+	}) as typeof fetch;
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	await act(async () =>
+		root.render(
+			<AppRouterContext.Provider value={router as never}>
+			<ServerEventsProvider connect={quietChannel}>
+				<ProjectPage initial={project} />
+			</ServerEventsProvider>
+			</AppRouterContext.Provider>,
+		),
+	);
+	const field = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Project instructions"]')!;
+	Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!.call(field, "Be brief.");
+	await act(async () => { field.dispatchEvent(new dom.window.Event("input", { bubbles: true })); });
+	await act(async () => {
+		field.closest("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+	return host.textContent ?? "";
+}
+
+it("an unreachable server shows the app's wording, not fetch's raw error", async () => {
+	const text = await saveInstructions(() => Promise.reject(new TypeError("Failed to fetch")));
+	assert.match(text, /Project could not be saved\. Try again\./);
+	assert.doesNotMatch(text, /Failed to fetch/);
+});
+
+it("a refused save still shows the server's own line", async () => {
+	const text = await saveInstructions(async () => new Response(JSON.stringify({ error: "Instructions are too long." }), { status: 400 }));
+	assert.match(text, /Instructions are too long\./);
+});
