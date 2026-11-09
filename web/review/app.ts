@@ -125,7 +125,7 @@ function render() {
     element("skip").hidden = !fallback;
     element("skip").textContent = revealed ? "Next card" : "Skip";
     element<HTMLButtonElement>("mcq-continue").disabled = saving;
-    if (mcq && !current.mcq && !questionBlocked && !questionOffline && navigator.onLine && !preparingQuestion && questionKey !== current.id + current.revision) void prepareQuestion(current);
+    if (mcq && !current.mcq && !revealed && !questionBlocked && !questionOffline && navigator.onLine && !preparingQuestion && questionKey !== current.id + current.revision) void prepareQuestion(current);
     const nextDrawn = `${currentToken}:${revealed}:${selectedIndex}:${!!current.mcq}:${preparingQuestion}:${questionError}:${questionBlocked}:${saving}`;
 	if (drawn !== nextDrawn) {
 		drawn = nextDrawn;
@@ -193,6 +193,7 @@ async function prepareQuestion(card: ReviewSnapshot["cards"][number]) {
     questionKey = card.id + card.revision; preparingQuestion = true; questionError = ""; render();
     try {
         const response = await fetch("/api/review/question", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({cardId:card.id, revision:card.revision}), signal:AbortSignal.timeout(130000)});
+        if (!connected) void sync(); // the host answered: let the sync update the status
         const body = await response.json();
         questionBlocked = response.status === 503;
         if (!response.ok) throw new Error(body.error || "Could not prepare choices.");
@@ -202,9 +203,14 @@ async function prepareQuestion(card: ReviewSnapshot["cards"][number]) {
             return {...local, snapshot:{...local.snapshot, cards:local.snapshot.cards.map(item => item.id === card.id && item.revision === card.revision ? {...item, mcq:body.question} : item)}};
         });
         cardsKey = "";
-        if (current?.id === card.id && current.revision === card.revision) current = {...current, mcq:body.question};
+        // A card already revealed keeps its preview; the choices wait for its next showing.
+        if (current?.id === card.id && current.revision === card.revision && !revealed) current = {...current, mcq:body.question};
         signal();
-    } catch (error) { questionOffline = error instanceof TypeError; questionError = error instanceof Error && !(error instanceof TypeError) ? error.message : QUESTION_OFFLINE; }
+    } catch (error) {
+        questionOffline = error instanceof TypeError;
+        if (questionOffline) connected = false; // the status shows "Host unavailable" now, not at the next sync
+        questionError = error instanceof Error && !(error instanceof TypeError) ? error.message : QUESTION_OFFLINE;
+    }
     finally { preparingQuestion = false; render(); }
 }
 
