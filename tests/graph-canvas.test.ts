@@ -16,6 +16,7 @@ import {
 	arrowGeometry,
 	isImpNodeId,
 	boxBlurRound,
+	clampWheelZoom,
 	fitTransform,
 	labelAlpha,
 	pickNearest,
@@ -97,6 +98,18 @@ describe("d3 camera composition (the persisted-camera restore path)", () => {
 		const p = t.apply([7, 9]);
 		assert.deepEqual(p, [7 * 3.5 + 120, 9 * 3.5 - 40]);
 	});
+});
+
+describe("clampWheelZoom", () => {
+	it("stops zooming out at half the fit view", () => {
+		assert.equal(clampWheelZoom(0.6, 0.02, 0.58), 0.29);
+		assert.equal(clampWheelZoom(0.6, 0.4, 0.58), 0.4);
+	});
+	it("a restored camera further out stays put but can zoom in", () => {
+		assert.equal(clampWheelZoom(0.1, 0.05, 0.58), 0.1);
+		assert.equal(clampWheelZoom(0.1, 0.2, 0.58), 0.2);
+	});
+	it("caps zoom in at 40×", () => assert.equal(clampWheelZoom(30, 80, 0.58), 40));
 });
 
 describe("fitTransform", () => {
