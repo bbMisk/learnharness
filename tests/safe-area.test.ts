@@ -18,3 +18,11 @@ test("reads the --lh-safe-* variables; zero when styles are unavailable", () => 
 		g.document = saved.doc;
 	}
 });
+
+test("Radix's dialog scroll lock keeps the body's safe-area padding (New project)", async () => {
+	const fs = await import("node:fs");
+	// The lock (react-remove-scroll-bar) injects `body[data-scroll-locked] { padding-top: 0px; … }`.
+	const css = fs.readFileSync("app/globals.css", "utf-8");
+	const rule = /body,\s*html body\[data-scroll-locked\] \{\s*padding: var\(--lh-safe-top\)[^}]*var\(--lh-safe-bottom\)/;
+	assert.match(css, rule, "a more specific selector restores the padding under the lock");
+});
