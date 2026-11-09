@@ -24,7 +24,7 @@ import { SessionStarter, startWeakSpotsPractice } from "@/components/start-sessi
 import { useRouter } from "next/navigation";
 import { DictationBar, joinDictation, useDictation } from "@/components/dictation";
 import { useFieldCycle } from "@/components/field-cycle";
-import { JobsContext } from "@/components/jobs-context";
+import { JobsContext, JobsFeedIdleContext } from "@/components/jobs-context";
 import { useServerDown, useServerEvent, useServerResync } from "@/components/server-events";
 import {
 	isProviderKeyRefusal,
@@ -919,6 +919,7 @@ export function Chat({
 	// message ids), so a settle during a busy turn defers the sync to the next
 	// idle fetch.
 	const [jobs, setJobs] = useState<JobRecord[]>([]);
+	const [jobsLoaded, setJobsLoaded] = useState(false);
 	const localStreamRef = useRef(false);
 	localStreamRef.current = localStream;
 	const jobStatusRef = useRef<Map<string, string>>(new Map());
@@ -948,6 +949,7 @@ export function Chat({
 				if (busy) void adoptAppendOnly(); else void syncFromServer();
 			}
 			setJobs(list);
+			setJobsLoaded(true);
 			// Turn discovery belongs to turn-started; turnInFlight is read above
 			// only for the settle logic's idle check.
 		} catch {
@@ -1121,6 +1123,7 @@ export function Chat({
 		>
 		<SessionOverlayContext.Provider value={sessionOverlay}>
 		<JobsContext.Provider value={jobs}>
+		<JobsFeedIdleContext.Provider value={jobsLoaded && !busy}>
 		<PinnedVisualContext.Provider value={pinned.context}>
 		{/* The session surface: the transcript column (header + scroller) and
 		    the side tutor as full-height siblings. The dock overlays the column
@@ -1448,6 +1451,7 @@ export function Chat({
 			{sideTutor && <SideTutor chatId={chatId} selectedText={sideTutor.selectedText} onClose={closeSideTutor} />}
 		</div>
 		</PinnedVisualContext.Provider>
+		</JobsFeedIdleContext.Provider>
 		</JobsContext.Provider>
 		</SessionOverlayContext.Provider>
 		{/* The BYOK setup flow: one mount serves the setup CTA, the

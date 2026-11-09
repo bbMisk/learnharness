@@ -16,3 +16,8 @@ import type { JobRecord } from "@/src/core";
  * to the composition root and the cards became pure renderers of this data.
  */
 export const JobsContext = createContext<JobRecord[]>([]);
+
+/** The jobs feed has loaded for this chat and no turn is running: a
+ *  dispatch card whose job isn't in it is an old one (its record is gone),
+ *  not a fresh dispatch the feed hasn't caught up with yet. */
+export const JobsFeedIdleContext = createContext(false);

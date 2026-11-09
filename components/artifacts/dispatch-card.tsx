@@ -2,7 +2,7 @@
 
 import { useContext, useEffect, useState } from "react";
 import { CheckIcon, ChevronDownIcon, MinusIcon, SettingsIcon, XIcon } from "lucide-react";
-import { JobsContext } from "@/components/jobs-context";
+import { JobsContext, JobsFeedIdleContext } from "@/components/jobs-context";
 import { ChatActionsContext } from "@/components/chat-actions";
 import { isModelsRefusal, isProviderKeyRefusal, type ArtifactPartProps, type JobKind } from "@/src/core";
 import { BrailleSpinner } from "@/components/braille-spinner";
@@ -122,11 +122,10 @@ function DispatchPendingCard({ label }: { label: string }) {
 		const timer = setTimeout(() => setUnknown(true), DISPATCH_UNKNOWN_MS);
 		return () => clearTimeout(timer);
 	}, []);
-	// A jobs feed fetched after this card mounted that still lacks the job
-	// settles it at once (an old card on a visit), without the wait.
-	const jobs = useContext(JobsContext);
-	const [mountFeed] = useState(jobs);
-	if (unknown || jobs !== mountFeed) {
+	// A loaded, idle jobs feed without the job settles it at once (an old
+	// card on a visit), without the wait.
+	const feedIdle = useContext(JobsFeedIdleContext);
+	if (unknown || feedIdle) {
 		return (
 			<div className="rounded-xl border bg-card p-4 text-card-foreground" data-testid="dispatch-unknown">
 				<div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
