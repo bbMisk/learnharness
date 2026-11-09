@@ -690,7 +690,7 @@ describe("the compaction line", () => {
 });
 
 describe("the Markdown export", () => {
-	it("leaves the tracking results out, as the transcript does; plan_init keeps its line", () => {
+	it("leaves the tracking results out, as the transcript does (other working steps such as plan_init too)", () => {
 		const md = sessionMarkdown([
 			{ id: "u1", role: "user", content: "cram me", timestamp: 0 } as never,
 			assistant("a1", [{ type: "text", text: "The set." }, call("pl", "problem_list", {}), call("nm", "note_mistake", {}), call("pi", "plan_init", {})]),
@@ -703,7 +703,7 @@ describe("the Markdown export", () => {
 			result("r-rm", "rm", "resolve_mistake", { ok: true, id: "m1" }),
 		]);
 		for (const name of LESSON_TRACKING_TOOLS) assert.ok(!md.includes(name), `${name} stays out of the export`);
-		assert.match(md, /plan_init result delivered/);
+		assert.doesNotMatch(md, /result delivered/);
 		assert.match(md, /The set\./);
 	});
 });
