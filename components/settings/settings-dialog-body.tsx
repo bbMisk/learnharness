@@ -199,7 +199,7 @@ export function SettingsDialogBody({
 				const detail = (await res.json().catch(() => ({}))) as {
 					error?: string;
 				};
-				setError(`${section}: ${detail.error ?? res.status}`);
+				setError(detail.error ?? `${section} settings could not be saved (${res.status}). Try again.`);
 				return;
 			}
 			// Server truth, never the request body: the server may normalize

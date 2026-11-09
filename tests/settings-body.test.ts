@@ -155,6 +155,16 @@ describe("parseAppearanceSettingsBody", () => {
 		assert.ok(parseAppearanceSettingsBody({ background: null, fontFamily: null }));
 	});
 
+	it("refuses a light background on the dark theme, with a readable message", () => {
+		const light = parseAppearanceSettingsBody({ background: "#ffffff" });
+		assert.equal(light.ok, false);
+		if (!light.ok) assert.match(light.error, /^Background must be a dark color/);
+		assert.ok(parseAppearanceSettingsBody({ background: "#202830" }).ok);
+		const bad = parseAppearanceSettingsBody({ mdRendering: { boldColor: "red" } });
+		assert.ok(!bad.ok);
+		if (!bad.ok) assert.equal(bad.error, "Bold color must be a hex color like #1a2b3c");
+	});
+
 	it("rejects non-object bodies and non-object mdRendering", () => {
 		assert.equal(parseAppearanceSettingsBody([1]).ok, false);
 		assert.equal(parseAppearanceSettingsBody({ mdRendering: "big" }).ok, false);
@@ -241,6 +251,10 @@ describe("parseCompactionSettingsBody (owner round 14)", () => {
 		const r = parseCompactionSettingsBody({ thresholdTokens: "big" });
 		assert.ok(!r.ok);
 		assert.match(r.error ?? "", /must be a number/);
+	});
+	it("rejects a threshold above the cap", () => {
+		assert.equal(parseCompactionSettingsBody({ thresholdTokens: 1e23 }).ok, false);
+		assert.ok(parseCompactionSettingsBody({ thresholdTokens: 2_000_000 }).ok);
 	});
 });
 

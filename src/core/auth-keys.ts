@@ -180,15 +180,12 @@ export type KeyShapeResult = { ok: true } | { ok: false; error: string };
  */
 export function validateKeyShape(id: string, rawValue: string): KeyShapeResult {
 	const value = rawValue.trim();
-	const nonEmpty = (min: number) =>
-		value.length >= min && !/\s/.test(value)
-			? { ok: true as const }
-			: { ok: false as const, error: `${id} must be at least ${min} characters with no whitespace` };
+	const nonEmpty = (min: number) => pasteGuard(value, min);
 	switch (id) {
 		case "TAVILY_API_KEY":
 			return value.startsWith("tvly-")
 				? nonEmpty(20)
-				: { ok: false, error: `${id} must start with "tvly-" (Tavily's key format)` };
+				: { ok: false, error: `Tavily keys start with "tvly-"` };
 		case "BRAVE_API_KEY":
 			// No public format — a length floor + paste hygiene only.
 			return nonEmpty(20);
@@ -199,7 +196,7 @@ export function validateKeyShape(id: string, rawValue: string): KeyShapeResult {
 		case "FIRECRAWL_API_KEY":
 			return value.startsWith("fc-")
 				? nonEmpty(20)
-				: { ok: false, error: `${id} must start with "fc-" (Firecrawl's key format)` };
+				: { ok: false, error: `Firecrawl keys start with "fc-"` };
 		case "DEEPGRAM_API_KEY":
 			// No public format — the length floor only catches truncated pastes.
 			return nonEmpty(20);
@@ -210,10 +207,15 @@ export function validateKeyShape(id: string, rawValue: string): KeyShapeResult {
 
 /** The generic truncation guard for MODEL-PROVIDER keys (families vary —
  *  only paste hygiene applies; owner spec: trim, no whitespace, min 12). */
-export function genericProviderKeyGuard(id: string, rawValue: string): KeyShapeResult {
-	const value = rawValue.trim();
-	if (value.length >= 12 && !/\s/.test(value)) return { ok: true };
-	return { ok: false, error: `${id} must be at least 12 characters with no whitespace` };
+export function genericProviderKeyGuard(_id: string, rawValue: string): KeyShapeResult {
+	return pasteGuard(rawValue.trim(), 12);
+}
+
+/** Paste hygiene on a trimmed value, in the user's words. */
+function pasteGuard(value: string, min: number): KeyShapeResult {
+	if (/\s/.test(value)) return { ok: false, error: "A key can't contain spaces or line breaks" };
+	if (value.length < min) return { ok: false, error: `That key is too short: keys are at least ${min} characters` };
+	return { ok: true };
 }
 
 /** A masked key never leaves the server as plaintext (owner decision:

@@ -51,6 +51,7 @@ import { useModelCatalog } from "@/components/model-catalog";
 import { Hint } from "@/components/ui/hint";
 import {
 	COMPACTION_THRESHOLD_FLOOR,
+	COMPACTION_THRESHOLD_MAX,
 	MODEL_SLOTS,
 	SEARCH_ENGINES,
 	resolveSettings,
@@ -900,13 +901,12 @@ export function AgentSection({
 								return;
 							}
 							const n = Number(v);
-							if (!Number.isFinite(n) || n <= 0) return; // bad input: no write
-							// Mirror the server floor (anti-churn: each compaction
-							// keeps a ~20k-token tail); no ceiling — the effective
-							// trigger is min(threshold, contextWindow − 16k) anyway.
+							if (!Number.isFinite(n) || n <= 0) return "Enter a number of tokens, or leave it empty for the default.";
+							// Mirror the server's floor (anti-churn: each compaction
+							// keeps a ~20k-token tail) and ceiling.
 							onCompactionChange({
 								...compaction,
-								thresholdTokens: Math.max(COMPACTION_THRESHOLD_FLOOR, Math.round(n)),
+								thresholdTokens: Math.min(COMPACTION_THRESHOLD_MAX, Math.max(COMPACTION_THRESHOLD_FLOOR, Math.round(n))),
 							});
 						}}
 					/>

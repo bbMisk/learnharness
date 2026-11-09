@@ -107,6 +107,9 @@ describe("genericProviderKeyGuard (model-provider keys — paste hygiene only)",
 		const short = genericProviderKeyGuard("ZAI_API_KEY", "short");
 		assert.ok(!short.ok);
 		if (!short.ok) assert.match(short.error, /at least 12/);
+		if (!short.ok) assert.doesNotMatch(short.error, /ZAI_API_KEY/, "the message never names the variable");
+		const spaced = genericProviderKeyGuard("OPENAI_API_KEY", "has whitespace now 1234");
+		if (!spaced.ok) assert.match(spaced.error, /spaces/, "a long key with a space is not called short");
 		assert.ok(!genericProviderKeyGuard("OPENAI_API_KEY", "has whitespace now").ok);
 		assert.ok(!genericProviderKeyGuard("OPENAI_API_KEY", "   ").ok);
 	});

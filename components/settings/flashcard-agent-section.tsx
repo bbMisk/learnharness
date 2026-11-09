@@ -72,7 +72,8 @@ export function FlashcardAgentSection({ agent, onChange }: { agent: AgentSetting
 					testid="input-flashcard-agent-limit"
 					onCommit={(value) => {
 						const n = Number(value);
-						if (Number.isInteger(n) && n >= 1 && n <= 100) change({ dailyLimit: n });
+						if (value === "" || !Number.isInteger(n) || n < 1 || n > 100) return "Enter a whole number from 1 to 100.";
+						change({ dailyLimit: n });
 					}}
 				/>
 			</SettingsRow>

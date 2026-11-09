@@ -248,7 +248,9 @@ export function CommitInput({
 	 *  snaps to the stored truth (a typed "-5" shows the stored 12). */
 	value: string;
 	placeholder?: string;
-	onCommit: (next: string) => void;
+	/** Returns a message when the value is refused; it shows under the
+	 *  field until the next commit. */
+	onCommit: (next: string) => string | void;
 	ariaLabel: string;
 	testid?: string;
 	type?: "text" | "number";
@@ -260,7 +262,8 @@ export function CommitInput({
 	// Esc's blur runs with this render's closure (editing still true), so the
 	// cancel rides a ref the blur handler checks.
 	const cancelled = useRef(false);
-	return (
+	const [error, setError] = useState<string | null>(null);
+	const input = (
 		<input
 			type={type}
 			value={editing ? draft : value}
@@ -280,7 +283,7 @@ export function CommitInput({
 					return;
 				}
 				const next = draft.trim();
-				if (next !== value) onCommit(next);
+				setError(next !== value ? onCommit(next) || null : null);
 			}}
 			onKeyDown={(e) => {
 				if (e.key === "Enter") e.currentTarget.blur();
@@ -299,5 +302,14 @@ export function CommitInput({
 			}}
 			className="h-7 w-40 rounded-sm border border-border bg-background px-2 font-ui text-xs text-foreground outline-none placeholder:text-muted-foreground/60"
 		/>
+	);
+	if (!error) return input;
+	return (
+		<span className="flex flex-col items-end gap-1">
+			{input}
+			<span role="alert" data-testid={testid ? `${testid}-error` : undefined} className="max-w-60 text-right text-xs text-red-500">
+				{error}
+			</span>
+		</span>
 	);
 }

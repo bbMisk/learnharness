@@ -11,7 +11,7 @@
 
 import path from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { isHexColor, QUESTION_TYPES, sanitizeQuestionType, type ChatSettings } from "../core";
+import { isDarkBackground, isHexColor, QUESTION_TYPES, sanitizeQuestionType, type ChatSettings } from "../core";
 import type {
 	AgentSettings,
 	AppearanceSettings,
@@ -25,7 +25,7 @@ import type {
 	ModelSlot,
 	RoleModelOverride,
 } from "../core/settings.ts";
-import { BACKGROUND_MODEL_ROLES, CACHE_RETENTIONS, COMPACTION_THRESHOLD_FLOOR, CUSTOM_MODEL_PIN_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS, parseHiddenModes, REVEAL_QUESTIONS } from "../core/settings.ts";
+import { BACKGROUND_MODEL_ROLES, CACHE_RETENTIONS, COMPACTION_THRESHOLD_FLOOR, COMPACTION_THRESHOLD_MAX, CUSTOM_MODEL_PIN_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS, parseHiddenModes, REVEAL_QUESTIONS } from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import { isSearchEngineId, SEARCH_ENGINES } from "../core/search.ts";
 import { isDictationLanguage } from "../core/dictation.ts";
@@ -289,7 +289,7 @@ export function parseAgentSettingsBody(body: unknown): SettingsBodyResult<AgentS
 function parseHexOrNull(value: unknown, field: string): { color?: string | null; error?: string } {
 	if (value === null) return { color: null };
 	if (typeof value !== "string" || !isHexColor(value)) {
-		return { error: `${field} must be a #hex color or null` };
+		return { error: `${field} must be a hex color like #1a2b3c` };
 	}
 	return { color: value };
 }
@@ -307,8 +307,11 @@ export function parseAppearanceSettingsBody(body: unknown): SettingsBodyResult<A
 		settings.mode = raw.mode;
 	}
 	if (raw.background !== undefined) {
-		const parsed = parseHexOrNull(raw.background, "background");
+		const parsed = parseHexOrNull(raw.background, "Background");
 		if (parsed.error) return { ok: false, error: parsed.error };
+		if (parsed.color && raw.mode !== "light" && !isDarkBackground(parsed.color)) {
+			return { ok: false, error: "Background must be a dark color: the theme's text is light and would be unreadable" };
+		}
 		settings.background = parsed.color ?? null;
 	}
 	if (raw.fontFamily !== undefined) {
@@ -350,12 +353,12 @@ export function parseAppearanceSettingsBody(body: unknown): SettingsBodyResult<A
 			rendering.headingWeight = md.headingWeight;
 		}
 		if (md.boldColor !== undefined) {
-			const parsed = parseHexOrNull(md.boldColor, "mdRendering.boldColor");
+			const parsed = parseHexOrNull(md.boldColor, "Bold color");
 			if (parsed.error) return { ok: false, error: parsed.error };
 			rendering.boldColor = parsed.color ?? null;
 		}
 		if (md.italicColor !== undefined) {
-			const parsed = parseHexOrNull(md.italicColor, "mdRendering.italicColor");
+			const parsed = parseHexOrNull(md.italicColor, "Italic color");
 			if (parsed.error) return { ok: false, error: parsed.error };
 			rendering.italicColor = parsed.color ?? null;
 		}
@@ -454,6 +457,9 @@ export function parseCompactionSettingsBody(body: unknown): SettingsBodyResult<C
 				ok: false,
 				error: `thresholdTokens must be at least ${COMPACTION_THRESHOLD_FLOOR} (compaction keeps a ~20k-token recent tail — smaller budgets would churn it)`,
 			};
+		}
+		if (floored > COMPACTION_THRESHOLD_MAX) {
+			return { ok: false, error: `thresholdTokens must be at most ${COMPACTION_THRESHOLD_MAX}` };
 		}
 		settings.thresholdTokens = floored;
 	}
