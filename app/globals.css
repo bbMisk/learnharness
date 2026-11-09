@@ -26,12 +26,6 @@
 *:focus-visible {
 	outline: none;
 }
-/* Except inside modal dialogs, where Tab is the way around: keyboard focus
-   shows a quiet ring (text fields show their caret instead). */
-[data-lh-modal] :focus-visible:not(input, textarea) {
-	outline: 1px solid var(--ring);
-	outline-offset: 1px;
-}
 
 /* Palette (owner's hexes): main #141414, raised #1C1C1C, edges #434343.
    Mono chrome = JetBrains Mono; prose = Source Sans 3; titles = CMU Serif. */
@@ -637,6 +631,10 @@ body {
 	--lh-safe-bottom: env(safe-area-inset-bottom, 0px);
 	--lh-safe-left: env(safe-area-inset-left, 0px);
 	--lh-safe-right: env(safe-area-inset-right, 0px);
+}
+/* The offline notice's strip (components/offline-notice.tsx, h-7). */
+:root.lh-offline {
+	--lh-safe-top: calc(env(safe-area-inset-top, 0px) + 1.75rem);
 }
 body {
 	padding: var(--lh-safe-top) env(safe-area-inset-right, 0px) var(--lh-safe-bottom) env(safe-area-inset-left, 0px);

@@ -101,6 +101,16 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 		if (chatId && p.chatId === chatId) void refreshSession();
 	});
 	useOptionalServerResync(readRecord);
+	// A read that failed while the network was down never retries on its own,
+	// and a network-only drop may not break the events channel.
+	useEffect(() => {
+		const onOnline = () => {
+			readRecord();
+			refresh();
+		};
+		window.addEventListener("online", onOnline);
+		return () => window.removeEventListener("online", onOnline);
+	}, [readRecord, refresh]);
 
 	// Dual-bound truth: chat mode displays the session's own record,
 	// falling back to Strong only for a successfully read legacy unstamped

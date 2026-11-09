@@ -2,7 +2,6 @@ import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { afterEach, describe, it } from "node:test";
 import { parseHTML } from "linkedom";
 import type { Root } from "react-dom/client";
@@ -80,10 +79,5 @@ describe("Settings keyboard focus", () => {
 		anchor.remove();
 		assert.equal(closed, 1);
 		assert.equal(focused?.textContent, "b");
-	});
-
-	it("modal dialogs show a keyboard focus ring despite the app-wide outline reset", () => {
-		const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
-		assert.match(css, /\[data-lh-modal\] :focus-visible:not\(input, textarea\) \{\s*outline: 1px solid var\(--ring\);/);
 	});
 });

@@ -359,10 +359,11 @@ export function titleFromPrompt(prompt: string): string {
 export const NAME_MAX_CHARS = 200;
 
 /** A stored chat title or project name: one line (control characters become
- *  spaces), trimmed, at most NAME_MAX_CHARS characters. Empty means "use the
- *  caller's fallback". */
+ *  spaces, bidi controls such as U+202E are dropped so a name can't reorder
+ *  the text around it), trimmed, at most NAME_MAX_CHARS characters. Empty
+ *  means "use the caller's fallback". */
 export function cleanName(name: string): string {
-	return Array.from(name.replace(/[\p{Cc}\u2028\u2029]+/gu, " ").trim())
+	return Array.from(name.replace(/[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu, "").replace(/[\p{Cc}\u2028\u2029]+/gu, " ").trim())
 		.slice(0, NAME_MAX_CHARS)
 		.join("")
 		.trim();

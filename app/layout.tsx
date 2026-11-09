@@ -40,10 +40,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 						</ActivityProvider>
 					</SidebarProvider>
 				</AppearanceProvider>
+				<OfflineNotice />
 			</ServerEventsProvider>
 			{/* Auto-update banner (Wave C): fixed card, Electron-only pushes. */}
 			<UpdateBanner />
-			<OfflineNotice />
 		</body>
 		</html>
 	);

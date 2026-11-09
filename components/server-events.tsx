@@ -24,7 +24,7 @@
  * React glue is an adapter seam like lh:turn-state (untested by
  * precedent, components/session.ts).
  */
-import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { SERVER_EVENT_TYPES, type ServerEventType, type ServerEvents } from "@/src/core";
 
 /** The minimal source surface the provider consumes — EventSource behind
@@ -33,6 +33,8 @@ export interface NotifySource {
 	close(): void;
 	onOpen(cb: () => void): void;
 	onEvent(name: string, cb: (data: string) => void): void;
+	/** The connection dropped (EventSource retries on its own). */
+	onError?(cb: () => void): void;
 }
 
 export function openEventsChannel(): NotifySource {
@@ -45,6 +47,9 @@ export function openEventsChannel(): NotifySource {
 		onEvent: (name, cb) => {
 			es.addEventListener(name, (ev) => cb((ev as MessageEvent).data));
 		},
+		onError: (cb) => {
+			es.onerror = () => cb();
+		},
 	};
 }
 
@@ -55,7 +60,20 @@ export function openEventsChannel(): NotifySource {
 export function createNotifyHub() {
 	const byType = new Map<string, Set<(data: never) => void>>();
 	const resyncs = new Set<() => void>();
+	// Down from a dropped connection until the next open.
+	let down = false;
+	const downListeners = new Set<() => void>();
 	return {
+		isDown: () => down,
+		onDownChange(cb: () => void) {
+			downListeners.add(cb);
+			return () => downListeners.delete(cb);
+		},
+		setDown(next: boolean) {
+			if (next === down) return;
+			down = next;
+			for (const cb of [...downListeners]) cb();
+		},
 		subscribe<K extends ServerEventType>(type: K, cb: (payload: ServerEvents[K]) => void) {
 			const set = byType.get(type) ?? new Set<(data: never) => void>();
 			byType.set(type, set);
@@ -108,7 +126,11 @@ export function createNotifyHub() {
  *  out so the wiring is testable without React. Returns the disconnect. */
 export function wireSource(source: NotifySource, hub: ReturnType<typeof createNotifyHub>): () => void {
 	for (const name of SERVER_EVENT_TYPES) source.onEvent(name, (raw) => hub.dispatch(name, raw));
-	source.onOpen(() => hub.fireOpen());
+	source.onOpen(() => {
+		hub.setDown(false);
+		hub.fireOpen();
+	});
+	source.onError?.(() => hub.setDown(true));
 	return () => source.close();
 }
 
@@ -156,6 +178,16 @@ export function useOptionalServerEvent<K extends ServerEventType>(type: K, cb: (
 			off();
 		};
 	}, [hub, type]);
+}
+
+const never = () => () => {};
+const notDown = () => false;
+
+/** True while the window's events channel is disconnected (the server is
+ *  down or unreachable); false without a provider. */
+export function useServerDown(): boolean {
+	const hub = useContext(EventsContext);
+	return useSyncExternalStore(hub ? hub.onDownChange : never, hub ? hub.isDown : notDown, notDown);
 }
 
 /** useServerResync's optional twin (see useOptionalServerEvent). */

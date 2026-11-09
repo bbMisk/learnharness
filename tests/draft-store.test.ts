@@ -65,3 +65,18 @@ it("leaving the page saves the text typed inside the pause", () => {
 	assert.equal(readDraft("c:chat_3"), "typed just before reload");
 	clearDraft("c:chat_3");
 });
+
+it("visiting a question without touching it stores no draft", async () => {
+	const opts = { chatId: "chat_10", initialMessages: [], fetch: (() => new Promise<Response>(() => {})) as unknown as typeof fetch };
+	const model = new SessionModel(opts as never);
+	const pristine = { selection: { selected: new Set<number>(), otherSelected: false, dontKnow: false }, thinking: "", other: "", text: "", confidenceIndex: 2 };
+	model.saveQuestionDraft("call_1", { form: pristine });
+	pageListeners.get("pagehide")?.();
+	assert.equal(mem.has("lh:draft:q:chat_10:call_1"), false);
+	model.saveQuestionDraft("call_1", { form: { ...pristine, thinking: "a start" } });
+	pageListeners.get("pagehide")?.();
+	assert.equal(readDraft<{ form: { thinking: string } }>("q:chat_10:call_1")?.form.thinking, "a start");
+	model.saveQuestionDraft("call_1", { form: pristine });
+	pageListeners.get("pagehide")?.();
+	assert.equal(mem.has("lh:draft:q:chat_10:call_1"), false, "clearing everything removes it");
+});

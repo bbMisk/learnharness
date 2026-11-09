@@ -1,16 +1,25 @@
 "use client";
 
+import { useEffect } from "react";
 import { useOffline } from "next/offline";
+import { useServerDown } from "@/components/server-events";
 
-/** A navigation that can't reach the server waits in the app and finishes
- *  when the server is back (experimental.useOffline); this says why. */
+/** Shown while the events channel is down, or while a navigation that
+ *  couldn't reach the server waits in the app (experimental.useOffline).
+ *  A strip above the app: html.lh-offline grows the top inset the whole
+ *  layout already keeps clear (globals.css), so it covers nothing. */
 export function OfflineNotice() {
-	if (!useOffline()) return null;
+	const offline = useOffline();
+	const down = useServerDown();
+	const shown = offline || down;
+	useEffect(() => {
+		document.documentElement.classList.toggle("lh-offline", shown);
+		return () => document.documentElement.classList.remove("lh-offline");
+	}, [shown]);
+	if (!shown) return null;
 	return (
-		<div role="status" data-testid="offline-notice" className="pointer-events-none fixed inset-x-0 top-18 z-50 flex justify-center px-4">
-			<p className="rounded-sm border border-border bg-card px-3 py-1.5 font-ui text-xs text-muted-foreground shadow-lg">
-				Can&apos;t reach the server. Waiting for it to come back…
-			</p>
+		<div role="status" data-testid="offline-notice" className="fixed inset-x-0 top-[env(safe-area-inset-top,0px)] z-50 flex h-7 items-center justify-center border-b border-border bg-card px-4 font-ui text-xs text-muted-foreground">
+			Can&apos;t reach the server. Waiting for it to come back…
 		</div>
 	);
 }
