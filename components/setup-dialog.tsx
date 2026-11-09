@@ -293,9 +293,10 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 		keptPicks.picked = Object.fromEntries(edited.filter((slot) => picked[slot]).map((slot) => [slot, picked[slot]]));
 		keptPicks.levels = Object.fromEntries(edited.filter((slot) => levels[slot] !== undefined).map((slot) => [slot, levels[slot]]));
 	}, [picked, levels]);
-	// Closing hands focus back to whatever held it on open. A save retires
-	// the setup pill, so focus on the pill (or on nothing) goes to the composer.
-	useFocusReturn();
+	// Closing hands focus back to whatever held it on open, else (nothing did,
+	// or a key save retired the pill) to the page's typing target. A models
+	// save retires the setup pill too, so focus on the pill goes there as well.
+	useFocusReturn(false, focusComposer);
 	const saved = useRef(false);
 	useEffect(() => () => {
 		const at = document.activeElement;
@@ -370,6 +371,10 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 			onClose(); // Connection recovery is not a model-settings save.
 		}
 	}, [stage, closeAfterConnection, onClose]);
+	// A saved key swaps the key form for the pickers: focus moves to the first.
+	useEffect(() => {
+		if (stage === "pickers" && document.activeElement === document.body) document.querySelector<HTMLElement>(`[data-testid="setup-trigger-${SLOT_ORDER[0]}"]`)?.focus();
+	}, [stage]);
 
 	// Esc + outside-click — layered dismissal, closable WITHOUT
 	// configuring (browsing stays possible; the gate is the send

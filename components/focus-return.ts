@@ -17,6 +17,7 @@ export function captureFocus(): ((preventScroll: boolean) => boolean) | null {
 	const range = live?.rangeCount && el.contains(live.getRangeAt(0).startContainer) ? live.getRangeAt(0).cloneRange() : null;
 	return (preventScroll) => {
 		if (!el.isConnected) return false;
+		if (document.activeElement === el) return true; // it has focus again: keep its current caret
 		el.focus({ preventScroll });
 		if (field && start !== null && end !== null) {
 			try { field.setSelectionRange(start, end); } catch { /* not a text-type input */ }
@@ -34,10 +35,23 @@ export function captureFocus(): ((preventScroll: boolean) => boolean) | null {
 	};
 }
 
-/** The page's composer, caret at the end of its draft: where focus goes when
- * nothing else should have it. Plain focus() would put the caret at the start. */
+/** The fields the page types into, first shown one wins: an open check
+ * question's Your thinking (or answer), a practice problem's, the reading
+ * note, then the composer. A collapsed check's dock is mounted but hidden. */
+const TYPING_TARGETS = [
+	'[data-testid="thinking-field"] [data-file-path-input]',
+	'[data-testid="answer-field"] [data-file-path-input]',
+	'[data-testid="practice-thinking-field"] [data-file-path-input]',
+	'[data-testid="reading-thinking-field"] [data-file-path-input]',
+	'[data-testid="composer"] [data-file-path-input]',
+	"[data-file-path-default]",
+];
+
+/** The page's typing target, caret at the end of its draft: where focus goes
+ * when nothing else should have it. Plain focus() would put the caret at the start. */
 export function focusComposer(): void {
-	const el = document.querySelector<HTMLElement>('[data-testid="composer"] [data-file-path-input], [data-file-path-default]');
+	const el = TYPING_TARGETS.map((target) => document.querySelector<HTMLElement>(target))
+		.find((field) => field && (field.checkVisibility?.({ visibilityProperty: true }) ?? true));
 	if (!el) return;
 	const selection = el.isContentEditable ? document.getSelection() : null;
 	const inside = !!selection?.rangeCount && el.contains(selection.getRangeAt(0).startContainer);
@@ -50,8 +64,9 @@ export function focusComposer(): void {
 
 /** A dialog's focus return: captured at its first render (before it takes
  * focus) and handed back, caret included, when it closes. `fallback` runs
- * when nothing held focus on open (e.g. a deep link opened the dialog). */
+ * when nothing held focus on open (e.g. a deep link opened the dialog) or
+ * what held it is gone. */
 export function useFocusReturn(preventScroll = false, fallback?: () => void): void {
 	const [restore] = useState(captureFocus);
-	useEffect(() => () => { if (restore) restore(preventScroll); else fallback?.(); }, [restore, preventScroll, fallback]);
+	useEffect(() => () => { if (!restore?.(preventScroll)) fallback?.(); }, [restore, preventScroll, fallback]);
 }
