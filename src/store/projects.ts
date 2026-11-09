@@ -26,21 +26,22 @@ export function createProjectStore(root: string) {
 		emit("chats-changed", {});
 		return record;
 	};
+	const list = (): ProjectRecord[] => {
+		try {
+			return fs
+				.readdirSync(root)
+				.filter((f) => f.endsWith(".json"))
+				.map((f) => get(f.slice(0, -5)))
+				.filter((p): p is ProjectRecord => !!p)
+				.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.error("[projects] could not be listed:", error);
+			return [];
+		}
+	};
 	return {
 		get,
-		list(): ProjectRecord[] {
-			try {
-				return fs
-					.readdirSync(root)
-					.filter((f) => f.endsWith(".json"))
-					.map((f) => get(f.slice(0, -5)))
-					.filter((p): p is ProjectRecord => !!p)
-					.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-			} catch (error) {
-				if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.error("[projects] could not be listed:", error);
-				return [];
-			}
-		},
+		list,
 		create(name: string) {
 			const now = new Date().toISOString();
 			return save({
@@ -51,6 +52,21 @@ export function createProjectStore(root: string) {
 				createdAt: now,
 				updatedAt: now,
 			});
+		},
+		/** Delete the project record (its chats are the caller's to move first). */
+		remove(id: string): boolean {
+			try {
+				fs.unlinkSync(file(id));
+			} catch {
+				return false;
+			}
+			emit("chats-changed", {});
+			return true;
+		},
+		/** Whether another project already has this name (case-insensitive). */
+		nameTaken(name: string, exceptId?: string): boolean {
+			const wanted = cleanName(name).toLowerCase();
+			return list().some((project) => project.id !== exceptId && project.name.toLowerCase() === wanted);
 		},
 		update(id: string, updates: Partial<Pick<ProjectRecord, "name" | "instructions" | "fileIds">>) {
 			const record = get(id);

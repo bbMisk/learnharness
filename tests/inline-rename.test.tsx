@@ -118,9 +118,11 @@ it("clicking the project title renames it in place", async () => {
 		return Response.json(project);
 	}) as typeof fetch;
 	const el = await render(
+		<AppRouterContext.Provider value={router as never}>
 		<ServerEventsProvider connect={quietChannel}>
 			<ProjectPage initial={project} />
-		</ServerEventsProvider>,
+		</ServerEventsProvider>
+		</AppRouterContext.Provider>,
 	);
 	const title = el.querySelector("h1 button") as HTMLButtonElement;
 	await act(async () => title.click());

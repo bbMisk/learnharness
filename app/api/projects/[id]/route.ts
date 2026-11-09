@@ -1,4 +1,4 @@
-import { jsonResponse, projectStore, projectView, uploadStore } from "@/src/server";
+import { jsonResponse, projectStore, projectView, setChatOrganization, stores, uploadStore } from "@/src/server";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
 	const project = await projectView((await params).id);
@@ -23,6 +23,8 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
 	}
 	if (["name", "instructions"].some((field) => body[field] !== undefined && typeof body.expected?.[field] !== "string"))
 		return Response.json({ error: "Reload this project before saving. Keep a copy of your edits." }, { status: 400 });
+	if (body.name !== undefined && projectStore.nameTaken(body.name, id))
+		return Response.json({ error: "A project with that name already exists." }, { status: 400 });
 	if (body.fileIds !== undefined) return Response.json({ error: "Reload the project before removing files." }, { status: 400 });
 	try {
 		await Promise.all((body.addFileIds || []).map((id: string) => uploadStore.read(id)));
@@ -51,4 +53,15 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
 	} catch (error) {
 		return Response.json({ error: error instanceof Error ? error.message : "Could not save project." }, { status: 400 });
 	}
+}
+
+/** Delete a project. Its chats (archived ones too) move to the unassigned
+ *  list first, so a failure part-way never hides a chat; its files stay in
+ *  the upload library. */
+export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+	const { id } = await params;
+	if (!projectStore.get(id)) return Response.json({ error: "Project not found." }, { status: 404 });
+	for (const chat of stores.chatStore.listChats()) if (chat.projectId === id) setChatOrganization(chat.id, { projectId: null });
+	projectStore.remove(id);
+	return Response.json({ ok: true });
 }
