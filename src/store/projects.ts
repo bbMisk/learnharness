@@ -3,6 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { PATHS } from "../../config.ts";
 import type { ProjectRecord } from "../core/projects.ts";
+import { cleanName } from "../core/contracts.ts";
 import { emit } from "../core/events.ts";
 import { writeFileAtomic } from "./write-file.ts";
 export function createProjectStore(root: string) {
@@ -44,7 +45,7 @@ export function createProjectStore(root: string) {
 			const now = new Date().toISOString();
 			return save({
 				id: "project_" + randomUUID(),
-				name: name.trim() || "New project",
+				name: cleanName(name) || "New project",
 				instructions: "",
 				fileIds: [],
 				createdAt: now,
@@ -57,7 +58,7 @@ export function createProjectStore(root: string) {
 			return save({
 				...record,
 				...updates,
-				name: updates.name?.trim() || record.name,
+				name: cleanName(updates.name ?? "") || record.name,
 				fileIds: updates.fileIds ? [...new Set(updates.fileIds)] : record.fileIds,
 				updatedAt: new Date(Math.max(Date.now(), Date.parse(record.updatedAt) + 1)).toISOString(),
 			});

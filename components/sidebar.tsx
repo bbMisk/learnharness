@@ -400,6 +400,7 @@ export function RenameRow({ chat, onCommit, onCancel, showTime = false }: { chat
 				<input
 					ref={inputRef}
 					value={draft}
+					maxLength={200}
 					spellCheck={false}
 					onChange={(e) => setDraft(e.target.value)}
 					onBlur={() => onCommit(draft)}

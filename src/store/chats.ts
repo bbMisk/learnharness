@@ -15,7 +15,7 @@ import { mergeLearningEvents } from "../core/learning-history.ts";
 import { emit } from "../core/events.ts";
 import type { ChatStore } from "../core/ports.ts";
 import type { ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, ImageSnapshot, PlanTree, TurnUsage } from "../core/contracts.ts";
-import { CURRENT_CHAT_VERSION } from "../core/contracts.ts";
+import { cleanName, CURRENT_CHAT_VERSION } from "../core/contracts.ts";
 import type { LhMessage } from "../core/native-messages.ts";
 import { activeProblemOf, danglingQuestionOf } from "../core/native-messages.ts";
 import { phaseAt3Lh } from "../core/phases.ts";
@@ -40,7 +40,7 @@ function createChat(title: string, kind?: "practice"): ChatRecord {
 	const now = new Date().toISOString();
 	const record: ChatRecord = {
 		id: `chat_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`,
-		title: title.trim() || "Untitled session",
+		title: cleanName(title) || "Untitled session",
 		createdAt: now,
 		updatedAt: now,
 		messages: [],
@@ -364,7 +364,7 @@ function saveSettings(id: string, settings: ChatSettings): void {
 function renameChat(id: string, title: string): ChatRecord {
 	const record = getChat(id);
 	if (!record) throw new Error(`Chat not found: ${id}`);
-	record.title = title.trim() || "Untitled session";
+	record.title = cleanName(title) || "Untitled session";
 	writeChat(record);
 	emit("chats-changed", {});
 	return record;
