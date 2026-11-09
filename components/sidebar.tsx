@@ -456,6 +456,7 @@ export function RenameRow({ chat, draft: initialDraft, onCommit, onCancel, showT
 					}}
 					aria-label="Rename chat"
 					data-testid="session-rename-input"
+					data-lh-rename=""
 					className="lh-input w-full min-w-0 truncate border-0 border-b border-border bg-transparent px-0 text-foreground outline-none"
 				/>
 				<SessionMetaLine chat={chat} showTime={showTime} gutter={false} className="block truncate text-xs text-muted-foreground" />

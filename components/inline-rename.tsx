@@ -60,6 +60,7 @@ export function InlineRename({
 		<input
 			ref={input}
 			aria-label={ariaLabel}
+			data-lh-rename=""
 			defaultValue={value}
 			maxLength={200}
 			disabled={saving}
