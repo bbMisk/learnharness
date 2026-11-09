@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
-import { useFocusReturn } from "@/components/focus-return";
+import { focusComposer, useFocusReturn } from "@/components/focus-return";
 import {
 	CURRENT_SETTINGS_VERSION,
 	type AgentSettings,
@@ -87,11 +87,6 @@ export function SettingsDialog({
 
 /** The dialog without the portal/backdrop — the SSR-testable frame
  *  (portals render nothing under renderToStaticMarkup). */
-/** The page's composer: where focus goes when Settings closes and nothing opened it. */
-function focusComposer(): void {
-	document.querySelector<HTMLElement>('[data-testid="composer"] [data-file-path-input], [data-file-path-default]')?.focus();
-}
-
 export function SettingsDialogBody({
 	onClose,
 	initialSection = "keys",
@@ -193,25 +188,25 @@ export function SettingsDialogBody({
 
 	/** ONE writer for the whole dialog: PUT the whole section, keep the
 	 *  record mirror in sync, surface route errors inline (a 400 is a
-	 *  schema mistake caught by the validation surface). */
+	 *  schema mistake caught by the validation surface). Resolves whether it saved. */
 	const write = useCallback(
 		async (
 			section: "general" | "agent" | "models" | "appearance" | "graph" | "compaction",
 			body: object,
-		) => {
+		): Promise<boolean> => {
 			setError(null);
 			const res = await fetch(`/api/settings/${section}`, {
 				method: "PUT",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify(body),
 			}).catch(() => null);
-			if (!res) { setError(`${section} settings could not be saved. Try again.`); return; }
+			if (!res) { setError(`${section} settings could not be saved. Try again.`); return false; }
 			if (!res.ok) {
 				const detail = (await res.json().catch(() => ({}))) as {
 					error?: string;
 				};
 				setError(detail.error ?? `${section} settings could not be saved (${res.status}). Try again.`);
-				return;
+				return false;
 			}
 			// Server truth, never the request body: the server may normalize
 			// on write (e.g. clamp a pinned thinking level), and the writing
@@ -226,6 +221,7 @@ export function SettingsDialogBody({
 			notifySettingsSaved(section);
 			if (section === "appearance")
 				onAppearanceChange(body as AppearanceSettings);
+			return true;
 		},
 		[onAppearanceChange],
 	);
@@ -488,7 +484,7 @@ export function SettingsDialogBody({
 											void write("models", next)
 										}
 										onSectionChange={(next: AgentSettings) =>
-											void write("agent", next)
+											write("agent", next)
 										}
 										onCompactionChange={(next: CompactionSettings) =>
 											void write("compaction", next)

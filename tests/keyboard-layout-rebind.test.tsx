@@ -132,3 +132,22 @@ describe("keyboard rebind shares layout normalization with dispatch", () => {
 		assert.equal(actionForBinding("mod+b"), "toggle-sidebar");
 	});
 });
+
+describe("rebind and reset keep focus on the row", () => {
+	it("the Rebind button stays the same element through a capture, and Reset hands focus to it", async () => {
+		const host = await mount();
+		let focused: Element | null = null;
+		window.HTMLElement.prototype.focus = function (this: Element) { focused = this; };
+		const rebind = host.querySelector<HTMLElement>('[data-testid="kbd-rebind-find"]')!;
+		await click(host, "kbd-rebind-find");
+		assert.ok(rebind.isConnected, "capturing keeps the focused button in place");
+		const label = () => rebind.textContent;
+		assert.equal(label(), "Cancel");
+		await press({ key: "k", code: "KeyK", ctrlKey: true, shiftKey: true });
+		assert.ok(rebind.isConnected && label() === "Rebind");
+		const reset = host.querySelector<HTMLElement>('[data-testid="kbd-reset-find"]')!;
+		Object.defineProperty(document, "activeElement", { get: () => reset, configurable: true });
+		await click(host, "kbd-reset-find");
+		assert.ok(focused === rebind, "Reset's removal hands focus to the row's Rebind");
+	});
+});

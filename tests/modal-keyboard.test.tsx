@@ -145,6 +145,30 @@ describe("shortcuts from a text field", () => {
 	});
 });
 
+describe("shortcuts from a rename field", () => {
+	it("F-keys stay out of a field that is mid-rename", async () => {
+		await mount("");
+		const field = document.createElement("input");
+		field.setAttribute("data-testid", "session-rename-input");
+		field.setAttribute("data-lh-rename", "");
+		document.body.append(field);
+		hosts.push(field);
+		const renames: string[] = [];
+		const onRename = () => renames.push("rename");
+		window.addEventListener("lh:kbd-rename-session", onRename);
+		try {
+			await act(async () => {
+				field.dispatchEvent(Object.assign(new dom.window.Event("keydown", { bubbles: true, cancelable: true }), {
+					key: "F2", code: "F2", ctrlKey: false, metaKey: false, altKey: false, shiftKey: false,
+				}));
+			});
+			assert.deepEqual(renames, []);
+		} finally {
+			window.removeEventListener("lh:kbd-rename-session", onRename);
+		}
+	});
+});
+
 describe("the shortcut cheat sheet is a modal", () => {
 	it("? opens it marked modal, global shortcuts stay out, and Esc still closes it", async () => {
 		await mount("");

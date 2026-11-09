@@ -96,3 +96,71 @@ it("on a slow server, quick adds all land and newer typing survives the check", 
 	slow = null;
 	await act(async () => root.unmount());
 });
+
+it("a folder add that fails to save is not kept: the text stays, a retry adds it, and the next add leaves it out", async () => {
+	const writes: AgentSettings[] = [];
+	let fail = true;
+	const root = createRoot(document.getElementById("root")!);
+	await act(async () => {
+		root.render(<AgentSection agent={{ fileAccess: { restricted: true, folders: ["/tmp"] } }} models={undefined} graph={undefined} compaction={undefined}
+			onSectionChange={async (next) => { writes.push(next); return !fail; }} onModelsChange={() => {}} onCompactionChange={() => {}} />);
+	});
+	const input = () => document.querySelector<HTMLInputElement>('[data-testid="file-access-add"]')!;
+	const add = async (text: string) => {
+		input().setAttribute("type", "text");
+		Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input(), text);
+		await act(async () => { input().dispatchEvent(new dom.window.Event("input", { bubbles: true })); });
+		await act(async () => {
+			input().dispatchEvent(Object.assign(new dom.window.Event("keydown", { bubbles: true, cancelable: true }), { key: "Enter" }));
+			await new Promise((resolve) => setTimeout(resolve, 5));
+		});
+	};
+	await add("/usr/local");
+	assert.equal(input().value, "/usr/local", "a failed save keeps the typed folder");
+	fail = false;
+	await add("/usr/local");
+	assert.equal(document.querySelector('[data-testid="file-access-input-error"]'), null, "the retry is not refused as already listed");
+	assert.deepEqual(writes.at(-1)?.fileAccess?.folders, ["/tmp", "/usr/local"]);
+	await act(async () => root.unmount());
+
+	const root2 = createRoot(document.getElementById("root")!);
+	writes.length = 0;
+	fail = true;
+	await act(async () => {
+		root2.render(<AgentSection agent={{ fileAccess: { restricted: true, folders: ["/tmp"] } }} models={undefined} graph={undefined} compaction={undefined}
+			onSectionChange={async (next) => { writes.push(next); return !fail; }} onModelsChange={() => {}} onCompactionChange={() => {}} />);
+	});
+	await add("/usr/local");
+	fail = false;
+	await add("/opt");
+	assert.deepEqual(writes.at(-1)?.fileAccess?.folders, ["/tmp", "/opt"], "the failed folder does not come back");
+	await act(async () => root2.unmount());
+});
+
+it("on a slow server, quick Agent changes all land, each on top of the last", async () => {
+	const writes: AgentSettings[] = [];
+	const pending: (() => void)[] = [];
+	const root = createRoot(document.getElementById("root")!);
+	await act(async () => {
+		root.render(<AgentSection agent={{ fileAccess: { restricted: true, folders: ["/tmp", "/usr/local", "/opt"] } }} models={undefined} graph={undefined} compaction={undefined}
+			onSectionChange={(next) => { writes.push(next); return new Promise<boolean>((resolve) => pending.push(() => resolve(true))); }}
+			onModelsChange={() => {}} onCompactionChange={() => {}} />);
+	});
+	const click = async (selector: string) => {
+		await act(async () => { document.querySelector<HTMLButtonElement>(selector)!.click(); });
+	};
+	const settle = async () => {
+		for (let i = 0; i < 20; i++) {
+			await act(async () => { pending.shift()?.(); await new Promise((resolve) => setTimeout(resolve, 2)); });
+		}
+	};
+	await click('[data-testid="toggle-tool-research"]');
+	await click('[data-testid="toggle-tool-demo"]');
+	await click('[aria-label="Remove /usr/local"]');
+	await click('[aria-label="Remove /opt"]');
+	await settle();
+	assert.equal(writes.length, 4);
+	assert.deepEqual(writes.at(-1)?.tools, { research: false, demo: false }, "the first toggle survives the second");
+	assert.deepEqual(writes.at(-1)?.fileAccess?.folders, ["/tmp"], "the first remove survives the second");
+	await act(async () => root.unmount());
+});

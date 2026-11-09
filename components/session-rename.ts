@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { captureFocus, focusComposer } from "@/components/focus-return";
 
 /**
  * The chat header's title and its click-to-rename state. Clicking the title
@@ -36,14 +37,29 @@ export function useSessionRename(chatId: string, title: string) {
 		[chatId, titleText],
 	);
 
-	// Select-all when edit mode opens: the click means "replace".
+	// Select-all when edit mode opens: the click means "replace". Enter or
+	// Esc hands focus back to what had it (the composer if nothing did).
+	const returnFocus = useRef<ReturnType<typeof captureFocus>>(null);
+	const closedByKey = useRef(false);
 	useEffect(() => {
 		if (renaming) {
 			const el = titleInputRef.current;
 			if (el) {
+					returnFocus.current = captureFocus();
 					el.focus();
 					el.select();
+					const onKey = (e: KeyboardEvent) => {
+						if (e.key !== "Enter" && e.key !== "Escape") return;
+						closedByKey.current = true;
+						// The focus moves before Enter's default: keep it from typing a newline there.
+						if (e.key === "Enter" && !e.isComposing) e.preventDefault();
+					};
+					el.addEventListener("keydown", onKey);
+					return () => el.removeEventListener("keydown", onKey);
 			}
+		} else if (closedByKey.current) {
+			closedByKey.current = false;
+			if (!returnFocus.current?.(true)) focusComposer();
 		}
 	}, [renaming]);
 

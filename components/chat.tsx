@@ -1173,6 +1173,7 @@ export function Chat({
 								onBlur={() => void commitRename(titleDraft)}
 								spellCheck={false}
 								aria-label="Chat title"
+								data-lh-rename=""
 								title="Rename this chat"
 								className="lh-no-drag min-w-[8ch] max-w-[70%] shrink-0 bg-transparent font-title text-3xl tracking-tight caret-current outline-none [field-sizing:content]"
 							/>
