@@ -68,3 +68,9 @@ test("the add-provider editor row wraps so an error sits under the input", async
 	await click(byTest("provider-option-openai"));
 	assert.match(byTest("key-openai-editor")?.className ?? "", /\bflex-wrap\b/);
 });
+
+test("a pasted key is masked like a password", async () => {
+	await mount();
+	await click(byTest("key-deepgram_api_key-row"));
+	assert.equal(byTest("key-deepgram_api_key-input")?.getAttribute("type"), "password");
+});

@@ -76,3 +76,28 @@ it("an unsaved draft survives switching models and closing Settings", async () =
 		}
 	}
 });
+
+it("with nothing saved, the picker starts on the Strong model", async () => {
+	const dom = parseHTML("<html><body><div id='root'></div></body></html>");
+	const globals = globalThis as Record<string, unknown>;
+	const previous = new Map<string, PropertyDescriptor | undefined>();
+	for (const [key, value] of Object.entries({ window: dom.window, document: dom.document, HTMLElement: dom.window.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true })) {
+		previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+		Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+	}
+	const { createRoot } = await import("react-dom/client");
+	const root = createRoot(document.getElementById("root")!);
+	const catalog = [{ id: "fable", name: "Claude Fable", provider: "anthropic" }, { id: "gpt-5", name: "GPT-5", provider: "openai" }] as ModelCatalogEntry[];
+	try {
+		await act(async () => root.render(<ModelInstructionsSection agent={{ modelInstructions: {} }} catalog={catalog} strong={{ provider: "openai", id: "gpt-5" }} onChange={() => {}} />));
+		const selected = document.querySelector<HTMLSelectElement>('[data-testid="model-instructions-model"]')!.querySelector("option[selected]") ?? null;
+		const value = document.querySelector<HTMLSelectElement>('[data-testid="model-instructions-model"]')!.value;
+		assert.equal(value || selected?.getAttribute("value"), "openai:gpt-5");
+	} finally {
+		act(() => root.unmount());
+		for (const [key, descriptor] of previous) {
+			if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+			else delete globals[key];
+		}
+	}
+});

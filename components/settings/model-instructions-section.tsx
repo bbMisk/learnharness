@@ -17,10 +17,13 @@ const drafts = new Map<string, string>();
 export function ModelInstructionsSection({
 	agent,
 	catalog,
+	strong,
 	onChange,
 }: {
 	agent: AgentSettings | undefined;
 	catalog: ModelCatalogEntry[] | undefined;
+	/** The Strong slot's model: the picker starts there when nothing is saved. */
+	strong?: { provider: string; id: string };
 	onChange: (next: AgentSettings) => void;
 }) {
 	const saved = useMemo(() => agent?.modelInstructions ?? {}, [agent?.modelInstructions]);
@@ -34,7 +37,8 @@ export function ModelInstructionsSection({
 		return list;
 	}, [catalog, saved]);
 	const [selected, setSelected] = useState<string>("");
-	const key = options.some((o) => o.key === selected) ? selected : Object.keys(saved)[0] || options[0]?.key || "";
+	const strongKey = strong && options.some((o) => o.key === modelInstructionsKey(strong)) ? modelInstructionsKey(strong) : "";
+	const key = options.some((o) => o.key === selected) ? selected : Object.keys(saved)[0] || strongKey || options[0]?.key || "";
 	const savedText = saved[key] ?? "";
 	const [text, setText] = useState(drafts.get(key) ?? savedText);
 	// Follow the model or ITS saved text, keeping that model's unsaved draft.

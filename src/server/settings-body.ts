@@ -25,7 +25,7 @@ import type {
 	ModelSlot,
 	RoleModelOverride,
 } from "../core/settings.ts";
-import { BACKGROUND_MODEL_ROLES, CACHE_RETENTIONS, COMPACTION_THRESHOLD_FLOOR, COMPACTION_THRESHOLD_MAX, CUSTOM_MODEL_PIN_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS, parseHiddenModes, REVEAL_QUESTIONS } from "../core/settings.ts";
+import { BACKGROUND_MODEL_ROLES, CACHE_RETENTIONS, COMPACTION_THRESHOLD_FLOOR, COMPACTION_THRESHOLD_MAX, CUSTOM_MODEL_PIN_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, EXTRACTION_CHUNK_TOKENS_MAX, MODEL_SLOTS, parseHiddenModes, REVEAL_QUESTIONS } from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import { isSearchEngineId, SEARCH_ENGINES } from "../core/search.ts";
 import { isDictationLanguage } from "../core/dictation.ts";
@@ -309,7 +309,8 @@ export function parseAppearanceSettingsBody(body: unknown): SettingsBodyResult<A
 	if (raw.background !== undefined) {
 		const parsed = parseHexOrNull(raw.background, "Background");
 		if (parsed.error) return { ok: false, error: parsed.error };
-		if (parsed.color && raw.mode !== "light" && !isDarkBackground(parsed.color)) {
+		// The app renders only the dark theme for now, whatever `mode` says.
+		if (parsed.color && !isDarkBackground(parsed.color)) {
 			return { ok: false, error: "Background must be a dark color: the theme's text is light and would be unreadable" };
 		}
 		settings.background = parsed.color ?? null;
@@ -395,6 +396,9 @@ export function parseGraphSettingsBody(body: unknown): SettingsBodyResult<GraphS
 				ok: false,
 				error: `extractionChunkTokens must be at least ${EXTRACTION_CHUNK_TOKENS_FLOOR} (smaller batches waste the per-run graph overhead)`,
 			};
+		}
+		if (floored > EXTRACTION_CHUNK_TOKENS_MAX) {
+			return { ok: false, error: `extractionChunkTokens must be at most ${EXTRACTION_CHUNK_TOKENS_MAX}` };
 		}
 		settings.extractionChunkTokens = floored;
 	}

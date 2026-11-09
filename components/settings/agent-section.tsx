@@ -99,6 +99,10 @@ interface SegmentInfo {
 type PromptView = Record<"teacher" | "prober" | "practice", SegmentInfo[]>;
 type PromptRow = SegmentInfo & { usageHint?: string };
 
+/** Unsaved prompt-override drafts per path, kept for the app session:
+ *  Esc or closing Settings never throws typed text away. */
+const segmentDrafts: Record<string, string> = {};
+
 /** Compose: one tool toggled, the rest of the section carried verbatim.
  *  Pure — exported for tests. */
 export function composeTool(agent: AgentSettings | undefined, id: string, on: boolean): AgentSettings {
@@ -115,11 +119,21 @@ export function composeFileRestriction(agent: AgentSettings | undefined, restric
 }
 
 /** The folder as typed, trimmed and without trailing separators, so
- *  "/tmp/" and "/tmp" are one entry. A root stays as it is. */
+ *  "/tmp/" and "/tmp" are one entry, and with "." / ".." resolved in a
+ *  POSIX or ~ path, so "/tmp/../tmp" is "/tmp". A root stays as it is. */
 export function normalizeFolder(folder: string): string {
 	const trimmed = folder.trim();
 	const stripped = trimmed.replace(/[\\/]+$/, "");
-	return stripped && !/^[A-Za-z]:$/.test(stripped) ? stripped : trimmed;
+	if (!stripped || /^[A-Za-z]:$/.test(stripped)) return trimmed;
+	const posix = /^(\/|~\/)/.exec(stripped)?.[0];
+	if (!posix) return stripped;
+	const parts: string[] = [];
+	for (const part of stripped.slice(posix.length).split("/")) {
+		if (part === "" || part === ".") continue;
+		if (part === "..") parts.pop();
+		else parts.push(part);
+	}
+	return parts.length ? posix + parts.join("/") : posix === "/" ? "/" : "~";
 }
 
 /** A whole-disk root: listing it would allow everything. */
@@ -352,7 +366,7 @@ export function AgentSection({
 	const [engineKeys, setEngineKeys] = useState<Partial<Record<SearchEngineId, boolean>>>({});
 	const [prompts, setPrompts] = useState<PromptView | null>(null);
 	const [openSegment, setOpenSegment] = useState<string | null>(null);
-	const [segmentDraft, setSegmentDraft] = useState<Record<string, string>>({});
+	const [segmentDraft, setSegmentDraft] = useState<Record<string, string>>(() => ({ ...segmentDrafts }));
 	const [segmentStatus, setSegmentStatus] = useState<string | null>(null);
 	/** One open dropdown for the whole section: which slot (or the search
 	 *  row), which kind. */
@@ -534,7 +548,10 @@ export function AgentSection({
 							<p className="mb-1 text-xs uppercase tracking-widest text-muted-foreground/70">Override</p>
 							<textarea
 								value={segmentDraft[info.path] ?? info.overrideText ?? ""}
-								onChange={(e) => setSegmentDraft({ ...segmentDraft, [info.path]: e.target.value })}
+								onChange={(e) => {
+									segmentDrafts[info.path] = e.target.value;
+									setSegmentDraft({ ...segmentDraft, [info.path]: e.target.value });
+								}}
 								aria-label="Your version of the instructions"
 								placeholder="Add your own instructions…"
 								className="h-24 w-full resize-y rounded-sm border border-border bg-background p-2 font-ui text-xs text-foreground outline-none"
@@ -611,11 +628,13 @@ export function AgentSection({
 					const chosen = coord ? catalog?.find((m) => m.id === coord.id && m.provider === coord.provider) : undefined;
 					const levels = chosen ? chosen.supportedLevels : THINKING_LEVELS;
 					const thisMenuOpen = openMenu?.target === slot ? openMenu.kind : null;
+					// A saved model whose provider has no key can't run.
+					const disconnected = !!coord && !!body && !body.providers.some((p) => p.id === coord.provider && p.keyPresent);
 					return (
 						<SettingsRow
 							key={slot}
 							label={SLOT_META[slot].label}
-							hint={SLOT_META[slot].roster}
+							hint={disconnected ? <>{SLOT_META[slot].roster} · <span data-testid={`slot-disconnected-${slot}`} className="text-red-500">provider not connected</span></> : SLOT_META[slot].roster}
 							testid={`slot-row-${slot}`}
 						>
 							{/* The anchor for the outside-click contract is the
@@ -895,7 +914,7 @@ export function AgentSection({
 
 			<FlashcardAgentSection agent={agent} onChange={onSectionChange}/>
 
-			<ModelInstructionsSection agent={agent} catalog={catalog ?? undefined} onChange={onSectionChange} />
+			<ModelInstructionsSection agent={agent} catalog={catalog ?? undefined} strong={models?.strong?.model ?? slots?.strong?.model} onChange={onSectionChange} />
 
 			<SettingsGroup label="Context" testid="group-context">
 				<SettingsRow

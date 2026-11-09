@@ -58,6 +58,7 @@ describe("sanitizeUserSettings", () => {
 		assert.equal(out?.appearance?.background, null);
 		assert.equal(out?.compaction?.thresholdTokens, 2_000_000);
 		assert.equal(sanitizeUserSettings({ version: 1, appearance: { background: "#202830" } })?.appearance?.background, "#202830");
+		assert.equal(sanitizeUserSettings({ version: 1, appearance: { mode: "light", background: "#ffffff" } })?.appearance?.background, null, "light mode is not rendered yet");
 	});
 
 	it("round-trips a fully valid record field-for-field", () => {
@@ -79,7 +80,7 @@ describe("sanitizeUserSettings", () => {
 			},
 			appearance: {
 				mode: "light",
-				background: "#ffffff",
+				background: "#202830",
 				fontFamily: "Some Font",
 				proseFontSize: 18,
 				sessionNameSerif: false,
@@ -127,6 +128,8 @@ describe("sanitizeUserSettings", () => {
 		assert.equal(fraction?.graph?.extractionChunkTokens, 1024, "fractions floor to whole tokens");
 		const tiny = sanitizeUserSettings({ version: 1, graph: { extractionChunkTokens: 10 } });
 		assert.equal(tiny?.graph?.extractionChunkTokens, 500, "below the floor clamps UP — penny-batches are a cost bug, not a preference");
+		const huge = sanitizeUserSettings({ version: 1, graph: { extractionChunkTokens: 999_999_999_999 } });
+		assert.equal(huge?.graph?.extractionChunkTokens, 2_000_000, "above the ceiling clamps DOWN");
 		for (const junk of [0, -1000, NaN, Infinity, "4096", null, true]) {
 			const dropped = sanitizeUserSettings({ version: 1, graph: { extractionChunkTokens: junk } });
 			assert.equal(dropped?.graph?.extractionChunkTokens, undefined, `junk ${String(junk)} drops`);

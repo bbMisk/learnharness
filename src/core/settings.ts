@@ -467,8 +467,8 @@ export interface GraphSettings {
 	 *  graph-carrying prompt overhead, so a budget below ~500 tokens would
 	 *  fire penny-batches that cost more per extracted token than the
 	 *  content is worth; the sanitizer clamps and the PUT rejects below it.
-	 *  NO CEILING on purpose: a large budget just delays extraction — the
-	 *  user's cost/thoroughness tradeoff, not a misconfiguration. */
+	 *  CEILING 2,000,000 (EXTRACTION_CHUNK_TOKENS_MAX): a large budget just
+	 *  delays extraction, but none above any model's context makes sense. */
 	extractionChunkTokens?: number;
 }
 
@@ -551,6 +551,8 @@ export const FACTORY_SETTINGS: FactorySettings = {
  *  — see its doc for the penny-batch rationale; the settings PUT names this
  *  in its rejection, the sanitizer clamps to it). */
 export const EXTRACTION_CHUNK_TOKENS_FLOOR = 500;
+/** The chunk budget's ceiling: no model's context is larger. */
+export const EXTRACTION_CHUNK_TOKENS_MAX = 2_000_000;
 
 // ─── Sanitizer ─────────────────────────────────────────────────────────────
 
@@ -564,17 +566,24 @@ export function isHexColor(value: string): boolean {
 	return /^#[0-9a-fA-F]{3}$/.test(value) || /^#[0-9a-fA-F]{6}$/.test(value);
 }
 
-/** The dark theme has light text, so its background must stay dark to keep
- *  text readable: relative luminance at most 0.06 (about #474747). */
-export const BACKGROUND_MAX_LUMINANCE = 0.06;
-export function isDarkBackground(hex: string): boolean {
-	if (!isHexColor(hex)) return false;
+/** WCAG relative luminance of a #rgb / #rrggbb color. */
+function luminance(hex: string): number {
 	const digits = hex.length === 4 ? hex.slice(1).split("").map((c) => c + c) : [hex.slice(1, 3), hex.slice(3, 5), hex.slice(5, 7)];
 	const [r = 0, g = 0, b = 0] = digits.map((d) => {
 		const c = parseInt(d, 16) / 255;
 		return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
 	});
-	return 0.2126 * r + 0.7152 * g + 0.0722 * b <= BACKGROUND_MAX_LUMINANCE;
+	return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** The dark theme's body text (globals.css --foreground). */
+const DARK_THEME_TEXT = "#e6e6e6";
+
+/** The dark theme has light text, so its background must keep that text
+ *  readable: WCAG AA contrast (4.5:1) against the body text. */
+export function isDarkBackground(hex: string): boolean {
+	if (!isHexColor(hex)) return false;
+	return (luminance(DARK_THEME_TEXT) + 0.05) / (luminance(hex) + 0.05) >= 4.5;
 }
 
 /** Coerce an arbitrary hex-or-null field: null and valid hex pass through,
@@ -815,9 +824,9 @@ function sanitizeAppearance(raw: Record<string, unknown>): AppearanceSettings {
 	if (raw.mode === "dark" || raw.mode === "light") out.mode = raw.mode;
 	if (raw.background !== undefined) {
 		const background = sanitizeHexOrNull(raw.background);
-		// A light background on the dark theme (stored before the guard)
-		// falls back to the default.
-		out.background = background !== null && out.mode !== "light" && !isDarkBackground(background) ? null : background;
+		// A light background (stored before the guard) falls back to the
+		// default: the app renders only the dark theme for now.
+		out.background = background !== null && !isDarkBackground(background) ? null : background;
 	}
 	if (raw.fontFamily !== undefined) {
 		out.fontFamily = typeof raw.fontFamily === "string" && raw.fontFamily.trim() ? raw.fontFamily : null;
@@ -847,7 +856,7 @@ function sanitizeGraph(raw: Record<string, unknown>): GraphSettings {
 	if (rendering !== undefined) out.rendering = rendering;
 	const rawTokens = raw.extractionChunkTokens;
 	if (typeof rawTokens === "number" && Number.isFinite(rawTokens) && rawTokens > 0) {
-		out.extractionChunkTokens = Math.max(EXTRACTION_CHUNK_TOKENS_FLOOR, Math.floor(rawTokens));
+		out.extractionChunkTokens = clamp(Math.floor(rawTokens), EXTRACTION_CHUNK_TOKENS_FLOOR, EXTRACTION_CHUNK_TOKENS_MAX);
 	}
 	return out;
 }

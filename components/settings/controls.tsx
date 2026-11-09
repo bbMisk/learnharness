@@ -8,7 +8,7 @@
  * together) and the control itself locks — the row owns the dim.
  */
 
-import { useRef, useState, type ComponentPropsWithRef, type ReactNode, type RefObject } from "react";
+import { useState, type ComponentPropsWithRef, type ReactNode, type RefObject } from "react";
 import { cn } from "@/lib/utils";
 
 /** The settings dropdown dismissal, bound while a menu is open; returns
@@ -16,7 +16,8 @@ import { cn } from "@/lib/utils";
  *  ([data-lh-menu]) is ignored; one elsewhere inside the dialog closes the
  *  menu; one outside the dialog is left to the dialog's own close. Esc
  *  closes the menu and stops propagating to window listeners; the dialog
- *  stays open because its own Esc skips while a MenuShell is open. */
+ *  stays open because its own Esc skips while a MenuShell is open. Focus
+ *  goes back to the menu's trigger, not to the body. */
 export function bindSettingsMenuDismiss(anchorRef: RefObject<Element | null>, close: () => void): () => void {
 	const onPointerDown = (e: PointerEvent) => {
 		const target = e.target as Node;
@@ -27,7 +28,9 @@ export function bindSettingsMenuDismiss(anchorRef: RefObject<Element | null>, cl
 	const onKeyDown = (e: KeyboardEvent) => {
 		if (e.key === "Escape") {
 			e.stopPropagation();
+			const trigger = anchorRef.current?.querySelector<HTMLElement>('[aria-expanded="true"]') ?? anchorRef.current?.querySelector<HTMLElement>("button");
 			close();
+			trigger?.focus();
 		}
 	};
 	document.addEventListener("pointerdown", onPointerDown);
@@ -255,14 +258,26 @@ export function CommitInput({
 	testid?: string;
 	type?: "text" | "number";
 }) {
-	// The draft exists only while editing; a blur shows the record's value
+	// The draft exists only while editing; a commit shows the record's value
 	// again — commit-on-blur/Enter, the field honest about what landed.
+	// Enter and Esc keep focus in the field.
 	const [draft, setDraft] = useState(value);
 	const [editing, setEditing] = useState(false);
-	// Esc's blur runs with this render's closure (editing still true), so the
-	// cancel rides a ref the blur handler checks.
-	const cancelled = useRef(false);
 	const [error, setError] = useState<string | null>(null);
+	const commit = (el: HTMLInputElement) => {
+		// Letters in a number field read as "" — refuse them instead of
+		// committing a clear, and show the stored value again.
+		if (type === "number" && el.validity?.badInput) {
+			setEditing(false);
+			el.value = value;
+			setError("Enter a number.");
+			return;
+		}
+		if (!editing) return;
+		setEditing(false);
+		const next = draft.trim();
+		setError(next !== value ? onCommit(next) || null : null);
+	};
 	const input = (
 		<input
 			type={type}
@@ -271,33 +286,20 @@ export function CommitInput({
 			aria-label={ariaLabel}
 			data-testid={testid}
 			onChange={(e) => {
-				cancelled.current = false;
 				setEditing(true);
 				setDraft(e.target.value);
 			}}
-			onBlur={() => {
-				if (!editing) return;
-				setEditing(false);
-				if (cancelled.current) {
-					cancelled.current = false;
-					return;
-				}
-				const next = draft.trim();
-				setError(next !== value ? onCommit(next) || null : null);
-			}}
+			onBlur={(e) => commit(e.currentTarget)}
 			onKeyDown={(e) => {
-				if (e.key === "Enter") e.currentTarget.blur();
-				if (e.key === "Escape") {
+				if (e.key === "Enter") commit(e.currentTarget);
+				if (e.key === "Escape" && (editing || (type === "number" && e.currentTarget.validity?.badInput))) {
 					// An edit in progress: Esc reverts it and is this field's one
 					// action — the dialog behind stays open. React listens at the
 					// document root, so stop the dialog's document listener too.
-					if (editing) {
-						e.stopPropagation();
-						e.nativeEvent.stopImmediatePropagation();
-						cancelled.current = true;
-					}
+					e.stopPropagation();
+					e.nativeEvent.stopImmediatePropagation();
 					setEditing(false);
-					e.currentTarget.blur();
+					e.currentTarget.value = value;
 				}
 			}}
 			className="h-7 w-40 rounded-sm border border-border bg-background px-2 font-ui text-xs text-foreground outline-none placeholder:text-muted-foreground/60"

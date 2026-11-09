@@ -77,7 +77,7 @@ describe("keyboard rebind shares layout normalization with dispatch", () => {
 		assert.equal(actionForBinding(binding({ key: "k", code: "KeyK", altKey: true })), "open-model-picker");
 	});
 
-	it("still ignores modifier-only keydowns, cancels with Escape, and preserves bare rebinds", async () => {
+	it("still ignores modifier-only keydowns, cancels with Escape, and keeps bare keys unmapped", async () => {
 		const host = await mount();
 		await click(host, "kbd-rebind-find");
 		await press({ key: "Control", code: "ControlLeft", ctrlKey: true });
@@ -86,9 +86,41 @@ describe("keyboard rebind shares layout normalization with dispatch", () => {
 		await press({ key: "Escape", code: "Escape" });
 		assert.deepEqual(loadOverrides(), {});
 		assert.ok(!host.textContent!.includes("Press keys…"));
-		await click(host, "kbd-rebind-find");
-		await press({ key: "л", code: "KeyK" });
-		assert.deepEqual(loadOverrides(), { find: "л" });
+		assert.equal(binding({ key: "л", code: "KeyK" }), "л", "a bare key keeps its layout character");
+	});
+
+	it("refuses system and editing chords and bare keys, but allows F keys and the action's own default", async () => {
+		const host = await mount();
+		const alert = () => host.querySelector('[data-testid="kbd-row-new-session"] [role="alert"]')?.textContent ?? "";
+		for (const init of [
+			{ key: "c", code: "KeyC", metaKey: true },
+			{ key: "w", code: "KeyW", metaKey: true },
+			{ key: "s", code: "KeyS" },
+			{ key: "Backspace", code: "Backspace" },
+		]) {
+			await click(host, "kbd-rebind-new-session");
+			await press(init);
+			assert.deepEqual(loadOverrides(), {}, `${init.key} must be refused`);
+			assert.match(alert(), /reserved|needs/);
+		}
+		await click(host, "kbd-rebind-new-session");
+		await press({ key: "F4", code: "F4" });
+		assert.deepEqual(loadOverrides(), { "new-session": "f4" });
+		assert.equal(alert(), "");
+		await click(host, "kbd-rebind-cheat-sheet");
+		await press({ key: "?", code: "Slash", shiftKey: true });
+		assert.equal(host.querySelector('[data-testid="kbd-row-cheat-sheet"] [role="alert"]'), null, "? stays allowed for the cheat sheet");
+	});
+
+	it("Reset all to defaults needs a second click", async () => {
+		const host = await mount();
+		await click(host, "kbd-rebind-new-session");
+		await press({ key: "F4", code: "F4" });
+		await click(host, "kbd-reset-all");
+		assert.deepEqual(loadOverrides(), { "new-session": "f4" }, "one click only arms the reset");
+		assert.equal(host.querySelector('[data-testid="kbd-reset-all"]')?.textContent, "Confirm reset all");
+		await click(host, "kbd-reset-all");
+		assert.deepEqual(loadOverrides(), {});
 	});
 
 	it("refuses a binding another action already uses, and says which", async () => {

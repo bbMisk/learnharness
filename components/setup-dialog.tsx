@@ -26,7 +26,8 @@
  *     models, in the app's shared dropdown language (ModelMenuList).
  *     Saved disconnected selections and edits are retained internally in
  *     the exclusive provider stage. Connecting the provider every saved slot uses
- *     closes setup; otherwise the pickers require only the missing slots.
+ *     closes setup; otherwise every slot without a connected provider is
+ *     marked needed and must be picked again.
  *     All three required (owner: no skip, no defaults); Save PUTs the
  *     models section and reports onDone(models).
  *
@@ -46,7 +47,7 @@ import { ModelMenuList } from "@/components/settings/model-menu";
 import { MenuShell } from "@/components/menu-shell";
 import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-signal";
 import { useModelCatalog } from "@/components/model-catalog";
-import { savedSlotsConfigured } from "@/components/setup-cta";
+import { savedSlotsConnected } from "@/components/setup-cta";
 import { Hint } from "@/components/ui/hint";
 import { type ProviderKeyInfo, CUSTOM_PROVIDER_INFO, CustomEndpointSetup } from "@/components/settings/keys-section";
 import { ProviderMenuList } from "@/components/settings/model-menu";
@@ -86,16 +87,9 @@ export function setupStage(
 
 type ModelSelection = Pick<ModelCatalogEntry, "provider" | "id">;
 
-/** Pure: every slot is saved AND its provider is connected — only then can a
- *  fresh connection close setup. A key for some other provider leaves the
- *  saved models unrunnable, so setup moves on to the pickers. */
-export function savedSlotsConnected(catalog: Pick<ModelsBody, "providers" | "slots"> | undefined): boolean {
-	return !!catalog && savedSlotsConfigured(catalog.slots) && SLOT_ORDER.every((slot) =>
-		catalog.providers.some((p) => p.id === catalog.slots?.[slot]?.model.provider && p.keyPresent));
-}
-
 /** Saved identity is independent of selectable metadata. A disconnected
- * pin still prefills; only the menu is restricted to the live catalog. */
+ * pin still prefills (marked needed); only the menu is restricted to the
+ * live catalog. */
 export function prefillFromSlots(
 	models: ModelCatalogEntry[],
 	slots: Record<ModelSlotName, { model: { provider: string; id: string } } | null> | undefined,
@@ -202,7 +196,8 @@ export function SetupKeysBody({
 					<div className="flex max-w-96 flex-col gap-2">
 						<div className="flex items-center gap-2">
 							<input
-								type="text"
+								type="password"
+								autoComplete="off"
 								value={value}
 								onChange={(e) => onValue(e.target.value)}
 								onKeyDown={(e) => {
@@ -329,6 +324,8 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 	}, [catalog]);
 
 	const stage = setupStage(catalog?.providers ?? null);
+	// Only a connection that makes every saved slot runnable closes setup; a
+	// key for some other provider moves on to the pickers.
 	const closeAfterConnection = stage === "pickers" && providerStageSeen.current && savedSlotsConnected(catalog);
 	useEffect(() => {
 		if (stage === "keys") providerStageSeen.current = true;
@@ -383,7 +380,10 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 	// closing an already-configured setup. No saved model/thinking writes.
 	if (closeAfterConnection) return null;
 
-	const allPicked = SLOT_ORDER.every((s) => picked[s]);
+	// A pick on a provider with no key can't run: it stays shown (identity
+	// and thinking survive) but counts as needed. Unknown catalog: trust it.
+	const runnable = (s: ModelSlotName) => !!picked[s] && (!catalog || catalog.providers.some((p) => p.id === picked[s]!.provider && p.keyPresent));
+	const allPicked = SLOT_ORDER.every(runnable);
 
 	/** Stage 1's save: PUT the pasted key, dispatch the keys signal, and
 	 *  CLEAN the local key field. The fresh catalog decides whether to
@@ -513,7 +513,7 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 								<div key={slot} data-testid={`setup-slot-${slot}`} className="flex flex-col gap-1.5">
 									<span className="flex items-center gap-1.5">
 										<span className="font-ui text-sm text-foreground">{SLOT_META[slot].label}</span>
-										{!catalog?.slots?.[slot]?.model && !picked[slot] && (
+										{!runnable(slot) && (
 											<span
 												data-testid={`setup-needed-${slot}`}
 												className="rounded-sm border border-border px-1 py-0.5 text-[10px] font-normal tracking-wide text-muted-foreground"

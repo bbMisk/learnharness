@@ -16,6 +16,9 @@ import {
 	composeTool,
 	composeQuizMechanics,
 	sectionedSegments,
+	normalizeFolder,
+	isRootFolder,
+	composeAddFolder,
 } from "../components/settings/agent-section.tsx";
 import { nextOverrides } from "../components/settings/keyboard-section.tsx";
 import { classifyKeys, keyStatusLine, type ProviderKeyInfo } from "../components/settings/keys-section.tsx";
@@ -410,5 +413,18 @@ describe("composeQuizMechanics (the segmented control's write)", () => {
 			assert.equal(after.tools?.research, false, "the research toggle carries verbatim");
 			assert.deepEqual(after.prompts, before.prompts, "the prompts map carries verbatim");
 		}
+	});
+});
+
+describe("file-access folder entries", () => {
+	it("resolve . and .. so an aliased spelling is a duplicate", () => {
+		assert.equal(normalizeFolder("/tmp/../tmp"), "/tmp");
+		assert.equal(normalizeFolder("~/notes/./math/"), "~/notes/math");
+		assert.equal(normalizeFolder("/a/b/.."), "/a");
+		assert.equal(normalizeFolder("C:\\Notes\\"), "C:\\Notes");
+		const agent = composeAddFolder({ fileAccess: { restricted: true, folders: ["/tmp"] } }, "/tmp/../tmp");
+		assert.deepEqual(agent.fileAccess?.folders, ["/tmp"]);
+		assert.equal(normalizeFolder("~/notes/.."), "~");
+		assert.equal(isRootFolder(normalizeFolder("/tmp/..")), true, "a spelling of the root is still the root");
 	});
 });

@@ -112,7 +112,7 @@ describe("parseAppearanceSettingsBody", () => {
 	it("parses every field; hex-or-null colors; clamps happen at sanitize, rejects here", () => {
 		const r = parseAppearanceSettingsBody({
 			mode: "light",
-			background: "#ffffff",
+			background: "#202830",
 			fontFamily: "Some Font",
 			proseFontSize: 20,
 			sessionNameSerif: false,
@@ -121,7 +121,7 @@ describe("parseAppearanceSettingsBody", () => {
 		assert.ok(r.ok);
 		assert.deepEqual(r.settings, {
 			mode: "light",
-			background: "#ffffff",
+			background: "#202830",
 			fontFamily: "Some Font",
 			proseFontSize: 20,
 			sessionNameSerif: false,
@@ -160,6 +160,15 @@ describe("parseAppearanceSettingsBody", () => {
 		assert.equal(light.ok, false);
 		if (!light.ok) assert.match(light.error, /^Background must be a dark color/);
 		assert.ok(parseAppearanceSettingsBody({ background: "#202830" }).ok);
+		// Light mode is not built yet: the app still renders light text.
+		assert.equal(parseAppearanceSettingsBody({ background: "#ffffff", mode: "light" }).ok, false);
+		// The limit is text contrast (4.5:1 against #e6e6e6), not a darkness cap.
+		for (const readable of ["#2f4f4f", "#006400", "#474747", "#556b2f", "#8b008b", "#003366", "#000"]) {
+			assert.ok(parseAppearanceSettingsBody({ background: readable }).ok, readable);
+		}
+		for (const unreadable of ["#808080", "#6e6e6e", "#ff0000"]) {
+			assert.equal(parseAppearanceSettingsBody({ background: unreadable }).ok, false, unreadable);
+		}
 		const bad = parseAppearanceSettingsBody({ mdRendering: { boldColor: "red" } });
 		assert.ok(!bad.ok);
 		if (!bad.ok) assert.equal(bad.error, "Bold color must be a hex color like #1a2b3c");
@@ -211,6 +220,9 @@ describe("parseGraphSettingsBody", () => {
 		const tiny = parseGraphSettingsBody({ extractionChunkTokens: 100 });
 		assert.equal(tiny.ok, false, "below-floor rejected");
 		assert.match(tiny.ok === false ? tiny.error : "", /at least 500/);
+		const huge = parseGraphSettingsBody({ extractionChunkTokens: 999_999_999_999 });
+		assert.equal(huge.ok, false, "above-ceiling rejected");
+		assert.match(huge.ok === false ? huge.error : "", /at most 2000000/);
 		// junk shapes: 400
 		assert.equal(parseGraphSettingsBody({ extractionChunkTokens: "4096" }).ok, false);
 		assert.equal(parseGraphSettingsBody({ extractionChunkTokens: NaN }).ok, false);

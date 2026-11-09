@@ -73,3 +73,21 @@ describe("CommitInput Esc", () => {
 		}
 	});
 });
+
+describe("CommitInput number", () => {
+	it("letters typed in a number field are refused with a message and the stored value stays", async () => {
+		const commits: string[] = [];
+		host = document.createElement("div");
+		document.body.appendChild(host);
+		root = createRoot(host);
+		await act(async () => { root!.render(<CommitInput type="number" value="50000" ariaLabel="budget" testid="input" onCommit={(v) => { commits.push(v); }} />); });
+		const input = host.querySelector("input") as HTMLInputElement;
+		// A browser reports bad number input as "" with validity.badInput set.
+		Object.defineProperty(input, "validity", { configurable: true, get: () => ({ badInput: input.value === "" }) });
+		await type(input, "");
+		await fire(input, "focusout");
+		assert.deepEqual(commits, [], "bad input is not a clear");
+		assert.equal(input.value, "50000");
+		assert.equal(host.querySelector('[data-testid="input-error"]')?.textContent, "Enter a number.");
+	});
+});
