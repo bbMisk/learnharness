@@ -1163,8 +1163,8 @@ export function Chat({
 								}}
 								onBlur={() => void commitRename(titleDraft)}
 								spellCheck={false}
-								aria-label="Session title"
-								title="Rename this session"
+								aria-label="Chat title"
+								title="Rename this chat"
 								className="lh-no-drag min-w-[8ch] max-w-[70%] shrink-0 bg-transparent font-title text-3xl tracking-tight caret-current outline-none [field-sizing:content]"
 							/>
 							{/* flex-1 spacer during rename too, so the chips stay at
@@ -1176,7 +1176,7 @@ export function Chat({
 					<>
 						<Hint
 							// F2 renames (registry) — surfaced on the hover.
-							label="Rename session"
+							label="Rename chat"
 							action="rename-session"
 							side="bottom"
 						>
@@ -1258,7 +1258,7 @@ export function Chat({
 						<div data-session-find-root="" className={`${COLUMN} flex flex-1 flex-col gap-4 pt-4 ${trackerRoom.column}`}>
 							{messages.length === 0 && !busy && (
 								<ConversationEmptyState
-									title="New session"
+									title="New chat"
 									description="The teacher will open by probing what you already know."
 								/>
 							)}

@@ -496,7 +496,7 @@ function ActivityBlobRow({
 						)}
 						{blob.job && <JobDetails job={blob.job} compact />}
 						<a href={blob.process === "flashcards" ? "/review/index.html" : `/chat/${blob.chatId}`} className="text-primary hover:underline">
-							{blob.process === "flashcards" ? "Open flashcards →" : "Open session →"}
+							{blob.process === "flashcards" ? "Open flashcards →" : "Open chat →"}
 						</a>
 					</div>
 					<div className="mt-2 text-muted-foreground/80">

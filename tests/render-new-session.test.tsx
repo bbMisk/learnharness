@@ -192,7 +192,7 @@ describe("the practice draft (?mode=practice, 2026-10-04)", () => {
 				mode="practice"
 			/>,
 		);
-		assert.match(html, /New practice session/);
+		assert.match(html, /New practice chat/);
 		assert.ok(html.includes("Pick nodes from your knowledge graph, describe what you want to practice, or bring your own problem."));
 		assert.match(html, /What do you want to practice\?/);
 	});

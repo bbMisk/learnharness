@@ -176,7 +176,7 @@ export function DraftShell({
 						<Conversation className="h-full min-w-0 flex-1" initial="instant">
 							<ConversationContent className="min-h-full gap-0 p-0">
 								<ConversationEmptyState
-									title={mode === "practice" ? "New practice session" : mode === "cram" ? "New cram session" : "New session"}
+									title={mode === "practice" ? "New practice chat" : mode === "cram" ? "New cram chat" : "New chat"}
 									description={
 										mode === "practice"
 											? "Pick nodes from your knowledge graph, describe what you want to practice, or bring your own problem."
