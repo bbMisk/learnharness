@@ -58,6 +58,7 @@ describe("sanitizeUserSettings", () => {
 		assert.equal(out?.appearance?.background, null);
 		assert.equal(out?.compaction?.thresholdTokens, 2_000_000);
 		assert.equal(sanitizeUserSettings({ version: 1, appearance: { background: "#202830" } })?.appearance?.background, "#202830");
+		assert.equal(sanitizeUserSettings({ version: 1, appearance: { mode: "light", background: "#ffffff" } })?.appearance?.background, null, "light mode is not rendered yet");
 	});
 
 	it("round-trips a fully valid record field-for-field", () => {
@@ -79,7 +80,7 @@ describe("sanitizeUserSettings", () => {
 			},
 			appearance: {
 				mode: "light",
-				background: "#ffffff",
+				background: "#202830",
 				fontFamily: "Some Font",
 				proseFontSize: 18,
 				sessionNameSerif: false,

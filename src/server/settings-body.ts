@@ -309,7 +309,8 @@ export function parseAppearanceSettingsBody(body: unknown): SettingsBodyResult<A
 	if (raw.background !== undefined) {
 		const parsed = parseHexOrNull(raw.background, "Background");
 		if (parsed.error) return { ok: false, error: parsed.error };
-		if (parsed.color && raw.mode !== "light" && !isDarkBackground(parsed.color)) {
+		// The app renders only the dark theme for now, whatever `mode` says.
+		if (parsed.color && !isDarkBackground(parsed.color)) {
 			return { ok: false, error: "Background must be a dark color: the theme's text is light and would be unreadable" };
 		}
 		settings.background = parsed.color ?? null;
