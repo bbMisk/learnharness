@@ -227,6 +227,32 @@ it("the New project dialog reopens empty after a rejected name is closed", async
 	assert.doesNotMatch(document.body.textContent ?? "", /already exists/);
 });
 
+it("closing the New project dialog hands focus back to the + button", async () => {
+	Object.assign(globalThis, { NodeFilter: dom.window.NodeFilter ?? { SHOW_ELEMENT: 1, FILTER_ACCEPT: 1, FILTER_SKIP: 3 } });
+	(globalThis as Record<string, unknown>).MutationObserver ??= class { observe() {} disconnect() {} takeRecords() { return []; } };
+	const proto = dom.window.HTMLElement.prototype as unknown as { focus: (this: Element) => void };
+	const realFocus = proto.focus;
+	let focused: Element | null = null;
+	proto.focus = function () { focused = this; };
+	try {
+		await render(
+			<AppRouterContext.Provider value={router as never}>
+				<PathnameContext.Provider value="/">
+					<ProjectSidebar projects={[]} chats={[]} refresh={() => {}} moveChat={() => {}} renderChat={() => null} showChats />
+				</PathnameContext.Provider>
+			</AppRouterContext.Provider>,
+		);
+		const add = host!.querySelector('[aria-label="Add project"]') as HTMLButtonElement;
+		await act(async () => add.click());
+		await act(async () => (document.querySelector('[aria-label="Close new project"]') as HTMLButtonElement).click());
+		await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+		assertSameNode(document.querySelector('input[aria-label="Project name"]'), null, "closed");
+		assert.ok(focused === add, "focus is on the + button");
+	} finally {
+		proto.focus = realFocus;
+	}
+});
+
 const family = "👨‍👩‍👧‍👦"; // 11 UTF-16 units; maxLength={200} kept 18 families and a lone 👨
 it("the name fields cap a paste on a whole emoji family, not mid-cluster", async () => {
 	const { capName } = await import("../src/core/contracts/graph.ts");
