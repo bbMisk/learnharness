@@ -398,6 +398,7 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 			e.stopPropagation();
 			if (keyMenuOpen) {
 				setKeyMenuOpen(false);
+				document.querySelector<HTMLElement>('[data-testid="setup-key-provider"]')?.focus();
 				return;
 			}
 			if (openMenu !== null) setOpenMenu(null);

@@ -21,7 +21,7 @@
  * effect immediately. Plaintext never returns from the store.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { isComposing } from "@/components/ime";
 import {
 	AUTH_KEYS,
@@ -154,6 +154,12 @@ export function keyStatusLine(status: AuthKeyStatus): string {
 	return `${tail} · ${chars}${status.source === "env" ? " · env" : ""}`;
 }
 
+/** Focus is inside `el`, or nowhere (on <body>). */
+function focusInOrLost(el: Element): boolean {
+	const active = document.activeElement;
+	return !active || active === document.body || el.contains(active);
+}
+
 /** One table row: label left, tiny docs link + status right. Writable
  *  rows click-unfold into an inline editor; env-owned rows are dimmed and
  *  read-only (a paste box there would mislead). */
@@ -192,8 +198,21 @@ function KeyTableRow({
 	const [wasExpanded, setWasExpanded] = useState(expanded);
 	if (wasExpanded !== expanded) {
 		setWasExpanded(expanded);
-		if (!expanded) setError(null);
+		if (!expanded) {
+			setError(null);
+			setValue("");
+		}
 	}
+	// Folding takes the editor away: focus held there goes back to the row,
+	// unless something mounted in the same commit (another row's field) took it.
+	const refocusRow = useRef(false);
+	const editorRef = useCallback((el: HTMLDivElement | null) => {
+		if (el) return () => { refocusRow.current = focusInOrLost(el); };
+	}, []);
+	const rowRef = useCallback((el: HTMLButtonElement | null) => {
+		if (el && refocusRow.current && focusInOrLost(el)) el.focus();
+		refocusRow.current = false;
+	}, []);
 	// A failed save re-enables the field, which disabling had dropped focus from.
 	useEffect(() => {
 		if (!busy && error && (!document.activeElement || document.activeElement === document.body)) inputRef.current?.focus();
@@ -215,7 +234,7 @@ function KeyTableRow({
 	if (expanded && !envOwned) {
 		return (
 			<div data-testid={testid}>
-				<div className="-mx-1 flex items-center gap-2 rounded-sm px-1 py-1.5" data-testid={`${testid}-editor`}>
+				<div ref={editorRef} className="-mx-1 flex items-center gap-2 rounded-sm px-1 py-1.5" data-testid={`${testid}-editor`}>
 					<span className="shrink-0 font-prose text-(length:--lh-prose-size) text-foreground">{label}</span>
 					<input
 						type="password"
@@ -275,6 +294,7 @@ function KeyTableRow({
 	return (
 		<div data-testid={testid} className={envOwned ? "opacity-40" : undefined}>
 			<button
+				ref={rowRef}
 				type="button"
 				aria-expanded={expanded}
 				data-testid={`${testid}-row`}
@@ -381,6 +401,10 @@ export function KeysSection({
 	/** The custom endpoint's status + whether its connect editor is open. */
 	const [custom, setCustom] = useState<CustomStatus | null>(null);
 	const [addingCustom, setAddingCustom] = useState(false);
+	// The closing Add-provider editor hands focus back to "+ Add a provider".
+	const addEditorRef = useCallback((el: HTMLDivElement | null) => {
+		if (el) return () => { if (focusInOrLost(el)) document.querySelector<HTMLElement>('[data-testid="add-provider"]')?.focus(); };
+	}, []);
 
 	// Escape folds any open editor (unfolded row, Add-provider paste, custom
 	// endpoint editor) WITHOUT closing the dialog. Claimed at document CAPTURE
@@ -552,7 +576,7 @@ export function KeysSection({
 					/>
 				)}
 				{adding && (
-					<div className="-mx-1 flex flex-wrap items-center gap-2 rounded-sm px-1 py-1.5" data-testid={`key-${adding.id}-editor`}>
+					<div ref={addEditorRef} className="-mx-1 flex flex-wrap items-center gap-2 rounded-sm px-1 py-1.5" data-testid={`key-${adding.id}-editor`}>
 						<span className="shrink-0 font-prose text-(length:--lh-prose-size) text-foreground">{adding.label}</span>
 						<AddProviderEditor provider={adding} onSave={(v) => void saveNewProvider(adding, v)} onCancel={() => setAdding(null)} error={addError} />
 					</div>
