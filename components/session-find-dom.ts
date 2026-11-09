@@ -123,12 +123,23 @@ export type SessionFindIndex = readonly DisplayRun[];
 
 const ROOT = "[data-session-find-root]";
 
+/** The inline styles the index reads (through the computed style). */
+const TEXT_STYLES = ["display", "visibility", "opacity", "content-visibility", "white-space"];
+
 /** Whether a DOM change can change the index: anything inside a find root,
  * a root added or removed, or an attribute on a root's ancestor (it may hide
  * the root). Chrome around the roots (the dock's ↓ button, its fold
- * animation) doesn't, and rebuilding for it made the next keystroke slow. */
-export function affectsSessionFind(record: Pick<MutationRecord, "type" | "target" | "addedNodes" | "removedNodes">): boolean {
+ * animation) doesn't, and rebuilding for it made the next keystroke slow.
+ * Nor does an inline style that only moves or sizes things (the dock
+ * re-measuring when Find opens), when the observer records old values. */
+export function affectsSessionFind(record: Pick<MutationRecord, "type" | "target" | "addedNodes" | "removedNodes"> & Partial<Pick<MutationRecord, "attributeName" | "oldValue">>): boolean {
 	const target = record.target.nodeType === 1 ? record.target as Element : record.target.parentElement;
+	const styled = target as HTMLElement | null;
+	if (record.attributeName === "style" && record.oldValue !== undefined && styled?.style) {
+		const was = styled.ownerDocument.createElement("div");
+		was.setAttribute("style", record.oldValue ?? "");
+		if (TEXT_STYLES.every((property) => was.style.getPropertyValue(property) === styled.style.getPropertyValue(property))) return false;
+	}
 	if (!target || target.closest(ROOT)) return true;
 	if (record.type === "attributes") return !!target.querySelector(ROOT);
 	if (record.type !== "childList") return false;

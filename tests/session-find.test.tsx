@@ -207,5 +207,15 @@ describe("affectsSessionFind — which DOM changes drop the index", () => {
 		const root = document.createElement("div");
 		root.setAttribute("data-session-find-root", "");
 		assert.equal(affectsSessionFind(record("childList", $("scope"), [root])), true, "a root mounting");
+		// Opening Find re-measures the dock: an inline size change on an ancestor is not a visibility change.
+		const style = (oldValue: string | null, now: string) => {
+			$("dock").setAttribute("style", now);
+			return affectsSessionFind({ ...record("attributes", $("dock")), attributeName: "style", oldValue });
+		};
+		assert.equal(style("bottom: 0px; height: 300px", "bottom: 40px; height: 260px"), false, "moved and resized only");
+		assert.equal(style(null, "padding-right: 8px"), false);
+		assert.equal(style("height: 260px", "height: 260px; display: none"), true, "hidden by an inline style");
+		assert.equal(style("opacity: 0", "opacity: 1"), true);
+		assert.equal(affectsSessionFind({ ...record("attributes", $("dock")), attributeName: "style" }), true, "no old value recorded: as before");
 	});
 });

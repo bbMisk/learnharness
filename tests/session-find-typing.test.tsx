@@ -95,3 +95,38 @@ it("the index is built while Find sits idle, so even the first keystroke reads n
 		await act(async () => root.unmount());
 	}
 });
+
+it("a reopen on an unchanged session reuses the index; a change while closed rebuilds it", async () => {
+	dom.document.body.innerHTML = `<div id="scope"><div data-session-find-root=""><p>chain rule</p>${"<p>filler</p>".repeat(100)}</div></div><div id="bar"></div>`;
+	const scope = dom.document.getElementById("scope") as unknown as HTMLDivElement;
+	const root = createRoot(dom.document.getElementById("bar") as unknown as HTMLElement);
+	const find = () => act(async () => { dom.window.dispatchEvent(new dom.window.Event(kbdEventForAction("find"))); });
+	const close = () => act(async () => { dom.document.querySelector<HTMLElement>('[aria-label="Close Find"]')!.click(); });
+	const count = () => dom.document.querySelector('[data-testid="session-find-count"]')!.textContent;
+	try {
+		await act(async () => root.render(<SessionFind scopeRef={{ current: scope }} scrollContextRef={{ current: null }} />));
+		await find();
+		await act(async () => { await new Promise((r) => setTimeout(r, 100)); });
+		const input = dom.document.querySelector("input") as unknown as HTMLInputElement;
+		Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input, "chain");
+		await act(async () => { input.dispatchEvent(new dom.window.Event("input", { bubbles: true })); });
+		assert.equal(count(), "1/1");
+		await close();
+		styleReads = 0;
+		await find();
+		await act(async () => { await new Promise((r) => setTimeout(r, 100)); });
+		assert.equal(count(), "1/1");
+		assert.ok(styleReads < 10, `the reopen searches the kept index (${styleReads} style reads)`);
+		await close();
+		const p = dom.document.createElement("p");
+		p.textContent = "chain link";
+		await act(async () => { scope.firstElementChild!.append(p); await Promise.resolve(); });
+		await act(async () => { for (const cb of frames.splice(0)) cb(0); });
+		styleReads = 0;
+		await find();
+		assert.equal(count(), "1/2", "content added while closed is found");
+		assert.ok(styleReads > 100, "the change while closed dropped the index");
+	} finally {
+		await act(async () => root.unmount());
+	}
+});

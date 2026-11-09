@@ -138,8 +138,9 @@ export function SessionFind({ scopeRef, scrollContextRef }: {
 		return () => document.removeEventListener("keydown", onEscape);
 	}, [open, close, newestEsc]);
 
+	// Watched while closed too, so a reopen on an unchanged session reuses the index.
 	useEffect(() => {
-		if (!open || !scopeRef.current) return;
+		if (!scopeRef.current) return;
 		const scope = scopeRef.current;
 		let frame: number | null = null;
 		const invalidate = () => {
@@ -147,22 +148,27 @@ export function SessionFind({ scopeRef, scrollContextRef }: {
 			if (frame !== null) return;
 			frame = window.requestAnimationFrame(() => { frame = null; setContentVersion((v) => v + 1); });
 		};
-		// Build the index while the bar sits idle, so the first keystroke
-		// doesn't pay for the style walk.
-		const warmIndex = () => { indexCacheRef.current ??= sessionFindIndex(scope); };
-		const idle = typeof window.requestIdleCallback === "function";
-		const warm = idle ? window.requestIdleCallback(warmIndex) : window.setTimeout(warmIndex, 50);
 		const observer = new MutationObserver((records) => { if (records.some(affectsSessionFind)) invalidate(); });
-		observer.observe(scope, { subtree: true, childList: true, characterData: true, attributes: true,
+		observer.observe(scope, { subtree: true, childList: true, characterData: true, attributes: true, attributeOldValue: true,
 			attributeFilter: ["hidden", "style", "class", "data-state", "aria-expanded"] });
 		window.addEventListener("resize", invalidate);
 		return () => {
-			if (idle) window.cancelIdleCallback(warm); else window.clearTimeout(warm);
 			observer.disconnect();
 			window.removeEventListener("resize", invalidate);
 			if (frame !== null) window.cancelAnimationFrame(frame);
 			indexCacheRef.current = null;
 		};
+	}, [scopeRef]);
+
+	useEffect(() => {
+		if (!open || !scopeRef.current) return;
+		const scope = scopeRef.current;
+		// Build the index while the bar sits idle, so the first keystroke
+		// doesn't pay for the style walk.
+		const warmIndex = () => { indexCacheRef.current ??= sessionFindIndex(scope); };
+		const idle = typeof window.requestIdleCallback === "function";
+		const warm = idle ? window.requestIdleCallback(warmIndex) : window.setTimeout(warmIndex, 50);
+		return () => { if (idle) window.cancelIdleCallback(warm); else window.clearTimeout(warm); };
 	}, [open, scopeRef]);
 
 	useEffect(() => {
