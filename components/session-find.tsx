@@ -61,6 +61,19 @@ export function sessionFindHasForegroundLayer(doc: Document): boolean {
 	});
 }
 
+/** Find and the side tutor while open, oldest first: an Esc from outside both closes the newest. */
+const escLayers: object[] = [];
+/** Keeps this layer on that stack while `open`; the call says whether it is the newest. */
+export function useNewestEscLayer(open: boolean): () => boolean {
+	const [token] = useState(() => ({}));
+	useEffect(() => {
+		if (!open) return;
+		escLayers.push(token);
+		return () => { escLayers.splice(escLayers.indexOf(token), 1); };
+	}, [open, token]);
+	return useCallback(() => escLayers.at(-1) === token, [token]);
+}
+
 /** Mounted for the lifetime of ONE Chat (which is keyed by chatId). Closing
  * keeps the query/reading position; changing sessions resets all local state.
  * The bar lives outside scopeRef, so it never finds its own query or count. */
@@ -82,6 +95,7 @@ export function SessionFind({ scopeRef, scrollContextRef }: {
 	// session drops it and bumps contentVersion so the matches refresh.
 	const indexCacheRef = useRef<SessionFindIndex | null>(null);
 	const [contentVersion, setContentVersion] = useState(0);
+	const newestEsc = useNewestEscLayer(open);
 
 	const close = useCallback(() => {
 		clearSessionFindHighlights();
@@ -106,14 +120,14 @@ export function SessionFind({ scopeRef, scrollContextRef }: {
 		inputRef.current?.focus({ preventScroll: true });
 		inputRef.current?.select();
 		const onEscape = (event: KeyboardEvent) => {
-			if (event.key !== "Escape" || event.defaultPrevented || isComposing(event) || sessionFindHasForegroundLayer(document)) return;
+			if (event.key !== "Escape" || event.defaultPrevented || isComposing(event) || sessionFindHasForegroundLayer(document) || !newestEsc()) return;
 			event.preventDefault();
 			event.stopPropagation();
 			close();
 		};
 		document.addEventListener("keydown", onEscape);
 		return () => document.removeEventListener("keydown", onEscape);
-	}, [open, close]);
+	}, [open, close, newestEsc]);
 
 	useEffect(() => {
 		if (!open || !scopeRef.current) return;

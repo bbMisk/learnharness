@@ -6,7 +6,7 @@ import { MessageResponse } from "@/components/ai-elements/message";
 import { Conversation, ConversationContent } from "@/components/ai-elements/conversation";
 import { ResizableSidePanel } from "@/components/resizable-side-panel";
 import { TopBar } from "@/components/top-bar";
-import { sessionFindHasForegroundLayer } from "@/components/session-find";
+import { sessionFindHasForegroundLayer, useNewestEscLayer } from "@/components/session-find";
 import { captureFocus, focusComposer } from "@/components/focus-return";
 import { isComposing } from "@/components/ime";
 import { Button } from "@/components/ui/button";
@@ -92,16 +92,17 @@ export function SideTutor({ chatId, selectedText, onClose }: { chatId: string; s
 	useEffect(() => {
 		input.current?.focus();
 	}, []);
+	const newestEsc = useNewestEscLayer(true);
 	useEffect(() => {
 		const close = (e: KeyboardEvent) => {
-			if (e.key !== "Escape" || e.defaultPrevented || isComposing(e) || sessionFindHasForegroundLayer(document)) return;
+			if (e.key !== "Escape" || e.defaultPrevented || isComposing(e) || sessionFindHasForegroundLayer(document) || !newestEsc()) return;
 			e.preventDefault();
 			e.stopPropagation();
 			onClose();
 		};
 		document.addEventListener("keydown", close);
 		return () => document.removeEventListener("keydown", close);
-	}, [onClose]);
+	}, [onClose, newestEsc]);
 
 	async function send() {
 		const question = draft.trim();

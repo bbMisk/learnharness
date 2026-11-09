@@ -296,3 +296,36 @@ it("the demo bridge forwards an Esc the demo didn't use", async () => {
 		assert.match(doc, /e\.key==="Escape"&&!e\.defaultPrevented&&!e\.isComposing\)send\(\{type:"demo-escape"\}\)/);
 	}
 });
+
+it("Find and the side tutor both open: an Esc from outside both closes the one opened last", async () => {
+	const { SideTutor } = await import("../components/side-tutor.tsx");
+	const { SessionFind } = await import("../components/session-find.tsx");
+	globalThis.fetch = (() => new Promise(() => {})) as unknown as typeof fetch;
+	const tutorOpen = () => !!document.querySelector('[data-testid="side-tutor"]');
+	let setTutor!: (open: boolean) => void;
+	function Page() {
+		const [tutor, set] = useState(false);
+		setTutor = set;
+		return <>{tutor && <SideTutor chatId="c1" selectedText="" onClose={() => set(false)} />}<SessionFind scopeRef={{ current: scope as HTMLDivElement }} scrollContextRef={{ current: null }} /></>;
+	}
+	const scope = document.createElement("div");
+	hosts.push(scope);
+	mountHost();
+	await act(async () => { root!.render(<Page />); });
+	// The tutor, then Find: Find goes first.
+	await act(async () => setTutor(true));
+	await openFind();
+	focused = null;
+	await act(async () => { document.dispatchEvent(key("Escape")); });
+	assert.ok(!findOpen() && tutorOpen(), "Find, the newest, closed");
+	await act(async () => { document.dispatchEvent(key("Escape")); });
+	assert.ok(!tutorOpen());
+	// Find, then the tutor: the tutor goes first.
+	await openFind();
+	await act(async () => setTutor(true));
+	focused = null;
+	await act(async () => { document.dispatchEvent(key("Escape")); });
+	assert.ok(findOpen() && !tutorOpen(), "the tutor, the newest, closed");
+	await act(async () => { document.dispatchEvent(key("Escape")); });
+	assert.ok(!findOpen());
+});
