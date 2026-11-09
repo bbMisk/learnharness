@@ -280,12 +280,13 @@ export function SettingsDialogBody({
 					</Hint>
 			</header>
 
-			<div className="flex min-h-0 flex-1">
-				{/* Left nav — text-only mono, active = bg-accent. */}
+			<div className="flex min-h-0 flex-1 flex-col sm:flex-row">
+				{/* Left nav — text-only mono, active = bg-accent. Phones: a
+				    wrapping row above the content. */}
 				<nav
 					aria-label="Settings sections"
 					data-testid="settings-nav"
-					className="flex w-44 shrink-0 flex-col gap-1 border-r border-border p-2"
+					className="flex shrink-0 flex-wrap gap-1 border-b border-border p-2 sm:w-44 sm:flex-col sm:flex-nowrap sm:border-r sm:border-b-0"
 				>
 					{SECTIONS.map((s) => (
 						<button
