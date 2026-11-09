@@ -197,6 +197,39 @@ describe("setup polish interactions", () => {
 		assert.ok(menu.textContent?.includes("No models match."));
 	});
 
+	it("Escape hands focus back to whatever opened setup", async () => {
+		const opener = document.createElement("button");
+		document.body.append(opener);
+		opener.focus();
+		await mount();
+		assert.ok(focused !== opener, "setup took focus");
+		await escape();
+		assert.equal(closed, 1);
+		assert.ok(focused === opener, "focus went back to the opener");
+		opener.remove();
+	});
+
+	it("models picked before Escape are still picked on reopen", async () => {
+		await mount({ keyed: true });
+		assert.ok(document.querySelector('[data-testid="setup-needed-cheap"]'));
+		await click(element('[data-testid="setup-trigger-cheap"]'));
+		await click(element('[data-testid="model-option-fixture-text"]'));
+		await escape();
+		assert.equal(closed, 1);
+		await act(async () => { root?.unmount(); });
+		host?.remove();
+		await mount({ keyed: true });
+		assert.equal(document.querySelector('[data-testid="setup-needed-cheap"]'), null, "the pick survived");
+		assert.ok(document.querySelector('[data-testid="setup-needed-vision"]'), "unpicked slots stay needed");
+		// Models saved elsewhere (Settings → Agent) replace the kept picks.
+		await escape();
+		await act(async () => { window.dispatchEvent(new dom.window.CustomEvent("lh:settings-saved", { detail: { section: "models" } })); });
+		await act(async () => { root?.unmount(); });
+		host?.remove();
+		await mount({ keyed: true });
+		assert.ok(document.querySelector('[data-testid="setup-needed-cheap"]'), "a models save drops the kept pick");
+	});
+
 	it("catalog failure uses the approved two-sentence error", async () => {
 		await mount({ catalogFails: true });
 		assert.ok(element('[data-testid="setup-dialog"]').textContent?.includes("Model catalog could not be loaded. Check the connection and retry."));

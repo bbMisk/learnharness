@@ -251,9 +251,22 @@ interface SetupDialogProps {
 	onDone: (models: ModelsSettings) => void;
 }
 
+/** Picks from an open closed without saving, kept for the app session
+ *  like the other drafts; any models save (here or in Settings) drops them. */
+const keptPicks = {
+	edited: new Set<ModelSlotName>(),
+	picked: {} as Partial<Record<ModelSlotName, ModelSelection>>,
+	levels: {} as Partial<Record<ModelSlotName, ThinkingLevel>>,
+};
+
 export function SetupDialog(props: SetupDialogProps) {
-	// An open owns its draft. Mount-time cache seeding avoids a key-screen
-	// first frame, and reopening cannot reuse a previous open's edits.
+	useSettingsSaved((section) => {
+		if (section !== "models") return;
+		keptPicks.edited.clear();
+		keptPicks.picked = {};
+		keptPicks.levels = {};
+	});
+	// Mount-time cache seeding avoids a key-screen first frame.
 	return props.open ? <OpenSetupDialog {...props} /> : null;
 }
 
@@ -262,9 +275,19 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 	const { catalog, failed, refresh } = useModelCatalog();
 	const providerStageSeen = useRef(false);
 	const connectionCloseRequested = useRef(false);
-	const [picked, setPicked] = useState(() => prefillFromSlots(catalog?.models ?? [], catalog?.slots));
-	const [levels, setLevels] = useState(() => prefillLevels(catalog));
-	const editedSlots = useRef(new Set<ModelSlotName>());
+	const [picked, setPicked] = useState(() => ({ ...prefillFromSlots(catalog?.models ?? [], catalog?.slots), ...keptPicks.picked }));
+	const [levels, setLevels] = useState(() => ({ ...prefillLevels(catalog), ...keptPicks.levels }));
+	const editedSlots = useRef(keptPicks.edited);
+	useEffect(() => {
+		const edited = [...keptPicks.edited];
+		keptPicks.picked = Object.fromEntries(edited.filter((slot) => picked[slot]).map((slot) => [slot, picked[slot]]));
+		keptPicks.levels = Object.fromEntries(edited.filter((slot) => levels[slot] !== undefined).map((slot) => [slot, levels[slot]]));
+	}, [picked, levels]);
+	// Closing hands focus back to whatever held it on open.
+	const [opener] = useState(() => document.activeElement as HTMLElement | null);
+	useEffect(() => () => {
+		if (opener && opener !== document.body && opener.isConnected && typeof opener.focus === "function") opener.focus();
+	}, [opener]);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [openMenu, setOpenMenu] = useState<{ slot: ModelSlotName; kind: "model" | "thinking" } | null>(null);
