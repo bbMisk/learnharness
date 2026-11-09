@@ -422,8 +422,11 @@ function QuestionDockForm({
 
 	/* Enter submits from anywhere, like the practice dock (dictated answers
 	 * rarely focus the field). It goes through submit(), so the dictation
-	 * flush is shared. */
-	useEnterSubmits(submit);
+	 * flush is shared. A folded check only reopens on Enter (the overlay's
+	 * listener), never submits the hidden answer. */
+	useEnterSubmits(() => {
+		if (active) submit();
+	});
 
 	// Selecting Other never clears the thinking field: the answer and the
 	// reasoning behind it are separate channels.
