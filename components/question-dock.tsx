@@ -6,6 +6,7 @@ import { ArrowDownIcon, ChevronRightIcon, PlayIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { finishDictation, isDictationActive, joinDictation, useDictationTarget } from "@/components/dictation";
 import { useEnterSubmits } from "@/components/enter-submits";
+import { openModal } from "@/components/open-modal";
 import { PathInput } from "@/components/path-input";
 import { useThinkingFocus } from "@/components/thinking-focus";
 import { MalformedQuestion } from "@/components/malformed-question";
@@ -486,6 +487,8 @@ function QuestionDockForm({
 	useEffect(() => {
 		if (!active || rowCount === 0) return;
 		const onKeyDown = (e: KeyboardEvent) => {
+			// An open modal owns the keyboard: nothing reaches the quiz behind it.
+			if (openModal()) return;
 			const t = e.target as HTMLElement | null;
 			// A typing field is where keys mean text (the thinking/answer
 			// fields, search boxes, renames), never a range input, whose focus

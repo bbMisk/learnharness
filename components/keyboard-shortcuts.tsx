@@ -36,6 +36,7 @@ import {
 	KEYBOARD_ACTIONS,
 } from "@/src/core";
 import { isDictationActive } from "@/components/dictation";
+import { openModal } from "@/components/open-modal";
 import { useSettingsDialog } from "@/components/settings/settings-dialog.tsx";
 
 // Re-exported for the contract pin (tests/keyboard-toggle-sidebar.test.ts):
@@ -43,11 +44,6 @@ import { useSettingsDialog } from "@/components/settings/settings-dialog.tsx";
 // spelling here is how the ⌘B bug happened.
 export { kbdEventForAction };
 
-/** The topmost open app modal (Settings, setup): it owns the keyboard. */
-function openModal(): HTMLElement | null {
-	const all = document.querySelectorAll<HTMLElement>("[data-lh-modal]");
-	return all[all.length - 1] ?? null;
-}
 
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
 

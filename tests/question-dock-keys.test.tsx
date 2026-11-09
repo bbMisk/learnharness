@@ -74,3 +74,59 @@ describe("Enter on the question dock", () => {
 		assert.equal(submits.length, 0);
 	});
 });
+
+describe("an open modal keeps keys away from the quiz", () => {
+	const MODAL = `<div role="dialog" data-lh-modal><button data-testid="nav">General</button></div>`;
+
+	it("Tab, arrows, Space and Enter do nothing to the dock behind a modal", async () => {
+		const { host, modal, submits } = await mount(true, MODAL);
+		const nav = modal.querySelector<HTMLElement>('[data-testid="nav"]')!;
+		nav.focus();
+		const before = host.innerHTML;
+		for (const key of ["ArrowDown", "Tab", "ArrowRight", " ", "Enter"]) {
+			await act(async () => {
+				const e = press(nav, { key });
+				assert.equal(e.defaultPrevented, false, `${JSON.stringify(key)} left to the modal`);
+			});
+		}
+		assert.equal(focused, nav, "focus stays in the modal");
+		assert.equal(host.innerHTML, before, "the dock is unchanged");
+		assert.equal(submits.length, 0);
+	});
+
+	it("Enter from the page behind a modal submits nothing", async () => {
+		const { submits } = await mount(true, MODAL);
+		await act(async () => { press(document.body, { key: "Enter" }); });
+		assert.equal(submits.length, 0);
+	});
+});
+
+describe("the dismiss and delete confirms are modals", () => {
+	it("the Dismiss this question? confirm is marked modal and takes focus", async () => {
+		const { AbortTurnDialog } = await import("../components/abort-turn-dialog.tsx");
+		const host = document.createElement("div");
+		document.body.append(host);
+		hosts.push(host);
+		root = createRoot(host);
+		await act(async () => root!.render(<AbortTurnDialog mode="question" onClose={() => {}} onConfirm={() => {}} />));
+		const dialog = document.querySelector<HTMLElement>('[data-testid="abort-turn-dialog"]')!;
+		assert.ok(dialog.hasAttribute("data-lh-modal"));
+		assert.ok(focused && dialog.contains(focused), "focus moves into the confirm");
+		await act(async () => root!.unmount());
+		root = null;
+	});
+
+	it("the Delete session? dialog is marked modal and takes focus", async () => {
+		const { DeleteSessionDialog } = await import("../components/delete-session-dialog.tsx");
+		const host = document.createElement("div");
+		document.body.append(host);
+		hosts.push(host);
+		root = createRoot(host);
+		await act(async () => root!.render(<DeleteSessionDialog chat={{ id: "c1", title: "DRW" }} onClose={() => {}} onDeleted={() => {}} />));
+		const dialog = document.querySelector<HTMLElement>('[data-testid="delete-session-dialog"]')!;
+		assert.ok(dialog.hasAttribute("data-lh-modal"));
+		assert.ok(focused && dialog.contains(focused), "focus moves into the dialog");
+		await act(async () => root!.unmount());
+		root = null;
+	});
+});

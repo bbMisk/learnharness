@@ -36,6 +36,7 @@
 
 import { useEffect, useRef } from "react";
 import { isTypingSurface } from "@/src/core";
+import { openModal } from "@/components/open-modal";
 
 /** Overlay roots whose buttons keep native Enter (hand-rolled menus mark
  *  themselves data-lh-menu; Radix poppers/dialogs carry their own attrs). */
@@ -66,7 +67,7 @@ export function useEnterSubmits(submit: () => void): void {
 		const onKey = (e: KeyboardEvent) => {
 			if (e.key !== "Enter") return;
 			if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
-			if (isTypingSurface(e)) return;
+			if (isTypingSurface(e) || openModal()) return;
 			const target = e.target as HTMLElement | null;
 			if (target?.tagName === "BUTTON" && buttonKeepsNativeEnter(target)) return;
 			e.preventDefault();

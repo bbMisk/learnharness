@@ -66,6 +66,7 @@ export function AbortTurnBody({
 		<div
 			role="dialog"
 			aria-modal="true"
+			data-lh-modal
 			aria-label={copy.title}
 			data-testid="abort-turn-dialog"
 			className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm"
@@ -95,6 +96,8 @@ export function AbortTurnBody({
 					<button
 						type="button"
 						data-testid="abort-turn-confirm"
+						// Focus lands here so Enter confirms; Esc cancels.
+						autoFocus
 						onClick={onConfirm}
 						// Destructive red — the app's established destructive pair.
 						className="rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-xs text-destructive transition-colors hover:bg-destructive/20"

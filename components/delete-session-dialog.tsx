@@ -159,6 +159,7 @@ export function DeleteSessionBody({
 		<div
 			role="dialog"
 			aria-modal="true"
+			data-lh-modal
 			aria-label="Delete session"
 			data-testid="delete-session-dialog"
 			onClick={(e) => e.stopPropagation()}

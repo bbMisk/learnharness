@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useStickToBottomContext } from "use-stick-to-bottom";
 import { opensWaitingCheck } from "@/components/waiting-check-key";
+import { openModal } from "@/components/open-modal";
 import { Hint } from "@/components/ui/hint";
 import { useSessionOverlay } from "@/components/session-overlay";
 import { ConversationScrollButton } from "@/components/ai-elements/conversation";
@@ -393,7 +394,7 @@ export function DockOverlay({
 	useEffect(() => {
 		if (!pending || expanded) return;
 		const onKeyDown = (e: KeyboardEvent) => {
-			if (!opensWaitingCheck(e, e.target as Element | null)) return;
+			if (openModal() || !opensWaitingCheck(e, e.target as Element | null)) return;
 			e.preventDefault();
 			void finishDictation().then(() => {
 				expandAndRevealRef.current();
