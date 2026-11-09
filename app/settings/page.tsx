@@ -1,11 +1,19 @@
-import { redirect } from "next/navigation";
+"use client";
+
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useSettingsDialog } from "@/components/settings/settings-dialog";
 
 /**
- * The settings surface graduated into a centered dialog over the app
- * (settings-app wave, 2026-09-20 — owner decision: modal-only, no page).
- * The URL stays routed but redirects: nothing should land on a dead
- * page; the dialog opens via the sidebar row or mod+,.
+ * Settings is a dialog over the app, not a page: /settings opens the
+ * dialog and swaps the URL for the draft view behind it.
  */
 export default function SettingsPage() {
-	redirect("/chat/new");
+	const { open } = useSettingsDialog();
+	const router = useRouter();
+	useEffect(() => {
+		open();
+		router.replace("/chat/new");
+	}, [open, router]);
+	return null;
 }
