@@ -406,7 +406,9 @@ export function SessionRow({
 		</button>
 		{onArchive && <Hint label={archiveLabel} side="right">
 			<button type="button" aria-label={archiveLabel} disabled={archiving} aria-busy={archiving}
-				onClick={event => { event.stopPropagation(); if (archiving) return; setArchiving(true); void onArchive().finally(() => setArchiving(false)); }}
+				// detail > 1: the second click of a double click. The clicked row hides at
+				// once and the next one slides under the pointer; it must not archive too.
+				onClick={event => { event.stopPropagation(); if (archiving || event.detail > 1) return; setArchiving(true); void onArchive().finally(() => setArchiving(false)); }}
 				className="absolute right-1.5 top-1.5 flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-card hover:text-foreground group-hover/session:opacity-100 group-focus-within/session:opacity-100 [@media(hover:none)]:opacity-100 disabled:opacity-40">
 				{chat.archived ? <ArchiveRestoreIcon className="size-3.5"/> : <ArchiveIcon className="size-3.5"/>}
 			</button>
@@ -469,8 +471,6 @@ export function RenameRow({ chat, draft: initialDraft, onCommit, onCancel, showT
  *  snapshot, persisted in localStorage, defaulting to All. */
 export type SessionKindFilter = "teach" | "all" | "practice";
 const KIND_FILTER_KEY = "lh:session-kind-filter";
-/** A row archive click within this long of the last one is a double click: ignored. */
-const ARCHIVE_GUARD_MS = 500;
 
 function SessionsSidebar() {
 	const { open, toggle } = useSidebar();
@@ -720,18 +720,11 @@ function SessionsSidebar() {
 		// freshness — no interval.
 	}, [open, pathname, refresh]);
 
-	const lastArchiveAt = useRef(0);
 	const renderChat = (chat: ChatListItem, index?: number) => renamingId === chat.id ? (
 		<RenameRow key={chat.id} chat={chat} draft={renameDraft ?? undefined} showTime={showTime} onCommit={next => { void commitRename(chat.id, next); returnFocus(); }} onCancel={() => { setRenamingId(null); setRenameError(""); returnFocus(); }} />
 	) : (
 		<SessionRow key={chat.id} chat={chat} showTime={showTime} active={pathname === `/chat/${chat.id}`} kbdSelected={index !== undefined && index === kbdIndex}
-			onArchive={async () => {
-				// The row hides at once and the next one slides under the pointer:
-				// a double click must not archive that one too.
-				if (Date.now() - lastArchiveAt.current < ARCHIVE_GUARD_MS) return;
-				lastArchiveAt.current = Date.now();
-				return updateChat(chat.id, {archived:!chat.archived});
-			}}
+			onArchive={() => updateChat(chat.id, {archived:!chat.archived})}
 			onOpen={() => { setKbdIndex(null); router.push(`/chat/${chat.id}`); }} onContextMenu={event => openContext(event, chat)} />
 	);
 

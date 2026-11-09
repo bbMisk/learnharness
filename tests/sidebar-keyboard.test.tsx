@@ -270,15 +270,39 @@ it("a long chat title wraps inside the delete dialog", () => {
 	assert.match(html, /data-testid="session-name-code" class="[^"]*\bwrap-anywhere\b/);
 });
 
-it("a double click on a row's archive icon archives only that row", async () => {
+const archiveIcon = () => document.querySelector('[data-testid="unassigned-chat-list"] [aria-label="Archive chat"]') as HTMLElement;
+/** A mouse click; `detail` is the browser's click count (2 = a double click's second click). */
+async function clickIcon(detail: number) {
+	const event = Object.assign(new dom.window.Event("click", { bubbles: true, cancelable: true }), { detail, button: 0 });
+	await act(async () => archiveIcon().dispatchEvent(event));
+}
+
+it("a double click on a row's archive icon archives only that row, however slow", async () => {
 	puts.length = 0;
-	const archive = () => document.querySelector('[data-testid="unassigned-chat-list"] [aria-label="Archive chat"]') as HTMLElement;
-	await act(async () => archive().click());
-	// The row hid at once; the next row's icon now sits under the pointer.
-	await act(async () => archive().click());
+	const realNow = Date.now;
+	try {
+		await clickIcon(1);
+		// The row hid at once; the next row's icon now sits under the pointer.
+		// A slow double click (the OS setting) is still click count 2.
+		const later = realNow() + 800;
+		Date.now = () => later;
+		await clickIcon(2);
+	} finally {
+		Date.now = realNow;
+	}
 	await settle();
 	await settle();
 	assert.deepEqual(puts, ["/api/chats/chat_a"]);
+});
+
+it("two quick single clicks on two rows' archive icons archive both", async () => {
+	await settle(); // the failed PUT above put Alpha back
+	puts.length = 0;
+	await clickIcon(1);
+	await clickIcon(1);
+	await settle();
+	await settle();
+	assert.deepEqual(puts, ["/api/chats/chat_a", "/api/chats/chat_b"]);
 });
 
 it("Esc in the search clears the query first, then leaves the search", async () => {
