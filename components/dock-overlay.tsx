@@ -182,9 +182,11 @@ export function DockOverlay({
 	// the scroll machine must not auto-expand at the bottom (the learner reads
 	// the teaching first). Once revealed, the normal fold rules apply.
 	const [revealed, setRevealed] = useState(openedBefore);
-	const hydratedRef = useRef(hydrated);
-	if (hydrated !== hydratedRef.current) {
-		hydratedRef.current = hydrated;
+	// Tracked in state, not a ref: a ref mutated during a render React later
+	// discards would skip the restore on the retry and leave the bar stuck.
+	const [seenHydrated, setSeenHydrated] = useState(hydrated);
+	if (hydrated !== seenHydrated) {
+		setSeenHydrated(hydrated);
 		if (openedBefore) {
 			setExpanded(true);
 			setRevealed(true);
