@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRightIcon, FileIcon, FolderIcon, MessageSquareIcon, PaperclipIcon, PlusIcon, XIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ArrowUpRightIcon, FileIcon, FolderIcon, MessageSquareIcon, PaperclipIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react";
 import { Tabs } from "radix-ui";
 import { sessionMeta } from "@/components/sidebar";
 import { TopBar } from "@/components/top-bar";
@@ -118,6 +119,18 @@ export function ProjectPage({ initial }: { initial: ProjectView }) {
 		setConflicts([]);
 		setError("");
 	};
+	const router = useRouter();
+	const deleteProject = async () => {
+		if (!window.confirm(`Delete the project “${project.name}”? Its chats move to Chats. Its files stay in your library.`)) return;
+		setError("");
+		try {
+			const response = await fetch("/api/projects/" + initial.id, { method: "DELETE" });
+			if (!response.ok) throw new Error();
+			router.push("/");
+		} catch {
+			setError("Could not delete the project. Try again.");
+		}
+	};
 	const instructions = edits.instructions?.value ?? project.instructions;
 	const files = useFileDrop("", () => {}, {
 		uploadAll: true,
@@ -152,6 +165,10 @@ export function ProjectPage({ initial }: { initial: ProjectView }) {
 					<PlusIcon className="size-3.5" />
 					New chat
 				</Link>
+				<button type="button" onClick={() => void deleteProject()} className={buttonClass + " text-muted-foreground hover:text-destructive"}>
+					<Trash2Icon className="size-3.5" />
+					Delete project
+				</button>
 			</TopBar>
 			<div className="min-h-0 flex-1 overflow-y-auto">
 				<div className="mx-auto w-full max-w-5xl px-6 py-10 md:px-12 md:py-12">

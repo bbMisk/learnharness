@@ -400,6 +400,7 @@ export function RenameRow({ chat, onCommit, onCancel, showTime = false }: { chat
 				<input
 					ref={inputRef}
 					value={draft}
+					maxLength={200}
 					spellCheck={false}
 					onChange={(e) => setDraft(e.target.value)}
 					onBlur={() => onCommit(draft)}
@@ -459,12 +460,22 @@ function SessionsSidebar() {
 		router.push("/chat/new");
 	}, [router]);
 
+	// One fetch queue for every refresh reason — server events, reconnects,
+	// the same-window lh:turn-state instants (components/chat-list-refresh.ts):
+	// one change costs one list fetch; projects ride only when they may
+	// have changed.
+	const refreshList = useChatListRefresh({ chats, setChats, setProjects });
+	const refresh = useCallback(() => refreshList(), [refreshList]);
+
+	// `listed`: the list with unsaved pin/archive/move clicks applied.
+	const { view: listed, updateError, moveStatus, updateChat, moveChat, chatDrop } = useChatOrganization({ chats, projects, refresh });
+
 	/* Fuzzy search: subsequence match ranked by
 	 * fuzzyScore — prefix beats word-boundary beats scattered. Empty query
 	 * keeps the natural list order (scores are all 0, sort is stable). */
 	const shown = useMemo(() => {
 		const q = query.trim();
-		let list = chats?.filter(chat => !!chat.archived === showArchived) ?? null;
+		let list = listed?.filter(chat => !!chat.archived === showArchived) ?? null;
 		if (list && kindFilter !== "all") {
 			list = list.filter((c) => (c.kind ?? "teach") === kindFilter);
 		}
@@ -475,16 +486,7 @@ function SessionsSidebar() {
 			.filter((r): r is { c: (typeof list)[number]; score: number } => r.score !== null)
 			.sort((a, b) => b.score - a.score)
 			.map((r) => r.c);
-	}, [chats, query, kindFilter, showArchived]);
-
-	// One fetch queue for every refresh reason — server events, reconnects,
-	// the same-window lh:turn-state instants (components/chat-list-refresh.ts):
-	// one change costs one list fetch; projects ride only when they may
-	// have changed.
-	const refreshList = useChatListRefresh({ chats, setChats, setProjects });
-	const refresh = useCallback(() => refreshList(), [refreshList]);
-
-	const { updateError, moveStatus, updateChat, moveChat, chatDrop } = useChatOrganization({ chats, projects, refresh });
+	}, [listed, query, kindFilter, showArchived]);
 
 	/* Instant rename propagation: the chat header's rename commits
 	   dispatch lh:chat-renamed; patch the snapshot in place instead of
@@ -527,6 +529,7 @@ function SessionsSidebar() {
 	const ctxAnchorRef = useRef<HTMLElement | null>(null);
 	const [renamingId, setRenamingId] = useState<string | null>(null);
 	const [deleting, setDeleting] = useState<ChatListItem | null>(null);
+	const [renameError, setRenameError] = useState("");
 
 	const openContext = (e: React.MouseEvent<HTMLButtonElement>, chat: ChatListItem) => {
 		e.preventDefault(); // suppress the native menu
@@ -569,6 +572,7 @@ function SessionsSidebar() {
 		setRenamingId(null);
 		const t = next.trim();
 		if (t === "") return;
+		setRenameError("");
 		try {
 			const res = await fetch(`/api/chats/${id}`, {
 				method: "PUT",
@@ -579,6 +583,7 @@ function SessionsSidebar() {
 			window.dispatchEvent(new CustomEvent("lh:chat-renamed", { detail: { id, title: t } }));
 		} catch (err) {
 			console.error("rename failed:", err); // keep the old title
+			setRenameError("Chat could not be renamed. Try again.");
 		}
 	}, []);
 
@@ -738,6 +743,17 @@ function SessionsSidebar() {
 									e.currentTarget.blur();
 									return;
 								}
+								// The walked row's context menu (rename, pin, delete…):
+								// the menu key, ⇧F10 or ⌥↵.
+								if (kbdIndex !== null && (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10") || (e.altKey && e.key === "Enter"))) {
+									const target = shown?.[kbdIndex];
+									const row = listRef.current?.querySelectorAll<HTMLElement>('[data-testid="session-row"], [data-testid="session-row-kbd"]')[kbdIndex];
+									if (!target || !row) return;
+									e.preventDefault();
+									ctxAnchorRef.current = row;
+									setCtxChatId(target.id);
+									return;
+								}
 								// Modified keys belong to the surface (⇧↵ etc.).
 								if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
 								const n = shown?.length ?? 0;
@@ -796,10 +812,11 @@ function SessionsSidebar() {
 				</div>
 				)}
 
-				<ProjectSidebar projects={projects} chats={(chats ?? []).filter(chat => !chat.archived && (kindFilter === "all" || (chat.kind ?? "teach") === kindFilter))} refresh={refresh} moveChat={moveChat} renderChat={renderChat} showChats={!query.trim() && !showArchived} />
+				<ProjectSidebar projects={projects} chats={(listed ?? []).filter(chat => !chat.archived && (kindFilter === "all" || (chat.kind ?? "teach") === kindFilter))} refresh={refresh} moveChat={moveChat} renderChat={renderChat} showChats={!query.trim() && !showArchived} />
 				<div {...chatDrop.handlers} data-testid="unassigned-chat-drop" className={cn("mx-3 mt-2 flex h-8 shrink-0 items-center rounded-md px-2 text-xs uppercase tracking-widest text-muted-foreground/70", chatDrop.over && "bg-accent text-muted-foreground ring-1 ring-primary/30")}>{chatDrop.over ? "Move chat out of project" : showArchived ? "Archived" : "Chats"}</div>
 				{moveStatus && <p role="status" className="px-4 py-1 text-xs text-muted-foreground">{moveStatus}</p>}
 				{updateError && <p role="alert" className="px-4 py-2 text-xs text-destructive">{updateError}</p>}
+				{renameError && <p role="alert" className="px-4 py-2 text-xs text-destructive">{renameError}</p>}
 				<div {...chatDrop.handlers} ref={listRef} data-testid="unassigned-chat-list" className={cn("flex-1 overflow-y-auto px-2 pb-2 pt-1", chatDrop.over && "bg-accent/50 ring-1 ring-inset ring-border")}>
 					{shown === null ? (
 						<div className="px-2 py-4 text-xs text-muted-foreground">Loading…</div>
@@ -896,8 +913,8 @@ function SessionsSidebar() {
 						</button>
 						<div className="my-0.5 border-t border-border/60" aria-hidden="true" />
 
-                        <button data-testid="ctx-archive" className="rounded-lg px-2.5 py-1.5 text-left hover:bg-accent" onClick={() => { const chat = chats?.find(c => c.id === ctxChatId); if (chat) void updateChat(chat.id, { archived: !chat.archived }); setCtxChatId(null); }}>{chats?.find(c => c.id === ctxChatId)?.archived ? "Restore chat" : "Archive chat"}</button>
-                        <button className="rounded-lg px-2.5 py-1.5 text-left hover:bg-accent" onClick={()=>{const chat=chats?.find(c=>c.id===ctxChatId);if(chat)void updateChat(chat.id,{pinned:!chat.pinned});setCtxChatId(null);}}>{chats?.find(c=>c.id===ctxChatId)?.pinned?'Unpin chat':'Pin chat'}</button>
+                        <button data-testid="ctx-archive" className="rounded-lg px-2.5 py-1.5 text-left hover:bg-accent" onClick={() => { const chat = listed?.find(c => c.id === ctxChatId); if (chat) void updateChat(chat.id, { archived: !chat.archived }); setCtxChatId(null); }}>{listed?.find(c => c.id === ctxChatId)?.archived ? "Restore chat" : "Archive chat"}</button>
+                        <button className="rounded-lg px-2.5 py-1.5 text-left hover:bg-accent" onClick={()=>{const chat=listed?.find(c=>c.id===ctxChatId);if(chat)void updateChat(chat.id,{pinned:!chat.pinned});setCtxChatId(null);}}>{listed?.find(c=>c.id===ctxChatId)?.pinned?'Unpin chat':'Pin chat'}</button>
                         <div className="my-1 border-t border-border/60"/><span className="px-2.5 pt-1 text-[11px] text-muted-foreground">Move to project</span>
                         {[{id:'',name:'No project'},...projects].map(project=><button key={project.id} className="truncate rounded-lg px-2.5 py-1.5 text-left hover:bg-accent" onClick={()=>{void updateChat(ctxChatId,{projectId:project.id||null});setCtxChatId(null);}}>{project.name}</button>)}
 						<CoverageMenuBlock chatId={ctxChatId} />

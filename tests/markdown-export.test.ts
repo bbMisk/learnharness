@@ -67,6 +67,25 @@ describe("GET /api/chats/:id/markdown", () => {
 		assert.ok((res.headers.get("content-disposition") ?? "").includes('filename="session.md"'));
 	});
 
+	it("a long title is capped so the download is not cancelled", async () => {
+		const chat = createChat("word ".repeat(150));
+		const res = await GET(new Request("http://x/api"), { params: Promise.resolve({ id: chat.id }) });
+		const disposition = res.headers.get("content-disposition") ?? "";
+		const plain = disposition.match(/filename="([^"]+)"/)?.[1] ?? "";
+		const encoded = disposition.match(/filename\*=UTF-8''(\S+)/)?.[1] ?? "";
+		assert.ok(plain.startsWith("word-word-") && plain.length <= 63, `plain name capped: ${plain.length}`);
+		assert.ok(Buffer.byteLength(decodeURIComponent(encoded)) <= 255, "encoded name fits the filename limit");
+	});
+
+	it("non-Latin titles keep their letters in the UTF-8 filename", async () => {
+		const chat = createChat("🧮 Emoji 数学 العربية title");
+		const res = await GET(new Request("http://x/api"), { params: Promise.resolve({ id: chat.id }) });
+		const disposition = res.headers.get("content-disposition") ?? "";
+		assert.ok(disposition.includes('filename="emoji-title.md"'), "ASCII fallback for old clients");
+		const encoded = disposition.match(/filename\*=UTF-8''(\S+)/)?.[1] ?? "";
+		assert.equal(decodeURIComponent(encoded), "emoji-数学-العربية-title.md");
+	});
+
 	it("an empty session exports the bare header document", async () => {
 		const chat = createChat("Quiet one");
 		const res = await GET(new Request("http://x/api"), { params: Promise.resolve({ id: chat.id }) });

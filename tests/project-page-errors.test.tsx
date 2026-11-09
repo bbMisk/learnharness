@@ -19,6 +19,8 @@ Object.assign(globalThis, {
 });
 const { ProjectPage } = await import("../components/project-page.tsx");
 const { ServerEventsProvider } = await import("../components/server-events.tsx");
+const { AppRouterContext } = await import("next/dist/shared/lib/app-router-context.shared-runtime.js");
+const router = { push() {}, replace() {}, refresh() {}, back() {}, forward() {}, prefetch() {} };
 const quietChannel = () => ({ close() {}, onOpen() {}, onEvent() {} });
 
 const project = {
@@ -51,9 +53,11 @@ async function mount(chatsStatus: number) {
 	root = createRoot(host);
 	await act(async () =>
 		root.render(
+			<AppRouterContext.Provider value={router as never}>
 			<ServerEventsProvider connect={quietChannel}>
 				<ProjectPage initial={project} />
-			</ServerEventsProvider>,
+			</ServerEventsProvider>
+			</AppRouterContext.Provider>,
 		),
 	);
 	await act(async () => {
@@ -99,9 +103,11 @@ it("keeps a newer successful list when an older request fails later", async () =
 	root = createRoot(host);
 	await act(async () =>
 		root.render(
+			<AppRouterContext.Provider value={router as never}>
 			<ServerEventsProvider connect={channel}>
 				<ProjectPage initial={project} />
-			</ServerEventsProvider>,
+			</ServerEventsProvider>
+			</AppRouterContext.Provider>,
 		),
 	);
 	await act(async () => {
@@ -152,9 +158,11 @@ async function mountWithChats(moveStatus: number) {
 	root = createRoot(host);
 	await act(async () =>
 		root.render(
+			<AppRouterContext.Provider value={router as never}>
 			<ServerEventsProvider connect={quietChannel}>
 				<ProjectPage initial={project} />
-			</ServerEventsProvider>,
+			</ServerEventsProvider>
+			</AppRouterContext.Provider>,
 		),
 	);
 	await act(async () => {
@@ -205,9 +213,11 @@ it("shows a failed project details refresh and clears it on the next success", a
 	root = createRoot(host);
 	await act(async () =>
 		root.render(
+			<AppRouterContext.Provider value={router as never}>
 			<ServerEventsProvider connect={channel}>
 				<ProjectPage initial={project} />
-			</ServerEventsProvider>,
+			</ServerEventsProvider>
+			</AppRouterContext.Provider>,
 		),
 	);
 	await act(async () => {

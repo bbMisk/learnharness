@@ -3,6 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { PATHS } from "../../config.ts";
 import type { ProjectRecord } from "../core/projects.ts";
+import { cleanName } from "../core/contracts.ts";
 import { emit } from "../core/events.ts";
 import { writeFileAtomic } from "./write-file.ts";
 export function createProjectStore(root: string) {
@@ -25,31 +26,47 @@ export function createProjectStore(root: string) {
 		emit("chats-changed", {});
 		return record;
 	};
+	const list = (): ProjectRecord[] => {
+		try {
+			return fs
+				.readdirSync(root)
+				.filter((f) => f.endsWith(".json"))
+				.map((f) => get(f.slice(0, -5)))
+				.filter((p): p is ProjectRecord => !!p)
+				.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.error("[projects] could not be listed:", error);
+			return [];
+		}
+	};
 	return {
 		get,
-		list(): ProjectRecord[] {
-			try {
-				return fs
-					.readdirSync(root)
-					.filter((f) => f.endsWith(".json"))
-					.map((f) => get(f.slice(0, -5)))
-					.filter((p): p is ProjectRecord => !!p)
-					.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-			} catch (error) {
-				if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.error("[projects] could not be listed:", error);
-				return [];
-			}
-		},
+		list,
 		create(name: string) {
 			const now = new Date().toISOString();
 			return save({
 				id: "project_" + randomUUID(),
-				name: name.trim() || "New project",
+				name: cleanName(name) || "New project",
 				instructions: "",
 				fileIds: [],
 				createdAt: now,
 				updatedAt: now,
 			});
+		},
+		/** Delete the project record (its chats are the caller's to move first). */
+		remove(id: string): boolean {
+			try {
+				fs.unlinkSync(file(id));
+			} catch {
+				return false;
+			}
+			emit("chats-changed", {});
+			return true;
+		},
+		/** Whether another project already has this name (case-insensitive). */
+		nameTaken(name: string, exceptId?: string): boolean {
+			const wanted = cleanName(name).toLowerCase();
+			return list().some((project) => project.id !== exceptId && project.name.toLowerCase() === wanted);
 		},
 		update(id: string, updates: Partial<Pick<ProjectRecord, "name" | "instructions" | "fileIds">>) {
 			const record = get(id);
@@ -57,7 +74,7 @@ export function createProjectStore(root: string) {
 			return save({
 				...record,
 				...updates,
-				name: updates.name?.trim() || record.name,
+				name: cleanName(updates.name ?? "") || record.name,
 				fileIds: updates.fileIds ? [...new Set(updates.fileIds)] : record.fileIds,
 				updatedAt: new Date(Math.max(Date.now(), Date.parse(record.updatedAt) + 1)).toISOString(),
 			});

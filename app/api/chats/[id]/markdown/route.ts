@@ -13,13 +13,21 @@
 import { sessionMarkdown } from "@/src/core";
 import { getChat } from "@/src/server";
 
-/** Filename-safe title (own module scope on purpose: tiny + pure). */
-function slugify(title: string): string {
-	const slug = title
-		.toLowerCase()
-		.normalize("NFKD")
-		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/^-+|-+$/g, "");
+/** Filename-safe title (own module scope on purpose: tiny + pure). `ascii`
+ *  keeps a-z0-9 only (the plain `filename` fallback); otherwise letters and
+ *  digits in any script survive (`filename*`). Capped well under the 255-byte
+ *  filename limit: a longer name makes the browser cancel the download. */
+function slugify(title: string, ascii = true): string {
+	const slug = Array.from(
+		title
+			.toLowerCase()
+			.normalize(ascii ? "NFKD" : "NFC")
+			.replace(ascii ? /[^a-z0-9]+/g : /[^\p{L}\p{N}\p{M}]+/gu, "-")
+			.replace(/^-+|-+$/g, ""),
+	)
+		.slice(0, 60)
+		.join("")
+		.replace(/-+$/, "");
 	return slug.length > 0 ? slug : "session";
 }
 
@@ -31,7 +39,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 	return new Response(markdown, {
 		headers: {
 			"content-type": "text/markdown; charset=utf-8",
-			"content-disposition": `attachment; filename="${slugify(record.title)}.md"`,
+			"content-disposition": `attachment; filename="${slugify(record.title)}.md"; filename*=UTF-8''${encodeURIComponent(slugify(record.title, false))}.md`,
 		},
 	});
 }

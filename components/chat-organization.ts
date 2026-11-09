@@ -1,12 +1,16 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useChatDrop } from "@/components/chat-drag";
 import type { ChatListItem, ProjectSummary } from "@/src/core";
 
+type ChatChanges = { pinned?: boolean; archived?: boolean; projectId?: string | null };
+
 /** Pin, archive and project moves for the sessions sidebar and project pages. Updates
- * run one at a time in request order; each success refreshes the list. A chat dropped
- * on `chatDrop` moves to `dropProjectId` (the unassigned list when absent). */
+ * run one at a time in request order; each success refreshes the list. `chats` comes
+ * back as `view` with unsaved changes applied, so a click shows at once and the
+ * newest click on a chat wins. A chat dropped on `chatDrop` moves to `dropProjectId`
+ * (the unassigned list when absent). */
 export function useChatOrganization({
 	chats,
 	projects,
@@ -21,7 +25,24 @@ export function useChatOrganization({
 	const [updateError, setUpdateError] = useState<string | null>(null);
 	const [moveStatus, setMoveStatus] = useState("");
 	const updateQueue = useRef<Promise<unknown>>(Promise.resolve());
-	const updateChat = (id: string, changes: { pinned?: boolean; archived?: boolean; projectId?: string | null }) => {
+	// Unsaved changes per chat, and the newest update's number per chat.
+	const [pending, setPending] = useState<Record<string, ChatChanges>>({});
+	const latest = useRef<Record<string, number>>({});
+	const view = useMemo(
+		() =>
+			chats &&
+			chats.map((chat) => {
+				const changes = pending[chat.id];
+				if (!changes) return chat;
+				const { projectId, ...flags } = changes;
+				return { ...chat, ...flags, ...(projectId !== undefined ? { projectId: projectId ?? undefined } : {}) };
+			}),
+		[chats, pending],
+	);
+	const updateChat = (id: string, changes: ChatChanges) => {
+		const ticket = (latest.current[id] ?? 0) + 1;
+		latest.current[id] = ticket;
+		setPending((prev) => ({ ...prev, [id]: { ...prev[id], ...changes } }));
 		const apply = async () => {
 			setUpdateError(null);
 			try {
@@ -36,6 +57,9 @@ export function useChatOrganization({
 			} catch {
 				setUpdateError("Chat could not be updated. Try again.");
 				return false;
+			} finally {
+				// The newest update has landed (or failed): the list is the truth again.
+				if (latest.current[id] === ticket) setPending(({ [id]: _, ...rest }) => rest);
 			}
 		};
 		return (updateQueue.current = updateQueue.current.then(apply, apply));
@@ -43,7 +67,7 @@ export function useChatOrganization({
 
 	const moveChat = (id: string, projectId: string | null) => {
 		// Skip only a known no-op: a chat dropped before this list loads still moves.
-		const chat = chats?.find((chat) => chat.id === id);
+		const chat = view?.find((chat) => chat.id === id);
 		if (chat && (chat.projectId ?? null) === projectId) return;
 		setMoveStatus("Moving chat…");
 		void updateChat(id, { projectId }).then((saved) =>
@@ -53,5 +77,5 @@ export function useChatOrganization({
 		);
 	};
 	const chatDrop = useChatDrop((id) => moveChat(id, dropProjectId));
-	return { updateError, moveStatus, updateChat, moveChat, chatDrop };
+	return { view, updateError, moveStatus, updateChat, moveChat, chatDrop };
 }

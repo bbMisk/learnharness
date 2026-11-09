@@ -1147,6 +1147,7 @@ export function Chat({
 							<input
 								ref={titleInputRef}
 								value={titleDraft}
+								maxLength={200}
 								onChange={(e) => setTitleDraft(e.target.value)}
 								onKeyDown={(e) => {
 									if (e.key === "Enter") void commitRename(titleDraft);

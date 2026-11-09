@@ -354,3 +354,16 @@ export function titleFromPrompt(prompt: string): string {
 	if (cut < 0) cut = TITLE_MAX_CHARS;
 	return `${oneLine.slice(0, cut)}…`;
 }
+
+/** The longest stored chat title or project name, in characters. */
+export const NAME_MAX_CHARS = 200;
+
+/** A stored chat title or project name: one line (control characters become
+ *  spaces), trimmed, at most NAME_MAX_CHARS characters. Empty means "use the
+ *  caller's fallback". */
+export function cleanName(name: string): string {
+	return Array.from(name.replace(/[\p{Cc}\u2028\u2029]+/gu, " ").trim())
+		.slice(0, NAME_MAX_CHARS)
+		.join("")
+		.trim();
+}

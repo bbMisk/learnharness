@@ -103,3 +103,33 @@ it("a chat dropped before the list has loaded still moves", async () => {
 		chats = loaded;
 	}
 });
+
+it("pin shows at once, and a quick second click wins (QA #17)", async () => {
+	const fixture = await mount(true);
+	await act(async () => void organize.updateChat("chat_a", { pinned: true }));
+	assert.equal(organize.view?.[0]?.pinned, true, "the row is pinned before the server answers");
+	await act(async () => void organize.updateChat("chat_a", { pinned: !organize.view![0]!.pinned }));
+	assert.equal(organize.view?.[0]?.pinned, false, "the menu now offers Pin again");
+	await act(async () => {
+		fixture.respond();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+	assert.deepEqual(
+		fixture.requests.map((r) => r.body),
+		[{ pinned: true }, { pinned: false }],
+		"saved in click order, so the last click is the server's state",
+	);
+	assert.equal(organize.view?.[0], chats![0], "once saved, the refreshed list is shown as is");
+});
+
+it("a failed archive puts the row back and reports it", async () => {
+	const fixture = await mount(false);
+	await act(async () => void organize.updateChat("chat_a", { archived: true }));
+	assert.equal(organize.view?.[0]?.archived, true);
+	await act(async () => {
+		fixture.respond();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+	assert.equal(organize.view?.[0]?.archived, undefined);
+	assert.equal(organize.updateError, "Chat could not be updated. Try again.");
+});
