@@ -4,6 +4,7 @@ import {
 	actionForBinding,
 	bindingForAction,
 	formatBinding,
+	eventBinding,
 	IS_MAC,
 	kbdEventForAction,
 	KEYBOARD_ACTIONS,
@@ -67,6 +68,23 @@ describe("the Space bar has a name", () => {
 	it("a Space binding (stored as its key, \" \") formats as Space", () => {
 		assert.equal(formatBinding("alt+ "), IS_MAC ? "⌥Space" : "Alt+Space");
 		assert.equal(formatBinding(" "), "Space");
+	});
+	it("macOS ⌥Space (a non-breaking space in `key`) is stored and shown as Space", () => {
+		const binding = eventBinding({ key: "\u00a0", code: "Space", altKey: true, metaKey: false, ctrlKey: false, shiftKey: false } as KeyboardEvent);
+		assert.equal(binding, "alt+ ");
+		assert.equal(formatBinding(binding), IS_MAC ? "⌥Space" : "Alt+Space");
+	});
+});
+
+describe("named keys keep their normal names", () => {
+	it("Backspace, Delete, Home, PageUp read as named; letters and F-keys stay in capitals", () => {
+		assert.equal(formatBinding("backspace"), "Backspace");
+		assert.equal(formatBinding("delete"), "Delete");
+		assert.equal(formatBinding("home"), "Home");
+		assert.equal(formatBinding("pageup"), "PageUp");
+		assert.equal(formatBinding("f2"), "F2");
+		assert.equal(formatBinding("mod+k"), IS_MAC ? "⌘K" : "Ctrl+K");
+		assert.equal(formatBinding(""), "");
 	});
 });
 

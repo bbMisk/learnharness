@@ -180,6 +180,7 @@ function modifiedKey(e: KeyboardEvent, mod: boolean): string {
 	// Inspect the reported character: lowercasing can expand it (İ → i̇).
 	if (e.key.length !== 1 || e.key <= "\x7f" || !(e.metaKey || e.ctrlKey || e.altKey)) return key;
 	if (e.code === "Comma") return ",";
+	if (e.code === "Space") return " "; // macOS ⌥Space reports a non-breaking space
 	const letter = /^Key([A-Z])$/.exec(e.code);
 	return letter?.[1] ? letter[1].toLowerCase() : key;
 }
@@ -225,6 +226,8 @@ const KEY_GLYPH: Record<string, string> = {
 	escape: "Esc",
 	space: "Space",
 	" ": "Space", // eventBinding stores the Space bar as its key, " "
+	pageup: "PageUp",
+	pagedown: "PageDown",
 };
 
 /** Format a binding for display: "mod+shift+f" → "⌘⇧F". */
@@ -239,6 +242,7 @@ export function formatBinding(binding: string): string {
 		else if (part === "alt") glyphs.push(ALT_GLYPH);
 		else if (part === "shift") glyphs.push(SHIFT_GLYPH);
 	}
-	const keyGlyph = KEY_GLYPH[key] ?? key.toUpperCase();
+	// Characters and F-keys read in capitals; named keys keep their name (Backspace).
+	const keyGlyph = KEY_GLYPH[key] ?? (key.length === 1 || /^f\d+$/.test(key) ? key.toUpperCase() : key.charAt(0).toUpperCase() + key.slice(1));
 	return glyphs.join("") + keyGlyph;
 }
