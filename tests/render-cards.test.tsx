@@ -356,6 +356,13 @@ describe("render smoke tests", () => {
 		const html = renderToStaticMarkup(<AnsweredCard answer={answer} />);
 		assert.match(html, /skipped/);
 	});
+
+	it("a skipped question's math renders, not its raw TeX", () => {
+		const answer = { ...buildAnswer(quizQD(), { dontKnow: true }), dismissed: true, questionText: "What is $\\log G_n$?" };
+		const html = renderToStaticMarkup(<AnsweredCard answer={answer} />);
+		assert.ok(html.includes("katex"), "the question's math is typeset");
+		assert.ok(!html.includes("$\\log"), "no raw TeX delimiters");
+	});
 });
 
 describe("math rendering (streamdown + KaTeX)", () => {
