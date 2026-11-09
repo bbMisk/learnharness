@@ -25,7 +25,7 @@
  *     (keyed providers only), the vision slot filtered to image-capable
  *     models, in the app's shared dropdown language (ModelMenuList).
  *     Saved disconnected selections and edits are retained internally in
- *     the exclusive provider stage. Connecting with all slots already saved
+ *     the exclusive provider stage. Connecting the provider every saved slot uses
  *     closes setup; otherwise the pickers require only the missing slots.
  *     All three required (owner: no skip, no defaults); Save PUTs the
  *     models section and reports onDone(models).
@@ -85,6 +85,14 @@ export function setupStage(
 }
 
 type ModelSelection = Pick<ModelCatalogEntry, "provider" | "id">;
+
+/** Pure: every slot is saved AND its provider is connected — only then can a
+ *  fresh connection close setup. A key for some other provider leaves the
+ *  saved models unrunnable, so setup moves on to the pickers. */
+export function savedSlotsConnected(catalog: Pick<ModelsBody, "providers" | "slots"> | undefined): boolean {
+	return !!catalog && savedSlotsConfigured(catalog.slots) && SLOT_ORDER.every((slot) =>
+		catalog.providers.some((p) => p.id === catalog.slots?.[slot]?.model.provider && p.keyPresent));
+}
 
 /** Saved identity is independent of selectable metadata. A disconnected
  * pin still prefills; only the menu is restricted to the live catalog. */
@@ -321,7 +329,7 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 	}, [catalog]);
 
 	const stage = setupStage(catalog?.providers ?? null);
-	const closeAfterConnection = stage === "pickers" && providerStageSeen.current && savedSlotsConfigured(catalog?.slots);
+	const closeAfterConnection = stage === "pickers" && providerStageSeen.current && savedSlotsConnected(catalog);
 	useEffect(() => {
 		if (stage === "keys") providerStageSeen.current = true;
 		if (closeAfterConnection && !connectionCloseRequested.current) {

@@ -110,7 +110,7 @@ test("cached setup is immediately usable; fresh metadata/untouched slots update 
 	});
 });
 
-test("zero providers always means exclusive connection stage; reconnect with all saved slots only closes, even if every selection remains unavailable", async () => {
+test("zero providers always means exclusive connection stage; reconnecting the saved slots' provider only closes", async () => {
 	installFetch(); await warm();
 	let closed = 0, completed = 0;
 	await render(<><Reader />{setup(() => { closed++; }, () => { completed++; })}</>); await answer(1, catalog());
@@ -124,10 +124,22 @@ test("zero providers always means exclusive connection stage; reconnect with all
 	assert.equal(document.querySelector('[data-testid="setup-add-provider"]'), null);
 	assert.equal(document.querySelector('[data-testid="setup-save"]'), null);
 	await act(async () => notifySettingsSaved("keys"));
-	const other = catalog(false); other.providers = [{ id: "other", envVar: "OTHER_KEY", keyPresent: true }];
-	await answer(3, other);
+	await answer(3, catalog());
 	assert.equal(closed, 1); assert.equal(completed, 0); assert.deepEqual(writes, []);
 	assert.equal(document.querySelector('[data-testid="setup-dialog"]'), null, "no intermediate picker frame after reconnect");
+});
+
+test("a key for a provider the saved slots don't use keeps setup open on the pickers", async () => {
+	installFetch(); await warm(catalog(false));
+	let closed = 0;
+	await render(<><Reader />{setup(() => { closed++; })}</>); await answer(1, catalog(false));
+	assert.ok(element("setup-stage-keys"));
+	await act(async () => notifySettingsSaved("keys"));
+	const other = catalog(false); other.providers = [{ id: "other", envVar: "OTHER_KEY", keyPresent: true }];
+	await answer(2, other);
+	assert.equal(closed, 0, "the saved models still cannot run");
+	assert.ok(element("setup-stage-pickers"));
+	assert.deepEqual(writes, []);
 });
 
 test("cold saved disconnected pins still enter the provider stage, without any model-selector frame", async () => {
