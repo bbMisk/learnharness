@@ -82,6 +82,13 @@ it("a delete in another tab (chats-changed, then 404) swaps the open chat out", 
 	assert.match(host.textContent ?? "", /Go home/);
 });
 
+it("a chat found gone stops re-reading on later events", async () => {
+	const { urls, event } = await mount(() => new Response("{}", { status: 404 }));
+	await event("chats-changed");
+	await event("chats-changed");
+	assert.deepEqual(urls, ["/api/chats/chat_x?only=title"]);
+});
+
 it("a rename in another tab goes out as lh:chat-renamed, once", async () => {
 	let title = "Old title";
 	const renamed: unknown[] = [];

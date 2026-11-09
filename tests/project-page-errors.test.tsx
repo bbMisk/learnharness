@@ -41,9 +41,13 @@ afterEach(async () => {
 	globalThis.fetch = realFetch;
 });
 
-async function mount(chatsStatus: number) {
+const urls: string[] = [];
+async function mount(chatsStatus: number, projectStatus = 200) {
+	urls.length = 0;
 	globalThis.fetch = (async (input: RequestInfo | URL) => {
 		const url = String(input);
+		urls.push(url);
+		if (url.startsWith("/api/projects/") && projectStatus !== 200) return new Response("{}", { status: projectStatus });
 		if (url === "/api/chats")
 			return new Response(JSON.stringify(chatsStatus === 200 ? { chats: [] } : { error: "boom" }), { status: chatsStatus });
 		return new Response(JSON.stringify(project), { status: 200 });
@@ -232,4 +236,10 @@ it("shows a failed project details refresh and clears it on the next success", a
 		await new Promise((resolve) => setTimeout(resolve, 0));
 	});
 	assert.doesNotMatch(host.textContent ?? "", /Could not load project details\./);
+});
+
+it("a deleted project (404, e.g. Back after a delete) shows the not-found page", async () => {
+	const text = await mount(200, 404);
+	assert.match(text, /Go home/);
+	assert.doesNotMatch(text, /Delete project|Could not load project details/);
 });

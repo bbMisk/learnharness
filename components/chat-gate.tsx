@@ -14,11 +14,15 @@ export function ChatGate({ chatId, title, children }: { chatId: string; title: s
 	const known = useRef(title);
 	const latest = useRef(0);
 	const check = useCallback(async () => {
+		if (latest.current < 0) return; // gone for good: stop re-reading
 		const read = ++latest.current;
 		try {
 			const response = await fetch(`/api/chats/${chatId}?only=title`, { cache: "no-store" });
 			if (read !== latest.current) return;
-			if (response.status === 404) return setGone(true);
+			if (response.status === 404) {
+				latest.current = -1;
+				return setGone(true);
+			}
 			if (!response.ok) return;
 			const next = ((await response.json()) as { title?: unknown }).title;
 			if (read !== latest.current || typeof next !== "string" || next === known.current) return;

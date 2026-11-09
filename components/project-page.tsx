@@ -13,7 +13,14 @@ import { FileDropFeedback } from "@/components/file-drop-feedback";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import type { ChatListItem, ProjectView } from "@/src/core";
 import { InlineRename } from "@/components/inline-rename";
+import { NotFoundView } from "@/components/not-found-view";
+/** A project deleted here or in another window (or restored by browser Back
+ *  after a delete) swaps for the not-found page, as ChatGate does for chats. */
 export function ProjectPage({ initial }: { initial: ProjectView }) {
+	const [gone, setGone] = useState(false);
+	return gone ? <NotFoundView /> : <ProjectBody initial={initial} onGone={() => setGone(true)} />;
+}
+function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => void }) {
 	type Field = "name" | "instructions";
 	const [project, setProject] = useState(initial);
 	const [edits, setEdits] = useState<Partial<Record<Field, { value: string; expected: string }>>>({});
@@ -43,7 +50,10 @@ export function ProjectPage({ initial }: { initial: ProjectView }) {
 					if (request === chatsRequest.current) setChatsError("Could not load chats.");
 				}),
 			fetch("/api/projects/" + initial.id)
-				.then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))))
+				.then((r) => {
+					if (r.status === 404) onGone(); // deleted: the record never comes back
+					return r.ok ? r.json() : Promise.reject(new Error(r.statusText));
+				})
 				.then((next) => {
 					adopt(next);
 					if (request === chatsRequest.current) setProjectError("");
