@@ -297,3 +297,35 @@ it("Esc right after Open stays folded when the reveal scroll lands at the bottom
 	await act(async () => { el.dispatchEvent(new dom.window.Event("scroll")); });
 	assert.ok(host.querySelector('[data-testid="question-dock-bar"]'), "the Esc fold wins over the at-bottom re-open");
 });
+
+it("folding the check keeps the spacer's reserve but reports the smaller live height (the pin drawer's budget)", async () => {
+	const escRef: React.RefObject<(() => void) | null> = { current: null };
+	const reserves: number[] = [];
+	const heights: number[] = [];
+	const rect = proto.getBoundingClientRect;
+	proto.getBoundingClientRect = function (this: Element) {
+		const block = this.getAttribute("data-testid") === "dock-block";
+		const folded = !!this.querySelector('[data-testid="teach-check-reveal"], [data-testid="question-dock-bar"]');
+		const height = block ? (folded ? 60 : 400) : 0;
+		return { x: 0, y: 0, width: 0, height, top: 0, left: 0, right: 0, bottom: height };
+	};
+	try {
+		const host = await mount(
+			<StickToBottom>
+				<StickToBottom.Content>{() => null}</StickToBottom.Content>
+				<DockOverlay pending={{ ...pending, key: "q-live", toolCallId: "q-live" } as never} initialQuestionDraft={draft} onSaveQuestionDraft={() => {}} practice={null}
+					compactionRunning={false} onSubmitThinking={() => {}} teachingCheck requiresReveal showReadingThinking={false}
+					readingThinking="" readingThinkingRevision={0} onReadingThinking={() => {}} phase={"teach" as never} composer={null}
+					onSubmitAnswer={() => {}} footer={null} onReserve={(h) => reserves.push(h)} onBlockHeight={(h) => heights.push(h)} room="" queuedSteers={[]} checkEscRef={escRef} />
+			</StickToBottom>,
+		);
+		await act(async () => { (host.querySelector('[data-testid="teach-check-reveal"]') as HTMLElement).click(); });
+		assert.equal(heights.at(-1), 400, "open");
+		await act(async () => escRef.current!());
+		assert.ok(host.querySelector('[data-testid="question-dock-bar"]'), "folded");
+		assert.equal(heights.at(-1), 60, "the live height shrinks");
+		assert.equal(Math.max(...reserves), reserves.at(-1), "the reserve never shrank");
+	} finally {
+		proto.getBoundingClientRect = rect;
+	}
+});

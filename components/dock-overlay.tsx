@@ -109,6 +109,7 @@ export function DockOverlay({
 	onSubmitAnswer,
 	footer,
 	onReserve,
+	onBlockHeight,
 	room,
 	plan,
 	dictationCancel,
@@ -147,6 +148,8 @@ export function DockOverlay({
 	/** Reports the dock's settled height (block + gradient); Chat's
 	 *  dockReserve feeds the transcript's spacer from it. */
 	onReserve: (h: number) => void;
+	/** The block's current height (no gradient), shrinks included: the pin drawer stops above it. */
+	onBlockHeight?: (h: number) => void;
 	/** The progress card's make-room padding (lessonTrackerRoom's `dock`):
 	 *  centres the dock on the narrowed column while the card shows on a wide
 	 *  session area; "" otherwise. */
@@ -313,6 +316,7 @@ export function DockOverlay({
 	// Restored folded: keep the spacer the saved position was measured with.
 	const [reserveFloor] = useState(() => (restoring ? savedDockReserve(path) : 0));
 	const offer = useCallback((blockH: number) => {
+		onBlockHeight?.(blockH);
 		const next = Math.max(blockH + GRADIENT_H, pendingRef.current ? reserveFloor : 0);
 		if (next <= reserveRef.current + 0.5 && pendingRef.current) return;
 		// Stamp growth at the source, including child-only field resizes, so
@@ -320,7 +324,7 @@ export function DockOverlay({
 		if (shouldStampGeometryMute(next, reserveRef.current, pendingRef.current)) geometryAtRef.current = Date.now();
 		reserveRef.current = next;
 		onReserve(next);
-	}, [onReserve, reserveFloor]);
+	}, [onReserve, onBlockHeight, reserveFloor]);
 
 	// The overlay must not paint over the scroller's scrollbar: the scroller
 	// reserves symmetric gutters (scrollbar-gutter:

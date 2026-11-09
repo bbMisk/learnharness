@@ -808,10 +808,12 @@ export function Chat({
 	// guess so the static paint has a sane tail. The first layout effect
 	// replaces it with the measured truth before paint.
 	const [dockReserve, setDockReserve] = useState(208);
+	// The dock's live height: a folded check gives the pin drawer its room back.
+	const [dockBlockH, setDockBlockH] = useState<number | null>(null);
 	// A docked pinned demo/diagram takes the progress card's column; the
 	// PROGRESS chip then shows the card over it (progressOverPin, reset per pin).
 	const getTranscriptScroller = useCallback(() => scrollContextRef.current?.scrollRef.current ?? null, []);
-	const pinned = usePinnedVisual({ messages, tutorPin, areaRef: sessionFindScopeRef, bottomReserve: Math.max(0, dockReserve - GRADIENT_H), getScroller: getTranscriptScroller });
+	const pinned = usePinnedVisual({ messages, tutorPin, areaRef: sessionFindScopeRef, bottomReserve: dockBlockH ?? Math.max(0, dockReserve - GRADIENT_H), getScroller: getTranscriptScroller });
 	pinEscRef.current = pinned;
 	const [progressOverPin, setProgressOverPin] = useState(false);
 	const pinnedJob = pinned.target?.jobId ?? null;
@@ -1371,6 +1373,7 @@ export function Chat({
 						/>
 					}
 					onReserve={setDockReserve}
+					onBlockHeight={setDockBlockH}
 					room={trackerRoom.dock}
 					dictationCancel={dictation.active ? dictation.cancel : undefined}
 					queuedSteers={visibleQueuedSteers(steerQueue, nativeMessages)}
