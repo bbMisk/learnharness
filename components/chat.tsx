@@ -852,7 +852,12 @@ export function Chat({
 	}, [chatId]);
 	useEffect(() => {
 		void syncTurns();
+		// A read that failed offline never retries on its own.
+		const onOnline = () => void syncTurns();
+		window.addEventListener("online", onOnline);
+		return () => window.removeEventListener("online", onOnline);
 	}, [syncTurns]);
+	useServerResync(() => void syncTurns());
 	// Settlement refreshes coverage and canonical messages/stats. Without a
 	// durable-settlement announcement (for example Stop), refresh stats only.
 	const prevStatusRef = useRef(status);
