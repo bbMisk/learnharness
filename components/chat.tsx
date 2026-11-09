@@ -46,6 +46,7 @@ import { SessionMessageNavigation } from "@/components/session-navigation";
 import { sidewaysWheel } from "@/components/sideways-wheel";
 import { useProgressiveTranscript } from "@/components/progressive-transcript";
 import { TopBar } from "@/components/top-bar";
+import { ChatNote } from "@/components/chat-gate";
 import type { JobRecord, QuestionCall, TurnUsage, SessionPricing } from "@/src/core";
 import { PhaseChip } from "@/components/phase-divider";
 import { CramToggle, useLessonCram } from "@/components/cram-toggle";
@@ -1254,6 +1255,7 @@ export function Chat({
 						<PhaseChip phase={phases.at(-1) ?? "probe"} />
 					)}
 				</TopBar>
+				<ChatNote />
 
 				<SessionFind scopeRef={sessionFindScopeRef} scrollContextRef={scrollContextRef} />
 				<div ref={sessionFindScopeRef} className={`relative flex min-h-0 flex-1 ${trackerRoom.area}`}>

@@ -1,8 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { NotFoundView } from "@/components/not-found-view";
 import { useServerEvent, useServerResync } from "@/components/server-events";
+
+const ChatNoteContext = createContext<ReactNode>(null);
+
+/** The gate's note (archived), in its own band where the chat renders this
+ *  (under the header), so it never covers the transcript. */
+export function ChatNote() {
+	return useContext(ChatNoteContext);
+}
 
 /** Keeps an open chat honest about its record: re-read on mount (browser
  *  Back can restore a cached page), on chats-changed and on reconnect. A 404
@@ -80,13 +88,12 @@ export function ChatGate({ chatId, title, archived: initiallyArchived = false, c
 	};
 	if (gone) return <NotFoundView message="This chat was deleted." />;
 	return (
-		<>
-			{children}
-			{archived && (
+		<ChatNoteContext.Provider
+			value={archived && (
 				<p
 					role="status"
 					data-testid="chat-archived"
-					className="absolute left-1/2 top-[4.25rem] z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground shadow-sm"
+					className="flex h-7 shrink-0 items-center justify-center gap-2 border-b border-border bg-card px-4 text-xs text-muted-foreground"
 				>
 					This chat is archived.
 					<button type="button" disabled={restoring} onClick={() => void restore()} className="text-foreground underline-offset-2 hover:underline disabled:opacity-40">
@@ -94,6 +101,8 @@ export function ChatGate({ chatId, title, archived: initiallyArchived = false, c
 					</button>
 				</p>
 			)}
-		</>
+		>
+			{children}
+		</ChatNoteContext.Provider>
 	);
 }
