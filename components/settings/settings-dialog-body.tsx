@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
+import { useFocusReturn } from "@/components/focus-return";
 import {
 	CURRENT_SETTINGS_VERSION,
 	type AgentSettings,
@@ -68,10 +69,7 @@ export function SettingsDialog({
 }) {
 	const backdropDismiss = useBackdropDismiss(onClose);
 	// Closing hands focus back to whatever held it on open (the Settings button).
-	const [opener] = useState(() => document.activeElement as HTMLElement | null);
-	useEffect(() => () => {
-		if (opener && opener !== document.body && opener.isConnected && typeof opener.focus === "function") opener.focus();
-	}, [opener]);
+	useFocusReturn();
 	// Plain dim backdrop (no blur — nothing decorative); a genuine
 	// backdrop click closes, the dialog body stops propagation.
 	return createPortal(

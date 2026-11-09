@@ -34,8 +34,16 @@ interface ReadingPosition {
 	 *  the question starting folded (a folded dock reserves less room, so a
 	 *  position inside that band would clamp to the bottom). */
 	clearOfDock: boolean;
+	/** The dock spacer's height then: a question restored folded keeps it. */
+	dock: number;
 }
 const readingPositions = new Map<string, ReadingPosition>();
+/** Pages whose question was folded when the learner left them. */
+const foldedOnLeave = new Set<string>();
+export function rememberDockFolded(path: string, folded: boolean): void {
+	if (folded) foldedOnLeave.add(path);
+	else foldedOnLeave.delete(path);
+}
 /** Closer to the bottom than this counts as following the bottom. */
 const AT_BOTTOM_PX = 80;
 /** Long enough for a big chat's history to fill in; any input ends it sooner. */
@@ -60,13 +68,25 @@ function topRow(scroller: HTMLElement): ReadingPosition | null {
 	}
 	const fromBottom = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
 	const dock = scroller.querySelector<HTMLElement>('[data-testid="dock-spacer"]')?.offsetHeight ?? 0;
-	return { fromEnd: rows.length - 1 - lo, offset: rows[lo]!.getBoundingClientRect().top - viewTop, clearOfDock: fromBottom > dock };
+	return { fromEnd: rows.length - 1 - lo, offset: rows[lo]!.getBoundingClientRect().top - viewTop, clearOfDock: fromBottom > dock, dock };
+}
+
+function savedPosition(path: string): ReadingPosition | undefined {
+	return typeof window === "undefined" || window.location.hash ? undefined : readingPositions.get(path);
 }
 
 /** True while this page will return to a saved reading position (above the
- * bottom), so a question arriving with it starts folded instead of covering it. */
-export function restoresReadingPosition(): boolean {
-	return typeof window !== "undefined" && !window.location.hash && readingPositions.get(window.location.pathname)?.clearOfDock === true;
+ * bottom) that the question shouldn't cover: it was folded when the learner
+ * left, or the position is clear of the dock. The question then starts folded. */
+export function restoresReadingPosition(path: string): boolean {
+	const saved = savedPosition(path);
+	return !!saved && (saved.clearOfDock || foldedOnLeave.has(path));
+}
+
+/** The dock spacer's height at the saved position: a question starting
+ * folded keeps it, so the position can't clamp to the bottom. */
+export function savedDockReserve(path: string): number {
+	return savedPosition(path)?.dock ?? 0;
 }
 
 export function useReadingPosition(contextRef: RefObject<StickToBottomContext>): void {

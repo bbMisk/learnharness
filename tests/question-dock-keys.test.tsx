@@ -180,4 +180,49 @@ describe("cancelling the Dismiss confirm", () => {
 		await render(null);
 		assert.equal(focused, field);
 	});
+
+	it("after a backdrop click, the caret goes back where it was in the field, not to its start", async () => {
+		const { AbortTurnDialog } = await import("../components/abort-turn-dialog.tsx");
+		const host = document.createElement("div");
+		const field = document.createElement("div");
+		field.textContent = "hello world";
+		Object.defineProperty(field, "isContentEditable", { value: true });
+		document.body.append(field, host);
+		hosts.push(field, host);
+		// A minimal Selection: linkedom has none.
+		const at = (node: Node, offset: number) => ({ startContainer: node, endContainer: node, startOffset: offset, endOffset: offset, cloneRange() { return at(node, offset); } });
+		let range: ReturnType<typeof at> | null = at(field.firstChild!, 11);
+		const selection = {
+			get rangeCount() { return range ? 1 : 0; },
+			getRangeAt: () => range!,
+			removeAllRanges() { range = null; },
+			addRange(r: ReturnType<typeof at>) { range = r; },
+			selectAllChildren(node: Node) { range = at(node, node.childNodes.length); },
+			collapseToEnd() {},
+		};
+		const getSelection = document.getSelection;
+		Object.assign(document, { getSelection: () => selection });
+		try {
+			field.focus();
+			root = createRoot(host);
+			const render = (mode: "question" | null) => act(async () => root!.render(<AbortTurnDialog mode={mode} onClose={() => {}} onConfirm={() => {}} />));
+			await render("question");
+			range = at(document.body, 0); // the backdrop's mousedown moved the selection
+			await render(null);
+			assert.equal(focused, field);
+			assert.ok(range?.startContainer === field.firstChild, "the caret is back in the field"); // equal() would diff whole DOM trees
+			assert.equal(range?.startOffset, 11, "after hello world, where it was");
+		} finally {
+			Object.assign(document, { getSelection });
+		}
+	});
+});
+
+it("every dialog focus return goes through the shared caret-keeping helper", async () => {
+	const { readFileSync } = await import("node:fs");
+	for (const file of ["abort-turn-dialog.tsx", "settings/settings-dialog-body.tsx", "setup-dialog.tsx", "plan-block.tsx"]) {
+		const source = readFileSync(new URL(`../components/${file}`, import.meta.url), "utf8");
+		assert.match(source, /useFocusReturn\(/, file);
+		assert.doesNotMatch(source, /opener\.focus\(/, file);
+	}
 });

@@ -40,6 +40,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
+import { useFocusReturn } from "@/components/focus-return";
 import type React from "react";
 import { type ModelCatalogEntry, type ModelSlotName, type ModelsSettings, COMPACTION_THRESHOLD_FLOOR, CUSTOM_PROVIDER } from "@/src/core";
 import { prettyModel } from "@/components/usage-format";
@@ -284,10 +285,7 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 		keptPicks.levels = Object.fromEntries(edited.filter((slot) => levels[slot] !== undefined).map((slot) => [slot, levels[slot]]));
 	}, [picked, levels]);
 	// Closing hands focus back to whatever held it on open.
-	const [opener] = useState(() => document.activeElement as HTMLElement | null);
-	useEffect(() => () => {
-		if (opener && opener !== document.body && opener.isConnected && typeof opener.focus === "function") opener.focus();
-	}, [opener]);
+	useFocusReturn();
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [openMenu, setOpenMenu] = useState<{ slot: ModelSlotName; kind: "model" | "thinking" } | null>(null);

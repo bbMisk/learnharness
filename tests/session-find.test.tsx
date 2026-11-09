@@ -182,3 +182,23 @@ describe("clearSessionFindHighlights — browser-API shaped, linkedom-safe", () 
 		assert.ok(range!, "a range existed and the DOM beneath it is untouched");
 	});
 });
+
+describe("affectsSessionFind — which DOM changes drop the index", () => {
+	it("chrome around the roots doesn't; the roots, their contents and their ancestors' attributes do", async () => {
+		const { affectsSessionFind } = await import("../components/session-find-dom.ts");
+		document.body.innerHTML = `<div id="scope"><div id="dock"><div id="fold"><div data-session-find-root=""><p id="q">question</p></div></div><div id="chrome"></div></div></div>`;
+		const $ = (id: string) => document.getElementById(id)!;
+		const none = [] as unknown as NodeList;
+		const button = document.createElement("button");
+		const record = (type: MutationRecordType, target: Node, added: Node[] = []) => ({ type, target, addedNodes: added as unknown as NodeList, removedNodes: none });
+		assert.equal(affectsSessionFind(record("childList", $("chrome"), [button])), false, "the dock's ↓ button appearing");
+		assert.equal(affectsSessionFind(record("attributes", $("chrome"))), false, "a style change beside the roots");
+		assert.equal(affectsSessionFind(record("characterData", $("chrome").appendChild(document.createTextNode("1/2")))), false);
+		assert.equal(affectsSessionFind(record("attributes", $("fold"))), true, "an ancestor's class can hide the root");
+		assert.equal(affectsSessionFind(record("characterData", $("q").firstChild!)), true, "text inside a root");
+		assert.equal(affectsSessionFind(record("childList", $("q"), [button])), true);
+		const root = document.createElement("div");
+		root.setAttribute("data-session-find-root", "");
+		assert.equal(affectsSessionFind(record("childList", $("scope"), [root])), true, "a root mounting");
+	});
+});

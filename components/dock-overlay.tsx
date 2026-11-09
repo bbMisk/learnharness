@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useStickToBottomContext } from "use-stick-to-bottom";
 import { opensWaitingCheck } from "@/components/waiting-check-key";
 import { openModal } from "@/components/open-modal";
@@ -16,7 +17,7 @@ import { PracticeDock } from "@/components/practice-dock";
 import { MARGIN_MIN_W, dockFlank, measureDockFlank, type DockFlank } from "@/components/dock-flank";
 import { rememberRevealed, wasRevealed } from "@/components/revealed-questions";
 import { useHydrated } from "@/components/use-hydrated";
-import { restoresReadingPosition } from "@/components/session-navigation";
+import { rememberDockFolded, restoresReadingPosition, savedDockReserve } from "@/components/session-navigation";
 import { ReadingThinkingField } from "@/components/reading-thinking";
 import type { pendingQuestionOf, Phase3, QuestionAnswerData, QuestionFormDraft } from "@/src/core";
 
@@ -179,7 +180,10 @@ export function DockOverlay({
 	const openedBefore = hydrated && wasRevealed(pending?.key ?? null);
 	// Coming back to a saved reading position: the question starts folded so
 	// it doesn't cover the passage (reaching the bottom opens it as usual).
-	const [expanded, setExpanded] = useState(() => (!requiresReveal || openedBefore) && !restoresReadingPosition());
+	// The router's path: during this render the URL may still be the last page's.
+	const path = usePathname() ?? (typeof window === "undefined" ? "" : window.location.pathname);
+	const [restoring] = useState(() => restoresReadingPosition(path));
+	const [expanded, setExpanded] = useState(() => (!requiresReveal || openedBefore) && !restoring);
 	const [readingUploading, setReadingUploading] = useState(false);
 	// Reveal state: false until the learner opens the invitation. While false,
 	// the scroll machine must not auto-expand at the bottom (the learner reads
@@ -229,6 +233,7 @@ export function DockOverlay({
 	// in its initial state: no scroll, no morph.
 	useEffect(() => {
 		holdFoldRef.current = false;
+		if (pendingId !== initialPendingRef.current) restoreHoldRef.current = false;
 		if (!pendingId || pendingId === initialPendingRef.current) return;
 		if (!requiresReveal && atBottomRef.current) void suppressFoldDuringReveal();
 		// fire only when a NEW question lands
@@ -249,6 +254,8 @@ export function DockOverlay({
 	requiresRevealRef.current = requiresReveal;
 	const revealedRef = useRef(revealed);
 	revealedRef.current = revealed;
+	// Leaving the page: a folded question comes back folded.
+	useEffect(() => () => rememberDockFolded(path, pendingRef.current && !expandedRef.current), [path]);
 
 	const blockRef = useRef<HTMLDivElement>(null);
 	const viewportRef = useRef<HTMLDivElement>(null);
@@ -302,15 +309,17 @@ export function DockOverlay({
 	// practice problem owns the dock: shrinking flow space could pin a nearby
 	// learner back to the bottom. Composer mode may give space back.
 	const reserveRef = useRef(0);
+	// Restored folded: keep the spacer the saved position was measured with.
+	const [reserveFloor] = useState(() => (restoring ? savedDockReserve(path) : 0));
 	const offer = useCallback((blockH: number) => {
-		const next = blockH + GRADIENT_H;
+		const next = Math.max(blockH + GRADIENT_H, pendingRef.current ? reserveFloor : 0);
 		if (next <= reserveRef.current + 0.5 && pendingRef.current) return;
 		// Stamp growth at the source, including child-only field resizes, so
 		// stick-to-bottom's catch-up is not mistaken for the learner leaving.
 		if (shouldStampGeometryMute(next, reserveRef.current, pendingRef.current)) geometryAtRef.current = Date.now();
 		reserveRef.current = next;
 		onReserve(next);
-	}, [onReserve]);
+	}, [onReserve, reserveFloor]);
 
 	// The overlay must not paint over the scroller's scrollbar: the scroller
 	// reserves symmetric gutters (scrollbar-gutter:
@@ -386,6 +395,9 @@ export function DockOverlay({
 	// An explicit Esc fold holds against the at-bottom re-open (the reveal
 	// scroll may still be landing) until the learner leaves the bottom.
 	const holdFoldRef = useRef(false);
+	// So does a restored fold, since the page opens at the bottom before the
+	// restore lands; but a wheel-down at the bottom still opens it.
+	const restoreHoldRef = useRef(restoring);
 	const focusCheckRef = useRef(false);
 	const expandAndReveal = () => {
 		holdFoldRef.current = false;
@@ -458,8 +470,8 @@ export function DockOverlay({
 				// learner left the bottom: distance alone trips on stick-to-bottom's
 				// catch-up transients.
 				if (d > COLLAPSE_DIST && !expandIntentRef.current && !atBottomRef.current) setExpanded(false);
-			} else if (holdFoldRef.current) {
-				if (d > COLLAPSE_DIST && !expandIntentRef.current) holdFoldRef.current = false;
+			} else if (holdFoldRef.current || restoreHoldRef.current) {
+				if (d > COLLAPSE_DIST && !expandIntentRef.current) holdFoldRef.current = restoreHoldRef.current = false;
 			} else if (d < EXPAND_DIST) {
 				// Teach checks stay collapsed until the learner opens them: the
 				// at-bottom auto-expand would pop the form over the teaching.
