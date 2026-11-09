@@ -191,6 +191,13 @@ it("⌘⇧F from a closed sidebar focuses the search, even before React would re
 	}
 });
 
+it("focusing the search (⌘⇧F) leaves its tooltip closed, so it never covers the filters", async () => {
+	const search = document.querySelector('[data-testid="session-search"]')!;
+	await act(async () => void search.dispatchEvent(new dom.window.Event("focusin", { bubbles: true })));
+	assert.equal(search.parentElement!.getAttribute("data-state"), "closed");
+	await act(async () => void search.dispatchEvent(new dom.window.Event("focusout", { bubbles: true })));
+});
+
 it("an empty filtered list names the filter instead of saying there are no chats", async () => {
 	const practice = document.querySelector('[data-testid="kind-filter-practice"]') as HTMLElement | null;
 	assert.ok(practice, "the Practice filter is shown");

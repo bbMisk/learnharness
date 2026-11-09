@@ -793,7 +793,8 @@ function SessionsSidebar() {
 				<div data-testid="session-search-section" className="mx-3 mb-2 flex items-center gap-2 rounded-md">
 
 					<Hint label="Search chats" action="sessions-search" side="bottom">
-					<span className="relative flex-1">
+					{/* Hover only: a focus-opened tip (⌘⇧F) stays up over the filters. */}
+					<span className="relative flex-1" onFocus={(e) => e.preventDefault()}>
 						<Input
 							ref={searchRef}
 							data-testid="session-search"
