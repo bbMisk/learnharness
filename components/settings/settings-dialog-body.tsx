@@ -34,6 +34,7 @@ import { AgentSection } from "./agent-section.tsx";
 import type { ModelsSettings } from "@/src/core";
 import { MENU_CLOSE_EVENT, MENU_OPEN_EVENT } from "@/components/menu-shell";
 import { notifySettingsSaved } from "@/components/settings-signal";
+import { useOptionalServerEvent } from "@/components/server-events";
 import { KeysSection } from "./keys-section.tsx";
 import { Hint } from "@/components/ui/hint";
 import { AppearanceSection, GraphSection } from "./appearance-section.tsx";
@@ -139,20 +140,28 @@ export function SettingsDialogBody({
 		setActive(initialSection);
 	}, [initialSection]);
 
-	// Fetch once per dialog mount. 200 {settings: null} is FIRST BOOT
-	// (no record = factory everything), not a failure — the error state is
-	// a non-200 or a network throw only.
+	// Fetch once per dialog mount, and again after any section is saved
+	// (here or in another window), so a section PUT never replaces newer
+	// fields with this dialog's stale copy. 200 {settings: null} is FIRST
+	// BOOT (no record = factory everything), not a failure — the error
+	// state is a non-200 or a network throw only.
+	const [loads, setLoads] = useState(0);
+	useOptionalServerEvent("settings-changed", () => setLoads((n) => n + 1));
 	useEffect(() => {
+		let alive = true;
 		fetch("/api/settings")
 			.then((r) =>
 				r.ok ? r.json() : Promise.reject(new Error(`status ${r.status}`)),
 			)
 			.then((body: { settings: UserSettings | null; fileAccessError?: string }) => {
+				if (!alive) return;
 				setRecord(body.settings ?? { version: CURRENT_SETTINGS_VERSION });
 				setFileAccessError(body.fileAccessError ?? null);
 			})
-			.catch(() => setRecord(null));
-	}, []);
+			// A failed refresh keeps the record already shown.
+			.catch(() => { if (alive) setRecord((prev) => (loads === 0 ? null : prev)); });
+		return () => { alive = false; };
+	}, [loads]);
 
 	// Escape closes the dialog — the outer dismiss layer. While any MenuShell
 	// is open, that menu's own Esc handler (bindSettingsMenuDismiss) acts
