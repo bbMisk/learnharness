@@ -100,11 +100,37 @@ export function loadOverrides(): Partial<Record<KeyAction, string>> {
 		const raw = window.localStorage.getItem(STORAGE_KEY);
 		if (!raw) return {};
 		const parsed = JSON.parse(raw) as Partial<Record<KeyAction, string>>;
-		if (parsed && typeof parsed === "object") return parsed;
+		if (parsed && typeof parsed === "object") {
+			for (const [id, binding] of Object.entries(parsed)) {
+				if (typeof binding === "string") parsed[id as KeyAction] = legacyBinding(binding);
+			}
+			return parsed;
+		}
 	} catch {
 		/* corrupt store = defaults */
 	}
 	return {};
+}
+
+/** The macOS US ⌥ glyphs (plain, then with ⇧) by physical key — older
+ *  builds stored ⌥/ as "alt+÷"; now the recorder names the key ("alt+/"). */
+const US_ALT_GLYPHS: Record<string, string> = {
+	"1": "¡⁄", "2": "™€", "3": "£‹", "4": "¢›", "5": "∞ﬁ", "6": "ﬂ", "7": "¶‡", "8": "•°", "9": "ª·", "0": "º‚",
+	"-": "–—", "=": "≠±", "[": "“”", "]": "‘’", "\\": "«»", ";": "…ú", "'": "æ", ",": "≤¯", ".": "≥˘", "/": "÷¿",
+	" ": "\u00a0",
+};
+const LEGACY_ALT_KEY = new Map(Object.entries(US_ALT_GLYPHS).flatMap(([key, glyphs]) => [...glyphs].map((g) => [g, key] as const)));
+
+/** An ⌥ binding in an older build's spelling, rewritten as the recorder now
+ *  writes it. A dead key's physical key was never stored: it can't fire, so
+ *  it reads as not bound. (§ is left alone: ⌥6 once, the ISO key now.) */
+function legacyBinding(binding: string): string {
+	const at = binding.lastIndexOf("+");
+	if (at < 0 || !/(^|\+)alt\+/.test(binding.slice(0, at + 1))) return binding;
+	const key = binding.slice(at + 1);
+	if (key === "dead") return "";
+	const physical = LEGACY_ALT_KEY.get(key);
+	return physical ? binding.slice(0, at + 1) + physical : binding;
 }
 
 /** Write the full overrides map ({actionId: binding}) — the settings

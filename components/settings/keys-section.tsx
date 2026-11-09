@@ -790,6 +790,8 @@ const pinTestid = (prefix: string, id: string) => `${prefix}-${id.replace(/[^a-z
 /** Setup's typed URL and model ids, kept for the app session when setup closes
  *  unconnected, as setup keeps its picks. A connect drops them. */
 let setupTyped: { baseUrl: string; manualModels: string } | null = null;
+/** Setup reopens on the Custom editor while its typed values are kept. */
+export const setupCustomKept = () => setupTyped !== null;
 
 /** The custom endpoint's connect editor: base URL + key → POST /api/custom-provider
  *  (validate + discover + register), and the per-model limits form → PATCH (pins,

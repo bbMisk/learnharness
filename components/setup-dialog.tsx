@@ -51,7 +51,7 @@ import { notifySettingsSaved, onSettingsSaved, useSettingsSaved } from "@/compon
 import { useModelCatalog } from "@/components/model-catalog";
 import { savedSlotsConnected } from "@/components/setup-cta";
 import { Hint } from "@/components/ui/hint";
-import { type ProviderKeyInfo, CUSTOM_PROVIDER_INFO, CustomEndpointSetup } from "@/components/settings/keys-section";
+import { type ProviderKeyInfo, CUSTOM_PROVIDER_INFO, CustomEndpointSetup, setupCustomKept } from "@/components/settings/keys-section";
 import { ProviderMenuList } from "@/components/settings/model-menu";
 import { ChatGPTBackgroundAccess } from "@/components/settings/chatgpt-connection";
 import { NativeSubscriptionBackgroundAccess, SubscriptionConnections } from "@/components/settings/subscription-connections";
@@ -317,7 +317,7 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 	// menu-open bit (the slot menus' dismissal machinery covers it too —
 	// see the trigger testid branch below).
 	const [keyProviders, setKeyProviders] = useState<ProviderKeyInfo[] | undefined>(undefined);
-	const [keyProvider, setKeyProvider] = useState<ProviderKeyInfo | null>(null);
+	const [keyProvider, setKeyProvider] = useState<ProviderKeyInfo | null>(() => (setupCustomKept() ? CUSTOM_PROVIDER_INFO : null));
 	const [keyValue, setKeyValue] = useState("");
 	const [keySaving, setKeySaving] = useState(false);
 	const [keyError, setKeyError] = useState<string | null>(null);

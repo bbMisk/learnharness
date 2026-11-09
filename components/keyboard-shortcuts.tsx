@@ -155,12 +155,14 @@ export function KeyboardShortcuts() {
 			if (!action) return;
 
 			// The input guard: inside a typing surface only mod/alt combos
-			// and F keys fire (they never type a character). Bare keys — "?"
+			// and F keys fire. Bare keys — "?"
 			// included — pass through so the field keeps them. Tab already
 			// returned above. A field mid-rename keeps F keys too: acting
 			// would blur it and save the half-typed name.
 			const fKey = /^(shift\+)?f\d+$/.test(binding) && !(e.target as Element | null)?.closest?.("[data-lh-rename]");
 			if (isTypingSurface(e) && !(e.metaKey || e.ctrlKey || e.altKey) && !fKey) return;
+			// macOS ⌥ does type (⌥/ is "÷"): a chord that fires keeps it out of the field.
+			if (isTypingSurface(e) && e.altKey) e.preventDefault();
 
 			// Dispatch: global commands we own run here; surface commands
 			// ride the window event for the mounted surface to catch.
