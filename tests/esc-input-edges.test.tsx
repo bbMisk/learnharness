@@ -331,6 +331,51 @@ it("Find and the side tutor both open: an Esc from outside both closes the one o
 	assert.ok(!findOpen());
 });
 
+it("the side tutor's Stop stops: the click it takes never submits the box again", async () => {
+	const { SideTutor } = await import("../components/side-tutor.tsx");
+	const snapshot = { context: "c", truncated: false, model: { provider: "openai", id: "m" } };
+	const { createRange } = document;
+	const getSelection = dom.window.getSelection;
+	Object.assign(document, { createRange: () => ({ setStart() {}, setEnd() {}, selectNodeContents() {}, getClientRects: () => [], getBoundingClientRect: () => ({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }) }) });
+	Object.assign(dom.window, { getSelection: () => ({ toString: () => "", rangeCount: 0, removeAllRanges() {}, addRange() {} }) });
+	let posts = 0;
+	// A reply that streams until it is aborted.
+	globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+		if (init?.method !== "POST") return Response.json(snapshot);
+		posts++;
+		return new Response(new ReadableStream({
+			start(controller) {
+				controller.enqueue(new TextEncoder().encode(`${JSON.stringify({ type: "delta", text: "A limit point" })}\n`));
+				init.signal?.addEventListener("abort", () => controller.error(new DOMException("aborted", "AbortError")));
+			},
+		}));
+	}) as unknown as typeof fetch;
+	try {
+		mountHost();
+		await act(async () => { root!.render(<SideTutor chatId="c1" selectedText="what is a limit point" onClose={() => {}} />); });
+		await frame();
+		const box = document.querySelector<HTMLTextAreaElement>('[data-testid="side-tutor"] textarea')!;
+		await act(async () => { box.dispatchEvent(key("Enter")); });
+		await frame();
+		const stop = document.querySelector<HTMLButtonElement>('[aria-label="Stop side response"]')!;
+		assert.ok(stop, "Stop shows while the reply streams");
+		// A real click re-renders Stop as Send before its default action runs; the browser
+		// then submits the form if the button is a submit button and nothing prevented it.
+		const click = new dom.window.Event("click", { bubbles: true, cancelable: true });
+		await act(async () => { stop.dispatchEvent(click); await Promise.resolve(); });
+		await frame();
+		if (!click.defaultPrevented && stop.isConnected && stop.getAttribute("type") === "submit") {
+			await act(async () => { stop.closest("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })); });
+			await frame();
+		}
+		assert.equal(posts, 1, "the question is not sent again");
+		assert.ok(document.querySelector('[data-testid="side-tutor"]')!.textContent!.includes("Side response stopped."));
+	} finally {
+		Object.assign(dom.window, { getSelection });
+		Object.assign(document, { createRange });
+	}
+});
+
 it("after a side-tutor reply, success or failure, its box has focus again for the follow-up", async () => {
 	const { SideTutor } = await import("../components/side-tutor.tsx");
 	const snapshot = { context: "c", truncated: false, model: { provider: "openai", id: "m" } };

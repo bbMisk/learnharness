@@ -215,3 +215,16 @@ it("a saved key moves focus to the first model picker; closing then goes to the 
 	assertSameNode(document.querySelector('[data-testid="setup-dialog"]'), null);
 	assert.ok(caretAtEnd(composer), "the opener is gone: focus goes to the composer");
 });
+
+it("dismissing a check from its folded state hands focus to the composer, not the body", async () => {
+	const { AbortTurnDialog } = await import("../components/abort-turn-dialog.tsx");
+	const thinking = field("thinking-field");
+	typingMidText(thinking);
+	Object.assign(thinking, { checkVisibility: () => false }); // Esc folded the check
+	const composer = field("composer");
+	mountHost();
+	await act(async () => { root!.render(<AbortTurnDialog mode="question" onClose={() => {}} onConfirm={() => {}} />); });
+	assert.ok(focused === document.querySelector('[data-testid="abort-turn-confirm"]'), "the dialog takes focus");
+	await act(async () => { root!.render(<AbortTurnDialog mode={null} onClose={() => {}} onConfirm={() => {}} />); });
+	assert.ok(caretAtEnd(composer), "the composer, caret after its draft");
+});

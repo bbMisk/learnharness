@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
-import { useFocusReturn } from "@/components/focus-return";
+import { focusComposer, useFocusReturn } from "@/components/focus-return";
 
 /**
  * The ESC-abort guard (owner, 2026-10-02): the global Esc → abort chain
@@ -63,8 +63,9 @@ export function AbortTurnBody({
 }) {
 	const backdropDismiss = useBackdropDismiss(onClose);
 	// Focus lands on the action so Enter confirms; closing hands it back to
-	// where it was (the check's field), read before the confirm takes it.
-	useFocusReturn(true);
+	// where it was (the check's field), read before the confirm takes it, else
+	// to the page's typing field once that one is hidden or gone.
+	useFocusReturn(true, focusComposer);
 	const confirmRef = useRef<HTMLButtonElement>(null);
 	useEffect(() => {
 		confirmRef.current?.focus();

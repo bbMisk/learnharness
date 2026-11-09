@@ -109,13 +109,17 @@ async function requestExtract(chatId: string): Promise<boolean> {
  */
 export function CoverageMenuBlock({ chatId }: { chatId: string }) {
 	const refreshActivity = useActivity().refresh;
-	const [coverage, setCoverage] = useState<SessionCoverage | null>(null);
+	// undefined = the first read is still in flight.
+	const [coverage, setCoverage] = useState<SessionCoverage | null | undefined>(undefined);
 	const [extracting, setExtracting] = useState(false); // optimistic until the server says running
 	const lastUncoveredRef = useRef<number | null>(null);
 
 	const load = useCallback(async () => {
 		const next = await fetchCoverage(chatId);
-		if (next === null) return;
+		if (next === null) {
+			setCoverage((was) => (was === undefined ? null : was));
+			return;
+		}
 		// The optimistic state stands down once the server says running, or
 		// once the fold moved coverage (the run finished).
 		if (
@@ -148,6 +152,16 @@ export function CoverageMenuBlock({ chatId }: { chatId: string }) {
 		return () => clearInterval(timer);
 	}, [load, coverage?.running, extracting]);
 
+	// The first read holds the block's usual height, so the menu places
+	// (and flips) once instead of jumping when the numbers arrive.
+	if (coverage === undefined) {
+		return (
+			<div aria-hidden data-testid="ctx-coverage-loading" className="invisible flex flex-col gap-1 px-2.5 pt-1 pb-2">
+				<span>&nbsp;<br />&nbsp;</span>
+				<span className="rounded-lg border px-2 py-1">&nbsp;</span>
+			</div>
+		);
+	}
 	if (coverage === null) return null;
 
 	const onExtract = async () => {

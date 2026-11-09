@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+	CoverageMenuBlock,
 	CoverageMenuBody,
 	CoverageRingDetail,
 	CoverageRingGlyph,
@@ -195,4 +196,14 @@ describe("CoverageRingDetail — the popover's exact numbers", () => {
 		assert.ok(html.includes('data-testid="coverage-ring-running"'));
 		assert.match(html, /extracting…/);
 	});
+});
+it("while the menu's first coverage read is in flight, the block keeps its usual height so the menu doesn't jump", () => {
+	const loading = renderToStaticMarkup(<CoverageMenuBlock chatId="c1" />);
+	assert.ok(loading.includes('data-testid="ctx-coverage-loading"'), "a placeholder holds the block's place");
+	assert.ok(!loading.includes("<button"), "nothing in it to click or focus");
+	// The same box as the loaded block: its padding and gap, two text lines, then the button's outline.
+	const loaded = renderToStaticMarkup(<CoverageMenuBody coverage={coverage()} extracting={false} onExtract={() => {}} />);
+	const box = (html: string) => html.match(/class="[^"]*(flex flex-col gap-1 px-2\.5 pt-1 pb-2)"/)?.[1];
+	assert.equal(box(loading), box(loaded));
+	assert.match(loading, /<span>\u00a0<br\/>\u00a0<\/span><span class="rounded-lg border px-2 py-1">\u00a0<\/span>/);
 });

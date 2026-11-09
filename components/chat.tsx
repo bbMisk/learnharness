@@ -819,7 +819,7 @@ export function Chat({
 	const pinnedJob = pinned.target?.jobId ?? null;
 	useEffect(() => setProgressOverPin(false), [pinnedJob]);
 	// An open pin drawer covers the card's corner: the card steps aside until
-	// the drawer closes, and the PROGRESS chip closes the drawer to bring it back.
+	// the drawer closes, and the PROGRESS chip closes the drawer and shows it.
 	const drawerOpen = pinned.escState.drawer === "open";
 	// The side tutor narrows the area so the card would cover the transcript:
 	// it hides while the tutor is open, and the PROGRESS chip shows it on demand.
@@ -831,7 +831,7 @@ export function Chat({
 	// for it, else to the dock band's flank — never both; a docked pin hides it.
 	const [planInCard, setPlanInCard] = useState(false);
 	const planDiagram = hasPlan && !(pinned.docked && !progressOverPin) ? <PlanMarginalia messages={messages} /> : undefined;
-	const toggleTracker = pinned.docked ? () => setProgressOverPin((v) => !v) : drawerOpen ? pinned.toggleDrawer : tutorOpen ? () => setProgressOverTutor((v) => !v) : trackerCard.toggle;
+	const toggleTracker = pinned.docked ? () => setProgressOverPin((v) => !v) : drawerOpen ? () => { pinned.toggleDrawer(); if (tutorOpen) setProgressOverTutor(true); else if (!trackerCard.shown) trackerCard.toggle(); } : tutorOpen ? () => setProgressOverTutor((v) => !v) : trackerCard.toggle;
 	// The chip shows what's on screen: a card with no room above the check is
 	// off, and a click (any show) lets it run over the check.
 	const [trackerCramped, setTrackerCramped] = useState(false);
