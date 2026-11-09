@@ -423,12 +423,13 @@ export function SessionRow({
  *  title line becomes a text input — select-all on entry (the click means
  *  "replace", the header rename's rule), Enter/blur commits, Esc discards.
  *  The meta line stays so the row never changes height mid-edit. */
-export function RenameRow({ chat, draft: initialDraft, onCommit, onCancel, showTime = false }: { chat: ChatListItem; draft?: string; onCommit: (next: string) => void; onCancel: () => void; showTime?: boolean }) {
+export function RenameRow({ chat, draft: initialDraft, onCommit, onCancel, showTime = false, takeFocus = true }: { chat: ChatListItem; draft?: string; onCommit: (next: string, byKey: boolean) => void; onCancel: () => void; showTime?: boolean; takeFocus?: boolean }) {
 	const [draft, setDraft] = useState(initialDraft ?? chat.title);
 	const inputRef = useRef<HTMLInputElement | null>(null);
+	const byEnter = useRef(false);
 	useEffect(() => {
 		const el = inputRef.current;
-		if (el) {
+		if (el && takeFocus) {
 			el.focus();
 			el.select();
 		}
@@ -449,10 +450,11 @@ export function RenameRow({ chat, draft: initialDraft, onCommit, onCancel, showT
 					value={draft}
 					spellCheck={false}
 					onChange={(e) => setDraft(capName(e.target.value))}
-					onBlur={() => onCommit(draft)}
+					onBlur={() => onCommit(draft, byEnter.current)}
 					onKeyDown={(e) => {
-						if (e.key === "Enter" && !isComposing(e)) e.currentTarget.blur();
+						if (e.key === "Enter" && !isComposing(e)) { byEnter.current = true; e.currentTarget.blur(); }
 						if (e.key === "Escape") {
+							e.preventDefault(); // claimed: Find / the side tutor stay open
 							e.stopPropagation(); // discard, not also the sidebar/chat chains
 							onCancel();
 						}
@@ -589,6 +591,8 @@ function SessionsSidebar() {
 	const [renamingId, setRenamingId] = useState<string | null>(null);
 	// A failed rename reopens the row with what was typed.
 	const [renameDraft, setRenameDraft] = useState<string | null>(null);
+	// A failed click-away save reopens the row without taking focus back.
+	const [renameQuiet, setRenameQuiet] = useState(false);
 	const [deleting, setDeleting] = useState<ChatListItem | null>(null);
 	const [renameError, setRenameError] = useState("");
 	// Where focus goes back once the menu, its rename or its Delete dialog
@@ -623,7 +627,8 @@ function SessionsSidebar() {
 			setCtxChatId(null);
 		};
 		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
+			if (e.key === "Escape" && !e.defaultPrevented) {
+				e.preventDefault();
 				e.stopPropagation();
 				setCtxChatId(null);
 				returnFocus();
@@ -642,7 +647,7 @@ function SessionsSidebar() {
 	// then lh:chat-renamed patches every listener (this sidebar's own
 	// listener patches the snapshot instantly; an open chat header hears
 	// it too). Esc discards; empty commit discards (the header's rules).
-	const commitRename = useCallback(async (id: string, next: string) => {
+	const commitRename = useCallback(async (id: string, next: string, byKey = true) => {
 		setRenamingId(null);
 		const t = next.trim();
 		if (t === "") return;
@@ -659,6 +664,7 @@ function SessionsSidebar() {
 			console.error("rename failed:", err); // keep the old title
 			setRenameError("Chat could not be renamed. Try again.");
 			setRenameDraft(t);
+			setRenameQuiet(!byKey);
 			setRenamingId(id);
 		}
 	}, []);
@@ -733,7 +739,7 @@ function SessionsSidebar() {
 	}, [open, pathname, refresh]);
 
 	const renderChat = (chat: ChatListItem, index?: number) => renamingId === chat.id ? (
-		<RenameRow key={chat.id} chat={chat} draft={renameDraft ?? undefined} showTime={showTime} onCommit={next => { void commitRename(chat.id, next); returnFocus(); }} onCancel={() => { setRenamingId(null); setRenameError(""); returnFocus(); }} />
+		<RenameRow key={chat.id} chat={chat} draft={renameDraft ?? undefined} takeFocus={!renameQuiet} showTime={showTime} onCommit={(next, byKey) => { void commitRename(chat.id, next, byKey); returnFocus(); }} onCancel={() => { setRenamingId(null); setRenameError(""); returnFocus(); }} />
 	) : (
 		<SessionRow key={chat.id} chat={chat} showTime={showTime} active={pathname === `/chat/${chat.id}`} kbdSelected={index !== undefined && index === kbdIndex}
 			onArchive={() => updateChat(chat.id, {archived:!chat.archived})}
@@ -848,6 +854,7 @@ function SessionsSidebar() {
 							// window Esc chain (dictation / abort) doesn't also fire.
 							onKeyDown={(e) => {
 								if (e.key === "Escape") {
+									e.preventDefault(); // claimed: Find / the side tutor stay open
 									e.stopPropagation();
 									if (query) {
 										setQuery("");
@@ -994,6 +1001,7 @@ function SessionsSidebar() {
 							data-testid="ctx-rename"
 							onClick={() => {
 								setRenameDraft(null);
+								setRenameQuiet(false);
 								setRenamingId(ctxChatId);
 								setCtxChatId(null);
 							}}

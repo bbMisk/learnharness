@@ -15,6 +15,10 @@ export function useSessionRename(chatId: string, title: string) {
 	const [titleDraft, setTitleDraft] = useState("");
 	const [renameError, setRenameError] = useState("");
 	const titleInputRef = useRef<HTMLInputElement | null>(null);
+	// Enter or Esc closed the field (vs a click away); see the open effect.
+	const closedByKey = useRef(false);
+	// A failed click-away save reopens the field without taking focus back.
+	const reopenQuietly = useRef(false);
 	// Opening or closing the field clears a failed save's error.
 	const setRenamingClear = useCallback((next: boolean) => {
 		setRenameError("");
@@ -23,6 +27,7 @@ export function useSessionRename(chatId: string, title: string) {
 
 	const commitRename = useCallback(
 		async (next: string) => {
+			const byKey = closedByKey.current;
 			setRenamingClear(false);
 			const t = next.trim();
 			if (t === "" || t === titleText) return; // empty commit = discard
@@ -41,6 +46,7 @@ export function useSessionRename(chatId: string, title: string) {
 				// Keep the old title; reopen the field with what was typed.
 				console.error("rename failed:", err);
 				setTitleDraft(t);
+				reopenQuietly.current = !byKey;
 				setRenaming(true);
 				setRenameError("Chat could not be renamed. Try again.");
 			}
@@ -51,14 +57,16 @@ export function useSessionRename(chatId: string, title: string) {
 	// Select-all when edit mode opens: the click means "replace". Enter or
 	// Esc hands focus back to what had it (the composer if nothing did).
 	const returnFocus = useRef<ReturnType<typeof captureFocus>>(null);
-	const closedByKey = useRef(false);
 	useEffect(() => {
 		if (renaming) {
 			const el = titleInputRef.current;
 			if (el) {
-					returnFocus.current = captureFocus();
-					el.focus();
-					el.select();
+					if (!reopenQuietly.current) {
+						returnFocus.current = captureFocus();
+						el.focus();
+						el.select();
+					}
+					reopenQuietly.current = false;
 					const onKey = (e: KeyboardEvent) => {
 						if (e.key !== "Enter" && e.key !== "Escape") return;
 						if (e.key === "Enter" && isComposing(e)) return; // the IME's confirm, not a commit

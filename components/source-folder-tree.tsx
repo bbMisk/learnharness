@@ -78,11 +78,11 @@ export function EditableSourceName({ name, onSave, onCancel, initiallyEditing = 
 		if (value === name && !initiallyEditing) { setEditing(false); return; }
 		submitting.current = true;
 		try { await onSave(value); setEditing(false); setFailure(""); }
-		catch (error) { setFailure(error instanceof Error ? error.message : String(error)); input.current?.focus(); }
+		catch (error) { setFailure(error instanceof Error ? error.message : String(error)); }
 		finally { submitting.current = false; }
 	};
 	return <span className="min-w-0 flex-1">
-		{editing ? <input ref={input} value={draft} placeholder="Folder name" aria-label="Source or folder name" data-testid="source-name-input"
+		{editing ? <input ref={input} value={draft} placeholder="Folder name" aria-label="Source or folder name" data-testid="source-name-input" data-lh-rename=""
 			className="block h-5 w-full min-w-0 border-0 bg-transparent p-0 text-sm font-medium leading-5 outline-none shadow-none focus:ring-0"
 			onChange={(e) => setDraft(e.target.value)} onBlur={() => { void commit(); }}
 			onKeyDown={(e) => {

@@ -40,7 +40,7 @@ export function InlineRename({
 		input.current?.focus();
 		input.current?.select();
 	}, []);
-	const finish = async (save: boolean) => {
+	const finish = async (save: boolean, byKey = false) => {
 		if (finished.current) return;
 		finished.current = true;
 		const name = input.current?.value.trim() ?? "";
@@ -52,7 +52,8 @@ export function InlineRename({
 				// The caller reports the error.
 				finished.current = false;
 				setSaving(false);
-				requestAnimationFrame(() => input.current?.focus());
+				// Enter keeps editing; a click away keeps the field without taking focus back.
+				if (byKey) requestAnimationFrame(() => input.current?.focus());
 				return;
 			}
 		}
@@ -72,7 +73,7 @@ export function InlineRename({
 			onKeyDown={(event) => {
 				if (event.key === "Enter" && !isComposing(event)) {
 					event.preventDefault();
-					void finish(true);
+					void finish(true, true);
 				} else if (event.key === "Escape") {
 					event.preventDefault();
 					event.stopPropagation();
