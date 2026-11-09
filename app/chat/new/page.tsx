@@ -25,7 +25,9 @@ export default async function NewSessionPage({
 	// A deleted or unknown project (a stale tab's New chat) is a 404, as /project/<id> is.
 	if (project && !projectStore.get(project)) notFound();
 	return (
+		// One mount per draft key: switching projects must not carry the typed text over.
 		<NewSession
+			key={project ?? ""}
 			projectId={project}
 			initialConfigured={slotsConfigured(readSettingsRecord()?.models)}
 			mode={SESSION_MODES.includes(mode as SessionMode) ? mode as SessionMode : "teach"}

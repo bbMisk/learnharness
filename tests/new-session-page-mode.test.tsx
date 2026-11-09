@@ -25,3 +25,12 @@ it("/chat/new?project= for a deleted or unknown project is a 404; a live one ope
 	const live = projectStore.create("Real Analysis");
 	assert.equal(((await open(live.id)) as React.ReactElement<{ projectId: string }>).props.projectId, live.id);
 });
+
+it("/chat/new remounts per project (its own draft) but not per mode", async () => {
+	const keyOf = async (project?: string, mode?: string) => (await NewSessionPage({ searchParams: Promise.resolve({ project, mode }) }) as React.ReactElement).key;
+	const a = projectStore.create("A"), b = projectStore.create("B");
+	const keys = [await keyOf(), await keyOf(a.id), await keyOf(b.id)];
+	assert.equal(new Set(keys).size, 3);
+	assert.equal(await keyOf(a.id, "practice"), await keyOf(a.id, "cram"));
+	assert.equal(await keyOf(undefined, "cram"), await keyOf());
+});
