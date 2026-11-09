@@ -26,17 +26,20 @@
  */
 import { subscribe, type ServerEvent } from "../core/events.ts";
 
-/** Every open stream's closer. On SIGTERM/SIGINT they all end, so idle
- *  windows can't hold the server's graceful close() open forever, and
- *  their EventSources reconnect to the next server. Kept on globalThis so
- *  a re-evaluated module (dev HMR) shares one set and one signal hook. */
+/** Every open stream's closer. On SIGTERM/SIGINT they all end, and with
+ *  `Connection: close` their sockets go too, so idle windows can't hold the
+ *  server's graceful close() open forever, and their EventSources
+ *  reconnect to the next server. A reconnect that still lands on this
+ *  process is ended the same way. Kept on globalThis so a re-evaluated
+ *  module (dev HMR) shares one set and one signal hook. */
 const SHUTDOWN = Symbol.for("lh.events-stream.shutdown");
-const shared = ((globalThis as { [SHUTDOWN]?: { open: Set<() => void>; hooked: boolean } })[SHUTDOWN] ??= { open: new Set(), hooked: false });
+const shared = ((globalThis as { [SHUTDOWN]?: { open: Set<() => void>; hooked: boolean; closing: boolean } })[SHUTDOWN] ??= { open: new Set(), hooked: false, closing: false });
 const openStreams = shared.open;
 function closeOnShutdown() {
 	if (shared.hooked) return;
 	shared.hooked = true;
 	const onSignal = (signal: NodeJS.Signals) => {
+		shared.closing = true;
 		for (const close of [...openStreams]) close();
 		// Ours was the only handler: keep the default "signal kills" behaviour.
 		if (process.listenerCount(signal) === 0) process.kill(process.pid, signal);
@@ -51,6 +54,10 @@ export function eventsResponse(): Response {
 	let teardown: (() => void) | undefined;
 	const stream = new ReadableStream<Uint8Array>({
 		start(controller) {
+			if (shared.closing) {
+				controller.close();
+				return;
+			}
 			let closed = false;
 			let heartbeat: ReturnType<typeof setInterval> | undefined;
 			let unsubscribe: (() => void) | undefined;
@@ -64,11 +71,7 @@ export function eventsResponse(): Response {
 			};
 			const shutdown = () => {
 				stop();
-				try {
-					controller.close();
-				} catch {
-					// already closed by the reader
-				}
+				controller.close();
 			};
 			openStreams.add(shutdown);
 			closeOnShutdown();
@@ -109,6 +112,9 @@ export function eventsResponse(): Response {
 			"Content-Type": "text/event-stream",
 			"Cache-Control": "no-cache, no-transform",
 			"X-Accel-Buffering": "no",
+			// One long-lived request per socket: when the stream ends (shutdown),
+			// the socket closes instead of idling in keep-alive.
+			Connection: "close",
 		},
 	});
 }
