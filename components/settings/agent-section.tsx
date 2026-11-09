@@ -370,6 +370,7 @@ export function AgentSection({
 	/** The live search state (/api/search) — the row's reason line. */
 	const [folderInput, setFolderInput] = useState("");
 	const [folderError, setFolderError] = useState<string | null>(null);
+	const [folderWarning, setFolderWarning] = useState<string | null>(null);
 	// Folder adds run one at a time, each on top of the last one's result:
 	// the props only catch up once its PUT lands.
 	const latestAgent = useRef(agent);
@@ -857,7 +858,11 @@ export function AgentSection({
 					const addFolderNow = async (next: string) => {
 						// A notice or clear is for the text it checked, not newer typing.
 						const current = () => normalizeFolder(folderText.current) === next;
-						const notice = (text: string | null) => { if (current()) setFolderError(text); };
+						const notice = (text: string | null, warning = false) => {
+							if (!current()) return;
+							setFolderError(warning ? null : text);
+							setFolderWarning(warning ? text : null);
+						};
 						const base = effective(latestAgent.current);
 						const listed = base?.fileAccess?.folders ?? [];
 						if (!isFolderEntry(next)) { notice("Enter an absolute path or ~/folder."); return; }
@@ -875,7 +880,7 @@ export function AgentSection({
 						const composed = composeAddFolder(effective(latestAgent.current), next);
 						latestAgent.current = composed;
 						onSectionChange(composed);
-						notice(check.warning ?? null);
+						notice(check.warning ?? null, true);
 						if (current()) { folderText.current = ""; setFolderInput(""); }
 					};
 					const addFolder = () => {
@@ -896,12 +901,13 @@ export function AgentSection({
 							{fileAccessError && <p role="alert" data-testid="file-access-config-error" className="text-xs text-red-500">{fileAccessError}</p>}
 							<div className="flex gap-2 pl-3">
 								<input value={folderInput} aria-label="Allowed folder path" data-testid="file-access-add" placeholder="Absolute path or ~/folder"
-									onChange={(event) => { folderText.current = event.target.value; setFolderInput(event.target.value); setFolderError(null); }}
+									onChange={(event) => { folderText.current = event.target.value; setFolderInput(event.target.value); setFolderError(null); setFolderWarning(null); }}
 									onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addFolder(); } }}
 									className="min-w-0 flex-1 rounded-sm border border-border bg-background px-2 py-1 font-ui text-xs" />
 								<button type="button" data-testid="file-access-add-button" disabled={!folderInput.trim()} onClick={addFolder} className="rounded-sm border border-border px-2 text-xs disabled:opacity-40">Add folder</button>
 							</div>
 							{folderError && <p role="alert" data-testid="file-access-input-error" className="pl-3 text-xs text-red-500">{folderError}</p>}
+							{folderWarning && <p role="status" data-testid="file-access-input-warning" className="pl-3 text-xs text-amber-500">{folderWarning}</p>}
 							{folders.map((folder) => (
 								<div key={folder} data-testid="file-access-folder" className="flex items-center justify-between gap-4 pl-3 text-xs">
 									<span title={folder} className="min-w-0 truncate font-ui text-muted-foreground">{folder}</span>

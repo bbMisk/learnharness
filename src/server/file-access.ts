@@ -42,9 +42,10 @@ export function fileAccessConfigurationError(): string | null {
 }
 
 /** The Settings editor's check before it lists a new folder: the app's own
- *  data folder and a second spelling of a listed folder (a symlink such as
- *  /private/tmp for /tmp) are refused; a folder that doesn't exist yet is
- *  listed with a warning, since it may appear later. */
+ *  data folder, a second spelling of a listed folder (a symlink such as
+ *  /private/tmp for /tmp) and a file are refused; a folder that doesn't
+ *  exist yet, or that the server can't read, is listed with a warning,
+ *  since that may change later. */
 export function checkNewFolder(
 	folder: string,
 	listed: readonly string[],
@@ -52,12 +53,19 @@ export function checkNewFolder(
 	home: string = os.homedir(),
 ): { error?: string; warning?: string } {
 	const real = (entry: string) => { try { return realSourcePath(expandFolder(entry, home)); } catch { return null; } };
+	const unreadable = { warning: "Added, but LearnHarness can't read that folder." };
 	const target = real(folder);
-	if (target === null) return {};
+	if (target === null) return unreadable;
 	const data = real(path.resolve(dataDir));
 	if (data !== null && isWithin(target, data)) return { error: "That is LearnHarness's own data folder." };
 	if (listed.some((entry) => real(entry) === target)) return { error: "That folder is already listed." };
-	if (!fs.existsSync(target)) return { warning: "Added, but that folder doesn't exist yet." };
+	let stat: fs.Stats;
+	try { stat = fs.statSync(target); } catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		return code === "ENOENT" || code === "ENOTDIR" ? { warning: "Added, but that folder doesn't exist yet." } : unreadable;
+	}
+	if (!stat.isDirectory()) return { error: "That's a file, not a folder." };
+	try { fs.accessSync(target, fs.constants.R_OK | fs.constants.X_OK); } catch { return unreadable; }
 	return {};
 }
 

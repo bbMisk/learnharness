@@ -53,11 +53,14 @@ it("the server's refusal and warning show in the field", async () => {
 			document.querySelector<HTMLButtonElement>('[data-testid="file-access-add-button"]')!.click();
 			await new Promise((resolve) => setTimeout(resolve, 5)); // the check's round trip
 		});
-		return document.querySelector('[data-testid="file-access-input-error"]')?.textContent ?? null;
+		const notice = (kind: string) => document.querySelector(`[data-testid="file-access-input-${kind}"]`)?.textContent ?? null;
+		return { error: notice("error"), warning: notice("warning") };
 	};
-	assert.equal(await add("/data"), "That is LearnHarness's own data folder.");
+	assert.deepEqual(await add("/data"), { error: "That is LearnHarness's own data folder.", warning: null });
 	assert.equal(writes.length, 0, "a refused folder saves nothing");
-	assert.equal(await add("/later"), "Added, but that folder doesn't exist yet.");
+	// A warning is not styled or announced as an error.
+	assert.deepEqual(await add("/later"), { error: null, warning: "Added, but that folder doesn't exist yet." });
+	assert.equal(document.querySelector('[data-testid="file-access-input-warning"]')?.getAttribute("role"), "status");
 	assert.deepEqual(writes.at(-1)?.fileAccess, { restricted: true, folders: ["/later"] });
 	await act(async () => root.unmount());
 });
