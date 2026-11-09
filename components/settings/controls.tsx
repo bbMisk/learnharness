@@ -17,8 +17,9 @@ import { cn } from "@/lib/utils";
  *  menu; one outside the dialog is left to the dialog's own close. Esc
  *  closes the menu and stops propagating to window listeners; the dialog
  *  stays open because its own Esc skips while a MenuShell is open. Focus
- *  goes back to the menu's trigger, not to the body. */
+ *  goes back to the menu's trigger, not to the body, after Esc or a pick. */
 export function bindSettingsMenuDismiss(anchorRef: RefObject<Element | null>, close: () => void): () => void {
+	const trigger = anchorRef.current?.querySelector<HTMLElement>('[aria-expanded="true"]') ?? anchorRef.current?.querySelector<HTMLElement>("button");
 	const onPointerDown = (e: PointerEvent) => {
 		const target = e.target as Node;
 		if (anchorRef.current?.contains(target)) return;
@@ -28,7 +29,6 @@ export function bindSettingsMenuDismiss(anchorRef: RefObject<Element | null>, cl
 	const onKeyDown = (e: KeyboardEvent) => {
 		if (e.key === "Escape") {
 			e.stopPropagation();
-			const trigger = anchorRef.current?.querySelector<HTMLElement>('[aria-expanded="true"]') ?? anchorRef.current?.querySelector<HTMLElement>("button");
 			close();
 			trigger?.focus();
 		}
@@ -38,6 +38,8 @@ export function bindSettingsMenuDismiss(anchorRef: RefObject<Element | null>, cl
 	return () => {
 		document.removeEventListener("pointerdown", onPointerDown);
 		document.removeEventListener("keydown", onKeyDown);
+		// A pick closed the menu and took its focused search box with it.
+		if (trigger?.isConnected && (!document.activeElement || document.activeElement === document.body)) trigger.focus();
 	};
 }
 

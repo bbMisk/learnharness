@@ -376,6 +376,17 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 		};
 	}, [onClose, openMenu, keyMenuOpen]);
 
+	// A closed slot menu (pick or Esc) hands focus back to its trigger
+	// instead of dropping it to the body with the menu's search box.
+	useEffect(() => {
+		if (openMenu === null) return;
+		const triggerTestid = openMenu.kind === "model" ? `setup-trigger-${openMenu.slot}` : `setup-thinking-${openMenu.slot}`;
+		return () => {
+			const trigger = document.querySelector<HTMLElement>(`[data-testid="${triggerTestid}"]`);
+			if (trigger && (!document.activeElement || document.activeElement === document.body)) trigger.focus();
+		};
+	}, [openMenu]);
+
 	// Do not briefly paint model pickers between successful connection and
 	// closing an already-configured setup. No saved model/thinking writes.
 	if (closeAfterConnection) return null;

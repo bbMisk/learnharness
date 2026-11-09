@@ -19,7 +19,8 @@ Object.assign(dom.document, { oninput: null });
 // linkedom has no focus model: track the last focus() call.
 let focused: Element | null = null;
 dom.window.HTMLElement.prototype.focus = function (this: Element) { focused = this; };
-Object.defineProperty(dom.document, "activeElement", { get: () => focused ?? dom.document.body, configurable: true });
+// A removed element loses focus, as in a browser.
+Object.defineProperty(dom.document, "activeElement", { get: () => (focused?.isConnected ? focused : dom.document.body), configurable: true });
 const { createRoot } = await import("react-dom/client");
 const { AppearanceProvider } = await import("../components/settings/appearance.tsx");
 const { SettingsDialog } = await import("../components/settings/settings-dialog-body.tsx");
@@ -95,5 +96,20 @@ describe("Settings keyboard focus", () => {
 		anchor.remove();
 		assert.equal(closed, 1);
 		assert.equal(focused?.textContent, "b");
+	});
+
+	it("picking from a settings menu puts focus back on its trigger", () => {
+		const anchor = document.createElement("span");
+		anchor.innerHTML = `<button aria-expanded="true">trigger</button>`;
+		document.body.append(anchor);
+		const search = document.createElement("input");
+		document.body.append(search);
+		const unbind = bindSettingsMenuDismiss({ current: anchor }, () => {});
+		search.focus();
+		// The pick closes the menu: its search box goes, then the binding.
+		search.remove();
+		unbind();
+		anchor.remove();
+		assert.equal(focused?.textContent, "trigger");
 	});
 });

@@ -25,6 +25,11 @@ Object.assign(globalThis, {
 });
 Object.assign(dom.window, { innerWidth: 1280, innerHeight: 800 });
 dom.window.HTMLElement.prototype.scrollIntoView = () => {};
+// linkedom has no focus model: track the last focus() call; a removed
+// element loses focus, as in a browser.
+let focused: Element | null = null;
+dom.window.HTMLElement.prototype.focus = function (this: Element) { focused = this; };
+Object.defineProperty(dom.document, "activeElement", { get: () => (focused?.isConnected ? focused : dom.document.body), configurable: true });
 
 const originalFetch = globalThis.fetch;
 const provider = { id: "openrouter", envVar: "OPENROUTER_API_KEY", label: "OpenRouter" };
@@ -170,6 +175,15 @@ describe("setup polish interactions", () => {
 		await click(element('[data-testid="setup-dialog"] h2'));
 		assert.equal(document.querySelector('[data-testid="setup-thinking-menu-strong"]'), null);
 		assert.equal(closed, 0);
+	});
+
+	it("picking from a slot menu puts focus back on its trigger", async () => {
+		await mount({ keyed: true });
+		await click(element('[data-testid="setup-trigger-strong"]'));
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		assert.ok(focused === element('[data-testid="setup-menu-strong"] input'), "the search box took focus");
+		await click(element('[data-testid="model-option-fixture-text"]'));
+		assert.ok(focused === element('[data-testid="setup-trigger-strong"]'));
 	});
 
 	it("the vision slot filters out built-in text-only models (image-capable or custom only)", async () => {
