@@ -194,13 +194,14 @@ function KeyTableRow({
 	// Delete takes two clicks: the first arms it, the second deletes.
 	const [confirmDelete, setConfirmDelete] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
-	// Folding the editor (Cancel, Esc, another row) drops its error: the saved key is fine.
+	// Folding the editor (Cancel, Esc, another row) drops its error, draft and armed Delete.
 	const [wasExpanded, setWasExpanded] = useState(expanded);
 	if (wasExpanded !== expanded) {
 		setWasExpanded(expanded);
 		if (!expanded) {
 			setError(null);
 			setValue("");
+			setConfirmDelete(false);
 		}
 	}
 	// Folding takes the editor away: focus held there goes back to the row,
@@ -405,6 +406,17 @@ export function KeysSection({
 	const addEditorRef = useCallback((el: HTMLDivElement | null) => {
 		if (el) return () => { if (focusInOrLost(el)) document.querySelector<HTMLElement>('[data-testid="add-provider"]')?.focus(); };
 	}, []);
+	// The custom endpoint editor hands it back to the control that opened it.
+	const customEditorRef = useCallback((el: HTMLDivElement | null) => {
+		if (el) return () => { if (focusInOrLost(el)) document.querySelector<HTMLElement>('[data-testid="custom-endpoint-row-btn"], [data-testid="add-provider"]')?.focus(); };
+	}, []);
+	// A deleted added provider's row leaves with its key: focus goes to "+ Add a provider".
+	const deleted = useRef(false);
+	useEffect(() => {
+		if (!deleted.current) return;
+		deleted.current = false;
+		if (!document.activeElement || document.activeElement === document.body) document.querySelector<HTMLElement>('[data-testid="add-provider"]')?.focus();
+	}, [statuses]);
 
 	// Escape folds any open editor (unfolded row, Add-provider paste, custom
 	// endpoint editor) WITHOUT closing the dialog. Claimed at document CAPTURE
@@ -477,6 +489,8 @@ export function KeysSection({
 
 	async function deleteKey(id: string): Promise<void> {
 		await fetch(`/api/keys/${id}`, { method: "DELETE" }).catch(() => undefined);
+		setOpenRow(null); // fold, as a save does: focus returns to the row
+		deleted.current = true;
 		await reload();
 		notifySettingsSaved("keys");
 	}
@@ -536,7 +550,7 @@ export function KeysSection({
 					/>
 				)}
 				{addingCustom && (
-					<CustomEndpointEditor
+					<div ref={customEditorRef}><CustomEndpointEditor
 						revision0={custom?.revision ?? ""}
 						authMode0={custom?.authMode ?? "keyless"}
 						keySource0={custom?.keySource ?? "none"}
@@ -558,7 +572,7 @@ export function KeysSection({
 						}}
 						onDelete={disconnectCustom}
 						onCancel={() => setAddingCustom(false)}
-					/>
+					/></div>
 				)}
 				{providers !== undefined && (
 					<AddProviderRow
