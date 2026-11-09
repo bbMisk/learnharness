@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
 import type { ChatDeleteMode, ChatListItem } from "@/src/core";
@@ -155,6 +155,7 @@ export function DeleteSessionBody({
 	onClose: () => void;
 	onRun: () => void;
 }) {
+	const confirmRef = useRef<HTMLButtonElement>(null);
 	return (
 		<div
 			role="dialog"
@@ -207,7 +208,10 @@ export function DeleteSessionBody({
 					<button
 						type="button"
 						data-testid="delete-retry"
-						onClick={onRun}
+						onClick={() => {
+							confirmRef.current?.focus(); // this button unmounts as the retry starts
+							onRun();
+						}}
 						disabled={busy}
 						className="ml-3 text-xs text-foreground underline-offset-2 hover:underline disabled:opacity-40"
 					>
@@ -230,6 +234,7 @@ export function DeleteSessionBody({
 				</button>
 				<button
 					type="button"
+					ref={confirmRef}
 					data-testid="delete-confirm"
 					// Focus lands here so Enter confirms (Tab is off app-wide); Esc cancels.
 					// aria-disabled, not disabled, while busy: a disabled button drops

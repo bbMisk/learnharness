@@ -25,7 +25,7 @@ after(() => {
 	globalThis.fetch = realFetch;
 });
 
-it("Esc is ignored while deleting; a failure shows in the dialog with Delete still focusable", async () => {
+it("Esc is ignored while deleting; a failure shows in the dialog with Delete still focusable, and Try again keeps focus", async () => {
 	let closes = 0;
 	const host = document.createElement("div");
 	document.body.append(host);
@@ -46,6 +46,20 @@ it("Esc is ignored while deleting; a failure shows in the dialog with Delete sti
 	await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 	assert.equal(document.querySelector('[data-testid="delete-failure"]')?.textContent?.includes("A turn is running."), true, "the failure shows");
 	assert.ok(!confirm().hasAttribute("disabled") && confirm().getAttribute("aria-disabled") === "false");
+	// Try again unmounts as the retry starts: focus moves to Delete, not <body>.
+	const focused: Element[] = [];
+	const realFocus = dom.window.HTMLElement.prototype.focus;
+	dom.window.HTMLElement.prototype.focus = function (this: Element) {
+		focused.push(this);
+	};
+	try {
+		await act(async () => (document.querySelector('[data-testid="delete-retry"]') as HTMLElement).click());
+	} finally {
+		dom.window.HTMLElement.prototype.focus = realFocus;
+	}
+	assert.ok(focused.length === 1 && focused[0] === confirm(), "focus moves to Delete");
+	await act(async () => finish(Response.json({ code: "turn_in_flight", error: "A turn is running." }, { status: 409 })));
+	await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 	await act(async () => void document.dispatchEvent(Object.assign(new dom.window.Event("keydown", { bubbles: true, cancelable: true }), { key: "Escape" })));
 	assert.equal(closes, 1, "Esc closes it once idle");
 	await act(async () => root.unmount());
