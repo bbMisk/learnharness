@@ -151,6 +151,16 @@ it("closing the walked row's menu hands focus back to the search; ⌘⇧F restar
 	}
 });
 
+it("⌘B closing the sidebar makes it inert, so its search box lets go of focus", async () => {
+	const aside = document.querySelector("aside")!;
+	assert.equal(aside.hasAttribute("inert"), false, "open: usable");
+	await act(async () => void window.dispatchEvent(new CustomEvent("lh:kbd-toggle-sidebar")));
+	assert.equal(aside.getAttribute("aria-hidden"), "true");
+	assert.equal(aside.hasAttribute("inert"), true, "closed: nothing inside is focusable");
+	await act(async () => void window.dispatchEvent(new CustomEvent("lh:kbd-toggle-sidebar")));
+	assert.equal(aside.hasAttribute("inert"), false);
+});
+
 it("the delete dialog focuses Delete, so Enter confirms", () => {
 	const html = renderToStaticMarkup(
 		<DeleteSessionBody chat={{ id: "c1", title: "T" }} traces={false} busy={false} failure={null} onTraces={() => {}} onClose={() => {}} onRun={() => {}} />,

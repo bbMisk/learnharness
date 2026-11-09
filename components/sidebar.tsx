@@ -681,6 +681,8 @@ function SessionsSidebar() {
 		<aside
 			className={cn("sidebar-motion shrink-0 overflow-hidden duration-200 max-md:fixed max-md:top-[var(--lh-safe-top)] max-md:bottom-[var(--lh-safe-bottom)] max-md:left-0 max-md:z-50", open ? "w-72" : "w-0")}
 			aria-hidden={!open}
+			// Closed: nothing inside takes focus, and a focused search box lets go.
+			inert={!open}
 		>
 			<div className="flex h-full w-72 flex-col border-r bg-background">
 				{/* LH wordmark header; close toggle sits at the edge. In
