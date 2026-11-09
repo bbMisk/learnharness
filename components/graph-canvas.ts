@@ -1038,10 +1038,13 @@ export class GraphCanvasRenderer {
 			this.dragOrigin = pos;
 			const n = this.simById.get(node.id);
 			if (n) {
+				// A previous drag still settling keeps its neighbourhood free:
+				// only its pins are candidates to stay pinned.
+				const candidates = this.dragPins.length > 0 ? this.dragPins : this.sim.nodes();
 				this.releaseDragPins();
 				n.fx = n.x;
 				n.fy = n.y;
-				this.dragPins = pinOutsideNeighborhood(this.sim.nodes(), this.data?.edges ?? [], node.id);
+				this.dragPins = pinOutsideNeighborhood(candidates, this.data?.edges ?? [], node.id);
 			}
 			this.canvas.style.cursor = "grabbing";
 			this.markDirty();
