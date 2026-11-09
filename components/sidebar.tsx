@@ -571,6 +571,7 @@ function SessionsSidebar() {
 	   was right-clicked — assigned into a ref before the state flip so the
 	   shell measures it on its first (hidden) pass. */
 	const [ctxChatId, setCtxChatId] = useState<string | null>(null);
+	const [ctxFromKbd, setCtxFromKbd] = useState(false);
 	const ctxAnchorRef = useRef<HTMLElement | null>(null);
 	const [renamingId, setRenamingId] = useState<string | null>(null);
 	// A failed rename reopens the row with what was typed.
@@ -592,6 +593,7 @@ function SessionsSidebar() {
 		e.preventDefault(); // suppress the native menu
 		ctxAnchorRef.current = e.currentTarget;
 		ctxReturnRef.current = e.currentTarget;
+		setCtxFromKbd(false);
 		setCtxChatId(chat.id);
 	};
 
@@ -827,6 +829,7 @@ function SessionsSidebar() {
 									e.preventDefault();
 									ctxAnchorRef.current = row;
 									ctxReturnRef.current = e.currentTarget;
+									setCtxFromKbd(true);
 									setCtxChatId(target.id);
 									return;
 								}
@@ -938,6 +941,7 @@ function SessionsSidebar() {
 						anchorRef={ctxAnchorRef}
 						testid="session-context-menu"
 						preferredSide="down"
+						focusFirst={ctxFromKbd}
 						menuClass="flex w-52 flex-col gap-0.5 rounded-xl border bg-card p-2 text-xs shadow-xl"
 					>
 						{/* Management actions first; the coverage block (numbers +

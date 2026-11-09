@@ -110,6 +110,7 @@ export function MenuShell({
 	preferredSide,
 	align = "right",
 	menuClass,
+	focusFirst = false,
 	children,
 }: {
 	anchorRef?: RefObject<HTMLElement | null>;
@@ -123,6 +124,8 @@ export function MenuShell({
 	/** The menu body classes: width, border, bg, padding, text — the
 	 *  shell adds position, z-index, the height cap, and scrolling. */
 	menuClass: string;
+	/** Land focus on the first option (a menu opened from the keyboard), so Enter acts. */
+	focusFirst?: boolean;
 	children: ReactNode;
 }) {
 	const menuRef = useRef<HTMLDivElement>(null);
@@ -150,8 +153,9 @@ export function MenuShell({
 		const el = menuRef.current;
 		if (!el) return;
 		const input = el.querySelector<HTMLElement>("input");
-		(input ?? el).focus();
-	}, [placed]);
+		const first = focusFirst ? el.querySelector<HTMLElement>("button:not([disabled])") : null;
+		(input ?? first ?? el).focus();
+	}, [placed, focusFirst]);
 
 	// The standard arrow machine for menus WITHOUT a search (owner: when a
 	// dropdown is expanded, the arrow keys cycle the options and never

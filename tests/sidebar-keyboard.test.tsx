@@ -221,6 +221,27 @@ it("Move to project marks where the chat is now", async () => {
 	await key(document as unknown as Element, "Escape");
 });
 
+it("a menu opened from the keyboard focuses its first item, so Enter acts", async () => {
+	const focused: Element[] = [];
+	const realFocus = dom.window.HTMLElement.prototype.focus;
+	dom.window.HTMLElement.prototype.focus = function (this: Element) {
+		focused.push(this);
+	};
+	try {
+		const search = document.querySelector('[data-testid="session-search"]')!;
+		await act(async () => void window.dispatchEvent(new CustomEvent("lh:kbd-sessions-search")));
+		await settle();
+		await key(search, "ArrowDown");
+		await key(search, "F10", { shiftKey: true });
+		await settle();
+		assert.ok(menu(), "the menu is open");
+		assert.ok(focused.at(-1) === document.querySelector('[data-testid="ctx-rename"]'), `focused: ${focused.at(-1)?.getAttribute("data-testid")}`);
+		await key(document as unknown as Element, "Escape");
+	} finally {
+		dom.window.HTMLElement.prototype.focus = realFocus;
+	}
+});
+
 it("the delete dialog focuses Delete, so Enter confirms", () => {
 	const html = renderToStaticMarkup(
 		<DeleteSessionBody chat={{ id: "c1", title: "T" }} traces={false} busy={false} failure={null} onTraces={() => {}} onClose={() => {}} onRun={() => {}} />,
