@@ -126,7 +126,8 @@ export function QuestionTypeChip({
 			if (!triggerRef.current?.contains(t)) setOpen(false);
 		};
 		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key !== "Escape") return;
+			if (e.key !== "Escape" || e.defaultPrevented) return;
+			e.preventDefault();
 			e.stopPropagation();
 			setOpen(false);
 		};

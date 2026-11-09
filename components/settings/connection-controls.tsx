@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef } from "react";
+import { isComposing } from "@/components/ime";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
 import { captureFocus } from "@/components/focus-return";
@@ -32,7 +33,7 @@ export function ConnectionDialog({ children, onClose, busy, label, testid, backd
 		const focusable = () => [...(ref.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled])') ?? [])];
 		(initialFocus === "last" ? focusable().at(-1) : focusable()[0])?.focus();
 		const key = (event: KeyboardEvent) => {
-			if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); if (!busyRef.current) closeRef.current(); }
+			if (event.key === "Escape") { if (event.defaultPrevented || isComposing(event)) return; event.preventDefault(); event.stopImmediatePropagation(); if (!busyRef.current) closeRef.current(); }
 			else if (event.key === "Tab") {
 				const items = focusable(), first = items[0], last = items.at(-1);
 				if (!first) { event.preventDefault(); return; }

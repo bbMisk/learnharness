@@ -41,7 +41,7 @@ function DictationLanguagePicker({ preference, disabled }: {
 		return () => document.removeEventListener("pointerdown", onPointerDown);
 	}, [open]);
 	const closeOnEscape = (event: ReactKeyboardEvent) => {
-		if (event.key !== "Escape") return;
+		if (event.key !== "Escape" || isComposing(event)) return;
 		event.preventDefault();
 		event.stopPropagation();
 		setOpen(false);

@@ -28,7 +28,8 @@ export function bindSettingsMenuDismiss(anchorRef: RefObject<Element | null>, cl
 		if (target instanceof Element && target.closest('[role="dialog"]')) close();
 	};
 	const onKeyDown = (e: KeyboardEvent) => {
-		if (e.key === "Escape") {
+		if (e.key === "Escape" && !e.defaultPrevented && !isComposing(e)) {
+			e.preventDefault();
 			e.stopPropagation();
 			close();
 			trigger?.focus();
@@ -295,10 +296,11 @@ export function CommitInput({
 			onBlur={(e) => commit(e.currentTarget)}
 			onKeyDown={(e) => {
 				if (e.key === "Enter" && !isComposing(e)) commit(e.currentTarget);
-				if (e.key === "Escape" && (editing || (type === "number" && e.currentTarget.validity?.badInput))) {
+				if (e.key === "Escape" && !isComposing(e) && (editing || (type === "number" && e.currentTarget.validity?.badInput))) {
 					// An edit in progress: Esc reverts it and is this field's one
 					// action — the dialog behind stays open. React listens at the
 					// document root, so stop the dialog's document listener too.
+					e.preventDefault();
 					e.stopPropagation();
 					e.nativeEvent.stopImmediatePropagation();
 					setEditing(false);

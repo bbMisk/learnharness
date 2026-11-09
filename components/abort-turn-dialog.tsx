@@ -133,7 +133,7 @@ export function AbortTurnDialog({
 	useEffect(() => {
 		if (mode === null) return;
 		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
+			if (e.key === "Escape" && !e.defaultPrevented) {
 				// THE ONE-ESC LAW (keyboard round 2026-10-06): claim at the
 				// document level — a window-level stopPropagation cannot stop
 				// the earlier-registered global window listener.

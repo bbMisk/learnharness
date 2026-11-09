@@ -119,7 +119,7 @@ export function MermaidOverlay({
 	// (dictation → abort) never fires under a surfaced layer.
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
+			if (e.key === "Escape" && !e.defaultPrevented) {
 				e.preventDefault();
 				e.stopPropagation();
 				onClose();

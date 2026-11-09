@@ -693,7 +693,7 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
 			if (document.querySelector('[data-testid="settings-dialog"]')) return;
-			if (e.key === "Escape") {
+			if (e.key === "Escape" && !e.defaultPrevented) {
 				e.preventDefault();
 				e.stopPropagation();
 				onClose();

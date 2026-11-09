@@ -16,6 +16,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isComposing } from "@/components/ime";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
 import { focusComposer, useFocusReturn } from "@/components/focus-return";
@@ -174,7 +175,7 @@ export function SettingsDialogBody({
 	// instead.
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape" && openMenus === 0) {
+			if (e.key === "Escape" && openMenus === 0 && !e.defaultPrevented && !isComposing(e)) {
 				// ONE Esc, one action: claim at the document level so the window
 				// chain (dictation → abort) does not also act.
 				e.preventDefault();

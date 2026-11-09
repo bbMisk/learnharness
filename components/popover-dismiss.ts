@@ -20,10 +20,11 @@ export function usePopoverDismiss(
 			if (rootRef.current && !rootRef.current.contains(e.target as Node)) close();
 		};
 		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
+			if (e.key === "Escape" && !e.defaultPrevented) {
 				// Claim the Esc (keyboard wave A): the window-level dismiss
 				// chain must not ALSO stop dictation / abort a turn under
 				// this popover. Popovers are the chain's topmost layer.
+				e.preventDefault();
 				e.stopPropagation();
 				close();
 			}

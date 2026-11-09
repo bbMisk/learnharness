@@ -49,13 +49,27 @@ export function hintText(label: string, action?: KeyAction, binding?: string): s
  *  desktop hint, and its Esc layer swallowed the next Esc. */
 const canHover = () => !window.matchMedia?.("(hover: none)").matches
 
+/** A tooltip is not an Esc layer: the Esc closes it but stays unclaimed, so
+ *  the dialog or bar under it still acts. Radix claims (preventDefault) unless
+ *  defaultPrevented reads true right after this handler: that one read sees
+ *  true, every later read the real value. */
+function leaveEscUnclaimed(event: KeyboardEvent) {
+	Object.defineProperty(event, "defaultPrevented", {
+		configurable: true,
+		get() {
+			Reflect.deleteProperty(event, "defaultPrevented")
+			return true
+		},
+	})
+}
+
 export function Hint({ label, action, binding, side = "top", disabled, children }: HintProps) {
 	const [open, setOpen] = React.useState(false)
 	return (
 		<TooltipProvider>
 			<Tooltip open={open && !disabled} onOpenChange={(next) => setOpen(next && canHover())}>
 				<TooltipTrigger asChild>{children}</TooltipTrigger>
-				<TooltipContent side={side}>{hintText(label, action, binding)}</TooltipContent>
+				<TooltipContent side={side} onEscapeKeyDown={(event) => { setOpen(false); leaveEscUnclaimed(event) }}>{hintText(label, action, binding)}</TooltipContent>
 			</Tooltip>
 		</TooltipProvider>
 	)

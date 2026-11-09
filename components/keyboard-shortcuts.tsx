@@ -212,7 +212,7 @@ function CheatSheetDialog({ onClose }: { onClose: () => void }) {
 	// layer under it (Chains, a plan, a menu) sees it at the document.
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
-			if (e.key !== "Escape") return;
+			if (e.key !== "Escape" || e.defaultPrevented) return;
 			e.preventDefault();
 			e.stopPropagation();
 			onClose();

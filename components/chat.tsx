@@ -1167,6 +1167,7 @@ export function Chat({
 									// stopPropagation claims the Esc: closing rename
 									// must not also abort a turn.
 									else if (e.key === "Escape") {
+										e.preventDefault();
 										e.stopPropagation();
 										setRenaming(false);
 									}

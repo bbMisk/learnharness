@@ -42,7 +42,7 @@ export function DeleteSourceDialog({ open, sources, folders, onDelete, onClose }
 	const backdrop = useBackdropDismiss(() => { if (!busy) onClose(); });
 	useEffect(() => {
 		if (!open) return;
-		const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); if (!busy) onClose(); } };
+		const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape" && !event.defaultPrevented) { event.preventDefault(); event.stopPropagation(); if (!busy) onClose(); } };
 		document.addEventListener("keydown", onKeyDown);
 		return () => document.removeEventListener("keydown", onKeyDown);
 	}, [open, busy, onClose]);

@@ -105,7 +105,7 @@ export function SessionFind({ scopeRef, scrollContextRef }: {
 		inputRef.current?.focus({ preventScroll: true });
 		inputRef.current?.select();
 		const onEscape = (event: KeyboardEvent) => {
-			if (event.key !== "Escape" || sessionFindHasForegroundLayer(document)) return;
+			if (event.key !== "Escape" || event.defaultPrevented || sessionFindHasForegroundLayer(document)) return;
 			event.preventDefault();
 			event.stopPropagation();
 			close();

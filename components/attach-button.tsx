@@ -18,7 +18,8 @@ export function AttachButton({ fileDrop }: { fileDrop: ReturnType<typeof useFile
 			if (!triggerRef.current?.contains(target)) setOpen(false);
 		};
 		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
+			if (event.key !== "Escape" || event.defaultPrevented) return;
+			event.preventDefault();
 			event.stopPropagation();
 			setOpen(false);
 			triggerRef.current?.focus();

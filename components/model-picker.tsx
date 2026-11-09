@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isComposing } from "@/components/ime";
 import type { ChatSettings, ModelCatalogEntry, ModelCatalogResponse, ModelsSettings, UserSettings } from "@/src/core";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { prettyModel } from "@/components/usage-format";
@@ -173,9 +174,10 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 			}
 		};
 		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
+			if (e.key === "Escape" && !e.defaultPrevented && !isComposing(e)) {
 				// Claim the Esc (keyboard wave A): the window-level chain must
 				// not ALSO stop dictation / abort the turn under this menu.
+				e.preventDefault();
 				e.stopPropagation();
 				setOpen(null);
 			}

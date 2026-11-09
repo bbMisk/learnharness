@@ -94,6 +94,7 @@ export function KeyboardSection() {
 	useEffect(() => {
 		if (!rebinding) return;
 		const onKey = (e: KeyboardEvent) => {
+			if (e.key === "Escape" && e.defaultPrevented) return;
 			e.preventDefault();
 			e.stopPropagation();
 			if (e.key === "Escape") {
