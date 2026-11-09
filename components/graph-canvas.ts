@@ -271,6 +271,36 @@ const LIVE_ALPHA_DECAY = 0.05; // snappier anneal than the settle's 0.0228
 const DRAG_ALPHA_TARGET = 0.3; // d3-drag's own reheat constant
 const SIM_SETTLE_ALPHA = 0.005; // below this, the sim counts as settled
 const COMMIT_DEBOUNCE_MS = 250; // settle → ledger PUT delay (new drags cancel)
+const DRAG_HOPS = 2; // a drag moves nodes within this many drawn edges; the rest stay pinned
+
+/** Pin every node more than `hops` drawn edges from `id` at its current
+ *  position, so a drag re-anneals only its neighbourhood (a full reheat
+ *  moved every node and drifted the layout). Returns the pinned nodes. */
+export function pinOutsideNeighborhood<T extends { id: string; x?: number; y?: number; fx?: number | null; fy?: number | null }>(
+	nodes: readonly T[],
+	edges: ReadonlyArray<{ from: string; to: string }>,
+	id: string,
+	hops = DRAG_HOPS,
+): T[] {
+	const adjacent = new Map<string, string[]>();
+	for (const e of edges) {
+		(adjacent.get(e.from) ?? adjacent.set(e.from, []).get(e.from)!).push(e.to);
+		(adjacent.get(e.to) ?? adjacent.set(e.to, []).get(e.to)!).push(e.from);
+	}
+	const near = new Set([id]);
+	let frontier = [id];
+	for (let i = 0; i < hops; i++) {
+		const next: string[] = [];
+		for (const n of frontier) for (const m of adjacent.get(n) ?? []) if (!near.has(m)) { near.add(m); next.push(m); }
+		frontier = next;
+	}
+	const pinned = nodes.filter((n) => !near.has(n.id) && n.fx == null);
+	for (const n of pinned) {
+		n.fx = n.x;
+		n.fy = n.y;
+	}
+	return pinned;
+}
 
 /** Cluster region styling — a low-res world-space SPLAT bitmap (the
  *  density-field technique, Canvas-2D edition): every member node paints
@@ -578,6 +608,8 @@ export class GraphCanvasRenderer {
 	private dragOrigin: Pt | null = null;
 	private simMoved = false; // any real movement since the last commit
 	private commitTimer: ReturnType<typeof setTimeout> | null = null;
+	/** Nodes pinned outside the current drag's neighbourhood until it settles. */
+	private dragPins: LayoutNode[] = [];
 
 	private frameId: number | null = null;
 	/** True while tick() runs: markDirty inside the loop (d3's zoom event
@@ -757,6 +789,7 @@ export class GraphCanvasRenderer {
 		this.simActive = false;
 		this.dragId = null;
 		this.simMoved = false;
+		this.dragPins = [];
 		this.simCenter = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
 		this.buildSim();
 		this.geoVersion++; // new data → rebuild world geometry
@@ -801,6 +834,7 @@ export class GraphCanvasRenderer {
 		// graph instead of waiting for the next drag. Mid-drag is safe —
 		// buildSim preserved the pinned node's fx/fy.
 		if (this.sim && reheat) {
+			this.releaseDragPins();
 			this.sim.alpha(1);
 			this.simActive = true;
 		}
@@ -1004,8 +1038,10 @@ export class GraphCanvasRenderer {
 			this.dragOrigin = pos;
 			const n = this.simById.get(node.id);
 			if (n) {
+				this.releaseDragPins();
 				n.fx = n.x;
 				n.fy = n.y;
+				this.dragPins = pinOutsideNeighborhood(this.sim.nodes(), this.data?.edges ?? [], node.id);
 			}
 			this.canvas.style.cursor = "grabbing";
 			this.markDirty();
@@ -1040,6 +1076,7 @@ export class GraphCanvasRenderer {
 				this.markDirty();
 			} else {
 				// Never heated: a plain click on the node.
+				this.releaseDragPins();
 				this.callbacks.onSelect(id, this.eventPos(e));
 			}
 			return;
@@ -1162,10 +1199,19 @@ export class GraphCanvasRenderer {
 		// Settled (drag released long ago, alpha annealed away)?
 		if (!this.dragId && this.sim.alpha() < SIM_SETTLE_ALPHA) {
 			this.simActive = false;
+			this.releaseDragPins();
 			this.scheduleCommit();
 			return false;
 		}
 		return true;
+	}
+
+	private releaseDragPins(): void {
+		for (const n of this.dragPins) {
+			n.fx = null;
+			n.fy = null;
+		}
+		this.dragPins = [];
 	}
 
 	/** Debounced rest-state commit. A new drag or setData cancels it. */
