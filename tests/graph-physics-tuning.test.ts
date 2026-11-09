@@ -12,6 +12,7 @@ function stub() {
 	Object.assign(r, {
 		physicsTuning: DEFAULT_PHYSICS_TUNING,
 		simActive: false,
+		dragPins: [],
 		markDirty() {},
 		buildSim(this: Record<string, unknown>) {
 			calls.builds++;

@@ -97,3 +97,13 @@ test("desktop-dev opener accepts only local action IDs, does not follow redirect
 	for (const target of ["file:///private/fixture", "http://unrelated.invalid", "https://user:pass@unrelated.invalid"]) await assert.rejects(openWebSubscriptionBrowser(action, "http://localhost:3000", { ...options, fetch: async () => new Response(null, { status: 303, headers: { Location: target } }) }));
 	assert.equal(opened.length, 1);
 });
+
+test("the ChatGPT and native bridges reading together share one status request", async () => {
+	let gets = 0;
+	globalThis.fetch = async () => { gets++; return Response.json({ chatgpt: { available: false }, native: [] }); };
+	const hub = createNotifyHub();
+	await Promise.all([createWebChatGPTBridge(hub).status(), createWebNativeBridge(hub).status()]);
+	assert.equal(gets, 1);
+	await createWebChatGPTBridge(hub).status();
+	assert.equal(gets, 2, "a later read fetches fresh");
+});

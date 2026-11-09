@@ -14,15 +14,18 @@ Object.assign(globalThis, {
 	requestAnimationFrame: (cb: () => void) => setTimeout(cb, 0), cancelAnimationFrame: (id: number) => clearTimeout(id),
 });
 globalThis.fetch = (async (url: RequestInfo | URL) => String(url).includes("/api/settings") ? Response.json({ settings: { general: {} } }) : new Response("{}", { status: 404 })) as typeof fetch;
+const replaced: string[] = [];
+Object.assign(dom.window, { history: { replaceState: (_: unknown, __: string, href: string) => void replaced.push(href) } });
 const { AppRouterContext } = await import("next/dist/shared/lib/app-router-context.shared-runtime.js");
+const { SearchParamsContext } = await import("next/dist/shared/lib/hooks-client-context.shared-runtime.js");
 const { createRoot } = await import("react-dom/client");
 const { NewSession } = await import("../components/new-session.tsx");
 
 /** The draft's in-page mode switch writes the URL, so the sidebar's
  *  "+ Teaching" (a push to /chat/new) is always a change of ?mode=. */
 it("the draft's mode switch writes ?mode= to the URL", async () => {
-	const replaced: string[] = [];
-	const router = { push() {}, replace(href: string) { replaced.push(href); }, refresh() {}, back() {}, forward() {}, prefetch() {} };
+	replaced.length = 0;
+	const router = { push() {}, replace() {}, refresh() {}, back() {}, forward() {}, prefetch() {} };
 	const host = document.createElement("div");
 	document.body.append(host);
 	const root = createRoot(host);
@@ -37,6 +40,34 @@ it("the draft's mode switch writes ?mode= to the URL", async () => {
 		await act(async () => chip("cram").click());
 		await act(async () => chip("teach").click());
 		assert.deepEqual(replaced, ["/chat/new?mode=practice&project=p1", "/chat/new?mode=cram&project=p1", "/chat/new?project=p1"]);
+	} finally {
+		await act(async () => root.unmount());
+	}
+});
+
+/** The URL is the mode: "+ Teaching" right after a chip click lands in
+ *  Teach even when the chip's URL write and the push race. */
+it("the mode follows ?mode= after a chip click, so a push to /chat/new resets it", async () => {
+	const router = { push() {}, replace() {}, refresh() {}, back() {}, forward() {}, prefetch() {} };
+	const host = document.createElement("div");
+	document.body.append(host);
+	const root = createRoot(host);
+	const at = (query: string) => root.render(
+		<AppRouterContext.Provider value={router as never}>
+			<SearchParamsContext.Provider value={new URLSearchParams(query) as never}>
+				<NewSession initialConfigured mode="teach" />
+			</SearchParamsContext.Provider>
+		</AppRouterContext.Provider>,
+	);
+	const chip = (m: string) => host.querySelector(`[data-testid="draft-mode-${m}"]`) as HTMLButtonElement;
+	const pressed = () => ["teach", "practice", "cram"].find((m) => chip(m).getAttribute("aria-pressed") === "true");
+	try {
+		await act(async () => at(""));
+		await act(async () => chip("cram").click());
+		assert.equal(pressed(), "cram");
+		await act(async () => at("mode=cram")); // the chip's own URL write
+		await act(async () => at("")); // the sidebar's push to /chat/new
+		assert.equal(pressed(), "teach");
 	} finally {
 		await act(async () => root.unmount());
 	}

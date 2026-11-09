@@ -310,6 +310,13 @@ export function ChainTableBody({
 						value={query}
 						data-testid="chain-table-search"
 						onChange={(e) => onQuery(e.target.value)}
+						// Esc clears the search first; the table's own Esc closes it after.
+						onKeyDown={(e) => {
+							if (e.key === "Escape" && query) {
+								e.preventDefault();
+								onQuery("");
+							}
+						}}
 						placeholder="Search nodes…"
 						aria-label="Search nodes"
 						spellCheck={false}

@@ -701,6 +701,15 @@ function SessionsSidebar() {
 		drawerPath.current = pathname;
 		if (open && isPhone()) toggle();
 	}, [pathname, open, toggle]);
+	// A tap on its links, new-session doors or chat rows closes it too: those may change only the query, or nothing.
+	useEffect(() => {
+		if (!open) return;
+		const onClick = (e: MouseEvent) => {
+			if (isPhone() && e.target instanceof Element && e.target.closest("aside a[href], aside [data-testid^='new-session'], aside [data-testid^='session-row']")) toggle();
+		};
+		document.addEventListener("click", onClick);
+		return () => document.removeEventListener("click", onClick);
+	}, [open, toggle]);
 
 	useEffect(() => {
 		if (!open) return;

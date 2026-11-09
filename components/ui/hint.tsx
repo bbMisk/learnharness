@@ -43,10 +43,15 @@ export function hintText(label: string, action?: KeyAction, binding?: string): s
 	return live ? `${label} (${live})` : label
 }
 
+/** Touch screens (no hover) get no tooltips: a focus there popped the
+ *  desktop hint, and its Esc layer swallowed the next Esc. */
+const canHover = () => !window.matchMedia?.("(hover: none)").matches
+
 export function Hint({ label, action, binding, side = "top", children }: HintProps) {
+	const [open, setOpen] = React.useState(false)
 	return (
 		<TooltipProvider>
-			<Tooltip>
+			<Tooltip open={open} onOpenChange={(next) => setOpen(next && canHover())}>
 				<TooltipTrigger asChild>{children}</TooltipTrigger>
 				<TooltipContent side={side}>{hintText(label, action, binding)}</TooltipContent>
 			</Tooltip>

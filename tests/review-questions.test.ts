@@ -150,7 +150,7 @@ it("refuses before any model call when the key or background access is missing",
 	const key = process.env.OPENROUTER_API_KEY;
 	delete process.env.OPENROUTER_API_KEY;
 	stores.settingsStore.writeSettings({ version: 1, models: { cheap: { model: { provider: "openrouter", id: "openai/gpt-4o-mini" } } } });
-	await assert.rejects(questionFor(card("no-key")), { name: "ReviewError", message: /Connect a Cheap model/ });
+	await assert.rejects(questionFor(card("no-key")), { name: "ReviewError", message: /^Connect your AI account in Settings → Providers, then pick your models in Settings → Agent/ });
 	if (key !== undefined) process.env.OPENROUTER_API_KEY = key;
 
 	// A connected ChatGPT account whose owner has not allowed background use.
