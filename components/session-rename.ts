@@ -12,11 +12,17 @@ export function useSessionRename(chatId: string, title: string) {
 	const [titleText, setTitleText] = useState(title);
 	const [renaming, setRenaming] = useState(false);
 	const [titleDraft, setTitleDraft] = useState("");
+	const [renameError, setRenameError] = useState("");
 	const titleInputRef = useRef<HTMLInputElement | null>(null);
+	// Opening or closing the field clears a failed save's error.
+	const setRenamingClear = useCallback((next: boolean) => {
+		setRenameError("");
+		setRenaming(next);
+	}, []);
 
 	const commitRename = useCallback(
 		async (next: string) => {
-			setRenaming(false);
+			setRenamingClear(false);
 			const t = next.trim();
 			if (t === "" || t === titleText) return; // empty commit = discard
 			try {
@@ -31,10 +37,14 @@ export function useSessionRename(chatId: string, title: string) {
 					new CustomEvent("lh:chat-renamed", { detail: { id: chatId, title: t } }),
 				);
 			} catch (err) {
-				console.error("rename failed:", err); // keep the old title
+				// Keep the old title; reopen the field with what was typed.
+				console.error("rename failed:", err);
+				setTitleDraft(t);
+				setRenaming(true);
+				setRenameError("Chat could not be renamed. Try again.");
 			}
 		},
-		[chatId, titleText],
+		[chatId, titleText, setRenamingClear],
 	);
 
 	// Select-all when edit mode opens: the click means "replace". Enter or
@@ -85,5 +95,5 @@ export function useSessionRename(chatId: string, title: string) {
 		return () => window.removeEventListener("lh:chat-renamed", onRenamed);
 	}, [chatId]);
 
-	return { titleText, renaming, setRenaming, titleDraft, setTitleDraft, titleInputRef, commitRename };
+	return { titleText, renaming, setRenaming: setRenamingClear, titleDraft, setTitleDraft, titleInputRef, commitRename, renameError };
 }

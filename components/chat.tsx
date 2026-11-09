@@ -224,7 +224,7 @@ export function Chat({
 	// or turn-settled arrives.
 	const [turnInFlight, setTurnInFlight] = useState(initiallyInFlight ?? false);
 
-	const { titleText, renaming, setRenaming, titleDraft, setTitleDraft, titleInputRef, commitRename } = useSessionRename(chatId, title);
+	const { titleText, renaming, setRenaming, titleDraft, setTitleDraft, titleInputRef, commitRename, renameError } = useSessionRename(chatId, title);
 
 	// Explicit Stop shares the pending-send fence with composer interruptions.
 	const abortInFlightTurn = useCallback(() => { void abortTurn(); }, [abortTurn]);
@@ -1177,6 +1177,7 @@ export function Chat({
 								title="Rename this chat"
 								className="lh-no-drag min-w-[8ch] max-w-[70%] shrink-0 bg-transparent font-title text-3xl tracking-tight caret-current outline-none [field-sizing:content]"
 							/>
+							{renameError && <span role="alert" className="min-w-0 truncate text-xs text-destructive">{renameError}</span>}
 							{/* flex-1 spacer during rename too, so the chips stay at
 							    the right edge; clicks here commit via the header
 							    mousedown handler. */}

@@ -148,3 +148,57 @@ it("closing the header rename by key hands focus back to the composer", async ()
 		assert.ok(range?.startContainer === field.firstChild && range.startOffset === 5, `${key} keeps the caret where it was`);
 	}
 });
+
+it("a failed header rename keeps the field open with the typed name and says so", async () => {
+	const { useSessionRename } = await import("../components/session-rename.ts");
+	let fail = true;
+	globalThis.fetch = (async () => {
+		if (fail) throw new TypeError("Failed to fetch");
+		return Response.json({ ok: true });
+	}) as typeof fetch;
+	const quiet = console.error;
+	console.error = () => {};
+	function Title() {
+		const { titleText, renaming, setRenaming, titleDraft, titleInputRef, commitRename, renameError } = useSessionRename("c1", "Old");
+		return renaming ? (
+			<>
+				{/* Enter commits what the learner typed: "New name". */}
+				<input ref={titleInputRef} value={titleDraft} readOnly
+					onKeyDown={(e) => { if (e.key === "Enter") void commitRename("New name"); else if (e.key === "Escape") setRenaming(false); }} />
+				{renameError && <span role="alert">{renameError}</span>}
+			</>
+		) : <span data-testid="title">{titleText}</span>;
+	}
+	composer();
+	const host = document.createElement("div");
+	document.body.append(host);
+	hosts.push(host);
+	root = createRoot(host);
+	const press = async (key: string) => {
+		const input = host.querySelector("input")!;
+		await act(async () => {
+			input.dispatchEvent(Object.assign(new dom.window.Event("keydown", { bubbles: true, cancelable: true }), { key }));
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		});
+	};
+	const open = () => act(async () => { window.dispatchEvent(new dom.window.CustomEvent("lh:kbd-rename-session")); });
+	try {
+		await act(async () => { root!.render(<Title />); });
+		await open();
+		await press("Enter");
+		const input = host.querySelector("input");
+		assert.equal(input?.value, "New name", "the field stays open with the typed name");
+		assert.ok(focused === input, "focus is back in the field");
+		assert.equal(host.querySelector('[role="alert"]')?.textContent, "Chat could not be renamed. Try again.");
+		await press("Escape");
+		assert.equal(host.querySelector('[data-testid="title"]')?.textContent, "Old");
+		await open();
+		assert.equal(host.querySelector('[role="alert"]'), null, "a reopened field starts clean");
+		fail = false;
+		await press("Enter");
+		assert.equal(host.querySelector('[data-testid="title"]')?.textContent, "New name");
+		assert.equal(host.querySelector('[role="alert"]'), null);
+	} finally {
+		console.error = quiet;
+	}
+});
