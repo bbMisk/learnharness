@@ -355,8 +355,9 @@ export function AgentSection({
 	/** The `compaction` section — its own PUT (the threshold is engine
 	 *  behavior, not an agent-section key). */
 	compaction: CompactionSettings | undefined;
-	/** Writes the composed WHOLE agent section (replace-PUT discipline). */
-	onSectionChange: (next: AgentSettings) => void;
+	/** Writes the composed WHOLE agent section (replace-PUT discipline);
+	 *  resolves false when the save failed. */
+	onSectionChange: (next: AgentSettings) => void | Promise<boolean>;
 	/** Writes the composed models section (slots — replace-PUT discipline). */
 	onModelsChange: (next: ModelsSettings) => void;
 	/** Writes the whole compaction section (replace-PUT discipline). */
@@ -371,11 +372,25 @@ export function AgentSection({
 	const [folderInput, setFolderInput] = useState("");
 	const [folderError, setFolderError] = useState<string | null>(null);
 	const [folderWarning, setFolderWarning] = useState<string | null>(null);
-	// Folder adds run one at a time, each on top of the last one's result:
+	// Agent saves run one at a time, each composed on the last saved result:
 	// the props only catch up once its PUT lands.
 	const latestAgent = useRef(agent);
 	useEffect(() => { latestAgent.current = agent; }, [agent]);
-	const folderAdds = useRef(Promise.resolve());
+	const saves = useRef(Promise.resolve());
+	const queued = useRef(0);
+	/** Runs now when nothing is saving, else after the saves ahead of it. */
+	const enqueue = (task: () => Promise<unknown>) => {
+		queued.current++;
+		const run = () => task().then(() => {}, () => {}).finally(() => { queued.current--; });
+		saves.current = queued.current > 1 ? saves.current.then(run) : run();
+	};
+	const commitAgent = async (next: AgentSettings) => {
+		const saved = (await onSectionChange(next)) !== false;
+		if (saved) latestAgent.current = next;
+		return saved;
+	};
+	const saveAgent = (compose: (base: AgentSettings | undefined) => AgentSettings) =>
+		enqueue(() => commitAgent(compose(latestAgent.current)));
 	const folderText = useRef("");
 	const [search, setSearch] = useState<{ available: boolean; engine: string | null; reason: string } | null>(null);
 	/** Which search engines have a key (/api/keys) — the no-keys-anywhere
@@ -477,7 +492,7 @@ export function AgentSection({
 		// the order (file, then switch) is the safe one. Saving an edit while
 		// already on rides through — the switch write is idempotent.
 		if (agent?.prompts?.[path] !== true) {
-			onSectionChange(composePromptSwitch(agent, path, true));
+			saveAgent((base) => composePromptSwitch(base, path, true));
 		}
 	}
 
@@ -493,7 +508,7 @@ export function AgentSection({
 		// validation would 400 every later write while the UI's toggle can no
 		// longer reach OFF). Composing the OFF here keeps the record clean.
 		if (agent?.prompts?.[path] === true) {
-			onSectionChange(composePromptSwitch(agent, path, false));
+			saveAgent((base) => composePromptSwitch(base, path, false));
 		}
 		dropDraft(path);
 		await readPrompts();
@@ -548,7 +563,7 @@ export function AgentSection({
 							checked={info.enabled}
 							disabled={!fileExists}
 							label={`prompt ${info.path}`}
-							onChange={(on) => onSectionChange(composePromptSwitch(agent, info.path, on))}
+							onChange={(on) => saveAgent((base) => composePromptSwitch(base, info.path, on))}
 						/>
 					</span>
 				</SettingsRow>
@@ -792,7 +807,7 @@ export function AgentSection({
 								checked={agent?.graphTools?.enabled ?? true}
 								disabled={!graphOn}
 								label="graph tools"
-								onChange={(on) => onSectionChange(composeGraphTools(agent, on))}
+								onChange={(on) => saveAgent((base) => composeGraphTools(base, on))}
 							/>
 						</SettingsRow>
 					);
@@ -823,7 +838,7 @@ export function AgentSection({
 											role="radio"
 											aria-checked={active}
 											data-testid={`quiz-mechanics-${m}`}
-											onClick={() => onSectionChange(composeQuizMechanics(agent, m))}
+											onClick={() => saveAgent((base) => composeQuizMechanics(base, m))}
 											className={cn(
 												"h-8 rounded-md px-3 text-sm font-medium transition-colors",
 												active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
@@ -846,7 +861,7 @@ export function AgentSection({
 						<Toggle
 							checked={agent?.tools?.[id] ?? true}
 							label={`tool ${id}`}
-							onChange={(on) => onSectionChange(composeTool(agent, id, on))}
+							onChange={(on) => saveAgent((base) => composeTool(base, id, on))}
 						/>
 					</SettingsRow>
 				))}
@@ -854,7 +869,6 @@ export function AgentSection({
 					const effective = (base: AgentSettings | undefined) => fileAccessError ? { ...base, fileAccess: { restricted: true, folders: base?.fileAccess?.folders ?? [] } } : base;
 					const folders = agent?.fileAccess?.folders ?? [];
 					const restricted = Boolean(fileAccessError) || agent?.fileAccess?.restricted === true;
-					const effectiveAgent = effective(agent);
 					const addFolderNow = async (next: string) => {
 						// A notice or clear is for the text it checked, not newer typing.
 						const current = () => normalizeFolder(folderText.current) === next;
@@ -877,15 +891,13 @@ export function AgentSection({
 							body: JSON.stringify({ folder: next, folders: listed }),
 						}).then((r) => (r.ok ? r.json() : {})).catch(() => ({}))) as { error?: string; warning?: string };
 						if (check.error) { notice(check.error); return; }
-						const composed = composeAddFolder(effective(latestAgent.current), next);
-						latestAgent.current = composed;
-						onSectionChange(composed);
+						if (!(await commitAgent(composeAddFolder(effective(latestAgent.current), next)))) return;
 						notice(check.warning ?? null, true);
 						if (current()) { folderText.current = ""; setFolderInput(""); }
 					};
 					const addFolder = () => {
 						const next = normalizeFolder(folderInput);
-						folderAdds.current = folderAdds.current.then(() => addFolderNow(next));
+						enqueue(() => addFolderNow(next));
 					};
 					return (
 						<div data-testid="file-access-row" className="flex flex-col gap-2">
@@ -895,7 +907,7 @@ export function AgentSection({
 									: "Restricted: only uploaded attachments. Add a folder to allow more."}>
 								<div className="flex items-center gap-2 text-xs">
 									<span>Restrict to listed folders</span>
-									<Toggle checked={restricted} label="Restrict to listed folders" onChange={(on) => onSectionChange(composeFileRestriction(effectiveAgent, on))} />
+									<Toggle checked={restricted} label="Restrict to listed folders" onChange={(on) => saveAgent((base) => composeFileRestriction(effective(base), on))} />
 								</div>
 							</SettingsRow>
 							{fileAccessError && <p role="alert" data-testid="file-access-config-error" className="text-xs text-red-500">{fileAccessError}</p>}
@@ -912,7 +924,7 @@ export function AgentSection({
 								<div key={folder} data-testid="file-access-folder" className="flex items-center justify-between gap-4 pl-3 text-xs">
 									<span title={folder} className="min-w-0 truncate font-ui text-muted-foreground">{folder}</span>
 									<button type="button" aria-label={`Remove ${folder}`} data-testid="file-access-remove"
-										onClick={() => onSectionChange(composeRemoveFolder(effectiveAgent, folder))}
+										onClick={() => saveAgent((base) => composeRemoveFolder(effective(base), folder))}
 										className="rounded-sm px-1.5 text-muted-foreground hover:text-foreground">Remove</button>
 								</div>
 							))}
@@ -949,12 +961,12 @@ export function AgentSection({
 										menuClass="flex w-44 flex-col gap-0.5 rounded-xl border border-border bg-card p-2 text-xs shadow-xl"
 									>
 										{engineOption("auto", "Automatic", engine === null, null, () => {
-											onSectionChange(composeSearchEngine(agent, null));
+											saveAgent((base) => composeSearchEngine(base, null));
 											setOpenMenu(null);
 										})}
 										{SEARCH_ENGINES.map(({ id, label }) =>
 											engineOption(id, label, engine === id, engineKeys[id] ?? false, () => {
-												onSectionChange(composeSearchEngine(agent, id));
+												saveAgent((base) => composeSearchEngine(base, id));
 												setOpenMenu(null);
 											}),
 										)}
@@ -966,9 +978,9 @@ export function AgentSection({
 				})()}
 			</SettingsGroup>
 
-			<FlashcardAgentSection agent={agent} onChange={onSectionChange}/>
+			<FlashcardAgentSection agent={agent} onChange={(next) => saveAgent((base) => ({ ...base, flashcards: next.flashcards }))}/>
 
-			<ModelInstructionsSection agent={agent} catalog={catalog ?? undefined} strong={models?.strong?.model ?? slots?.strong?.model} onChange={onSectionChange} />
+			<ModelInstructionsSection agent={agent} catalog={catalog ?? undefined} strong={models?.strong?.model ?? slots?.strong?.model} onChange={(next) => saveAgent((base) => ({ ...base, modelInstructions: next.modelInstructions }))} />
 
 			<SettingsGroup label="Context" testid="group-context">
 				<SettingsRow
