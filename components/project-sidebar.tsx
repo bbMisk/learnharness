@@ -255,7 +255,7 @@ function ProjectFolder({
 				<Link
 					href={"/chat/new?project=" + project.id}
 					aria-label={"New chat in " + project.name}
-					className="mr-1 rounded p-1 text-muted-foreground opacity-0 hover:bg-accent group-hover:opacity-100 focus:opacity-100"
+					className="mr-1 rounded p-1 text-muted-foreground opacity-0 hover:bg-accent group-hover:opacity-100 focus:opacity-100 [@media(hover:none)]:opacity-100"
 				>
 					<PlusIcon className="size-3.5" />
 				</Link>

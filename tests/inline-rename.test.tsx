@@ -169,6 +169,8 @@ it("right-clicking a project in the sidebar renames it in place", async () => {
 			</PathnameContext.Provider>
 		</AppRouterContext.Provider>,
 	);
+	// Touch screens have no hover: the hover-revealed "+" stays visible there.
+	assert.match(el.querySelector('[aria-label="New chat in Quant"]')!.className, /\[@media\(hover:none\)\]:opacity-100/);
 	const row = el.querySelector('[data-project-drop="p1"] > div') as HTMLElement;
 	await act(async () => row.dispatchEvent(new dom.window.Event("contextmenu", { bubbles: true, cancelable: true })));
 	const field = el.querySelector('input[aria-label="Rename Quant"]') as HTMLInputElement;
