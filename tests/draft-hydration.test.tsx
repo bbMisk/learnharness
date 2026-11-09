@@ -1,9 +1,9 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { describe, it, test } from "node:test";
 import { renderToString } from "react-dom/server";
-import { hydrateRoot } from "react-dom/client";
+import { createRoot, hydrateRoot } from "react-dom/client";
 import { parseHTML } from "linkedom";
 import { QuestionDock } from "../components/question-dock.tsx";
 import { PracticeDock } from "../components/practice-dock.tsx";
@@ -71,4 +71,47 @@ test("a practice draft restores after hydration without a mismatch", async () =>
 		host.remove();
 		storage.clear();
 	}
+});
+
+// A remount on the client (a chat switch, or the post-hydration remount)
+// restores the whole saved form.
+describe("question submission draft restoration", () => {
+	const quizInput = {
+		question: "Which planet is closest to the sun?",
+		options: [{ label: "Venus" }, { label: "Mercury" }, { label: "Mars" }],
+		correctAnswer: "Mercury",
+		explanation: "Mercury is the innermost planet.",
+	};
+	const draft = {
+		selection: { selected: new Set([0]), otherSelected: true, dontKnow: false },
+		thinking: "preserved reasoning",
+		other: "preserved custom answer",
+		text: "preserved free-text answer",
+		confidenceIndex: 4,
+	};
+	const render = async (element: React.ReactElement) => {
+		const host = document.createElement("div");
+		const root = createRoot(host);
+		await act(async () => root.render(element));
+		const html = host.innerHTML;
+		const checked = (selector: string) => host.querySelector(selector)?.getAttribute("aria-checked");
+		const state = { html, first: checked('[role="radio"][data-kbdrow="0"]'), other: checked('[data-testid="other-option"]') };
+		await act(async () => root.unmount());
+		return state;
+	};
+
+	it("restores a quiz selection, thinking, and confidence when its form remounts", async () => {
+		const { html, first } = await render(<QuestionDock toolName="quiz" toolCallId="q1" input={quizInput as never} expanded onExpand={() => {}} onSubmit={() => {}} initialDraft={draft} />);
+		assert.equal(first, "true");
+		assert.ok(html.includes("preserved reasoning"));
+		assert.ok(html.includes("90%"));
+	});
+
+	it("restores an ask's custom answer and a free-text answer", async () => {
+		const { html: custom, other } = await render(<QuestionDock toolName="ask_user_question" toolCallId="ask1" input={{ question: "Fixture?", options: [{ label: "Listed answer" }, { label: "Another answer" }], multiSelect: true } as never} expanded onExpand={() => {}} onSubmit={() => {}} initialDraft={draft} />);
+		assert.match(custom, /role="textbox"[^>]*>preserved custom answer<\/div>/);
+		assert.equal(other, "true");
+		const { html: text } = await render(<QuestionDock toolName="ask_user_question" toolCallId="ask2" input={{ question: "Fixture?" } as never} expanded onExpand={() => {}} onSubmit={() => {}} initialDraft={draft} />);
+		assert.ok(text.includes("preserved free-text answer"));
+	});
 });
