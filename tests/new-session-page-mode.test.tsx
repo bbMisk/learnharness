@@ -8,6 +8,7 @@ import { join } from "node:path";
 
 process.env.LH_DATA_DIR = mkdtempSync(join(tmpdir(), "lh-new-page-"));
 const { default: NewSessionPage } = await import("../app/chat/new/page.tsx");
+const { projectStore } = await import("../src/server/projects.ts");
 
 it("/chat/new?mode= opens every session mode, unknown ones as Teach", async () => {
 	const modeOf = async (mode?: string) => ((await NewSessionPage({ searchParams: Promise.resolve({ mode }) })) as React.ReactElement<{ mode: string }>).props.mode;
@@ -16,4 +17,11 @@ it("/chat/new?mode= opens every session mode, unknown ones as Teach", async () =
 	assert.equal(await modeOf("teach"), "teach");
 	assert.equal(await modeOf("bogus"), "teach");
 	assert.equal(await modeOf(undefined), "teach");
+});
+
+it("/chat/new?project= for a deleted or unknown project is a 404; a live one opens", async () => {
+	const open = (project: string) => NewSessionPage({ searchParams: Promise.resolve({ project }) });
+	await assert.rejects(open("project_nope"), (error: { digest?: string }) => String(error.digest).includes("404"));
+	const live = projectStore.create("Real Analysis");
+	assert.equal(((await open(live.id)) as React.ReactElement<{ projectId: string }>).props.projectId, live.id);
 });

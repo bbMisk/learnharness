@@ -1,5 +1,6 @@
+import { notFound } from "next/navigation";
 import { NewSession } from "@/components/new-session";
-import { readSettingsRecord } from "@/src/server";
+import { projectStore, readSettingsRecord } from "@/src/server";
 import { SESSION_MODES, slotsConfigured, type SessionMode } from "@/src/core";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +22,8 @@ export default async function NewSessionPage({
 	searchParams: Promise<{ mode?: string; project?: string }>;
 }) {
 	const { mode, project } = await searchParams;
+	// A deleted or unknown project (a stale tab's New chat) is a 404, as /project/<id> is.
+	if (project && !projectStore.get(project)) notFound();
 	return (
 		<NewSession
 			projectId={project}
