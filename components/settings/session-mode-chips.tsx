@@ -17,7 +17,7 @@ export function SessionModeChips({
 }) {
 	const shownCount = visibleModes(hidden).length;
 	return (
-		<div className="flex gap-1" role="group" aria-label="Session modes">
+		<div className="flex gap-1" role="group" aria-label="Chat modes">
 			{SESSION_MODES.map((mode) => {
 				const shown = !hidden.includes(mode);
 				const last = shown && shownCount === 1;

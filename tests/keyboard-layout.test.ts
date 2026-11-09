@@ -78,3 +78,10 @@ describe("eventBinding — non-Latin layouts", () => {
 		assert.equal(eventBinding(press({ key: "?", code: "Slash", ctrlKey: true, shiftKey: true })), "mod+shift+?");
 	});
 });
+
+describe("shortcut labels", () => {
+	it("say chat, as the rest of the app does (ids stay)", () => {
+		assert.deepEqual(KEYBOARD_ACTIONS.filter((a) => /session/i.test(a.label)).map((a) => a.label), []);
+		assert.equal(KEYBOARD_ACTIONS.find((a) => a.id === "sessions-search")?.label, "Search chats");
+	});
+});

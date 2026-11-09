@@ -128,7 +128,7 @@ describe("keyboard rebind shares layout normalization with dispatch", () => {
 		await click(host, "kbd-rebind-jump-graph");
 		await press({ key: "b", code: "KeyB", metaKey: true });
 		assert.deepEqual(loadOverrides(), {}, "Graph view keeps its own binding");
-		assert.match(host.querySelector('[data-testid="kbd-row-jump-graph"] [role="alert"]')?.textContent ?? "", /already used by Toggle sessions sidebar/);
+		assert.match(host.querySelector('[data-testid="kbd-row-jump-graph"] [role="alert"]')?.textContent ?? "", /already used by Toggle chats sidebar/);
 		assert.equal(actionForBinding("mod+b"), "toggle-sidebar");
 	});
 });

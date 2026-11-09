@@ -76,7 +76,7 @@ import { NativeSubscriptionBackgroundAccess } from "./subscription-connections";
 /** One slot's display identity — the label and the tier's roster (the
  *  row hint). */
 const SLOT_META: Record<ModelSlotName, { label: string; roster: string }> = {
-	strong: { label: "Strong", roster: "The main model for your sessions" },
+	strong: { label: "Strong", roster: "The main model for your chats" },
 	cheap: { label: "Cheap", roster: "The assistants that research, build demos, and grade your work" },
 	vision: { label: "Vision", roster: "The assistants that draw and read PDFs" },
 };
@@ -784,7 +784,7 @@ export function AgentSection({
 					return (
 						<SettingsRow
 							label="Graph tools"
-							hint={graphOn ? "Lets the tutor consult your knowledge map between sessions" : "Graph is disabled"}
+							hint={graphOn ? "Lets the tutor consult your knowledge map between chats" : "Graph is disabled"}
 							testid="graph-tools-row"
 							dimmed={!graphOn}
 						>

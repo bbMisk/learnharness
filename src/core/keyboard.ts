@@ -60,15 +60,15 @@ export const KEYBOARD_ACTIONS: readonly KeyActionDef[] = [
 	{ id: "open-settings", label: "Open settings", scope: "global", binding: "mod+," },
 	{ id: "open-model-picker", label: "Model selector", scope: "global", binding: "mod+k" },
 	{ id: "cycle-thinking", label: "Cycle thinking level", scope: "global", binding: "shift+tab" },
-	{ id: "toggle-sidebar", label: "Toggle sessions sidebar", scope: "global", binding: "mod+b" },
-	{ id: "sessions-search", label: "Search sessions", scope: "global", binding: "mod+shift+f" },
+	{ id: "toggle-sidebar", label: "Toggle chats sidebar", scope: "global", binding: "mod+b" },
+	{ id: "sessions-search", label: "Search chats", scope: "global", binding: "mod+shift+f" },
 	// (The Alt+↑/↓/↵ session cycle was RETIRED, owner 2026-10-10: barely
 	// used, felt laggy. Session navigation lives IN the search now — ↑/↓
 	// walk the filtered list, Enter opens (first match when nothing
 	// walked) — see sidebar.tsx's search input.)
 	{ id: "jump-graph", label: "Graph view", scope: "global", binding: "mod+g" },
-	{ id: "new-session", label: "New session", scope: "global", binding: "mod+n" },
-	{ id: "rename-session", label: "Rename session", scope: "chat", binding: "f2" },
+	{ id: "new-session", label: "New chat", scope: "global", binding: "mod+n" },
+	{ id: "rename-session", label: "Rename chat", scope: "chat", binding: "f2" },
 	{ id: "toggle-user-thinking", label: "Toggle all your thinking", scope: "chat", binding: "mod+t" },
 	{ id: "toggle-side-tutor", label: "Temporary side tutor", scope: "chat", binding: "mod+shift+s" },
 	// Mod+F is surface-scoped: graph node search and session text Find share

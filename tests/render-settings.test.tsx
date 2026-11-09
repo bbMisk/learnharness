@@ -120,7 +120,7 @@ describe("AgentSection (thin SSR)", () => {
 			assert.ok(html.includes(`data-testid="slot-model-${slot}"`), `${slot} model trigger`);
 			assert.ok(html.includes(`data-testid="slot-thinking-${slot}"`), `${slot} thinking trigger`);
 			// the roster hint rides every row
-			assert.ok(html.includes("The main model for your sessions") || slot !== "strong", "strong roster");
+			assert.ok(html.includes("The main model for your chats") || slot !== "strong", "strong roster");
 		}
 		// Fix wave: no Default anywhere — an unpicked slot reads "—"
 		// (the owner's no-factory-fallback language), and no menu
@@ -170,7 +170,7 @@ describe("AgentSection (thin SSR)", () => {
 		const rows = [...toolsGroup.matchAll(/data-testid="(graph-tools-row|tool-row-\w+)"/g)].map((m) => m[1]);
 		assert.equal(rows[0], "graph-tools-row", "graph tools is the FIRST row of the Tools group");
 		// (the apostrophe in "sessions'" HTML-escapes — match up to it)
-		assert.ok(html.includes("Lets the tutor consult your knowledge map between sessions"), "the describing hint");
+		assert.ok(html.includes("Lets the tutor consult your knowledge map between chats"), "the describing hint");
 		assert.ok((html.split('data-testid="graph-tools-row"')[1] ?? "").includes('aria-checked="true"'), "absent = on");
 		const rowHtml = html.split('data-testid="graph-tools-row"')[1]?.split('data-testid="tool-row-')[0] ?? "";
 		assert.ok(!rowHtml.includes("opacity-40"), "lit while the graph is on (the search row may dim — no keys in SSR)");

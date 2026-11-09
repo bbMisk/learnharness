@@ -419,7 +419,7 @@ export function SettingsDialogBody({
 										</ThinSelect>
 									</SettingsRow>
 									<SettingsRow
-										label="Session modes"
+										label="Chat modes"
 										hint="Hide the modes you don't use. At least one stays."
 										testid="row-session-modes"
 									>
