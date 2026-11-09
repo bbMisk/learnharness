@@ -19,7 +19,7 @@ let currentToken = "", drawn = "", cardsKey = "", cardsCache: ReviewSnapshot["ca
 let started = false, revealed = false, saving = false, cacheReady = false, connected = false;
 let syncTask: Promise<void> | undefined;
 let selectedIndex: number | undefined, optionOrder: number[] = [];
-let questionKey = "", preparingQuestion = false, questionError = "";
+let questionKey = "", preparingQuestion = false, questionError = "", questionBlocked = false; // blocked: no usable model (503)
 /** Cards skipped this visit (choices could not be prepared): not rated, just passed over. */
 const skipped = new Set<string>();
 let shownAt = 0, revealedAt = 0, foregroundMs = 0, foregroundStart: number | null = null;
@@ -134,7 +134,7 @@ function render() {
 		renderReviewText(element("front"), mcq ? current.mcq?.prompt ?? current.front : current.front);
         const options = element("mcq-options"); options.replaceChildren();
         element("mcq-status").textContent = mcq && !current.mcq ? preparingQuestion ? "Preparing choices…" : questionError || "Reconnect to prepare this card’s choices for offline review." : "";
-        element("mcq-retry").hidden = !mcq || !!current.mcq || preparingQuestion || revealed;
+        element("mcq-retry").hidden = !mcq || !!current.mcq || preparingQuestion || revealed || questionBlocked;
         if (mcq && current.mcq) {
             for (const [position, index] of optionOrder.entries()) {
                 const button = document.createElement("button"); button.type = "button"; button.className = "mcq-option";
@@ -192,6 +192,7 @@ async function prepareQuestion(card: ReviewSnapshot["cards"][number]) {
     try {
         const response = await fetch("/api/review/question", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({cardId:card.id, revision:card.revision}), signal:AbortSignal.timeout(130000)});
         const body = await response.json();
+        questionBlocked = response.status === 503;
         if (!response.ok) throw new Error(body.error || "Could not prepare choices.");
         assertReviewQuestion(body.question);
         state = await database.change(local => {

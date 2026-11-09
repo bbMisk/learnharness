@@ -290,7 +290,7 @@ export function replayCard(attempts: readonly StoredReview[], engine: ReviewEngi
 export class ReviewError extends Error {
 	constructor(
 		message: string,
-		readonly status: 400 | 409 | 426 = 400,
+		readonly status: 400 | 409 | 426 | 503 = 400,
 	) {
 		super(message);
 		this.name = "ReviewError";
