@@ -196,6 +196,21 @@ it("⌘⇧F from a closed sidebar focuses the search, even before React would re
 	}
 });
 
+it("⌘⇧F selects a kept query, so typing replaces it", async () => {
+	const selected: Element[] = [];
+	const realSelect = dom.window.HTMLElement.prototype.select;
+	dom.window.HTMLElement.prototype.select = function (this: Element) {
+		selected.push(this);
+	};
+	try {
+		await act(async () => void window.dispatchEvent(new CustomEvent("lh:kbd-sessions-search")));
+		await settle();
+		assert.ok(selected.length === 1 && selected[0] === document.querySelector('[data-testid="session-search"]'), "the search's text is selected");
+	} finally {
+		dom.window.HTMLElement.prototype.select = realSelect;
+	}
+});
+
 it("focusing the search (⌘⇧F) leaves its tooltip closed, so it never covers the filters", async () => {
 	const search = document.querySelector('[data-testid="session-search"]')!;
 	await act(async () => void search.dispatchEvent(new dom.window.Event("focusin", { bubbles: true })));

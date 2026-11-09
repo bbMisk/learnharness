@@ -683,7 +683,11 @@ function SessionsSidebar() {
 			setKbdIndex(null); // each ⌘⇧F walk starts at the first row
 			// A clipped (overflow-hidden) input still focuses — the sidebar's
 			// slide-in doesn't gate the keystroke.
-			requestAnimationFrame(() => searchRef.current?.focus());
+			// Select a kept query, so typing replaces it.
+			requestAnimationFrame(() => {
+				searchRef.current?.focus();
+				searchRef.current?.select();
+			});
 		};
 		window.addEventListener("lh:kbd-sessions-search", onFocusSearch);
 		return () => window.removeEventListener("lh:kbd-sessions-search", onFocusSearch);
