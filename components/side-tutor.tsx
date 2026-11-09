@@ -283,7 +283,12 @@ export function SideTutor({ chatId, selectedText, onClose }: { chatId: string; s
 								size="icon-sm"
 								variant="ghost"
 								aria-label="Stop side response"
-								onClick={() => request.current?.abort()}
+								// React reuses this <button> as Send once the stop re-renders,
+								// still inside the click: preventDefault keeps it from submitting.
+								onClick={(e) => {
+									e.preventDefault();
+									request.current?.abort();
+								}}
 							>
 								<SquareIcon className="size-4" />
 							</Button>
