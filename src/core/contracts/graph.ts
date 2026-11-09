@@ -376,6 +376,12 @@ function graphemePrefix(text: string, max: number, size: (segment: string) => nu
 /** The longest stored chat title or project name, in characters. */
 export const NAME_MAX_CHARS = 200;
 
+/** A name field's value cut to NAME_MAX_CHARS UTF-16 units on a grapheme
+ *  boundary. Inputs use it instead of maxLength, which splits an emoji family. */
+export function capName(text: string): string {
+	return text.length <= NAME_MAX_CHARS ? text : graphemePrefix(text, NAME_MAX_CHARS, (s) => s.length);
+}
+
 /** A stored chat title or project name: one line (control characters become
  *  spaces, bidi controls such as U+202E are dropped so a name can't reorder
  *  the text around it), trimmed, at most NAME_MAX_CHARS characters. Empty

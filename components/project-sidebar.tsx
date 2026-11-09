@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { ChevronRightIcon, FolderIcon, PlusIcon } from "lucide-react";
 import { Dialog } from "radix-ui";
 import type { ChatListItem, ProjectSummary } from "@/src/core";
+import { capName } from "@/src/core";
 import { InlineRename, renameProject } from "@/components/inline-rename";
 type ProjectChats = {
 	chats: ChatListItem[];
@@ -126,9 +127,8 @@ export function ProjectSidebar({
 							<input
 								aria-label="Project name"
 								value={name}
-								onChange={(e) => setName(e.target.value)}
+								onChange={(e) => setName(capName(e.target.value))}
 								autoFocus
-								maxLength={200}
 								placeholder="Project name"
 								className="lh-input w-full rounded-lg border bg-background p-3"
 							/>

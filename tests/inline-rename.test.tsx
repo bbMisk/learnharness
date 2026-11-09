@@ -209,3 +209,47 @@ it("the New project dialog reopens empty after a rejected name is closed", async
 	assert.equal(field()!.value, "", "the rejected name is gone");
 	assert.doesNotMatch(document.body.textContent ?? "", /already exists/);
 });
+
+const family = "👨‍👩‍👧‍👦"; // 11 UTF-16 units; maxLength={200} kept 18 families and a lone 👨
+it("the name fields cap a paste on a whole emoji family, not mid-cluster", async () => {
+	const { capName } = await import("../src/core/contracts/graph.ts");
+	assert.equal(capName(family.repeat(60)), family.repeat(18));
+	assert.equal(capName("Quant"), "Quant");
+	const commits: string[] = [];
+	await render(<InlineRename value="Quant" ariaLabel="Name" onCommit={async (n) => void commits.push(n)} onDone={() => {}} />);
+	const inline = host!.querySelector("input") as HTMLInputElement;
+	inline.setAttribute("type", "text"); // linkedom reports no type, so React would skip onChange
+	await type(inline, family.repeat(60));
+	await key(inline, "Enter");
+	assert.deepEqual(commits, [family.repeat(18)], "project rename");
+	await act(async () => root!.unmount());
+
+	const { RenameRow } = await import("../components/sidebar.tsx");
+	await render(<RenameRow chat={{ id: "c1", title: "Alpha" } as never} onCommit={() => {}} onCancel={() => {}} />);
+	const row = host!.querySelector("input") as HTMLInputElement;
+	row.setAttribute("type", "text");
+	await type(row, family.repeat(60));
+	assert.equal(row.value, family.repeat(18), "sidebar chat rename");
+	await act(async () => root!.unmount());
+
+	Object.assign(globalThis, { NodeFilter: dom.window.NodeFilter ?? { SHOW_ELEMENT: 1, FILTER_ACCEPT: 1, FILTER_SKIP: 3 } });
+	(globalThis as Record<string, unknown>).MutationObserver ??= class { observe() {} disconnect() {} takeRecords() { return []; } };
+	await render(
+		<AppRouterContext.Provider value={router as never}>
+			<PathnameContext.Provider value="/">
+				<ProjectSidebar projects={[]} chats={[]} refresh={() => {}} moveChat={() => {}} renderChat={() => null} showChats />
+			</PathnameContext.Provider>
+		</AppRouterContext.Provider>,
+	);
+	await act(async () => (host!.querySelector('[aria-label="Add project"]') as HTMLButtonElement).click());
+	const create = document.querySelector('input[aria-label="Project name"]') as HTMLInputElement;
+	create.setAttribute("type", "text");
+	await type(create, family.repeat(60));
+	assert.equal(create.value, family.repeat(18), "new project name");
+	await act(async () => (document.querySelector('[aria-label="Close new project"]') as HTMLButtonElement).click());
+
+	// The chat header's title field is too heavy to mount here; pin its wiring.
+	const fs = await import("node:fs");
+	const chat = fs.readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
+	assert.ok(/value=\{titleDraft\}\s*onChange=\{\(e\) => setTitleDraft\(capName\(e\.target\.value\)\)\}/.test(chat), "chat header rename");
+});

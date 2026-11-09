@@ -22,7 +22,7 @@ import { Hint } from "@/components/ui/hint";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { formatLessonTime, fuzzyScore } from "@/src/core";
+import { capName, formatLessonTime, fuzzyScore } from "@/src/core";
 import { useChatListRefresh } from "@/components/chat-list-refresh";
 import type { ChatListItem, ProjectSummary } from "@/src/core";
 import { kbdEventForAction } from "@/src/core";
@@ -443,9 +443,8 @@ export function RenameRow({ chat, draft: initialDraft, onCommit, onCancel, showT
 				<input
 					ref={inputRef}
 					value={draft}
-					maxLength={200}
 					spellCheck={false}
-					onChange={(e) => setDraft(e.target.value)}
+					onChange={(e) => setDraft(capName(e.target.value))}
 					onBlur={() => onCommit(draft)}
 					onKeyDown={(e) => {
 						if (e.key === "Enter") e.currentTarget.blur();
