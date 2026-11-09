@@ -1,3 +1,4 @@
+import { NAME_MAX_CHARS } from "@/src/core";
 import { jsonResponse, projectStore, projectView, setChatOrganization, stores, uploadStore } from "@/src/server";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -9,6 +10,8 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
 	const { id } = await params;
 	if (!projectStore.get(id)) return Response.json({ error: "Project not found." }, { status: 404 });
 	const body = await request.json().catch(() => null);
+	if (typeof body?.name === "string" && body.name.length > NAME_MAX_CHARS)
+		return Response.json({ error: `Project names can be at most ${NAME_MAX_CHARS} characters.` }, { status: 400 });
 	if (
 		!body ||
 		typeof body !== "object" ||

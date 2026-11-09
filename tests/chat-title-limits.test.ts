@@ -10,6 +10,8 @@ process.env.LH_AUTH_FILE = path.join(root, "auth.json");
 const { chatStore } = await import("../src/store/chats.ts");
 const { projectStore } = await import("../src/store/projects.ts");
 const chatRoute = await import("../app/api/chats/[id]/route.ts");
+const projectsRoute = await import("../app/api/projects/route.ts");
+const projectRoute = await import("../app/api/projects/[id]/route.ts");
 after(() => fs.rmSync(root, { recursive: true, force: true }));
 
 it("chat titles drop control characters and stop at 200 characters, on create and rename", async () => {
@@ -31,4 +33,24 @@ it("project names get the same cleanup", () => {
 	const project = projectStore.create("Linear\r\nAlgebra");
 	assert.equal(project.name, "Linear Algebra");
 	assert.equal(projectStore.update(project.id, { name: "x\u001b[31m" }).name, "x [31m");
+});
+
+it("bidi controls are dropped from titles and project names", () => {
+	const chat = chatStore.createChat("abc\u202Edef\u2066g\u2069\u200Fh");
+	assert.equal(chatStore.getChat(chat.id)!.title, "abcdefgh");
+	assert.equal(projectStore.create("\u202Egnp.exe").name, "gnp.exe");
+	assert.equal(chatStore.renameChat(chat.id, "\u202E\u2067").title, "Untitled session");
+});
+
+it("an over-long project name says it is too long, on create and rename", async () => {
+	const post = await projectsRoute.POST(new Request("http://test/api", { method: "POST", body: JSON.stringify({ name: "p".repeat(201) }) }));
+	assert.equal(post.status, 400);
+	assert.match(((await post.json()) as { error: string }).error, /at most 200 characters/);
+	const project = projectStore.create("Short");
+	const put = await projectRoute.PUT(
+		new Request("http://test/api", { method: "PUT", body: JSON.stringify({ name: "p".repeat(250), expected: { name: "Short" } }) }),
+		{ params: Promise.resolve({ id: project.id }) },
+	);
+	assert.equal(put.status, 400);
+	assert.match(((await put.json()) as { error: string }).error, /at most 200 characters/);
 });
