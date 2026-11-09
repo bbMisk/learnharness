@@ -199,7 +199,16 @@ export function providerKeyPresent(provider: string): boolean {
 	if (provider === CLAUDE_CODE_PROVIDER) return claudeCodeAvailable();
 	if (isSubscriptionProvider(provider)) return subscriptionConnected(provider);
 	const info = AUTH_PROVIDER_KEYS.find((p) => p.id === provider);
-	return info ? keyValue(info.envVar) !== undefined : true;
+	if (!info) return true;
+	// pi-ai reads only a non-blank process.env value. A key another process
+	// saved to the shared file is reflected here, so the gate and the engine
+	// agree instead of the turn failing after its input is saved.
+	const value = keyValue(info.envVar)?.trim();
+	if (value && !process.env[info.envVar]?.trim()) {
+		process.env[info.envVar] = value;
+		boot().fillGap.add(info.envVar);
+	}
+	return !!value;
 }
 
 /**

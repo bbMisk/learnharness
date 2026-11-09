@@ -55,9 +55,8 @@ fs.writeFileSync(
 process.env.OPENROUTER_API_KEY = "sk-or-v1-envvalue99";
 
 // Import AFTER env setup — module init runs the boot fill-gap + snapshot.
-const { deleteKey, initAuthEnv, keyStatuses, keyValue, resolveKeyStatuses, saveKey, isWritableAuthKey } = await import(
-	"../src/server/keys.ts"
-);
+const keysModule = await import("../src/server/keys.ts");
+const { deleteKey, initAuthEnv, keyStatuses, keyValue, resolveKeyStatuses, saveKey, isWritableAuthKey } = keysModule;
 const { authStore } = await import("../src/store/auth.ts");
 
 const ENV_OWNED = "sk-or-v1-envvalue99";
@@ -199,6 +198,21 @@ describe("saveKey / deleteKey (immediate effect, no restart)", () => {
 			// cleanup the openrouter save from the guard test too
 			deleteKey("OPENROUTER_API_KEY");
 			assert.ok(!("OPENROUTER_API_KEY" in authStore.authVars()));
+		});
+
+		it("the turn gate reflects a key another process saved, so the engine sees it too", () => {
+			const { providerKeyPresent } = keysModule;
+			// Another process wrote the shared file; this process's env never saw it.
+			authStore.setAuthVar("OPENAI_API_KEY", "sk-proj-otherprocess0123456789");
+			assert.equal(process.env.OPENAI_API_KEY, undefined);
+			assert.equal(providerKeyPresent("openai"), true);
+			assert.equal(process.env.OPENAI_API_KEY, "sk-proj-otherprocess0123456789");
+			deleteKey("OPENAI_API_KEY");
+			assert.equal(process.env.OPENAI_API_KEY, undefined);
+			// A blank env value is no key to pi-ai, so the gate refuses it too.
+			process.env.OPENAI_API_KEY = " ";
+			assert.equal(providerKeyPresent("openai"), false);
+			delete process.env.OPENAI_API_KEY;
 		});
 	});
 });
