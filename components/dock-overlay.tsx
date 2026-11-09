@@ -16,6 +16,7 @@ import { PracticeDock } from "@/components/practice-dock";
 import { MARGIN_MIN_W, dockFlank, measureDockFlank, type DockFlank } from "@/components/dock-flank";
 import { rememberRevealed, wasRevealed } from "@/components/revealed-questions";
 import { useHydrated } from "@/components/use-hydrated";
+import { restoresReadingPosition } from "@/components/session-navigation";
 import { ReadingThinkingField } from "@/components/reading-thinking";
 import type { pendingQuestionOf, Phase3, QuestionAnswerData, QuestionFormDraft } from "@/src/core";
 
@@ -176,7 +177,9 @@ export function DockOverlay({
 	// matches the server's; an opened check then opens in the next render.
 	const hydrated = useHydrated();
 	const openedBefore = hydrated && wasRevealed(pending?.key ?? null);
-	const [expanded, setExpanded] = useState(!requiresReveal || openedBefore);
+	// Coming back to a saved reading position: the question starts folded so
+	// it doesn't cover the passage (reaching the bottom opens it as usual).
+	const [expanded, setExpanded] = useState(() => (!requiresReveal || openedBefore) && !restoresReadingPosition());
 	const [readingUploading, setReadingUploading] = useState(false);
 	// Reveal state: false until the learner opens the invitation. While false,
 	// the scroll machine must not auto-expand at the bottom (the learner reads
@@ -379,12 +382,23 @@ export function DockOverlay({
 			expandIntentRef.current = false;
 		});
 	};
+	const focusCheckRef = useRef(false);
 	const expandAndReveal = () => {
 		setRevealed(true); // the teach-check invitation was accepted
 		rememberRevealed(pendingId);
 		setExpanded(true);
+		focusCheckRef.current = true;
 		void suppressFoldDuringReveal();
 	};
+	// An explicit open moves focus into the check (the bar that held it is
+	// gone), unless the learner is typing somewhere.
+	useEffect(() => {
+		if (!expanded || !focusCheckRef.current) return;
+		focusCheckRef.current = false;
+		const active = document.activeElement;
+		if (active instanceof HTMLElement && active !== document.body && (active.isContentEditable || active.matches("input, textarea"))) return;
+		shellRef.current?.querySelector<HTMLElement>('[data-testid="question-dock"]')?.focus({ preventScroll: true });
+	}, [expanded]);
 	const expandAndRevealRef = useRef(expandAndReveal);
 	expandAndRevealRef.current = expandAndReveal;
 	// Enter (or Space) opens the waiting check: while a question waits with
@@ -411,7 +425,12 @@ export function DockOverlay({
 	const checkCollapsible = !!pending && requiresReveal && expanded;
 	useEffect(() => {
 		if (!checkEscRef || !checkCollapsible) return;
-		checkEscRef.current = () => setExpanded(false);
+		checkEscRef.current = () => {
+			// Focus left in the hidden form would keep its Enter-to-submit.
+			const active = document.activeElement;
+			if (active instanceof HTMLElement && shellRef.current?.contains(active)) active.blur();
+			setExpanded(false);
+		};
 		return () => { checkEscRef.current = null; };
 	}, [checkEscRef, checkCollapsible]);
 

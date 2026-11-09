@@ -43,6 +43,7 @@ import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog"
 import { DumbbellIcon, MessageCircleQuestionIcon, WaypointsIcon } from "lucide-react";
 import { SessionFind } from "@/components/session-find";
 import { SessionMessageNavigation } from "@/components/session-navigation";
+import { sidewaysWheel } from "@/components/sideways-wheel";
 import { useProgressiveTranscript } from "@/components/progressive-transcript";
 import { TopBar } from "@/components/top-bar";
 import type { JobRecord, QuestionCall, TurnUsage, SessionPricing } from "@/src/core";
@@ -1196,7 +1197,7 @@ export function Chat({
 					{/* The chip row scrolls sideways when the bar is too narrow (phone
 					    widths) instead of widening the page; the extraction ring and
 					    phase tag stay outside it — the ring's popover would clip. */}
-					<div className="lh-scroll-fade flex min-w-0 items-center gap-3 overflow-x-auto [scrollbar-width:none]!">
+					<div onWheel={sidewaysWheel} className="lh-scroll-fade flex min-w-0 items-center gap-3 overflow-x-auto [scrollbar-width:none]!">
 					<Hint label="Temporary side tutor" action="toggle-side-tutor" side="bottom">
 						<button type="button" aria-label="Open side tutor" aria-expanded={sideTutor !== null} onClick={toggleSideTutor} className="lh-no-drag flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border/80 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:border-border hover:text-foreground"><MessageCircleQuestionIcon className="size-3.5 text-primary" aria-hidden />Side tutor</button>
 					</Hint>
@@ -1355,7 +1356,7 @@ export function Chat({
 					}
 					onReserve={setDockReserve}
 					room={trackerRoom.dock}
-					dictationCancel={dictation.cancel}
+					dictationCancel={dictation.active ? dictation.cancel : undefined}
 					queuedSteers={visibleQueuedSteers(steerQueue, nativeMessages)}
 					checkEscRef={checkEscRef}
 					setupCta={

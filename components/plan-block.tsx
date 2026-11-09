@@ -702,6 +702,17 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 		return () => document.removeEventListener("keydown", onKey);
 	}, [onClose]);
 
+	// Focus moves into the popup (a modal: the shortcuts' Tab trap keeps it
+	// there) and returns to whatever held it on close.
+	const dialogRef = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		const opener = document.activeElement;
+		dialogRef.current?.focus({ preventScroll: true });
+		return () => {
+			if (opener instanceof HTMLElement && opener !== document.body && opener.isConnected) opener.focus({ preventScroll: true });
+		};
+	}, []);
+
 	// ── pan/zoom viewport (fit floor = the default) ──
 	const viewportRef = useRef<HTMLDivElement>(null);
 	const [size, setSize] = useState({ w: 0, h: 0 });
@@ -806,13 +817,16 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 
 	return (
 		<div
+			ref={dialogRef}
 			data-testid="plan-popup"
 			// SESSION-SCOPED (absolute, not fixed): the chat page mounts this
 			// INSIDE the session-area div — below the drag bar, right of the
 			// sidebar. 80% + blur: the transcript ghosts through.
-			className="absolute inset-0 z-40 flex flex-col bg-background/80 p-4 backdrop-blur-sm"
+			className="absolute inset-0 z-40 flex flex-col bg-background/80 p-4 outline-none backdrop-blur-sm"
 			role="dialog"
 			aria-modal="true"
+			data-lh-modal
+			tabIndex={-1}
 			aria-label="The full plan"
 			onClick={(e) => {
 				if (e.target === e.currentTarget) onClose();

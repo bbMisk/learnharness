@@ -566,7 +566,7 @@ function QuestionDockForm({
 	}, [kbdIdx]);
 
 	return (
-		<div ref={rootRef} data-testid="question-dock">
+		<div ref={rootRef} data-testid="question-dock" tabIndex={-1} className="outline-none">
 			{/* Question area: scrolls internally if very tall; the bottom row stays
 			    put. Capped by the measured column (--dock-max-h). */}
 			<div data-dock-scroll-area="" data-session-find-root="" className="max-h-[var(--dock-max-h,55dvh)] overflow-y-auto px-4 pt-3">
