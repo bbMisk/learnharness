@@ -695,7 +695,7 @@ export function AgentSection({
 							    span holding BOTH triggers of the open menu. */}
 							<span
 								ref={thisMenuOpen ? menuAnchorRef : undefined}
-								className={`relative flex items-center gap-2 ${advancedModels ? "flex-wrap justify-end sm:shrink-0 sm:flex-nowrap" : ""}`}
+								className={`relative flex items-center gap-2 ${advancedModels ? "flex-wrap justify-end lg:shrink-0 lg:flex-nowrap" : ""}`}
 								onKeyDown={(event) => {
 									// Portal events bubble here too: close this menu, not the dialog.
 									if (thisMenuOpen === "cache" && event.key === "Escape") {

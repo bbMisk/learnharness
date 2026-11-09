@@ -73,3 +73,15 @@ it("closing the Reading font menu keeps focus on its trigger", async () => {
 	assert.ok(trigger.isConnected, "the trigger was not remounted");
 	assert.equal(document.activeElement, trigger);
 });
+
+it("the advanced model triggers wrap below 1024 px, so 640–720 px windows keep the labels readable", async () => {
+	await act(async () => {
+		root.render(<AgentSection agent={undefined} models={{}} graph={undefined} compaction={undefined} onCompactionChange={() => {}} onSectionChange={() => {}} onModelsChange={() => {}} />);
+		await new Promise((r) => setTimeout(r, 5));
+	});
+	await click("models-advanced");
+	const triggers = element("slot-cache-strong").parentElement!.className.split(/\s+/);
+	assert.ok(triggers.includes("flex-wrap"), "the triggers wrap");
+	assert.ok(!triggers.some((c) => /^(sm:|md:)?(flex-nowrap|shrink-0)$/.test(c)), "not pinned to one line below lg");
+	assert.ok(triggers.includes("lg:flex-nowrap"), "one line on wide windows, as before");
+});
