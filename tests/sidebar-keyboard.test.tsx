@@ -53,10 +53,15 @@ const chats = [
 	{ id: "chat_a", title: "Alpha", kind: "teach", createdAt: "2026-11-01T00:00:00.000Z", updatedAt: "2026-11-01T00:00:00.000Z", messageCount: 0 },
 	{ id: "chat_b", title: "Beta", kind: "teach", createdAt: "2026-11-01T00:00:00.000Z", updatedAt: "2026-11-01T00:00:00.000Z", messageCount: 0 },
 ];
+const puts: string[] = [];
 const realFetch = globalThis.fetch;
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 	const url = String(input);
-	if (init?.method === "PUT") throw new TypeError("Failed to fetch"); // offline
+	if (init?.method === "PUT") {
+		puts.push(url);
+		await new Promise((resolve) => setTimeout(resolve, 20)); // in flight: the row stays hidden
+		throw new TypeError("Failed to fetch"); // offline
+	}
 	if (url === "/api/chats") return Response.json({ chats });
 	if (url === "/api/projects") return Response.json({ projects: [] });
 	return new Response("{}", { status: 404 });
@@ -256,4 +261,40 @@ it("the delete dialog focuses Delete, so Enter confirms", () => {
 		<DeleteSessionBody chat={{ id: "c1", title: "T" }} traces={false} busy={false} failure={null} onTraces={() => {}} onClose={() => {}} onRun={() => {}} />,
 	);
 	assert.match(html, /<button[^>]*data-testid="delete-confirm"[^>]*autofocus=""/);
+});
+
+it("a double click on a row's archive icon archives only that row", async () => {
+	puts.length = 0;
+	const archive = () => document.querySelector('[data-testid="unassigned-chat-list"] [aria-label="Archive chat"]') as HTMLElement;
+	await act(async () => archive().click());
+	// The row hid at once; the next row's icon now sits under the pointer.
+	await act(async () => archive().click());
+	await settle();
+	await settle();
+	assert.deepEqual(puts, ["/api/chats/chat_a"]);
+});
+
+it("Esc in the search clears the query first, then leaves the search", async () => {
+	const search = document.querySelector('[data-testid="session-search"]') as HTMLInputElement;
+	const type = async (text: string) => {
+		Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(search, text);
+		await act(async () => search.dispatchEvent(new dom.window.Event("input", { bubbles: true })));
+	};
+	const blurred: Element[] = [];
+	const realBlur = dom.window.HTMLElement.prototype.blur;
+	dom.window.HTMLElement.prototype.blur = function (this: Element) {
+		blurred.push(this);
+	};
+	try {
+		search.setAttribute("type", "text");
+		await type("Al");
+		assert.equal(search.value, "Al");
+		await key(search, "Escape");
+		assert.equal(search.value, "", "the first Esc clears the query");
+		assert.equal(blurred.length, 0, "and keeps focus");
+		await key(search, "Escape");
+		assert.deepEqual(blurred, [search], "the second Esc leaves the search");
+	} finally {
+		dom.window.HTMLElement.prototype.blur = realBlur;
+	}
 });

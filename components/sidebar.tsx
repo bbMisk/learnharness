@@ -469,6 +469,8 @@ export function RenameRow({ chat, draft: initialDraft, onCommit, onCancel, showT
  *  snapshot, persisted in localStorage, defaulting to All. */
 export type SessionKindFilter = "teach" | "all" | "practice";
 const KIND_FILTER_KEY = "lh:session-kind-filter";
+/** A row archive click within this long of the last one is a double click: ignored. */
+const ARCHIVE_GUARD_MS = 500;
 
 function SessionsSidebar() {
 	const { open, toggle } = useSidebar();
@@ -718,11 +720,18 @@ function SessionsSidebar() {
 		// freshness — no interval.
 	}, [open, pathname, refresh]);
 
+	const lastArchiveAt = useRef(0);
 	const renderChat = (chat: ChatListItem, index?: number) => renamingId === chat.id ? (
 		<RenameRow key={chat.id} chat={chat} draft={renameDraft ?? undefined} showTime={showTime} onCommit={next => { void commitRename(chat.id, next); returnFocus(); }} onCancel={() => { setRenamingId(null); setRenameError(""); returnFocus(); }} />
 	) : (
 		<SessionRow key={chat.id} chat={chat} showTime={showTime} active={pathname === `/chat/${chat.id}`} kbdSelected={index !== undefined && index === kbdIndex}
-			onArchive={() => updateChat(chat.id, {archived:!chat.archived})}
+			onArchive={async () => {
+				// The row hides at once and the next one slides under the pointer:
+				// a double click must not archive that one too.
+				if (Date.now() - lastArchiveAt.current < ARCHIVE_GUARD_MS) return;
+				lastArchiveAt.current = Date.now();
+				return updateChat(chat.id, {archived:!chat.archived});
+			}}
 			onOpen={() => { setKbdIndex(null); router.push(`/chat/${chat.id}`); }} onContextMenu={event => openContext(event, chat)} />
 	);
 
@@ -829,13 +838,16 @@ function SessionsSidebar() {
 							// rows (wrap), Enter opens the walked row — or the
 							// FIRST match when nothing is walked — then blurs
 							// (focus returns to the app; the query stays for
-							// re-searching). Esc leaves the search: blur, and
-							// claim the key so the window Esc chain (dictation /
-							// abort) doesn't also fire.
+							// re-searching). Esc clears a query first, then
+							// leaves the search (blur); it claims the key so the
+							// window Esc chain (dictation / abort) doesn't also fire.
 							onKeyDown={(e) => {
 								if (e.key === "Escape") {
 									e.stopPropagation();
-									e.currentTarget.blur();
+									if (query) {
+										setQuery("");
+										setKbdIndex(null);
+									} else e.currentTarget.blur();
 									return;
 								}
 								// The walked row's context menu (rename, pin, delete…):
