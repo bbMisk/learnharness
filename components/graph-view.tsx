@@ -679,6 +679,15 @@ export function GraphChromeRow({
 							ref={searchInputRef}
 							value={query}
 							onChange={(e) => onQuery(e.target.value)}
+							onKeyDown={(e) => {
+								// Esc clears the search, then leaves it; claimed so
+								// the window Esc chain doesn't also act.
+								if (e.key !== "Escape") return;
+								e.preventDefault();
+								e.stopPropagation();
+								if (query) onQuery("");
+								else e.currentTarget.blur();
+							}}
 							placeholder="Search nodes…"
 							aria-label="Search nodes"
 							spellCheck={false}
