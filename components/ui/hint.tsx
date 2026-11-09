@@ -29,6 +29,8 @@ interface HintProps {
 	 *  submits the form the button belongs to). */
 	binding?: string
 	side?: "top" | "bottom" | "left" | "right"
+	/** Keeps the tooltip shut without unwrapping (and so remounting) the child. */
+	disabled?: boolean
 	children: React.ReactElement
 }
 
@@ -47,11 +49,11 @@ export function hintText(label: string, action?: KeyAction, binding?: string): s
  *  desktop hint, and its Esc layer swallowed the next Esc. */
 const canHover = () => !window.matchMedia?.("(hover: none)").matches
 
-export function Hint({ label, action, binding, side = "top", children }: HintProps) {
+export function Hint({ label, action, binding, side = "top", disabled, children }: HintProps) {
 	const [open, setOpen] = React.useState(false)
 	return (
 		<TooltipProvider>
-			<Tooltip open={open} onOpenChange={(next) => setOpen(next && canHover())}>
+			<Tooltip open={open && !disabled} onOpenChange={(next) => setOpen(next && canHover())}>
 				<TooltipTrigger asChild>{children}</TooltipTrigger>
 				<TooltipContent side={side}>{hintText(label, action, binding)}</TooltipContent>
 			</Tooltip>

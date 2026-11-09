@@ -324,7 +324,8 @@ function MenuTrigger({
 			className={widthClass}
 		/>
 	);
-	return hint ? <Hint label={hint}>{button}</Hint> : button;
+	// Always wrapped: unwrapping would remount the button and drop its focus.
+	return <Hint label={hint ?? ""} disabled={!hint}>{button}</Hint>;
 }
 
 /* The section's dropdowns all mount the shared MenuShell: portaled to
