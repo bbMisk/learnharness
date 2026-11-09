@@ -21,7 +21,7 @@ export async function POST(request: Request) {
 	} catch {
 		return Response.json({ error: "Invalid JSON body" }, { status: 400 });
 	}
-	const chatId = (body as { chatId?: unknown }).chatId;
+	const chatId = (body as { chatId?: unknown } | null)?.chatId;
 	if (typeof chatId !== "string" || chatId === "") {
 		return Response.json({ error: 'Body must be {chatId: string}' }, { status: 400 });
 	}

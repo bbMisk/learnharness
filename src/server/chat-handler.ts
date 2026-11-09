@@ -196,6 +196,7 @@ export async function handleChatRequest(
 	} catch {
 		return Response.json({ error: "Invalid JSON body" }, { status: 400 });
 	}
+	if (typeof body !== "object" || body === null) return Response.json({ error: "Invalid JSON body" }, { status: 400 });
 	const chatId = typeof body.chatId === "string" ? body.chatId : "";
 	if (!chatId) return Response.json({ error: "Unknown chat" }, { status: 404 });
 	let input: TurnInput;

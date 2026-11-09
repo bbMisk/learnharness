@@ -18,7 +18,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
 	if (!getChat(id)) return Response.json({ error: "unknown chat" }, { status: 404 });
 	let input;
 	try {
-		const body = (await request.json()) as { input?: unknown };
+		const body = (await request.json().catch(() => null)) as { input?: unknown } | null;
 		input = parseUserSteerInput(body?.input);
 	} catch (err) {
 		if (err instanceof ChatInputError) return Response.json({ error: err.message }, { status: 400 });
