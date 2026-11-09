@@ -792,9 +792,9 @@ export function ChainTableOverlay({
 	// effect: it captures the opener before the table's own mount focus.
 	useLayoutEffect(() => {
 		if (!open) return;
-		const opener = document.activeElement;
+		const opener = document.activeElement as HTMLElement | null;
 		return () => {
-			if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+			if (opener?.isConnected) opener.focus?.();
 		};
 	}, [open]);
 
