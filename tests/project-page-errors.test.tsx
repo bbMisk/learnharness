@@ -253,3 +253,30 @@ it("the window title names the open project", async () => {
 	await act(async () => root.unmount());
 	assert.equal(document.title, "LearnHarness", "leaving restores the app title");
 });
+
+it("Delete project asks in the app's own dialog, not the native confirm()", async () => {
+	let nativeAsks = 0;
+	Object.assign(dom.window, { confirm: () => (nativeAsks++, true) });
+	const pushed: string[] = [];
+	const realPush = router.push;
+	router.push = ((href: string) => void pushed.push(href)) as typeof router.push;
+	try {
+		await mount(200);
+		const button = (label: string) => [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === label) as HTMLElement;
+		const dialog = () => document.querySelector('[data-testid="delete-project-dialog"]');
+		await act(async () => button("Delete project").click());
+		assert.equal(nativeAsks, 0);
+		assert.ok(dialog(), "the dialog opens");
+		await act(async () => button("Cancel").click());
+		assert.ok(!dialog(), "Cancel closes it");
+		assert.deepEqual(pushed, [], "nothing deleted");
+		await act(async () => button("Delete project").click());
+		await act(async () => {
+			button("Delete").click();
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		});
+		assert.deepEqual(pushed, ["/"], "deleted, then home");
+	} finally {
+		router.push = realPush;
+	}
+});

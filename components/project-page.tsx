@@ -15,6 +15,7 @@ import type { ChatListItem, ProjectView } from "@/src/core";
 import { InlineRename } from "@/components/inline-rename";
 import { NotFoundView } from "@/components/not-found-view";
 import { APP_TITLE } from "@/lib/utils";
+import { ConnectionDialog } from "@/components/settings/connection-controls";
 /** A project deleted here or in another window (or restored by browser Back
  *  after a delete) swaps for the not-found page, as ChatGate does for chats. */
 export function ProjectPage({ initial }: { initial: ProjectView }) {
@@ -137,15 +138,20 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 		setError("");
 	};
 	const router = useRouter();
+	const [confirmDelete, setConfirmDelete] = useState(false);
+	const [deleting, setDeleting] = useState(false);
 	const deleteProject = async () => {
-		if (!window.confirm(`Delete the project “${project.name}”? Its chats move to Chats. Its files stay in your library.`)) return;
 		setError("");
+		setDeleting(true);
 		try {
 			const response = await fetch("/api/projects/" + initial.id, { method: "DELETE" });
 			if (!response.ok) throw new Error();
 			router.push("/");
 		} catch {
+			setConfirmDelete(false);
 			setError("Could not delete the project. Try again.");
+		} finally {
+			setDeleting(false);
 		}
 	};
 	const instructions = edits.instructions?.value ?? project.instructions;
@@ -182,11 +188,26 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 					<PlusIcon className="size-3.5" />
 					New chat
 				</Link>
-				<button type="button" onClick={() => void deleteProject()} className={buttonClass + " text-muted-foreground hover:text-destructive"}>
+				<button type="button" onClick={() => setConfirmDelete(true)} className={buttonClass + " text-muted-foreground hover:text-destructive"}>
 					<Trash2Icon className="size-3.5" />
 					Delete project
 				</button>
 			</TopBar>
+			{confirmDelete && (
+				<ConnectionDialog label="Delete project" testid="delete-project-dialog" backdropTestid="delete-project-backdrop" busy={deleting} onClose={() => setConfirmDelete(false)}>
+					<h2 className="text-sm font-semibold text-destructive">Delete project?</h2>
+					<code className="mt-1.5 block font-mono text-sm text-foreground">{project.name}</code>
+					<p className="mt-2 text-sm text-muted-foreground">Its chats move to Chats. Its files stay in your library.</p>
+					<div className="mt-4 flex justify-end gap-2">
+						<button type="button" onClick={() => setConfirmDelete(false)} disabled={deleting} className="rounded-sm px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40">
+							Cancel
+						</button>
+						<button type="button" data-testid="delete-project-confirm" onClick={() => void deleteProject()} disabled={deleting} className="rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-xs text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-40">
+							{deleting ? "Deleting…" : "Delete"}
+						</button>
+					</div>
+				</ConnectionDialog>
+			)}
 			<div className="min-h-0 flex-1 overflow-y-auto">
 				<div className="mx-auto w-full max-w-5xl px-6 py-10 md:px-12 md:py-12">
 					<header className="mb-8">
