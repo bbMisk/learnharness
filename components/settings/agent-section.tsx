@@ -915,7 +915,7 @@ export function AgentSection({
 
 			<FlashcardAgentSection agent={agent} onChange={onSectionChange}/>
 
-			<ModelInstructionsSection agent={agent} catalog={catalog ?? undefined} onChange={onSectionChange} />
+			<ModelInstructionsSection agent={agent} catalog={catalog ?? undefined} strong={models?.strong?.model ?? slots?.strong?.model} onChange={onSectionChange} />
 
 			<SettingsGroup label="Context" testid="group-context">
 				<SettingsRow
