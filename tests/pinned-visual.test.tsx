@@ -212,6 +212,7 @@ describe("layout", () => {
 		const phone = demoFit(358, 318);
 		assert.equal(phone.layout, 358);
 		assert.ok(Math.abs(phone.layout * phone.scale - 318) < 1e-6, "no sideways scroll");
+		assert.equal(demoFit(410, 395).layout, 520, "a tablet's drawer, wide enough for the floor, keeps it");
 	});
 
 	it("Esc: an expanded pin closes first; an open drawer closes above a question; a closed one never opens", () => {

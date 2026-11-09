@@ -29,8 +29,8 @@ import { pinnedJobId, pinTargetOf, type LhViewMessage, type ManualPin, type PinT
  * Docks as a right column when the chat keeps PIN_MIN_CHAT px, else as a
  * right-edge drawer. A demo keeps its transcript width scaled down to fit,
  * not below DEMO_MIN_SCALE; past that it lays out narrower (the demo kit is
- * responsive), down to DEMO_MIN_LAYOUT (or its transcript width, if
- * narrower), after which the panel scrolls.
+ * responsive), down to DEMO_MIN_LAYOUT (or, in a panel too narrow for
+ * that, its transcript width), after which the panel scrolls.
  */
 
 const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
@@ -58,10 +58,11 @@ export function pinMode(areaWidth: number, width: number): PinMode {
 }
 
 /** A demo's layout width and scale in a panel `panelWidth` wide, from the
- *  width it has in the transcript (the layout floor never exceeds it: a
- *  phone's demo already lays out narrower). Pure. */
+ *  width it has in the transcript. Pure. */
 export function demoFit(flowWidth: number, panelWidth: number): { layout: number; scale: number } {
-	const layout = Math.max(Math.min(DEMO_MIN_LAYOUT, flowWidth), Math.min(Math.max(flowWidth, panelWidth), panelWidth / DEMO_MIN_SCALE));
+	// A panel too narrow for the floor (a phone's drawer) keeps the transcript's narrower layout.
+	const floor = panelWidth < DEMO_MIN_LAYOUT * DEMO_MIN_SCALE ? Math.min(DEMO_MIN_LAYOUT, flowWidth) : DEMO_MIN_LAYOUT;
+	const layout = Math.max(floor, Math.min(Math.max(flowWidth, panelWidth), panelWidth / DEMO_MIN_SCALE));
 	return { layout, scale: Math.max(DEMO_MIN_SCALE, Math.min(1, panelWidth / layout)) };
 }
 
