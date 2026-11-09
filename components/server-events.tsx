@@ -9,7 +9,8 @@
  * whole trick — see src/core/events.ts and server/events-stream.ts).
  *
  * This file is the ONE place in the app that knows EventSource exists.
- * Auto-reconnect is EventSource's own — never fought, always exploited:
+ * Auto-reconnect is EventSource's own, plus a backoff reopen after an HTTP
+ * error (which ends an EventSource for good):
  * every (re)open fires the resync callbacks, so a reconnect heals with
  * one ordinary fetch per consumer (a dev-server restart self-heals here).
  *
@@ -38,17 +39,46 @@ export interface NotifySource {
 }
 
 export function openEventsChannel(): NotifySource {
-	const es = new EventSource("/api/events");
+	const named: [string, (data: string) => void][] = [];
+	let openCb = () => {};
+	let errorCb = () => {};
+	let delay = 1000;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	let closed = false;
+	let es: EventSource;
+	const listen = (name: string, cb: (data: string) => void) => es.addEventListener(name, (ev) => cb((ev as MessageEvent).data));
+	const connect = () => {
+		es = new EventSource("/api/events");
+		es.onopen = () => {
+			delay = 1000;
+			openCb();
+		};
+		es.onerror = () => {
+			errorCb();
+			// A network drop retries on its own; an HTTP error closes the
+			// source for good, so reopen it with backoff.
+			if (closed || es.readyState !== EventSource.CLOSED) return;
+			timer = setTimeout(connect, delay);
+			delay = Math.min(delay * 2, 10_000);
+		};
+		for (const [name, cb] of named) listen(name, cb);
+	};
+	connect();
 	return {
-		close: () => es.close(),
+		close: () => {
+			closed = true;
+			clearTimeout(timer);
+			es.close();
+		},
 		onOpen: (cb) => {
-			es.onopen = () => cb();
+			openCb = cb;
 		},
 		onEvent: (name, cb) => {
-			es.addEventListener(name, (ev) => cb((ev as MessageEvent).data));
+			named.push([name, cb]);
+			listen(name, cb);
 		},
 		onError: (cb) => {
-			es.onerror = () => cb();
+			errorCb = cb;
 		},
 	};
 }
