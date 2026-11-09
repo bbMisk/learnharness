@@ -14,5 +14,12 @@ export function useVisibleModes(): SessionMode[] {
 export function useSessionMode(initial: SessionMode): [SessionMode, (mode: SessionMode) => void, SessionMode[]] {
 	const modes = useVisibleModes();
 	const [mode, setMode] = useState(initial);
+	// A new requested mode (the sidebar's Teaching/Practice on this page)
+	// wins over the earlier choice, like picking it in the switch.
+	const [requested, setRequested] = useState(initial);
+	if (initial !== requested) {
+		setRequested(initial);
+		setMode(initial);
+	}
 	return [modes.includes(mode) ? mode : modes[0]!, setMode, modes];
 }
