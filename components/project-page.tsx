@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowUpRightIcon, FileIcon, FolderIcon, MessageSquareIcon, PaperclipIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react";
@@ -16,6 +16,7 @@ import { actionError, InlineRename } from "@/components/inline-rename";
 import { NotFoundView } from "@/components/not-found-view";
 import { APP_TITLE } from "@/lib/utils";
 import { ConnectionDialog } from "@/components/settings/connection-controls";
+import { clearDraft, readDraft, writeDraft } from "@/components/draft-store";
 /** A project deleted here or in another window (or restored by browser Back
  *  after a delete) swaps for the not-found page, as ChatGate does for chats. */
 export function ProjectPage({ initial }: { initial: ProjectView }) {
@@ -86,6 +87,14 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 	useServerEvent("turn-started", refresh);
 	useServerEvent("turn-settled", refresh);
 	useServerResync(refresh);
+	// Unsaved instructions survive leaving the page, like the composer's draft.
+	const draftKey = "project-instructions:" + initial.id;
+	useLayoutEffect(() => {
+		const draft = readDraft<{ value: string; expected: string }>(draftKey);
+		if (typeof draft?.value === "string" && typeof draft.expected === "string" && draft.value !== initial.instructions)
+			setEdits((prev) => ({ instructions: draft, ...prev }));
+	}, [draftKey]);
+	useEffect(() => writeDraft(draftKey, edits.instructions), [draftKey, edits.instructions]);
 	const change = (field: Field, value: string) => {
 		setSaved(false);
 		setEdits((prev) => {
@@ -149,6 +158,7 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 		try {
 			const response = await fetch("/api/projects/" + initial.id, { method: "DELETE" });
 			if (!response.ok) throw new Error();
+			clearDraft(draftKey);
 			// Stays busy until the page goes: a second Delete would 404.
 			router.push("/");
 		} catch {

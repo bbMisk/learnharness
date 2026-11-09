@@ -71,3 +71,42 @@ test("Disconnect arms on the first click and only the second click disconnects",
 	await click("custom-delete"); // the GET-only fetch stub fails on a DELETE
 	assert.equal(element("custom-delete").textContent, "Confirm disconnect");
 });
+async function type(id: string, value: string) {
+	const input = element(id);
+	Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input, value);
+	await act(async () => input.dispatchEvent(new dom.window.Event("input", { bubbles: true })));
+}
+test("a busy Connect stays focusable (aria-disabled, not disabled), so a failed connect keeps focus", async () => {
+	await mount();
+	const get = globalThis.fetch;
+	let posts = 0;
+	let fail!: () => void;
+	globalThis.fetch = (async (input, init) => {
+		if (init?.method !== "POST") return get(input, init);
+		posts++;
+		await new Promise<void>((resolve) => { fail = resolve; });
+		return Response.json({ error: "Base URL must be http(s)." }, { status: 400 });
+	}) as typeof fetch;
+	await click("custom-save");
+	assert.equal(element("custom-save").textContent, "Connecting…");
+	assert.equal(element("custom-save").hasAttribute("disabled"), false, "disabling the focused button drops focus to <body>");
+	assert.equal(element("custom-save").getAttribute("aria-disabled"), "true");
+	await click("custom-save");
+	assert.equal(posts, 1, "a click while busy does nothing");
+	await act(async () => { fail(); await new Promise((resolve) => setTimeout(resolve, 0)); });
+	assert.equal(element("custom-save").textContent, "Connect");
+	assert.equal(element("custom-save").getAttribute("aria-disabled"), "false");
+	assert.match(host!.textContent ?? "", /Base URL must be http\(s\)\./);
+});
+test("Setup keeps the typed URL and model ids when it closes unconnected; Settings does not", async () => {
+	await mount(true);
+	await type("custom-baseurl-input", "ftp://nope");
+	await type("custom-models-input", "m1");
+	await act(async () => root!.unmount()); host!.remove();
+	await mount(true);
+	assert.equal((element("custom-baseurl-input") as HTMLInputElement).value, "ftp://nope");
+	assert.equal((element("custom-models-input") as HTMLInputElement).value, "m1");
+	await act(async () => root!.unmount()); host!.remove();
+	await mount();
+	assert.equal((element("custom-baseurl-input") as HTMLInputElement).value, "http://fixture.invalid/v1");
+});

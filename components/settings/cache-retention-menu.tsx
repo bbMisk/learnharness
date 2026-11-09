@@ -6,7 +6,7 @@ const OPTIONS = [
 	{ value: undefined, compact: "default", label: "Provider default", description: "Send nothing; the provider and model decide how long the cache lasts." },
 	{ value: "none", compact: "not requested", label: "Don’t request caching", description: "Ask for no caching where the provider allows it. Providers may still cache automatically." },
 	{ value: "short", compact: "short", label: "Short retention", description: "The provider’s short cache: 5 minutes on Claude, the account default on ChatGPT." },
-	{ value: "long", compact: "long", label: "Long retention", description: "Keep the cache across longer pauses. Cache writes cost more; see below." },
+	{ value: "long", compact: "long", label: "Long retention", description: "Keep the cache across longer pauses. Cache writes cost more." },
 ] as const;
 
 /** What Long does for this slot's model (owner, 2026-11-01), from the providers' docs.
@@ -58,7 +58,7 @@ export function CacheRetentionMenu({ value, onPick, provider, modelId }: {
 			className={`rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted ${value === option.value ? "bg-muted/60" : ""}`}
 		>
 			<span className="flex justify-between gap-2 text-card-foreground"><span>{option.label}</span>{value === option.value && <span aria-hidden>✓</span>}</span>
-			<span className="mt-1 block text-muted-foreground">{option.description}</span>
+			<span className="mt-1 block text-muted-foreground">{option.description}{option.value === "long" && note && " See the note above."}</span>
 		</button>)}
 	</>;
 }

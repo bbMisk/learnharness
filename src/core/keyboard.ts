@@ -152,7 +152,8 @@ export function bindingForAction(id: KeyAction): string {
  * - mod matches BOTH meta (⌘) and ctrl — Ctrl+K works on a Mac keyboard too.
  * - a printable key ("?") bakes its shift in: "shift+/?" collapses to "?".
  * - with mod or alt held, a single non-ASCII character falls back to its
- *   physical A–Z/comma position (Russian Ctrl+"л" → mod+k). ASCII characters
+ *   physical A–Z/comma position (Russian Ctrl+"л" → mod+k); with alt, also
+ *   punctuation and digits (⌥"÷" → alt+/). ASCII characters
  *   keep following `key`, including AZERTY/Dvorak mappings.
  */
 export function eventBinding(e: KeyboardEvent): string {
@@ -171,7 +172,7 @@ export function eventBinding(e: KeyboardEvent): string {
 
 /** The key part of a modified binding. A non-ASCII `key` (the layout's own
  *  letter) falls back to `code` — KeyK → "k", Comma → "," — the only keys the
- *  registry binds by character. */
+ *  registry binds by character; with ⌥, punctuation and digits do too. */
 function modifiedKey(e: KeyboardEvent, mod: boolean): string {
 	// Fork: macOS Option changes event.key (⌘⌥S can report "ß" or a dead
 	// key). Mod+Option letter chords use the physical letter code.
@@ -184,14 +185,19 @@ function modifiedKey(e: KeyboardEvent, mod: boolean): string {
 	if (e.key.length !== 1 || e.key <= "\x7f" || !(e.metaKey || e.ctrlKey || e.altKey)) return key;
 	if (e.code === "Comma") return ",";
 	if (e.code === "Space") return " "; // macOS ⌥Space reports a non-breaking space
+	// ⌥ types a glyph (⌥/ is "÷", ⌥1 "¡"): name the physical key, as dead keys do.
+	const physical = e.altKey ? (CODE_CHAR[e.code] ?? /^Digit(\d)$/.exec(e.code)?.[1]) : undefined;
+	if (physical) return physical;
 	const letter = /^Key([A-Z])$/.exec(e.code);
 	return letter?.[1] ? letter[1].toLowerCase() : key;
 }
 
-/** US positions of the punctuation codes a layout can make dead. */
+/** US positions of the punctuation codes, plus readable names for the ISO
+ *  and JIS keys (the Mac ISO key left of 1 reports IntlBackslash). */
 const CODE_CHAR: Record<string, string> = {
 	Backquote: "`", Minus: "-", Equal: "=", BracketLeft: "[", BracketRight: "]", Backslash: "\\",
 	Semicolon: ";", Quote: "'", Comma: ",", Period: ".", Slash: "/", Space: " ",
+	IntlBackslash: "§", IntlRo: "ろ",
 };
 
 function deadKey(code: string): string {
