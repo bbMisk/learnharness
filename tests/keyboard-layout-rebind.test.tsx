@@ -90,4 +90,13 @@ describe("keyboard rebind shares layout normalization with dispatch", () => {
 		await press({ key: "л", code: "KeyK" });
 		assert.deepEqual(loadOverrides(), { find: "л" });
 	});
+
+	it("refuses a binding another action already uses, and says which", async () => {
+		const host = await mount();
+		await click(host, "kbd-rebind-jump-graph");
+		await press({ key: "b", code: "KeyB", metaKey: true });
+		assert.deepEqual(loadOverrides(), {}, "Graph view keeps its own binding");
+		assert.match(host.querySelector('[data-testid="kbd-row-jump-graph"] [role="alert"]')?.textContent ?? "", /already used by Toggle sessions sidebar/);
+		assert.equal(actionForBinding("mod+b"), "toggle-sidebar");
+	});
 });
