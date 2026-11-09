@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Conversation, ConversationContent, ConversationEmptyState } from "@/components/ai-elements/conversation";
 import { Composer } from "@/components/composer";
@@ -14,6 +14,7 @@ import { ChainTableOverlay } from "@/components/chain-table-lazy";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { SessionStarter } from "@/components/start-session";
+import { clearDraft, readDraft, writeDraft } from "@/components/draft-store";
 import { ModeSwitch } from "@/components/mode-switch";
 import { useSessionMode } from "@/components/session-modes";
 import { SESSION_MODES, type GraphSnapshot, type SessionMode } from "@/src/core";
@@ -259,10 +260,20 @@ export function NewSession({ initialConfigured,
 	 * landed via setState and may not have re-rendered yet. The send reads
 	 * the mirror; every write keeps it current. */
 	const textRef = useRef("");
+	// The unsent opening autosaves like the chat composer's draft.
+	const draftKey = `new:chat${projectId ? `:${projectId}` : ""}`;
 	const applyText = (v: string) => {
 		textRef.current = v;
 		setText(v);
+		writeDraft(draftKey, v);
 	};
+	useLayoutEffect(() => {
+		const saved = readDraft<string>(draftKey);
+		if (saved && !textRef.current) {
+			textRef.current = saved;
+			setText(saved);
+		}
+	}, [draftKey]);
 	const [busy, setBusy] = useState(false);
 	const startingRef = useRef(false);
 	const starterRef = useRef(new SessionStarter());
@@ -330,7 +341,10 @@ export function NewSession({ initialConfigured,
 		void startDraftSession(draft, fetch, mode === "teach" ? undefined : mode, mode === "practice" ? picksRef.current : undefined,
 			starterRef.current, JSON.stringify(catalog?.slots.strong), projectId)
 			.then((target) => {
-				if (target) router.push(target);
+				if (target) {
+					clearDraft(draftKey);
+					router.push(target);
+				}
 				else { startingRef.current = false; setBusy(false); }
 			})
 			.catch(() => {
@@ -338,7 +352,7 @@ export function NewSession({ initialConfigured,
 				setBusy(false);
 				setStartError(true);
 			});
-	}, [router, configured, zeroKeys, catalog, mode]);
+	}, [router, configured, zeroKeys, catalog, mode, draftKey]);
 
 	return (
 		<>

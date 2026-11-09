@@ -86,3 +86,24 @@ it("Esc in the table's search clears the query first, then closes the table", as
 	assert.deepEqual(afterFirst, { open: true, query: "" }, "the first Esc only clears");
 	assert.ok(closed, "the second Esc closes");
 });
+
+it("Esc with focus in the table body also clears the query before closing", async () => {
+	const host = document.createElement("div");
+	document.body.append(host);
+	const root = createRoot(host);
+	await act(async () => root.render(<ServerEventsProvider connect={quiet}><Harness /></ServerEventsProvider>));
+	await act(async () => setOpen(true));
+	const search = document.querySelector('[data-testid="chain-table-search"]') as HTMLInputElement;
+	search.setAttribute("type", "text");
+	Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(search, "normal");
+	await act(async () => search.dispatchEvent(new dom.window.Event("input", { bubbles: true })));
+	const esc = async () => act(async () => document.querySelector('[data-testid="chain-table-overlay"]')!
+		.dispatchEvent(Object.assign(new dom.window.Event("keydown", { bubbles: true, cancelable: true }), { key: "Escape" })));
+	await esc();
+	const afterFirst = { open: !!document.querySelector('[data-testid="chain-table-overlay"]'), query: (document.querySelector('[data-testid="chain-table-search"]') as HTMLInputElement | null)?.value };
+	await esc();
+	const closed = !document.querySelector('[data-testid="chain-table-overlay"]');
+	await act(async () => root.unmount());
+	assert.deepEqual(afterFirst, { open: true, query: "" }, "the first Esc only clears");
+	assert.ok(closed, "the second Esc closes");
+});

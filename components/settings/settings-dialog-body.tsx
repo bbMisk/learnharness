@@ -68,8 +68,9 @@ export function SettingsDialog({
 	initialRow: string | null;
 }) {
 	const backdropDismiss = useBackdropDismiss(onClose);
-	// Closing hands focus back to whatever held it on open (the Settings button).
-	useFocusReturn();
+	// Closing hands focus back to whatever held it on open (the Settings button),
+	// caret included, or to the page's composer when nothing did (the /settings deep link).
+	useFocusReturn(false, focusComposer);
 	// Plain dim backdrop (no blur — nothing decorative); a genuine
 	// backdrop click closes, the dialog body stops propagation.
 	return createPortal(
@@ -86,6 +87,11 @@ export function SettingsDialog({
 
 /** The dialog without the portal/backdrop — the SSR-testable frame
  *  (portals render nothing under renderToStaticMarkup). */
+/** The page's composer: where focus goes when Settings closes and nothing opened it. */
+function focusComposer(): void {
+	document.querySelector<HTMLElement>('[data-testid="composer"] [data-file-path-input], [data-file-path-default]')?.focus();
+}
+
 export function SettingsDialogBody({
 	onClose,
 	initialSection = "keys",

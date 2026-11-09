@@ -34,8 +34,9 @@ export function captureFocus(): ((preventScroll: boolean) => void) | null {
 }
 
 /** A dialog's focus return: captured at its first render (before it takes
- * focus) and handed back, caret included, when it closes. */
-export function useFocusReturn(preventScroll = false): void {
+ * focus) and handed back, caret included, when it closes. `fallback` runs
+ * when nothing held focus on open (e.g. a deep link opened the dialog). */
+export function useFocusReturn(preventScroll = false, fallback?: () => void): void {
 	const [restore] = useState(captureFocus);
-	useEffect(() => () => restore?.(preventScroll), [restore, preventScroll]);
+	useEffect(() => () => (restore ? restore(preventScroll) : fallback?.()), [restore, preventScroll, fallback]);
 }

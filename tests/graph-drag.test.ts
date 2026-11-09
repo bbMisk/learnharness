@@ -52,7 +52,7 @@ function renderer() {
 		colors: { node: "#000", edge: "#000", label: "#000", hoverText: "#000" }, fontFamily: "sans-serif",
 	};
 	r.setData(data);
-	const drag = (id: string, dx: number) => {
+	const drag = (id: string, dx: number, settle = true) => {
 		const n = data.nodes.find((m) => m.id === id)!;
 		internals.pickAt = () => n; // identity transform: world = screen
 		const at = (x: number) => ({ button: 0, pointerId: 1, clientX: x, clientY: n.y, preventDefault() {} });
@@ -63,10 +63,16 @@ function renderer() {
 			internals.advanceSim();
 		}
 		canvas.listeners.pointerup!(at(x0 + dx));
+		if (!settle) return;
 		let guard = 0;
 		while (internals.advanceSim() && guard++ < 2000);
 	};
-	return { data, drag };
+	const press = (id: string) => {
+		const n = data.nodes.find((m) => m.id === id)!;
+		internals.pickAt = () => n;
+		canvas.listeners.pointerdown!({ button: 0, pointerId: 1, clientX: n.x, clientY: n.y, preventDefault() {} });
+	};
+	return { data, drag, press };
 }
 const centroid = (nodes: { x: number; y: number }[]) => ({
 	x: nodes.reduce((s, n) => s + n.x, 0) / nodes.length,
@@ -89,4 +95,19 @@ it("a drag moves only the dragged node's neighbourhood, and repeated drags keep 
 		const end = centroid(data.nodes);
 		assert.ok(Math.hypot(end.x - start.x, end.y - start.y) < 2.5, `centre moved ${JSON.stringify([start, end])}`);
 	}
+});
+
+it("a quick second drag leaves the first drag's neighbourhood free to settle", () => {
+	const { data, drag, press } = renderer();
+	const a = "n_eef326d18bac", b = "n_dd1107920063";
+	const outside = (id: string) => new Set(pinOutsideNeighborhood(data.nodes.map((m) => ({ ...m })), data.edges, id).map((n) => n.id));
+	const outsideA = outside(a), outsideB = outside(b);
+	const aOnly = data.nodes.filter((n) => !outsideA.has(n.id) && outsideB.has(n.id));
+	assert.ok(aOnly.length > 0, "the two neighbourhoods differ");
+	drag(a, 120, false); // released, still annealing
+	press(b);
+	const frozen = aOnly.filter((n) => (n as { fx?: number | null }).fx != null).map((n) => n.id);
+	assert.deepEqual(frozen, [], "the first neighbourhood is not pinned by the second press");
+	const bOnly = data.nodes.filter((n) => outsideA.has(n.id) && !outsideB.has(n.id) && n.id !== b);
+	assert.ok(bOnly.every((n) => (n as { fx?: number | null }).fx == null), "the second neighbourhood is free too");
 });

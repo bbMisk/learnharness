@@ -143,6 +143,7 @@ const LABEL_WEIGHT = "500";
  *  zoom), capped at a line count with an ellipsis on the last line — a
  *  bounded footprint that keeps most of the path visible. */
 const REGION_LABEL_MAX_WIDTH = 220; // screen px
+const LABEL_FIT_MARGIN = 8; // screen px kept between a cluster label and the viewport edge at fit
 const REGION_LABEL_MAX_LINES = 3;
 const REGION_LABEL_LINE_HEIGHT = 1.3;
 
@@ -415,19 +416,26 @@ export function labelAlpha(
 }
 
 /** The camera transform that frames `bbox` in a w×h viewport with padding,
- *  inside the band left between `insets` (chrome covering the top/bottom). */
+ *  inside the band left between `insets` (chrome covering the top/bottom).
+ *  `labels` (screen-sized, centred at world x `cx`) also stay inside. */
 export function fitTransform(
 	bbox: { minX: number; maxX: number; minY: number; maxY: number },
 	w: number,
 	h: number,
 	padding: number,
 	insets: { top: number; bottom: number } = { top: 0, bottom: 0 },
+	labels: readonly { cx: number; halfWidth: number }[] = [],
 ): { x: number; y: number; k: number } {
 	const bw = Math.max(bbox.maxX - bbox.minX, 1e-6);
 	const bh = Math.max(bbox.maxY - bbox.minY, 1e-6);
 	const band = h - insets.top - insets.bottom;
-	const k = Math.min((w - 2 * padding) / bw, (band - 2 * padding) / bh);
+	let k = Math.min((w - 2 * padding) / bw, (band - 2 * padding) / bh);
 	const cx = (bbox.minX + bbox.maxX) / 2;
+	for (const l of labels) {
+		const room = w / 2 - l.halfWidth - LABEL_FIT_MARGIN;
+		const off = Math.abs(l.cx - cx);
+		if (room > 0 && off * k > room) k = room / off;
+	}
 	const cy = (bbox.minY + bbox.maxY) / 2;
 	return { x: w / 2 - cx * k, y: insets.top + band / 2 - cy * k, k };
 }
@@ -933,13 +941,26 @@ export class GraphCanvasRenderer {
 		const w = this.canvas.clientWidth;
 		const h = this.canvas.clientHeight;
 		if (w < 10 || h < 10) return; // layout not ready yet; the ResizeObserver retries
-		const t = fitTransform(this.worldBBox, w, h, 40, this.coverInsets());
+		const t = fitTransform(this.worldBBox, w, h, 40, this.coverInsets(), this.clusterLabelExtents());
 		this.kFit = fitTransform(this.worldBBox, w, h, 40).k; // the label gate's 1×, chrome-free
 		this.hasFit = true;
 		select(this.canvas).call(
 			this.zoomBehavior.transform,
 			zoomIdentity.translate(t.x, t.y).scale(t.k),
 		);
+	}
+
+	/** The drawn cluster labels' centres and screen half-widths (fit keeps them in view). */
+	private clusterLabelExtents(): { cx: number; halfWidth: number }[] {
+		const settings = this.settings;
+		if (!settings?.clusterLabels || !this.data) return [];
+		const ctx = this.ctx;
+		const prevFont = ctx.font;
+		ctx.font = `${LABEL_WEIGHT} ${settings.clusterLabelSize}px ${this.data.fontFamily}`;
+		const extents = this.regionMeta.flatMap((rm) => rm.lines
+			? [{ cx: rm.cx, halfWidth: Math.max(...rm.lines.map((line) => ctx.measureText(line).width)) / 2 }] : []);
+		ctx.font = prevFont;
+		return extents;
 	}
 
 	/** Refresh the label-gate's "1×" reference from the current bbox +
@@ -1038,10 +1059,13 @@ export class GraphCanvasRenderer {
 			this.dragOrigin = pos;
 			const n = this.simById.get(node.id);
 			if (n) {
+				// A previous drag still settling keeps its neighbourhood free:
+				// only its pins are candidates to stay pinned.
+				const candidates = this.dragPins.length > 0 ? this.dragPins : this.sim.nodes();
 				this.releaseDragPins();
 				n.fx = n.x;
 				n.fy = n.y;
-				this.dragPins = pinOutsideNeighborhood(this.sim.nodes(), this.data?.edges ?? [], node.id);
+				this.dragPins = pinOutsideNeighborhood(candidates, this.data?.edges ?? [], node.id);
 			}
 			this.canvas.style.cursor = "grabbing";
 			this.markDirty();

@@ -796,12 +796,14 @@ export function ChainTableOverlay({
 				// abort) must not also act. One Esc, one action.
 				e.preventDefault();
 				e.stopPropagation();
-				onClose();
+				// Clear the search first, wherever focus is in the table.
+				if (query) setQuery("");
+				else onClose();
 			}
 		};
 		document.addEventListener("keydown", onKeyDown);
 		return () => document.removeEventListener("keydown", onKeyDown);
-	}, [open, deleteOpen, onClose]);
+	}, [open, deleteOpen, onClose, query]);
 
 	// Closing hands focus back to whatever opened the table. A layout
 	// effect: it captures the opener before the table's own mount focus.

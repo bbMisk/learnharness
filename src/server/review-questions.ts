@@ -31,9 +31,9 @@ export async function curatorSubmit<T>(opts: {
 }): Promise<T> {
 	const spec = resolveRoleSpec("flashcardCurator", stores.settingsStore.readSettings());
 	if (!spec || !providerKeyPresent(spec.provider))
-		throw new ReviewError("Connect your AI account in Settings → Providers, then pick your models in Settings → Agent to prepare flashcards.", 409);
+		throw new ReviewError("Connect your AI account in Settings → Providers, then pick your models in Settings → Agent to prepare flashcards.", 503);
 	if (!connectionBackgroundAllowed(spec.provider))
-		throw new ReviewError("Enable background access for the selected model account to prepare flashcards.", 409);
+		throw new ReviewError("Enable background access for the selected model account to prepare flashcards.", 503);
 	const requestSignal = opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(120000)]) : AbortSignal.timeout(120000);
 	return withBgLlmSlot(requestSignal, async () => {
 		requestSignal.throwIfAborted();
