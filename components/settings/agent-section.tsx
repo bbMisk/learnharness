@@ -386,12 +386,22 @@ export function AgentSection({
 	 *  re-read it or the toggle keeps painting its pre-write state until
 	 *  a remount. Keeps the last-good view on a failed re-read (the
 	 *  initial mount fetch below owns the loading/null state). */
-	const readPrompts = useCallback(() => {
-		fetch("/api/settings/prompts")
-			.then((r) => r.json())
-			.then((body: PromptView) => setPrompts(body))
-			.catch(() => {});
-	}, []);
+	const readPrompts = useCallback(() => fetch("/api/settings/prompts")
+		.then((r) => r.json())
+		.then((body: PromptView) => setPrompts(body))
+		.catch(() => {}), []);
+
+	/** Saved or deleted: the box shows the file again. A save keeps any
+	 *  text typed since it was sent. */
+	const dropDraft = (path: string, unlessChangedFrom?: string) => {
+		if (unlessChangedFrom !== undefined && segmentDrafts[path] !== undefined && segmentDrafts[path] !== unlessChangedFrom) return;
+		delete segmentDrafts[path];
+		setSegmentDraft((prev) => {
+			const next = { ...prev };
+			delete next[path];
+			return next;
+		});
+	};
 
 	useSettingsSaved((section) => {
 		// The prompt switches write through the agent section, and this view
@@ -441,7 +451,8 @@ export function AgentSection({
 			setSegmentStatus(`Save failed: ${(await res.json().catch(() => ({}))).error ?? res.status}`);
 			return;
 		}
-		readPrompts();
+		await readPrompts();
+		dropDraft(path, text);
 		setSegmentStatus("Saved");
 		// Auto-on: writing an override and putting it to work are ONE action
 		// (a save with the switch off would change nothing). The file exists
@@ -467,7 +478,8 @@ export function AgentSection({
 		if (agent?.prompts?.[path] === true) {
 			onSectionChange(composePromptSwitch(agent, path, false));
 		}
-		readPrompts();
+		dropDraft(path);
+		await readPrompts();
 		setSegmentStatus("Deleted");
 	}
 
