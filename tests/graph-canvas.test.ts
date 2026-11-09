@@ -17,6 +17,7 @@ import {
 	isImpNodeId,
 	boxBlurRound,
 	clampWheelZoom,
+	zoomOutFloor,
 	fitTransform,
 	labelAlpha,
 	pickNearest,
@@ -110,6 +111,10 @@ describe("clampWheelZoom", () => {
 		assert.equal(clampWheelZoom(0.1, 0.2, 0.58), 0.2);
 	});
 	it("caps zoom in at 40×", () => assert.equal(clampWheelZoom(30, 80, 0.58), 40));
+	it("touch pinch shares the floor (d3's scaleExtent per gesture)", () => {
+		assert.equal(zoomOutFloor(0.6, 0.58), 0.29);
+		assert.equal(zoomOutFloor(0.1, 0.58), 0.1);
+	});
 });
 
 describe("fitTransform", () => {

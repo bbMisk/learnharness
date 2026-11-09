@@ -402,7 +402,13 @@ export function fitTransform(
 /** The wheel's next zoom: out stops at half the fit view (or where the
  *  camera already is, if a restored camera sits further out); in at 40×. */
 export function clampWheelZoom(current: number, next: number, kFit: number): number {
-	return Math.min(Math.max(next, Math.min(kFit / 2, current)), 40);
+	return Math.min(Math.max(next, zoomOutFloor(current, kFit)), 40);
+}
+
+/** How far out any zoom gesture may go: half the fit view, or where the
+ *  camera already is if it sits further out. */
+export function zoomOutFloor(current: number, kFit: number): number {
+	return Math.min(kFit / 2, current);
 }
 
 /** One complete arrow glyph for a directed edge a→b: shaft endpoints
@@ -640,6 +646,10 @@ export class GraphCanvasRenderer {
 		// transform change just calls markDirty (draws happen in OUR loop).
 		this.zoomBehavior = zoom<HTMLCanvasElement, unknown>()
 			.scaleExtent([0.02, 40])
+			// Touch pinch is d3's: each gesture gets the wheel's zoom-out floor.
+			.on("start", ({ transform }) => {
+				this.zoomBehavior.scaleExtent([zoomOutFloor(transform.k, this.kFit), 40]);
+			})
 			.on("zoom", ({ transform }) => {
 				this.transform = transform;
 				this.markDirty();
