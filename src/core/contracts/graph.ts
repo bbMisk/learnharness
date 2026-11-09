@@ -351,7 +351,12 @@ export function titleFromPrompt(prompt: string): string {
 	// One long word: no boundary exists under the cap — split it. This also
 	// lands correctly when the first word exactly fills the cap: cutting at the
 	// cap IS the boundary.
-	if (cut < 0) return `${graphemePrefix(oneLine, TITLE_MAX_CHARS, (s) => s.length)}…`;
+	// A first grapheme already over the cap leaves nothing to keep: "" lets
+	// the caller use its default title instead of a bare "…".
+	if (cut < 0) {
+		const head = graphemePrefix(oneLine, TITLE_MAX_CHARS, (s) => s.length);
+		return head ? `${head}…` : "";
+	}
 	return `${oneLine.slice(0, cut)}…`;
 }
 
