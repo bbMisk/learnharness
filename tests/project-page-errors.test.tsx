@@ -339,6 +339,23 @@ it("this tab's project delete goes home without flashing the deleted page, and E
 	await act(async () => finishDelete(new Response("{}", { status: 200 })));
 	await tick();
 	assert.deepEqual(pushed, ["/"]);
+	// Until the route change lands, the dialog stays busy: no second DELETE.
+	assert.equal(confirm.textContent, "Deleting…");
+	assert.equal(confirm.getAttribute("aria-disabled"), "true");
+});
+
+it("the project delete dialog opens with focus on Delete, so Enter confirms", async () => {
+	const focus = dom.window.HTMLElement.prototype.focus;
+	let focused: Element | null = null;
+	dom.window.HTMLElement.prototype.focus = function (this: Element) { focused = this; };
+	try {
+		await mount(200);
+		await act(async () => ([...host.querySelectorAll("button")].find((b) => b.textContent === "Delete project") as HTMLElement).click());
+		assert.equal((focused as HTMLElement | null)?.dataset.testid, "delete-project-confirm");
+		await act(async () => ([...document.querySelectorAll("button")].find((b) => b.textContent === "Cancel") as HTMLElement).click());
+	} finally {
+		dom.window.HTMLElement.prototype.focus = focus;
+	}
 });
 
 it("the header's New chat and Delete project go icon-only on phones, so the header fits", async () => {

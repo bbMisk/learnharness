@@ -21,7 +21,8 @@ export function ConnectionFooter({ leading, children, testid }: { leading?: Reac
 	</div>;
 }
 
-export function ConnectionDialog({ children, onClose, busy, label, testid, backdropTestid }: { children: React.ReactNode; onClose: () => void; busy: boolean; label: string; testid: string; backdropTestid: string }) {
+/** `initialFocus`: which control takes focus on open; "last" puts a confirm dialog's action under Enter. */
+export function ConnectionDialog({ children, onClose, busy, label, testid, backdropTestid, initialFocus = "first" }: { children: React.ReactNode; onClose: () => void; busy: boolean; label: string; testid: string; backdropTestid: string; initialFocus?: "first" | "last" }) {
 	const ref = useRef<HTMLDivElement>(null), closeRef = useRef(onClose), busyRef = useRef(busy);
 	closeRef.current = onClose;
 	busyRef.current = busy;
@@ -29,7 +30,7 @@ export function ConnectionDialog({ children, onClose, busy, label, testid, backd
 	useEffect(() => {
 		const previous = captureFocus();
 		const focusable = () => [...(ref.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled])') ?? [])];
-		focusable()[0]?.focus();
+		(initialFocus === "last" ? focusable().at(-1) : focusable()[0])?.focus();
 		const key = (event: KeyboardEvent) => {
 			if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); if (!busyRef.current) closeRef.current(); }
 			else if (event.key === "Tab") {

@@ -72,6 +72,7 @@ import { ModelInstructionsSection } from "./model-instructions-section";
 import { ModelMenuList, ThinkingMenuList } from "./model-menu";
 import { ChatGPTBackgroundAccess } from "./chatgpt-connection";
 import { NativeSubscriptionBackgroundAccess } from "./subscription-connections";
+import { isComposing } from "@/components/ime";
 
 /** One slot's display identity — the label and the tier's roster (the
  *  row hint). */
@@ -914,7 +915,7 @@ export function AgentSection({
 							<div className="flex gap-2 pl-3">
 								<input value={folderInput} aria-label="Allowed folder path" data-testid="file-access-add" placeholder="Absolute path or ~/folder"
 									onChange={(event) => { folderText.current = event.target.value; setFolderInput(event.target.value); setFolderError(null); setFolderWarning(null); }}
-									onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addFolder(); } }}
+									onKeyDown={(event) => { if (event.key === "Enter" && !isComposing(event)) { event.preventDefault(); addFolder(); } }}
 									className="min-w-0 flex-1 rounded-sm border border-border bg-background px-2 py-1 font-ui text-xs" />
 								<button type="button" data-testid="file-access-add-button" disabled={!folderInput.trim()} onClick={addFolder} className="rounded-sm border border-border px-2 text-xs disabled:opacity-40">Add folder</button>
 							</div>

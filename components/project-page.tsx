@@ -149,12 +149,12 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 		try {
 			const response = await fetch("/api/projects/" + initial.id, { method: "DELETE" });
 			if (!response.ok) throw new Error();
+			// Stays busy until the page goes: a second Delete would 404.
 			router.push("/");
 		} catch {
 			deletingHere.current = false;
 			setConfirmDelete(false);
 			setError("Could not delete the project. Try again.");
-		} finally {
 			setDeleting(false);
 		}
 	};
@@ -199,7 +199,7 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 				</button>
 			</TopBar>
 			{confirmDelete && (
-				<ConnectionDialog label="Delete project" testid="delete-project-dialog" backdropTestid="delete-project-backdrop" busy={deleting} onClose={() => setConfirmDelete(false)}>
+				<ConnectionDialog label="Delete project" testid="delete-project-dialog" backdropTestid="delete-project-backdrop" busy={deleting} initialFocus="last" onClose={() => setConfirmDelete(false)}>
 					<h2 className="text-sm font-semibold text-destructive">Delete project?</h2>
 					<code className="mt-1.5 block font-mono text-sm text-foreground wrap-anywhere">{project.name}</code>
 					<p className="mt-2 text-sm text-muted-foreground">Its chats move to Chats. Its files stay in your library.</p>

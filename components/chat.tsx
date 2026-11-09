@@ -78,6 +78,7 @@ import { readDraft, writeDraft } from "@/components/draft-store";
 import { SideTutor, useSideTutor } from "@/components/side-tutor";
 import { useReadingThinkingResync } from "@/components/reading-thinking-resync";
 import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/thinking-block";
+import { isComposing } from "@/components/ime";
 import { FACTORY_SETTINGS } from "@/src/core";
 import { useReadingThinkingRefresh } from "@/components/reading-thinking-refresh";
 import { DockOverlay, GRADIENT_H } from "@/components/dock-overlay";
@@ -224,7 +225,7 @@ export function Chat({
 	// or turn-settled arrives.
 	const [turnInFlight, setTurnInFlight] = useState(initiallyInFlight ?? false);
 
-	const { titleText, renaming, setRenaming, titleDraft, setTitleDraft, titleInputRef, commitRename } = useSessionRename(chatId, title);
+	const { titleText, renaming, setRenaming, titleDraft, setTitleDraft, titleInputRef, commitRename, renameError } = useSessionRename(chatId, title);
 
 	// Explicit Stop shares the pending-send fence with composer interruptions.
 	const abortInFlightTurn = useCallback(() => { void abortTurn(); }, [abortTurn]);
@@ -1162,7 +1163,7 @@ export function Chat({
 								value={titleDraft}
 								onChange={(e) => setTitleDraft(capName(e.target.value))}
 								onKeyDown={(e) => {
-									if (e.key === "Enter") void commitRename(titleDraft);
+									if (e.key === "Enter" && !isComposing(e)) void commitRename(titleDraft);
 									// stopPropagation claims the Esc: closing rename
 									// must not also abort a turn.
 									else if (e.key === "Escape") {
@@ -1259,6 +1260,7 @@ export function Chat({
 						<PhaseChip phase={phases.at(-1) ?? "probe"} />
 					)}
 				</TopBar>
+				{renameError && <p role="alert" className="shrink-0 px-3 py-1.5 text-xs text-destructive">{renameError}</p>}
 				<ChatNote />
 
 				<SessionFind scopeRef={sessionFindScopeRef} scrollContextRef={scrollContextRef} />

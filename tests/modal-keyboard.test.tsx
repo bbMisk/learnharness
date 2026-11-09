@@ -198,4 +198,24 @@ describe("the shortcut cheat sheet is a modal", () => {
 			window.removeEventListener("lh:kbd-abort-turn", onAbort);
 		}
 	});
+
+	it("takes focus, covers the page chrome, names an unbound action, and hands focus back on Esc", async () => {
+		await mount("");
+		const table = document.createElement("div");
+		table.setAttribute("data-testid", "chain-table");
+		const band = document.createElement("div");
+		band.setAttribute("data-testid", "update-band");
+		document.body.append(table, band);
+		hosts.push(table, band);
+		table.focus();
+		await act(async () => { press({ key: "?", code: "Slash", shiftKey: true }); });
+		const sheet = document.querySelector<HTMLElement>('[data-testid="cheat-sheet"]')!;
+		assert.ok(sheet.contains(document.activeElement), "focus moves into the sheet");
+		assert.equal(document.body.lastElementChild, sheet, "portaled after the update band and the offline strip");
+		const row = [...sheet.querySelectorAll("div")].find((d) => d.firstElementChild?.textContent === "Toggle dictation")!;
+		assert.equal(row.querySelector("kbd")?.textContent, "Not bound");
+		await act(async () => { press({ key: "Escape", code: "Escape" }); });
+		assert.equal(document.querySelector('[data-testid="cheat-sheet"]'), null);
+		assert.equal(document.activeElement, table, "focus goes back to what had it");
+	});
 });

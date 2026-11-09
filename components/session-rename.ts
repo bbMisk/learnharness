@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { captureFocus, focusComposer } from "@/components/focus-return";
+import { isComposing } from "@/components/ime";
 
 /**
  * The chat header's title and its click-to-rename state. Clicking the title
@@ -12,11 +13,17 @@ export function useSessionRename(chatId: string, title: string) {
 	const [titleText, setTitleText] = useState(title);
 	const [renaming, setRenaming] = useState(false);
 	const [titleDraft, setTitleDraft] = useState("");
+	const [renameError, setRenameError] = useState("");
 	const titleInputRef = useRef<HTMLInputElement | null>(null);
+	// Opening or closing the field clears a failed save's error.
+	const setRenamingClear = useCallback((next: boolean) => {
+		setRenameError("");
+		setRenaming(next);
+	}, []);
 
 	const commitRename = useCallback(
 		async (next: string) => {
-			setRenaming(false);
+			setRenamingClear(false);
 			const t = next.trim();
 			if (t === "" || t === titleText) return; // empty commit = discard
 			try {
@@ -31,10 +38,14 @@ export function useSessionRename(chatId: string, title: string) {
 					new CustomEvent("lh:chat-renamed", { detail: { id: chatId, title: t } }),
 				);
 			} catch (err) {
-				console.error("rename failed:", err); // keep the old title
+				// Keep the old title; reopen the field with what was typed.
+				console.error("rename failed:", err);
+				setTitleDraft(t);
+				setRenaming(true);
+				setRenameError("Chat could not be renamed. Try again.");
 			}
 		},
-		[chatId, titleText],
+		[chatId, titleText, setRenamingClear],
 	);
 
 	// Select-all when edit mode opens: the click means "replace". Enter or
@@ -50,9 +61,10 @@ export function useSessionRename(chatId: string, title: string) {
 					el.select();
 					const onKey = (e: KeyboardEvent) => {
 						if (e.key !== "Enter" && e.key !== "Escape") return;
+						if (e.key === "Enter" && isComposing(e)) return; // the IME's confirm, not a commit
 						closedByKey.current = true;
 						// The focus moves before Enter's default: keep it from typing a newline there.
-						if (e.key === "Enter" && !e.isComposing) e.preventDefault();
+						if (e.key === "Enter") e.preventDefault();
 					};
 					el.addEventListener("keydown", onKey);
 					return () => el.removeEventListener("keydown", onKey);
@@ -85,5 +97,5 @@ export function useSessionRename(chatId: string, title: string) {
 		return () => window.removeEventListener("lh:chat-renamed", onRenamed);
 	}, [chatId]);
 
-	return { titleText, renaming, setRenaming, titleDraft, setTitleDraft, titleInputRef, commitRename };
+	return { titleText, renaming, setRenaming: setRenamingClear, titleDraft, setTitleDraft, titleInputRef, commitRename, renameError };
 }
