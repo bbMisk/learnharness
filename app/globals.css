@@ -26,6 +26,12 @@
 *:focus-visible {
 	outline: none;
 }
+/* Except inside modal dialogs, where Tab is the way around: keyboard focus
+   shows a quiet ring (text fields show their caret instead). */
+[data-lh-modal] :focus-visible:not(input, textarea) {
+	outline: 1px solid var(--ring);
+	outline-offset: 1px;
+}
 
 /* Palette (owner's hexes): main #141414, raised #1C1C1C, edges #434343.
    Mono chrome = JetBrains Mono; prose = Source Sans 3; titles = CMU Serif. */

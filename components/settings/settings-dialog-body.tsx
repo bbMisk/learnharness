@@ -67,6 +67,11 @@ export function SettingsDialog({
 	initialRow: string | null;
 }) {
 	const backdropDismiss = useBackdropDismiss(onClose);
+	// Closing hands focus back to whatever held it on open (the Settings button).
+	const [opener] = useState(() => document.activeElement);
+	useEffect(() => () => {
+		if (opener instanceof HTMLElement && opener !== document.body && opener.isConnected) opener.focus();
+	}, [opener]);
 	// Plain dim backdrop (no blur — nothing decorative); a genuine
 	// backdrop click closes, the dialog body stops propagation.
 	return createPortal(
