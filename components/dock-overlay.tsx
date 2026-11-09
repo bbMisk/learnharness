@@ -110,6 +110,7 @@ export function DockOverlay({
 	dictationCancel,
 	setupCta,
 	queuedSteers,
+	checkEscRef,
 }: {
 	pending: ReturnType<typeof pendingQuestionOf>;
 	initialQuestionDraft?: QuestionFormDraft;
@@ -157,6 +158,9 @@ export function DockOverlay({
 	queuedSteers: QueuedSteerLine[];
 	/** The setup CTA (or plan-accept bar) shown above the composer. */
 	setupCta?: React.ReactNode;
+	/** Chat's layered Esc: holds the collapse while an opened teach check is
+	 *  showing, so Esc steps it back to its bar before the dismiss confirm. */
+	checkEscRef?: React.RefObject<(() => void) | null>;
 }) {
 	const { isAtBottom, scrollToBottom, scrollRef } = useStickToBottomContext();
 	const overlay = useSessionOverlay();
@@ -398,6 +402,12 @@ export function DockOverlay({
 		document.addEventListener("keydown", onKeyDown);
 		return () => document.removeEventListener("keydown", onKeyDown);
 	}, [pending, expanded]);
+	const checkCollapsible = !!pending && requiresReveal && expanded;
+	useEffect(() => {
+		if (!checkEscRef || !checkCollapsible) return;
+		checkEscRef.current = () => setExpanded(false);
+		return () => { checkEscRef.current = null; };
+	}, [checkEscRef, checkCollapsible]);
 
 	useEffect(() => {
 		const el = scrollRef.current;

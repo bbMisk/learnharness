@@ -116,26 +116,37 @@ class StaticRangeLike {
 	}
 }
 
-export function sessionFindRanges(scope: HTMLElement, query: string): Range[] {
-	if (!query) return [];
+/** The session's displayed text, built once and reused across queries: the
+ * walk reads every element's computed style, which is the slow part on long
+ * sessions. Rebuild it whenever the scope's DOM or layout changes. */
+export type SessionFindIndex = readonly DisplayRun[];
+
+export function sessionFindIndex(scope: HTMLElement): SessionFindIndex {
 	const roots = [
 		...(scope.matches("[data-session-find-root]") ? [scope] : []),
 		...scope.querySelectorAll<HTMLElement>("[data-session-find-root]"),
 	];
-	const ranges: Range[] = [];
+	const runs: DisplayRun[] = [];
 	for (const root of roots) {
 		// A nested marker must not double-count its text.
 		if (roots.some((other) => other !== root && other.contains(root)) || !displayedRoot(root)) continue;
-		for (const run of displayRuns(root)) {
-			for (const match of findSessionTextMatches(run.text, query)) {
-				const start = run.characters[match.start]!.start;
-				const end = run.characters[match.end - 1]!.end;
-				const native = scope.ownerDocument.createRange?.();
-				const range = typeof native?.setStart === "function" ? native : (new StaticRangeLike() as unknown as Range);
-				range.setStart(start.node, start.offset);
-				range.setEnd(end.node, end.offset);
-				ranges.push(range);
-			}
+		for (const run of displayRuns(root)) runs.push(run);
+	}
+	return runs;
+}
+
+export function sessionFindRanges(scope: HTMLElement, query: string, index?: SessionFindIndex): Range[] {
+	if (!query) return [];
+	const ranges: Range[] = [];
+	for (const run of index ?? sessionFindIndex(scope)) {
+		for (const match of findSessionTextMatches(run.text, query)) {
+			const start = run.characters[match.start]!.start;
+			const end = run.characters[match.end - 1]!.end;
+			const native = scope.ownerDocument.createRange?.();
+			const range = typeof native?.setStart === "function" ? native : (new StaticRangeLike() as unknown as Range);
+			range.setStart(start.node, start.offset);
+			range.setEnd(end.node, end.offset);
+			ranges.push(range);
 		}
 	}
 	return ranges;

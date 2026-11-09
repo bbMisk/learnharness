@@ -1,7 +1,7 @@
 "use client";
 
 import { useContext, useEffect, useState } from "react";
-import { CheckIcon, ChevronDownIcon, SettingsIcon, XIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, MinusIcon, SettingsIcon, XIcon } from "lucide-react";
 import { JobsContext } from "@/components/jobs-context";
 import { ChatActionsContext } from "@/components/chat-actions";
 import { isModelsRefusal, isProviderKeyRefusal, type ArtifactPartProps, type JobKind } from "@/src/core";
@@ -19,7 +19,8 @@ import { jobDisplay, jobElapsedMs } from "@/src/core";
  * status comes from the chat-view jobs feed via JobsContext, matched by
  * toolCallId:
  *
- *   job unknown → "dispatched" pulse (the jobs feed hasn't seen it yet)
+ *   job unknown → "dispatched" pulse (the jobs feed hasn't seen it yet),
+ *                 settling to "status unavailable" if it never appears
  *   running     → live activity card (activity line + elapsed)
  *   done/error  → expandable delivered / failed summary — the artifact
  *                 itself arrives in the steer message right below, so the
@@ -110,8 +111,28 @@ function DispatchRefusedCard({ label, line, button }: { label: string; line: str
 	);
 }
 
+/** A live dispatch shows up in the jobs feed within moments; one that never
+ *  does (an old card whose job record is gone) stops spinning after this. */
+export const DISPATCH_UNKNOWN_MS = 5_000;
+
 /** The dispatched pulse: the ack landed, the jobs feed hasn't seen the job. */
 function DispatchPendingCard({ label }: { label: string }) {
+	const [unknown, setUnknown] = useState(false);
+	useEffect(() => {
+		const timer = setTimeout(() => setUnknown(true), DISPATCH_UNKNOWN_MS);
+		return () => clearTimeout(timer);
+	}, []);
+	if (unknown) {
+		return (
+			<div className="rounded-xl border bg-card p-4 text-card-foreground" data-testid="dispatch-unknown">
+				<div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+					<MinusIcon className="size-3.5" aria-hidden />
+					{label}
+				</div>
+				<div className="mt-1 text-sm text-muted-foreground">Status unavailable</div>
+			</div>
+		);
+	}
 	return (
 		<div
 			className="rounded-xl border bg-card p-4 text-card-foreground"

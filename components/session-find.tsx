@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { ChevronDownIcon, ChevronUpIcon, SearchIcon, XIcon } from "lucide-react";
 import { kbdEventForAction, stepSessionMatch } from "@/src/core";
 import {
-	sameSessionRange, sessionFindRanges, sessionRangeIdentity, type SessionRangeIdentity,
+	sameSessionRange, sessionFindIndex, sessionFindRanges, sessionRangeIdentity, type SessionFindIndex, type SessionRangeIdentity,
 } from "@/components/session-find-dom";
 import { scrollSessionTarget, type SessionScrollContext } from "@/components/session-navigation";
 
@@ -76,6 +76,10 @@ export function SessionFind({ scopeRef, scrollContextRef }: {
 	const indexRef = useRef(-1);
 	const identityRef = useRef<SessionRangeIdentity | null>(null);
 	const lastQueryRef = useRef<string | null>(null);
+	// The displayed-text index, reused across keystrokes; any change in the
+	// session drops it and bumps contentVersion so the matches refresh.
+	const indexCacheRef = useRef<SessionFindIndex | null>(null);
+	const [contentVersion, setContentVersion] = useState(0);
 
 	const close = useCallback(() => {
 		clearSessionFindHighlights();
@@ -113,8 +117,28 @@ export function SessionFind({ scopeRef, scrollContextRef }: {
 		if (!open || !scopeRef.current) return;
 		const scope = scopeRef.current;
 		let frame: number | null = null;
+		const invalidate = () => {
+			indexCacheRef.current = null;
+			if (frame !== null) return;
+			frame = window.requestAnimationFrame(() => { frame = null; setContentVersion((v) => v + 1); });
+		};
+		const observer = new MutationObserver(invalidate);
+		observer.observe(scope, { subtree: true, childList: true, characterData: true, attributes: true,
+			attributeFilter: ["hidden", "style", "class", "data-state", "aria-expanded"] });
+		window.addEventListener("resize", invalidate);
+		return () => {
+			observer.disconnect();
+			window.removeEventListener("resize", invalidate);
+			if (frame !== null) window.cancelAnimationFrame(frame);
+			indexCacheRef.current = null;
+		};
+	}, [open, scopeRef]);
+
+	useEffect(() => {
+		if (!open || !scopeRef.current) return;
+		const scope = scopeRef.current;
 		const refresh = (selectFirst: boolean) => {
-			const ranges = sessionFindRanges(scope, query);
+			const ranges = query ? sessionFindRanges(scope, query, indexCacheRef.current ??= sessionFindIndex(scope)) : [];
 			let index = selectFirst ? 0 : ranges.findIndex((range) => sameSessionRange(range, identityRef.current));
 			if (index < 0) index = Math.max(0, Math.min(indexRef.current, ranges.length - 1));
 			if (!ranges.length) index = -1;
@@ -129,21 +153,8 @@ export function SessionFind({ scopeRef, scrollContextRef }: {
 		// query or receiving streamed content only refreshes; neither yanks scroll.
 		refresh(lastQueryRef.current !== query);
 		lastQueryRef.current = query;
-		const schedule = () => {
-			if (frame !== null) return;
-			frame = window.requestAnimationFrame(() => { frame = null; refresh(false); });
-		};
-		const observer = new MutationObserver(schedule);
-		observer.observe(scope, { subtree: true, childList: true, characterData: true, attributes: true,
-			attributeFilter: ["hidden", "style", "class", "data-state", "aria-expanded"] });
-		window.addEventListener("resize", schedule);
-		return () => {
-			observer.disconnect();
-			window.removeEventListener("resize", schedule);
-			if (frame !== null) window.cancelAnimationFrame(frame);
-			clearSessionFindHighlights();
-		};
-	}, [open, query, scopeRef, scrollContextRef]);
+		return clearSessionFindHighlights;
+	}, [open, query, contentVersion, scopeRef, scrollContextRef]);
 
 	// Also clear on a session switch when Find was already closed.
 	useEffect(() => clearSessionFindHighlights, []);

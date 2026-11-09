@@ -18,7 +18,8 @@ import { MessageResponse } from "../components/ai-elements/message.tsx";
 import { ThinkingBlock, setAllUserThinkingOpen } from "@/components/thinking-block";
 import { MermaidOverlay, SessionOverlayContext, chartSize } from "../components/session-overlay.tsx";
 import { PlanPopup } from "../components/plan-block.tsx";
-import { MarkdownCode, codeSource } from "../components/md-blocks.tsx";
+import { MarkdownCode, codeSource, tableMarkdown } from "../components/md-blocks.tsx";
+import { parseHTML } from "linkedom";
 
 function render(md: string): string {
 	return renderToStaticMarkup(<MessageResponse mode="static">{md}</MessageResponse>);
@@ -89,6 +90,20 @@ describe("md-blocks — tables", () => {
 		// Table text runs at the session prose size — no text-sm pin (the
 		// cells' own text-sm is overridden to inherit via globals.css).
 		assert.ok(!/border-collapse text-sm/.test(html), "the table itself pins no smaller text size");
+	});
+});
+
+describe("md-blocks — table copy", () => {
+	it("copies math cells as their TeX source, not the rendered glyphs", () => {
+		const html = render("| Goal | Show |\n| --- | --- |\n| $x \\in \\bigcap E_n$ | $\\|x\\| < 1$ for every $n$ |\n| C:\\path | plain |");
+		const { document } = parseHTML(`<html><body>${html}</body></html>`);
+		const table = document.querySelector("table") as unknown as HTMLTableElement;
+		assert.equal(tableMarkdown(table), [
+			"| Goal | Show |",
+			"| --- | --- |",
+			"| $x \\in \\bigcap E_n$ | $\\|x\\| < 1$ for every $n$ |",
+			"| C:\\\\path | plain |",
+		].join("\n"));
 	});
 });
 

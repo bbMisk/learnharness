@@ -275,6 +275,18 @@ body {
 	background: var(--color-muted-foreground);
 }
 
+/* A sideways-scrolling row with no scrollbar (the session header's chips)
+   fades at the edge it can still scroll toward, so a clipped chip reads as
+   more to scroll. With nothing to scroll the timeline is inactive: no fade. */
+@keyframes lh-scroll-fade {
+	from { mask-image: linear-gradient(to right, black calc(100% - 2rem), transparent); }
+	to { mask-image: linear-gradient(to right, transparent, black 2rem); }
+}
+.lh-scroll-fade {
+	animation: lh-scroll-fade linear both;
+	animation-timeline: scroll(self inline);
+}
+
 /* Dock variant swap — quick fade/rise on content change; the shell's HEIGHT
    morph is separate (WAAPI in DockOverlay). Re-applied via class toggling, no
    remount, so collapsed-question state survives. */

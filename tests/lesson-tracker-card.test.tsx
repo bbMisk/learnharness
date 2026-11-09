@@ -158,6 +158,15 @@ it("renders both sections with symbols and counts", async () => {
 	assert.match(card.getAttribute("class")!, /@min-\[60rem\]\/session:max-h-\[calc\(100%-1\.5rem\)\]/, "the room breakpoint the dock uses");
 });
 
+it("beside the closed pin drawer's tab, the card narrows to clear it and keeps its left edge", async () => {
+	const host = await mount(<LessonTrackerCard tracking={deriveLessonTracking(record)} bottomReserve={0} besideTab />);
+	const cls = host.querySelector('[data-testid="lesson-tracker"]')!.getAttribute("class")!;
+	// The tab is ~36px wide at right:0; 2.75rem + 14rem = 0.75rem + 16rem.
+	assert.match(cls, /\bright-11\b/);
+	assert.match(cls, /\bw-56\b/);
+	assert.doesNotMatch(cls, /\bright-3\b|\bw-64\b/);
+});
+
 it("shows only the sections that exist", async () => {
 	const mistakesOnly: LessonTracking = deriveLessonTracking([record[3]!]);
 	let host = await mount(<LessonTrackerCard tracking={mistakesOnly} bottomReserve={0} />);
@@ -264,9 +273,23 @@ it("makes room: while shown on a wide session area the column clears the card; o
 	// The chat applies them: the session area and the transcript column.
 	const chat = fs.readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
 	// A docked pinned demo/diagram takes the card's column, so no room then.
-	assert.match(chat, /lessonTrackerRoom\(hasTracking && trackerCard\.shown && !pinned\.docked\)/);
+	assert.match(chat, /lessonTrackerRoom\(hasTracking && \(tutorOpen \? progressOverTutor : trackerCard\.shown\) && !pinned\.docked\)/);
 	assert.match(chat, /className=\{`relative flex min-h-0 flex-1 \$\{trackerRoom\.area\}`\}/);
 	assert.match(chat, /data-session-find-root="" className=\{`\$\{COLUMN\}[^`]*\$\{trackerRoom\.column\}`\}/);
+});
+
+it("side tutor open: the card steps aside (it would cover the narrowed transcript) and the chip still toggles it", async () => {
+	const chat = fs.readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
+	assert.match(chat, /const tutorOpen = sideTutor !== null;/);
+	assert.match(chat, /useEffect\(\(\) => setProgressOverTutor\(false\), \[tutorOpen\]\);/, "hidden again each time the tutor opens");
+	assert.match(chat, /const trackerShown = pinned\.docked \? progressOverPin : !drawerOpen && \(tutorOpen \? progressOverTutor : trackerCard\.shown\);/);
+	assert.match(chat, /: tutorOpen \? \(\) => setProgressOverTutor\(\(v\) => !v\) : trackerCard\.toggle;/);
+	// The header chip row scrolls sideways with no scrollbar: the app-wide
+	// unlayered `* { scrollbar-width: thin }` beats a plain utility.
+	assert.match(chat, /overflow-x-auto \[scrollbar-width:none\]!/);
+	const { compile } = await import("tailwindcss");
+	const css = (await compile("@tailwind utilities;", { base: process.cwd() })).build(["[scrollbar-width:none]!"]);
+	assert.match(css, /scrollbar-width: none !important;/);
 });
 
 // ─── the Plan section (owner, 2026-11-05 — src/core/plan-progress.ts) ─────────

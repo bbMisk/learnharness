@@ -368,6 +368,21 @@ export function MarkdownBlockquote(props: ComponentProps<"blockquote"> & ExtraPr
 
 // ─── Tables (the Streamdown `table` override) ────────────────────────────────
 
+/** The table as Markdown, math as its TeX source: a KaTeX cell's text is all
+ *  three render layers run together. Math stands in as a placeholder through
+ *  the library's serializer, which would double its backslashes; the TeX
+ *  comes back verbatim (a pipe in a table's math is already `\|`). */
+export function tableMarkdown(table: HTMLTableElement): string {
+	const copy = table.cloneNode(true) as HTMLTableElement;
+	const tex: string[] = [];
+	for (const math of copy.querySelectorAll(".katex")) {
+		tex.push(math.querySelector("annotation")?.textContent ?? "");
+		math.replaceWith(`\u0000${tex.length - 1}\u0000`);
+	}
+	return tableDataToMarkdown(extractTableDataFromElement(copy))
+		.replace(/\u0000(\d+)\u0000/g, (_, i: string) => `$${tex[Number(i)]}$`);
+}
+
 /** A plain PROSE table: no wrapper box, no button rows — just the table
  *  (streamdown's inner cells keep their padding/typography; the hairline
  *  rules live in globals.css on the data-streamdown attributes) inside a
@@ -386,7 +401,7 @@ export function MarkdownTable(props: ComponentProps<"table"> & ExtraProps) {
 				// corner is fixed to the wrapper, not the scrolling table).
 				className="absolute top-1 right-1 z-10"
 				label="Copy table"
-				getText={() => (ref.current ? tableDataToMarkdown(extractTableDataFromElement(ref.current)) : "")}
+				getText={() => (ref.current ? tableMarkdown(ref.current) : "")}
 			/>
 			<div className="overflow-x-auto">
 				<table
