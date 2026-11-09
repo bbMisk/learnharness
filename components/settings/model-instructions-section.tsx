@@ -9,6 +9,10 @@ import {
 } from "@/src/core";
 import { SettingsGroup, ThinSelect } from "./controls";
 
+/** Unsaved drafts per model, kept for the app session: switching models or
+ *  closing Settings never throws typed text away. */
+const drafts = new Map<string, string>();
+
 /** Optional per-model tutor instructions (core/model-instructions.ts). */
 export function ModelInstructionsSection({
 	agent,
@@ -32,12 +36,17 @@ export function ModelInstructionsSection({
 	const [selected, setSelected] = useState<string>("");
 	const key = options.some((o) => o.key === selected) ? selected : Object.keys(saved)[0] || options[0]?.key || "";
 	const savedText = saved[key] ?? "";
-	const [text, setText] = useState(savedText);
-	// Reset the draft only when the model or ITS saved text changes, so saving
-	// another Agent setting never discards an unsaved draft.
-	useEffect(() => setText(savedText), [key, savedText]);
+	const [text, setText] = useState(drafts.get(key) ?? savedText);
+	// Follow the model or ITS saved text, keeping that model's unsaved draft.
+	useEffect(() => setText(drafts.get(key) ?? savedText), [key, savedText]);
+	const edit = (value: string) => {
+		if (value === savedText) drafts.delete(key);
+		else drafts.set(key, value);
+		setText(value);
+	};
 	const suggestion = suggestedModelInstructions(options.find((o) => o.key === key)?.id ?? "");
 	const save = (value: string) => {
+		drafts.delete(key);
 		const next = { ...saved };
 		if (value.trim()) next[key] = value;
 		else delete next[key];
@@ -72,7 +81,7 @@ export function ModelInstructionsSection({
 						rows={4}
 						maxLength={MODEL_INSTRUCTIONS_MAX}
 						value={text}
-						onChange={(event) => setText(event.target.value)}
+						onChange={(event) => edit(event.target.value)}
 						placeholder="For example: slow down, and lead with a concrete example before the formal statement."
 						className="lh-input w-full resize-y rounded-lg border bg-background p-3 text-sm"
 					/>
@@ -89,7 +98,7 @@ export function ModelInstructionsSection({
 							<button
 								type="button"
 								data-testid="model-instructions-suggest"
-								onClick={() => setText(suggestion)}
+								onClick={() => edit(suggestion)}
 								className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent"
 							>
 								Insert suggested text

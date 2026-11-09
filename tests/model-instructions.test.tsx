@@ -34,3 +34,45 @@ it("saving another Agent setting keeps an unsaved model-instructions draft", asy
 		}
 	}
 });
+
+it("an unsaved draft survives switching models and closing Settings", async () => {
+	const dom = parseHTML("<html><body><div id='root'></div></body></html>");
+	const globals = globalThis as Record<string, unknown>;
+	const previous = new Map<string, PropertyDescriptor | undefined>();
+	for (const [key, value] of Object.entries({ window: dom.window, document: dom.document, HTMLElement: dom.window.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true })) {
+		previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+		Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+	}
+	const { createRoot } = await import("react-dom/client");
+	let root = createRoot(document.getElementById("root")!);
+	const catalog = [{ id: "opus", name: "Opus", provider: "anthropic" }, { id: "gpt-5", name: "GPT-5", provider: "openai" }] as ModelCatalogEntry[];
+	const render = () => root.render(<ModelInstructionsSection agent={{ modelInstructions: {} }} catalog={catalog} onChange={() => {}} />);
+	const text = () => document.querySelector<HTMLTextAreaElement>('[data-testid="model-instructions-text"]')!.value;
+	const pick = (key: string) => act(() => {
+		const select = document.querySelector<HTMLSelectElement>('[data-testid="model-instructions-model"]')!;
+		for (const option of select.querySelectorAll("option")) option.toggleAttribute("selected", option.getAttribute("value") === key);
+		select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+	});
+	try {
+		await act(async () => render());
+		pick("anthropic:opus");
+		act(() => document.querySelector<HTMLButtonElement>('[data-testid="model-instructions-suggest"]')!.click());
+		const draft = text();
+		assert.ok(draft.length > 0);
+		pick("openai:gpt-5");
+		assert.notEqual(text(), draft);
+		pick("anthropic:opus");
+		assert.equal(text(), draft, "switching back restores the draft");
+		act(() => root.unmount());
+		root = createRoot(document.getElementById("root")!);
+		await act(async () => render());
+		pick("anthropic:opus");
+		assert.equal(text(), draft, "reopening Settings restores the draft");
+	} finally {
+		act(() => root.unmount());
+		for (const [key, descriptor] of previous) {
+			if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+			else delete globals[key];
+		}
+	}
+});
