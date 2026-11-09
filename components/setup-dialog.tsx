@@ -202,7 +202,8 @@ export function SetupKeysBody({
 					<div className="flex max-w-96 flex-col gap-2">
 						<div className="flex items-center gap-2">
 							<input
-								type="text"
+								type="password"
+								autoComplete="off"
 								value={value}
 								onChange={(e) => onValue(e.target.value)}
 								onKeyDown={(e) => {

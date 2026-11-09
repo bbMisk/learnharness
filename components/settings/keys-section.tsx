@@ -206,7 +206,8 @@ function KeyTableRow({
 				<div className="-mx-1 flex items-center gap-2 rounded-sm px-1 py-1.5" data-testid={`${testid}-editor`}>
 					<span className="shrink-0 font-prose text-(length:--lh-prose-size) text-foreground">{label}</span>
 					<input
-						type="text"
+						type="password"
+						autoComplete="off"
 						value={value}
 						onChange={(e) => setValue(e.target.value)}
 						onKeyDown={(e) => {
@@ -612,7 +613,8 @@ function AddProviderEditor({
 	return (
 		<>
 			<input
-				type="text"
+				type="password"
+				autoComplete="off"
 				value={value}
 				onChange={(e) => setValue(e.target.value)}
 				onKeyDown={(e) => {
