@@ -195,26 +195,18 @@ export function AppearanceSection({
 				<span ref={fontMenuOpen ? menuAnchorRef : undefined} className="relative flex items-center gap-2">
 					{/* The shared Agent/Appearance collapsed-menu trigger. The
 					    tooltip rides the CLOSED button ONLY — never while the
-					    dropdown is out, where it would pop over the open menu. */}
-					{(() => {
-						const triggerButton = (
-							<SettingsMenuTrigger
-								value={appearance?.fontFamily || DEFAULT_READING_FONT}
-								aria-label="Reading font"
-								aria-expanded={fontMenuOpen}
-								data-testid="font-trigger"
-								onClick={openFontMenu}
-								className="min-w-20"
-							/>
-						);
-						return fontMenuOpen ? (
-							triggerButton
-						) : (
-							<Hint label="Choose from your installed fonts" side="left">
-								{triggerButton}
-							</Hint>
-						);
-					})()}
+					    dropdown is out, where it would pop over the open menu.
+					    It stays wrapped either way, so closing keeps its focus. */}
+					<Hint label="Choose from your installed fonts" side="left" disabled={fontMenuOpen}>
+						<SettingsMenuTrigger
+							value={appearance?.fontFamily || DEFAULT_READING_FONT}
+							aria-label="Reading font"
+							aria-expanded={fontMenuOpen}
+							data-testid="font-trigger"
+							onClick={openFontMenu}
+							className="min-w-20"
+						/>
+					</Hint>
 					{fontMenuOpen && (
 						<MenuShell
 							preferredSide="down"

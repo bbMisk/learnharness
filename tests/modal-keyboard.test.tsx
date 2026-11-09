@@ -124,6 +124,27 @@ describe("an open modal owns the keyboard", () => {
 	});
 });
 
+describe("shortcuts from a text field", () => {
+	it("an F-key binding fires from the composer; a bare key stays in the field", async () => {
+		await mount("");
+		const composer = document.querySelector<HTMLElement>('[data-testid="composer"]')!;
+		const renames: string[] = [];
+		const onRename = () => renames.push("rename");
+		window.addEventListener("lh:kbd-rename-session", onRename);
+		try {
+			const typed = (init: Record<string, unknown>) => composer.dispatchEvent(Object.assign(new dom.window.Event("keydown", { bubbles: true, cancelable: true }), {
+				ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...init,
+			}));
+			await act(async () => { typed({ key: "F2", code: "F2" }); });
+			assert.deepEqual(renames, ["rename"]);
+			await act(async () => { typed({ key: "?", code: "Slash", shiftKey: true }); });
+			assert.equal(document.querySelector('[data-testid="cheat-sheet"]'), null);
+		} finally {
+			window.removeEventListener("lh:kbd-rename-session", onRename);
+		}
+	});
+});
+
 describe("the shortcut cheat sheet is a modal", () => {
 	it("? opens it marked modal, global shortcuts stay out, and Esc still closes it", async () => {
 		await mount("");

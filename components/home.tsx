@@ -70,6 +70,14 @@ export function Home({
 	// stores slots only; the learner sends the message themselves).
 	const { catalog, configured, zeroKeys } = useModelSetup(initialConfigured);
 	const [setupOpen, setSetupOpen] = useState(false);
+	// A save from the pill unmounts the pill, so focus goes to the composer.
+	// This effect runs after the dialog's own focus restore on close.
+	const focusAfterSetup = useRef(false);
+	useEffect(() => {
+		if (setupOpen || !focusAfterSetup.current) return;
+		focusAfterSetup.current = false;
+		topicInputRef.current?.focus();
+	}, [setupOpen]);
 	// Voice dictation (STT wave, 2026-09-17): finals append at the end of the
 	// topic draft; the strip lives in the stats bar's middle slot.
 	const dictation = useDictation({
@@ -339,6 +347,7 @@ export function Home({
 				open={setupOpen}
 				onClose={() => setSetupOpen(false)}
 				onDone={() => {
+					focusAfterSetup.current = true;
 					setSetupOpen(false);
 					// Save only saves: the draft waits in the composer.
 				}}

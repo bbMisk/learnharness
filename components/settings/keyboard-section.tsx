@@ -60,10 +60,11 @@ export function conflictFor(
 
 /** Copy, paste, undo, select all, close window, quit and reload, plus the
  *  desktop app's menu chords (electron/main.cjs): hide, hide others,
- *  minimize, zoom, and the developer tools. */
+ *  minimize, zoom (Zoom In is ⌘+, typed as ⌘⇧= on US keyboards), and the
+ *  developer tools. */
 const RESERVED = new Set([
 	"mod+c", "mod+v", "mod+x", "mod+z", "mod+shift+z", "mod+y", "mod+a", "mod+w", "mod+q", "mod+r",
-	"mod+h", "mod+alt+h", "mod+m", "mod+0", "mod+-", "mod+=", "mod+alt+i", "mod+shift+i",
+	"mod+h", "mod+alt+h", "mod+m", "mod+0", "mod+-", "mod+=", "mod++", "mod+shift++", "mod+alt+i", "mod+shift+i",
 ]);
 
 /** Why `binding` can't be a shortcut for `id`, if it can't (pure — exported

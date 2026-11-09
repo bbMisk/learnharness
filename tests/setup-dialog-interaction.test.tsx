@@ -221,11 +221,12 @@ describe("setup polish interactions", () => {
 		await mount({ keyed: true });
 		assert.equal(document.querySelector('[data-testid="setup-needed-cheap"]'), null, "the pick survived");
 		assert.ok(document.querySelector('[data-testid="setup-needed-vision"]'), "unpicked slots stay needed");
-		// Models saved elsewhere (Settings → Agent) replace the kept picks.
+		// Models saved elsewhere (Settings → Agent) replace the kept picks,
+		// even while no setup dialog is mounted.
 		await escape();
-		await act(async () => { window.dispatchEvent(new dom.window.CustomEvent("lh:settings-saved", { detail: { section: "models" } })); });
 		await act(async () => { root?.unmount(); });
 		host?.remove();
+		await act(async () => { window.dispatchEvent(new dom.window.CustomEvent("lh:settings-saved", { detail: { section: "models" } })); });
 		await mount({ keyed: true });
 		assert.ok(document.querySelector('[data-testid="setup-needed-cheap"]'), "a models save drops the kept pick");
 	});

@@ -229,7 +229,9 @@ const KEY_GLYPH: Record<string, string> = {
 /** Format a binding for display: "mod+shift+f" → "⌘⇧F". */
 export function formatBinding(binding: string): string {
 	const parts = binding.split("+");
-	const key = parts.pop()!; // last part is always the key
+	let key = parts.pop()!; // last part is always the key
+	// …except the "+" key: "mod+shift++" splits to [mod, shift, "", ""].
+	if (key === "" && parts.length) { parts.pop(); key = "+"; }
 	const glyphs: string[] = [];
 	for (const part of parts) {
 		if (part === "mod") glyphs.push(MOD_GLYPH);
