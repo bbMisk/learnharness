@@ -224,6 +224,7 @@ const KEY_GLYPH: Record<string, string> = {
 	tab: "⇥",
 	escape: "Esc",
 	space: "Space",
+	" ": "Space", // eventBinding stores the Space bar as its key, " "
 };
 
 /** Format a binding for display: "mod+shift+f" → "⌘⇧F". */
