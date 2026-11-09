@@ -529,6 +529,7 @@ function SessionsSidebar() {
 	const ctxAnchorRef = useRef<HTMLElement | null>(null);
 	const [renamingId, setRenamingId] = useState<string | null>(null);
 	const [deleting, setDeleting] = useState<ChatListItem | null>(null);
+	const [renameError, setRenameError] = useState("");
 
 	const openContext = (e: React.MouseEvent<HTMLButtonElement>, chat: ChatListItem) => {
 		e.preventDefault(); // suppress the native menu
@@ -571,6 +572,7 @@ function SessionsSidebar() {
 		setRenamingId(null);
 		const t = next.trim();
 		if (t === "") return;
+		setRenameError("");
 		try {
 			const res = await fetch(`/api/chats/${id}`, {
 				method: "PUT",
@@ -581,6 +583,7 @@ function SessionsSidebar() {
 			window.dispatchEvent(new CustomEvent("lh:chat-renamed", { detail: { id, title: t } }));
 		} catch (err) {
 			console.error("rename failed:", err); // keep the old title
+			setRenameError("Chat could not be renamed. Try again.");
 		}
 	}, []);
 
@@ -740,6 +743,17 @@ function SessionsSidebar() {
 									e.currentTarget.blur();
 									return;
 								}
+								// The walked row's context menu (rename, pin, delete…):
+								// the menu key, ⇧F10 or ⌥↵.
+								if (kbdIndex !== null && (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10") || (e.altKey && e.key === "Enter"))) {
+									const target = shown?.[kbdIndex];
+									const row = listRef.current?.querySelectorAll<HTMLElement>('[data-testid="session-row"], [data-testid="session-row-kbd"]')[kbdIndex];
+									if (!target || !row) return;
+									e.preventDefault();
+									ctxAnchorRef.current = row;
+									setCtxChatId(target.id);
+									return;
+								}
 								// Modified keys belong to the surface (⇧↵ etc.).
 								if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
 								const n = shown?.length ?? 0;
@@ -802,6 +816,7 @@ function SessionsSidebar() {
 				<div {...chatDrop.handlers} data-testid="unassigned-chat-drop" className={cn("mx-3 mt-2 flex h-8 shrink-0 items-center rounded-md px-2 text-xs uppercase tracking-widest text-muted-foreground/70", chatDrop.over && "bg-accent text-muted-foreground ring-1 ring-primary/30")}>{chatDrop.over ? "Move chat out of project" : showArchived ? "Archived" : "Chats"}</div>
 				{moveStatus && <p role="status" className="px-4 py-1 text-xs text-muted-foreground">{moveStatus}</p>}
 				{updateError && <p role="alert" className="px-4 py-2 text-xs text-destructive">{updateError}</p>}
+				{renameError && <p role="alert" className="px-4 py-2 text-xs text-destructive">{renameError}</p>}
 				<div {...chatDrop.handlers} ref={listRef} data-testid="unassigned-chat-list" className={cn("flex-1 overflow-y-auto px-2 pb-2 pt-1", chatDrop.over && "bg-accent/50 ring-1 ring-inset ring-border")}>
 					{shown === null ? (
 						<div className="px-2 py-4 text-xs text-muted-foreground">Loading…</div>
