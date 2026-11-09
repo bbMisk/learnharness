@@ -473,7 +473,8 @@ export function AgentSection({
 		// The Save affordance: clickable only when the draft differs from
 		// what's on disk; an unchanged editor shows a grayed, inert Save.
 		const draft = segmentDraft[info.path] ?? info.overrideText ?? "";
-		const dirty = draft !== (info.overrideText ?? "");
+		// Blank text never saves: it would blank the segment out of the prompt.
+		const dirty = draft !== (info.overrideText ?? "") && draft.trim() !== "";
 		return (
 			<div key={info.path} data-testid={`prompt-segment-${info.path}`}>
 				<SettingsRow

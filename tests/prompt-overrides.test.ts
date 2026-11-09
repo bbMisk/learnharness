@@ -359,6 +359,15 @@ describe("delete clears the switch — the record and file agree by construction
 		assert.equal(readSettingsRecord()?.agent?.tools?.research, false);
 	});
 
+	it("PUT refuses whitespace-only text, leaving no override file", async () => {
+		const res = await putPromptText(new Request("http://test/api/settings/prompts", {
+			method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: "  \n " }),
+		}), { params: Promise.resolve({ segment: ["teacher", "20-teaching.md"] }) });
+		assert.equal(res.status, 400);
+		assert.match(((await res.json()) as { error: string }).error, /can't be empty/);
+		assert.equal(promptOverrides.readOverride(SEGMENT), null);
+	});
+
 	it("DELETE is idempotent for file and switch — nothing to clear, still 200", async () => {
 		const res = await deleteSegment(["teacher", "20-teaching.md"]);
 		assert.equal(res.status, 200);
