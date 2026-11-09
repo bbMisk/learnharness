@@ -59,6 +59,11 @@ import type { UpdateState } from "@/components/settings/update-settings.tsx";
 
 const SIDEBAR_AUTOCLOSE = 928;
 
+/** Below Tailwind's md breakpoint the sidebar is an overlay drawer: closed
+ *  on load, closed again after navigating. */
+const PHONE_QUERY = "(max-width: 767px)";
+const isPhone = () => window.matchMedia?.(PHONE_QUERY).matches ?? false;
+
 // Module scope, guarded for SSR (the server has no navigator).
 const IS_ELECTRON = typeof navigator !== "undefined" && navigator.userAgent.includes("Electron");
 
@@ -119,7 +124,8 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 	// mismatch); the stored value is applied after mount.
 	const [open, setOpen] = useState(false);
 	const [narrow, setNarrow] = useState(false);
-	const [mounted, setMounted] = useState(false);
+	// 0: first render; 1: stored state applied; 2: transitions on.
+	const [phase, setPhase] = useState(0);
 
 	useEffect(() => {
 		// Electron shell detection: keys the
@@ -143,11 +149,20 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 		void window.lh?.getZoom?.().then(setZoomVar);
 
 		const stored = localStorage.getItem(STORAGE_KEY);
-		// Default: open (first run introduces the sidebar).
-		setOpen(stored === null ? true : stored === "1");
-		setMounted(true);
+		// Default: open (first run introduces the sidebar); phones start closed.
+		setOpen(!isPhone() && (stored === null ? true : stored === "1"));
+		setPhase(1);
 		return () => off?.();
 	}, []);
+
+	// Lay out the restored width BEFORE transitions turn on, so a load never
+	// slides the sidebar open (a slide resizes the graph canvas mid-mount,
+	// and each step re-centred and saved its camera).
+	useEffect(() => {
+		if (phase !== 1) return;
+		void document.body.offsetWidth;
+		setPhase(2);
+	}, [phase]);
 
 	// Narrow-window auto-close/auto-restore (see SIDEBAR_AUTOCLOSE note):
 	// fires only on actual resizes — a boolean compare, no layout work.
@@ -192,7 +207,8 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 	return (
 		<SidebarContext.Provider value={{ open: open && !narrow, toggle }}>
 			{/* transitions gated on mount: no slide-in flash on page load */}
-			<div className={cn("flex lh-h-screen", mounted && "[&_.sidebar-motion]:transition-[width,margin,opacity]")}>{children}</div>
+			{/* transition-none until then: duration-200 alone would transition "all" */}
+			<div className={cn("flex lh-h-screen", phase === 2 ? "[&_.sidebar-motion]:transition-[width,margin,opacity]" : "[&_.sidebar-motion]:transition-none")}>{children}</div>
 		</SidebarContext.Provider>
 	);
 }
@@ -620,6 +636,14 @@ function SessionsSidebar() {
 		listRef.current?.querySelectorAll('[data-testid="session-row"], [data-testid="session-row-kbd"]')[kbdIndex]?.scrollIntoView({ block: "nearest" });
 	}, [kbdIndex]);
 
+	// Phone drawer: navigating closes it.
+	const drawerPath = useRef(pathname);
+	useEffect(() => {
+		if (drawerPath.current === pathname) return;
+		drawerPath.current = pathname;
+		if (open && isPhone()) toggle();
+	}, [pathname, open, toggle]);
+
 	useEffect(() => {
 		if (!open) return;
 		void refresh();
@@ -640,8 +664,9 @@ function SessionsSidebar() {
 		{/* The update notice: a row above Settings while the
 		    sidebar is open, a bottom-left pill while it is closed. */}
 		<DeployReload variant="floating" hidden={open} />
+		{open && <div aria-hidden="true" className="fixed inset-0 z-50 bg-black/40 md:hidden" onClick={toggle} />}
 		<aside
-			className={cn("sidebar-motion shrink-0 overflow-hidden duration-200", open ? "w-72" : "w-0")}
+			className={cn("sidebar-motion shrink-0 overflow-hidden duration-200 max-md:fixed max-md:top-[var(--lh-safe-top)] max-md:bottom-[var(--lh-safe-bottom)] max-md:left-0 max-md:z-50", open ? "w-72" : "w-0")}
 			aria-hidden={!open}
 		>
 			<div className="flex h-full w-72 flex-col border-r bg-background">

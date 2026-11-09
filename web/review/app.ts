@@ -20,6 +20,8 @@ let started = false, revealed = false, saving = false, cacheReady = false, conne
 let syncTask: Promise<void> | undefined;
 let selectedIndex: number | undefined, optionOrder: number[] = [];
 let questionKey = "", preparingQuestion = false, questionError = "";
+/** Cards skipped this visit (choices could not be prepared): not rated, just passed over. */
+const skipped = new Set<string>();
 let shownAt = 0, revealedAt = 0, foregroundMs = 0, foregroundStart: number | null = null;
 let selectedProjects: string[] = [], projectOptionsKey = "";
 try { const saved = JSON.parse(localStorage.getItem("lh-review-projects") ?? "[]"); if (Array.isArray(saved) && saved.every(id => typeof id === "string")) selectedProjects = [...new Set(saved)]; } catch { /* preferences are optional */ }
@@ -96,7 +98,7 @@ function render() {
 		if (!latest || scheduleToken(latest) !== currentToken || !queue.selected.some(card => card.id === latest.id)) { current = undefined; revealed = false; }
 	}
 	if (!current) {
-		current = queue.queue[0];
+		current = queue.queue.find(card => !skipped.has(card.id));
 		if (current) {
 			currentToken = scheduleToken(current); shownAt = Date.now(); revealedAt = 0; foregroundMs = 0;
 			foregroundStart = document.hidden ? null : performance.now(); revealed = false; selectedIndex = undefined;
@@ -110,9 +112,13 @@ function render() {
 		return;
 	}
 	const mcq = reviewMode(current.schedule) === "mcq";
+	// No choices (no model, or offline): show the answer, then skip. Unrated.
+	const fallback = mcq && !current.mcq && !preparingQuestion;
     element("mcq").hidden = !mcq;
-    element("mcq-feedback").hidden = !mcq || !revealed;
-    element("mcq-continue").hidden = !mcq || !revealed;
+    element("mcq-feedback").hidden = !mcq || !revealed || !current.mcq;
+    element("mcq-continue").hidden = !mcq || !revealed || !current.mcq;
+    element("skip").hidden = !fallback;
+    element("skip").textContent = revealed ? "Next card" : "Skip";
     element<HTMLButtonElement>("mcq-continue").disabled = saving;
     if (mcq && !current.mcq && questionKey !== current.id + current.revision) void prepareQuestion(current);
     const nextDrawn = `${currentToken}:${revealed}:${selectedIndex}:${!!current.mcq}:${preparingQuestion}:${questionError}:${saving}`;
@@ -125,7 +131,7 @@ function render() {
 		renderReviewText(element("front"), mcq ? current.mcq?.prompt ?? current.front : current.front);
         const options = element("mcq-options"); options.replaceChildren();
         element("mcq-status").textContent = mcq && !current.mcq ? preparingQuestion ? "Preparing choices…" : questionError || "Reconnect to prepare this card’s choices for offline review." : "";
-        element("mcq-retry").hidden = !mcq || !!current.mcq || preparingQuestion;
+        element("mcq-retry").hidden = !mcq || !!current.mcq || preparingQuestion || revealed;
         if (mcq && current.mcq) {
             for (const [position, index] of optionOrder.entries()) {
                 const button = document.createElement("button"); button.type = "button"; button.className = "mcq-option";
@@ -144,11 +150,11 @@ function render() {
                 renderReviewText(element("mcq-explanation"), current.mcq.explanation);
             }
         }
-		if (revealed && !mcq) renderReviewText(element("answer"), current.back);
+		if (revealed && (!mcq || fallback)) renderReviewText(element("answer"), current.back);
 		else element("answer").replaceChildren();
-		element("answer").hidden = !revealed || mcq;
+		element("answer").hidden = !revealed || (mcq && !fallback);
 	}
-	reveal.hidden = revealed || mcq; reveal.disabled = saving;
+	reveal.hidden = revealed || (mcq && !fallback); reveal.disabled = saving;
 	element("ratings").hidden = !revealed || mcq;
 	element("rating-hint").textContent = mcq ? "" : revealed ? "Again = couldn’t recall · Hard = recalled with difficulty" : "Try recalling the idea before revealing it.";
 	const choices = reviewChoices(current.schedule, now(), engine);
@@ -268,11 +274,12 @@ async function prepareOffline() {
 }
 
 element("mcq-retry").onclick = () => { if (current) void prepareQuestion(current); };
+element("skip").onclick = () => { if (!current) return; skipped.add(current.id); current = undefined; revealed = false; render(); };
 element("mcq-continue").onclick = () => { if (current?.mcq && selectedIndex !== undefined) void rate(selectedIndex === current.mcq.correctIndex ? 3 : 1); };
 start.onclick = () => { started = true; notify(""); render(); scrollTo(0, 0); };
 reveal.onclick = () => { if (!current || saving) return; revealed = true; revealedAt = Date.now(); render(); };
 for (const button of ratingButtons) button.onclick = () => void rate(Number(button.dataset.rating) as ReviewRating);
-const chooseProjects = () => { started = false; current = undefined; render(); scrollTo(0, 0); projectOptions.querySelector<HTMLButtonElement>("button[aria-pressed='true']")?.focus(); };
+const chooseProjects = () => { started = false; current = undefined; skipped.clear(); render(); scrollTo(0, 0); projectOptions.querySelector<HTMLButtonElement>("button[aria-pressed='true']")?.focus(); };
 element("choose-projects").onclick = chooseProjects;
 element("back").onclick = chooseProjects;
 // Installed to the Home Screen: the install instructions no longer apply.

@@ -20,7 +20,10 @@ export async function GET(request: Request) {
 }
 
 export async function POST(req: Request) {
-	const body = (await req.json().catch(() => ({}))) as { title?: unknown; kind?: unknown; style?: unknown; graphContext?: unknown; projectId?: unknown };
+	const body = (await req.json().catch(() => null)) as { title?: unknown; kind?: unknown; style?: unknown; graphContext?: unknown; projectId?: unknown } | null;
+	if (typeof body !== "object" || body === null || Array.isArray(body) || (body.title !== undefined && typeof body.title !== "string")) {
+		return Response.json({ error: "Body must be a JSON object with an optional string title." }, { status: 400 });
+	}
 	const title = typeof body.title === "string" ? body.title : "";
 	// Practice sessions (owner, 2026-10-04): kind "practice" marks the
 	// record — the practice agent + its tools from turn 1, no extraction.

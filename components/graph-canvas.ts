@@ -399,6 +399,12 @@ export function fitTransform(
 	return { x: w / 2 - cx * k, y: h / 2 - cy * k, k };
 }
 
+/** The wheel's next zoom: out stops at half the fit view (or where the
+ *  camera already is, if a restored camera sits further out); in at 40×. */
+export function clampWheelZoom(current: number, next: number, kFit: number): number {
+	return Math.min(Math.max(next, Math.min(kFit / 2, current)), 40);
+}
+
 /** One complete arrow glyph for a directed edge a→b: shaft endpoints
  *  (clear of both node discs) and the head triangle (tip on the target
  *  disc edge, width = 0.8 × head length). */
@@ -820,6 +826,34 @@ export class GraphCanvasRenderer {
 		this.visible = visible;
 		this.geoVersion++; // member visibility changes regions + paths
 		this.markDirty();
+		this.revealVisible();
+	}
+
+	/** Search: when none of the visible nodes is on screen, centre them,
+	 *  zooming out only as far as framing them needs. */
+	private revealVisible(): void {
+		const visible = this.visible;
+		if (!visible || visible.size === 0 || !this.data || this.viewW <= 0 || this.viewH <= 0) return;
+		const { x: tx, y: ty, k } = this.transform;
+		const box = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+		for (const n of this.data.nodes) {
+			if (!visible.has(n.id)) continue;
+			const sx = n.x * k + tx;
+			const sy = n.y * k + ty;
+			if (sx >= 0 && sx <= this.viewW && sy >= 0 && sy <= this.viewH) return; // one is in view
+			box.minX = Math.min(box.minX, n.x);
+			box.maxX = Math.max(box.maxX, n.x);
+			box.minY = Math.min(box.minY, n.y);
+			box.maxY = Math.max(box.maxY, n.y);
+		}
+		if (!Number.isFinite(box.minX)) return;
+		const nk = Math.min(fitTransform(box, this.viewW, this.viewH, 40).k, k);
+		const cx = (box.minX + box.maxX) / 2;
+		const cy = (box.minY + box.maxY) / 2;
+		select(this.canvas).call(
+			this.zoomBehavior.transform,
+			zoomIdentity.translate(this.viewW / 2 - cx * nk, this.viewH / 2 - cy * nk).scale(nk),
+		);
 	}
 
 	/** Frame the whole graph (padding included). Keeps the camera on later
@@ -875,8 +909,8 @@ export class GraphCanvasRenderer {
 		const delta = -e.deltaY * (e.deltaMode === 1 ? 0.05 : e.deltaMode ? 1 : 0.002);
 		const { x, y } = this.eventPos(e);
 		const current = this.zoomTarget?.k ?? this.transform.k;
-		// Must stay inside the zoomBehavior's scaleExtent [0.02, 40].
-		const k = Math.min(Math.max(current * Math.exp(delta), 0.02), 40);
+		// Stays inside the zoomBehavior's scaleExtent [0.02, 40].
+		const k = clampWheelZoom(current, current * Math.exp(delta), this.kFit);
 		this.zoomTarget = { k, x, y };
 		// Fresh easing clock so the glide starts gentle, never half-done.
 		this.lastTickAt = performance.now();

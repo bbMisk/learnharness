@@ -51,7 +51,7 @@
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { NotesImportControl, NotesImportErrors, NotesImportNotices, useNotesImport } from "@/components/notes-import.tsx";
 import Link from "next/link";
-import { FileTextIcon, ListTreeIcon, Loader2Icon, SearchIcon, SettingsIcon, WaypointsIcon } from "lucide-react";
+import { FileTextIcon, ListTreeIcon, Loader2Icon, ScanIcon, SearchIcon, SettingsIcon, WaypointsIcon } from "lucide-react";
 import { incrementalLayout, propositionSessionHref, type GraphCostSummary, type GraphNode, type GraphSnapshot } from "@/src/core";
 import { GraphCostControl } from "@/components/graph-cost-control";
 import { GraphCanvasRenderer, type GraphRenderSettings } from "./graph-canvas.ts";
@@ -645,6 +645,7 @@ export function GraphChromeRow({
 	settings,
 	changeSettings,
 	onOpenChains,
+	onFit,
 }: {
 	isEmpty: boolean;
 	query: string;
@@ -659,6 +660,8 @@ export function GraphChromeRow({
 	changeSettings: (update: (cur: RenderSettings) => RenderSettings) => void;
 	/** Opens the chain table overlay. */
 	onOpenChains: () => void;
+	/** Re-frames the whole graph. */
+	onFit: () => void;
 }) {
 	return (
 		<>
@@ -706,6 +709,21 @@ export function GraphChromeRow({
 			{/* Import notes — its own container (36px, header band); ALWAYS
 			    rendered (the empty-graph entry point). */}
 			<NotesImportControl importing={importing} onImportFiles={onImportFiles} />
+			{!isEmpty && (
+				<div className="graph-chrome-fade-in shrink-0">
+					<Hint label="Fit graph to view" side="bottom">
+						<button
+							type="button"
+							onClick={onFit}
+							aria-label="Fit graph to view"
+							data-testid="graph-fit"
+							className="flex size-9 items-center justify-center rounded-xl border bg-card/85 text-muted-foreground shadow-lg backdrop-blur transition-colors hover:bg-accent hover:text-foreground"
+						>
+							<ScanIcon className="size-4" />
+						</button>
+					</Hint>
+				</div>
+			)}
 			{!isEmpty && (
 				// Rendering settings — own component; the gear toggles it. The
 				// gear sits at the far right so its panel drops at the very
@@ -1335,7 +1353,7 @@ export function GraphView({
 			    the later-in-DOM cost control layers over the open dropdowns.
 			    The row is a stacking context, so its open dropdowns cover the
 			    number; clicks land on the panel. */}
-			<div className="relative z-20 flex min-w-0 items-start gap-2">
+			<div className="relative z-20 flex min-w-0 items-start gap-2 max-md:flex-wrap max-md:justify-end">
 				{/* The actions row: Import Notes always — the empty graph's
 				    entry point; search + settings only when nodes exist. */}
 				<GraphChromeRow
@@ -1349,6 +1367,7 @@ export function GraphView({
 					settings={settings}
 					changeSettings={changeSettings}
 					onOpenChains={() => setChainsOpen(true)}
+					onFit={() => rendererRef.current?.fit()}
 				/>
 			</div>
 
