@@ -114,13 +114,26 @@ export function composeFileRestriction(agent: AgentSettings | undefined, restric
 	return { ...agent, fileAccess: { restricted, folders: agent?.fileAccess?.folders ?? [] } };
 }
 
-/** Compose: add one allowed folder (trimmed; duplicates and invalid entries
- *  are no-ops). Pure — exported for tests. */
+/** The folder as typed, trimmed and without trailing separators, so
+ *  "/tmp/" and "/tmp" are one entry. A root stays as it is. */
+export function normalizeFolder(folder: string): string {
+	const trimmed = folder.trim();
+	const stripped = trimmed.replace(/[\\/]+$/, "");
+	return stripped && !/^[A-Za-z]:$/.test(stripped) ? stripped : trimmed;
+}
+
+/** A whole-disk root: listing it would allow everything. */
+export function isRootFolder(folder: string): boolean {
+	return /^([\\/]+|[A-Za-z]:[\\/]+)$/.test(folder.trim());
+}
+
+/** Compose: add one allowed folder (normalized; duplicates, roots and
+ *  invalid entries are no-ops). Pure — exported for tests. */
 export function composeAddFolder(agent: AgentSettings | undefined, folder: string): AgentSettings {
-	const next = folder.trim();
+	const next = normalizeFolder(folder);
 	const folders = agent?.fileAccess?.folders ?? [];
 	const restricted = agent?.fileAccess?.restricted ?? false;
-	if (!isFolderEntry(next) || folders.includes(next)) return { ...agent, fileAccess: { restricted, folders } };
+	if (!isFolderEntry(next) || isRootFolder(next) || folders.map(normalizeFolder).includes(next)) return { ...agent, fileAccess: { restricted, folders } };
 	return { ...agent, fileAccess: { restricted, folders: [...folders, next] } };
 }
 
@@ -794,9 +807,11 @@ export function AgentSection({
 					const restricted = Boolean(fileAccessError) || agent?.fileAccess?.restricted === true;
 					const effectiveAgent = fileAccessError ? { ...agent, fileAccess: { restricted: true, folders } } : agent;
 					const addFolder = () => {
-						const next = folderInput.trim();
+						const next = normalizeFolder(folderInput);
 						if (!isFolderEntry(next)) { setFolderError("Enter an absolute path or ~/folder."); return; }
-						if (!folders.includes(next)) onSectionChange(composeAddFolder(effectiveAgent, next));
+						if (isRootFolder(next)) { setFolderError("Choose a specific folder, not the whole disk."); return; }
+						if (folders.map(normalizeFolder).includes(next)) { setFolderError("That folder is already listed."); return; }
+						onSectionChange(composeAddFolder(effectiveAgent, next));
 						setFolderInput("");
 						setFolderError(null);
 					};
