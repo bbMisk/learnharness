@@ -417,14 +417,14 @@ describe("composeQuizMechanics (the segmented control's write)", () => {
 });
 
 describe("file-access folder entries", () => {
-	it("resolve . and .. so an aliased spelling is a duplicate, and refuse the whole home folder", () => {
+	it("resolve . and .. so an aliased spelling is a duplicate", () => {
 		assert.equal(normalizeFolder("/tmp/../tmp"), "/tmp");
 		assert.equal(normalizeFolder("~/notes/./math/"), "~/notes/math");
 		assert.equal(normalizeFolder("/a/b/.."), "/a");
 		assert.equal(normalizeFolder("C:\\Notes\\"), "C:\\Notes");
 		const agent = composeAddFolder({ fileAccess: { restricted: true, folders: ["/tmp"] } }, "/tmp/../tmp");
 		assert.deepEqual(agent.fileAccess?.folders, ["/tmp"]);
-		for (const home of ["~", "~/", "~/notes/.."]) assert.equal(isRootFolder(normalizeFolder(home)), true, home);
-		assert.equal(isRootFolder("~/notes"), false);
+		assert.equal(normalizeFolder("~/notes/.."), "~");
+		assert.equal(isRootFolder(normalizeFolder("/tmp/..")), true, "a spelling of the root is still the root");
 	});
 });

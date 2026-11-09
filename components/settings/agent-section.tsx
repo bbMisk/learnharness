@@ -136,10 +136,9 @@ export function normalizeFolder(folder: string): string {
 	return parts.length ? posix + parts.join("/") : posix === "/" ? "/" : "~";
 }
 
-/** A whole-disk root or the whole home folder: listing it would allow
- *  nearly everything. */
+/** A whole-disk root: listing it would allow everything. */
 export function isRootFolder(folder: string): boolean {
-	return /^([\\/]+|[A-Za-z]:[\\/]+|~[\\/]*)$/.test(folder.trim());
+	return /^([\\/]+|[A-Za-z]:[\\/]+)$/.test(folder.trim());
 }
 
 /** Compose: add one allowed folder (normalized; duplicates, roots and
@@ -829,7 +828,7 @@ export function AgentSection({
 					const addFolder = () => {
 						const next = normalizeFolder(folderInput);
 						if (!isFolderEntry(next)) { setFolderError("Enter an absolute path or ~/folder."); return; }
-						if (isRootFolder(next)) { setFolderError("Choose a specific folder, not the whole disk or home folder."); return; }
+						if (isRootFolder(next)) { setFolderError("Choose a specific folder, not the whole disk."); return; }
 						if (folders.map(normalizeFolder).includes(next)) { setFolderError("That folder is already listed."); return; }
 						onSectionChange(composeAddFolder(effectiveAgent, next));
 						setFolderInput("");
