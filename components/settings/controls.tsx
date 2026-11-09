@@ -8,7 +8,7 @@
  * together) and the control itself locks — the row owns the dim.
  */
 
-import { useState, type ComponentPropsWithRef, type ReactNode, type RefObject } from "react";
+import { useRef, useState, type ComponentPropsWithRef, type ReactNode, type RefObject } from "react";
 import { cn } from "@/lib/utils";
 
 /** The settings dropdown dismissal, bound while a menu is open; returns
@@ -257,6 +257,9 @@ export function CommitInput({
 	// again — commit-on-blur/Enter, the field honest about what landed.
 	const [draft, setDraft] = useState(value);
 	const [editing, setEditing] = useState(false);
+	// Esc's blur runs with this render's closure (editing still true), so the
+	// cancel rides a ref the blur handler checks.
+	const cancelled = useRef(false);
 	return (
 		<input
 			type={type}
@@ -265,18 +268,31 @@ export function CommitInput({
 			aria-label={ariaLabel}
 			data-testid={testid}
 			onChange={(e) => {
+				cancelled.current = false;
 				setEditing(true);
 				setDraft(e.target.value);
 			}}
 			onBlur={() => {
 				if (!editing) return;
 				setEditing(false);
+				if (cancelled.current) {
+					cancelled.current = false;
+					return;
+				}
 				const next = draft.trim();
 				if (next !== value) onCommit(next);
 			}}
 			onKeyDown={(e) => {
 				if (e.key === "Enter") e.currentTarget.blur();
 				if (e.key === "Escape") {
+					// An edit in progress: Esc reverts it and is this field's one
+					// action — the dialog behind stays open. React listens at the
+					// document root, so stop the dialog's document listener too.
+					if (editing) {
+						e.stopPropagation();
+						e.nativeEvent.stopImmediatePropagation();
+						cancelled.current = true;
+					}
 					setEditing(false);
 					e.currentTarget.blur();
 				}
