@@ -669,3 +669,8 @@ it("PROGRESS never claims a card that isn't there: a cramped card reports it, an
 	assert.match(chat, /bottomReserve=\{pinned\.docked \? 0 : dockBlockH \?\? Math\.max\(0, dockReserve - GRADIENT_H\)\} overlap=\{progressOverCheck\} onCramped=\{setTrackerCramped\}/);
 	assert.match(chat, /<LessonTrackerChip shown=\{trackerShown && !trackerCramped\} onToggle=\{toggleTrackerChip\} \/>/);
 });
+
+it("PROGRESS over an open pin drawer closes the drawer and shows the card in one click", () => {
+	const chat = fs.readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
+	assert.match(chat, /drawerOpen \? \(\) => \{ pinned\.toggleDrawer\(\); if \(tutorOpen\) setProgressOverTutor\(true\); else if \(!trackerCard\.shown\) trackerCard\.toggle\(\); \}/);
+});
