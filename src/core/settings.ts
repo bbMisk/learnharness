@@ -576,14 +576,29 @@ function luminance(hex: string): number {
 	return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
-/** The dark theme's body text (globals.css --foreground). */
-const DARK_THEME_TEXT = "#e6e6e6";
+/** The dark theme's dimmest text tier (globals.css --muted-foreground). */
+const DARK_THEME_MUTED_TEXT = "#8d8d8d";
+/** The dark theme's factory background (globals.css --background). */
+const DARK_THEME_BACKGROUND = "#141414";
 
-/** The dark theme has light text, so its background must keep that text
- *  readable: WCAG AA contrast (4.5:1) against the body text. */
+/** WCAG contrast of light text on a dark color (below 1 when inverted). */
+function contrast(text: string, background: string): number {
+	return (luminance(text) + 0.05) / (luminance(background) + 0.05);
+}
+
+/** The dark theme has light text, so its background must keep every text
+ *  tier readable: 3:1 against the muted text (the body text then clears
+ *  about 8:1). */
 export function isDarkBackground(hex: string): boolean {
 	if (!isHexColor(hex)) return false;
-	return (luminance(DARK_THEME_TEXT) + 0.05) / (luminance(hex) + 0.05) >= 4.5;
+	return contrast(DARK_THEME_MUTED_TEXT, hex) >= 3;
+}
+
+/** A bold/italic ink must stay readable on the background (null = the
+ *  factory one): WCAG AA, 4.5:1. */
+export function isReadableInk(ink: string, background: string | null): boolean {
+	if (!isHexColor(ink)) return false;
+	return contrast(ink, background ?? DARK_THEME_BACKGROUND) >= 4.5;
 }
 
 /** Coerce an arbitrary hex-or-null field: null and valid hex pass through,
