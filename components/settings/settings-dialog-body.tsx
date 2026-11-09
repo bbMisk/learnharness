@@ -227,6 +227,7 @@ export function SettingsDialogBody({
 		<div
 			role="dialog"
 			aria-modal="true"
+			data-lh-modal
 			aria-label="Settings"
 			data-testid="settings-dialog"
 			className="settings-dialog-pop flex h-[620px] max-h-[85vh] w-[920px] max-w-[min(90vw,calc(100vw-2*max(env(safe-area-inset-left,0px),env(safe-area-inset-right,0px))))] flex-col overflow-hidden rounded-md border border-border bg-card shadow-xl"

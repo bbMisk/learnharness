@@ -43,6 +43,28 @@ import { useSettingsDialog } from "@/components/settings/settings-dialog.tsx";
 // spelling here is how the ⌘B bug happened.
 export { kbdEventForAction };
 
+/** The topmost open app modal (Settings, setup): it owns the keyboard. */
+function openModal(): HTMLElement | null {
+	const all = document.querySelectorAll<HTMLElement>("[data-lh-modal]");
+	return all[all.length - 1] ?? null;
+}
+
+const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
+
+/** Tab inside a modal: cycle its own controls, wrapping, so focus never
+ *  lands on the page behind it. Exported for tests. */
+export function trapTab(e: KeyboardEvent, modal: HTMLElement): void {
+	e.preventDefault();
+	const active = document.activeElement;
+	// A portaled menu (outside the modal) keeps its own focus.
+	if (active instanceof Element && active.closest("[data-lh-menu]")) return;
+	const items = [...modal.querySelectorAll<HTMLElement>(FOCUSABLE)];
+	if (items.length === 0) return;
+	const i = items.indexOf(active as HTMLElement);
+	const next = e.shiftKey ? (i <= 0 ? items.length - 1 : i - 1) : (i + 1) % items.length;
+	items[next].focus();
+}
+
 export function KeyboardShortcuts() {
 	const router = useRouter();
 	const pathname = usePathname();
@@ -81,6 +103,13 @@ export function KeyboardShortcuts() {
 	useEffect(() => {
 		const onKeyDown = (e: KeyboardEvent) => {
 			if (e.defaultPrevented) return;
+			// An open modal owns the keyboard: Tab stays inside it and no
+			// global shortcut acts on the page behind it.
+			const modal = openModal();
+			if (modal) {
+				if (e.key === "Tab") trapTab(e, modal);
+				return;
+			}
 			// ── Tab is dead (owner, 2026-09-17): preventDefault even when
 			// nothing is bound to it — browser tab-focus is abandoned, and
 			// the default action runs after dispatch, so suppressing it here
