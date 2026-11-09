@@ -9,7 +9,7 @@ import Link from "next/link";
 import { flushSync } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
-import { captureFocus, focusComposer } from "@/components/focus-return";
+import { captureFocus, focusComposer, watchUserMoves } from "@/components/focus-return";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode } from "@/src/core";
 import { ArchiveIcon, ArchiveRestoreIcon, CheckIcon, DumbbellIcon, LayersIcon, PinIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
@@ -598,12 +598,15 @@ function SessionsSidebar() {
 	const [renameError, setRenameError] = useState("");
 	// Where focus goes back once the menu, its rename or its Delete dialog
 	// closes: the search when the walk opened the menu, else the row. Only
-	// when focus was dropped (a click elsewhere keeps its own target).
+	// when focus was dropped (a click elsewhere keeps its own target). A row
+	// the rename or an archive unmounted falls back to the typing field.
 	const ctxReturnRef = useRef<HTMLElement | null>(null);
 	const returnFocus = useCallback(() => {
 		requestAnimationFrame(() => {
+			if (document.activeElement && document.activeElement !== document.body) return;
 			const el = ctxReturnRef.current;
-			if (el?.isConnected && (!document.activeElement || document.activeElement === document.body)) el.focus();
+			if (el?.isConnected) el.focus();
+			else if (!isPhone()) focusComposer(); // a phone would raise its keyboard behind the drawer
 		});
 	}, []);
 
@@ -648,11 +651,12 @@ function SessionsSidebar() {
 	// then lh:chat-renamed patches every listener (this sidebar's own
 	// listener patches the snapshot instantly; an open chat header hears
 	// it too). Esc discards; empty commit discards (the header's rules).
-	const commitRename = useCallback(async (id: string, next: string, byKey = true) => {
+	const commitRename = useCallback(async (id: string, next: string, byKey: boolean, current: string) => {
 		setRenamingId(null);
 		const t = next.trim();
-		if (t === "") return;
 		setRenameError("");
+		if (t === "" || t === current) return;
+		const movedOn = watchUserMoves();
 		try {
 			const res = await fetch(`/api/chats/${id}`, {
 				method: "PUT",
@@ -665,8 +669,10 @@ function SessionsSidebar() {
 			console.error("rename failed:", err); // keep the old title
 			setRenameError("Chat could not be renamed. Try again.");
 			setRenameDraft(t);
-			setRenameQuiet(!byKey);
+			setRenameQuiet(!byKey || movedOn());
 			setRenamingId(id);
+		} finally {
+			movedOn();
 		}
 	}, []);
 
@@ -740,7 +746,7 @@ function SessionsSidebar() {
 	}, [open, pathname, refresh]);
 
 	const renderChat = (chat: ChatListItem, index?: number) => renamingId === chat.id ? (
-		<RenameRow key={chat.id} chat={chat} draft={renameDraft ?? undefined} takeFocus={!renameQuiet} showTime={showTime} onCommit={(next, byKey) => { void commitRename(chat.id, next, byKey); returnFocus(); }} onCancel={() => { setRenamingId(null); setRenameError(""); returnFocus(); }} />
+		<RenameRow key={chat.id} chat={chat} draft={renameDraft ?? undefined} takeFocus={!renameQuiet} showTime={showTime} onCommit={(next, byKey) => { void commitRename(chat.id, next, byKey, chat.title); if (byKey) returnFocus(); }} onCancel={() => { setRenamingId(null); setRenameError(""); returnFocus(); }} />
 	) : (
 		<SessionRow key={chat.id} chat={chat} showTime={showTime} active={pathname === `/chat/${chat.id}`} kbdSelected={index !== undefined && index === kbdIndex}
 			onArchive={() => updateChat(chat.id, {archived:!chat.archived})}
@@ -904,7 +910,8 @@ function SessionsSidebar() {
 									e.currentTarget.blur();
 								}
 							}}
-							onBlur={() => { searchReturn.current = null; }}
+							// Kept while the walked row's menu has focus: Esc comes back here.
+							onBlur={(e) => { if (!(e.relatedTarget instanceof Element && e.relatedTarget.closest("[data-lh-menu]"))) searchReturn.current = null; }}
 							placeholder="Search…"
 							aria-label="Search chats"
 							className="h-6 rounded-sm border-border bg-background pl-6 text-xs placeholder:text-muted-foreground/60"
@@ -1004,6 +1011,7 @@ function SessionsSidebar() {
 							onClick={() => {
 								setRenameDraft(null);
 								setRenameQuiet(false);
+								setRenameError("");
 								setRenamingId(ctxChatId);
 								setCtxChatId(null);
 							}}

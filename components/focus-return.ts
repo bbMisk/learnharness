@@ -73,3 +73,24 @@ export function useFocusReturn(preventScroll = false, fallback?: () => void): vo
 	const [restore] = useState(captureFocus);
 	useEffect(() => () => { if (!restore?.(preventScroll)) fallback?.(); }, [restore, preventScroll, fallback]);
 }
+
+/** From now, watch for the user moving on (a key or a click): the returned
+ * call stops watching and says whether they did. A save that fails late
+ * takes focus back only if they didn't. */
+export function watchUserMoves(): () => boolean {
+	let moved = false;
+	let stopped = false;
+	const mark = () => { moved = true; };
+	// From the next event on: the key or click that started the save is not a move.
+	queueMicrotask(() => {
+		if (stopped) return;
+		window.addEventListener("keydown", mark, true);
+		window.addEventListener("pointerdown", mark, true);
+	});
+	return () => {
+		stopped = true;
+		window.removeEventListener("keydown", mark, true);
+		window.removeEventListener("pointerdown", mark, true);
+		return moved;
+	};
+}

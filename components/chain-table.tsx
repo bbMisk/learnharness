@@ -756,7 +756,11 @@ export function ChainTableOverlay({
 					window.dispatchEvent(new CustomEvent(entry?.kind === "chat" ? "lh:chat-renamed" : "lh:source-renamed", { detail: { id: action.id, title: action.name } }));
 				}
 				return typeof body.createdFolderId === "string" ? body.createdFolderId : undefined;
-			} catch (error) { setDirectoryFailure(error instanceof Error ? error.message : String(error)); throw error; }
+			} catch (error) {
+				// A rename or new folder reports under its own row.
+				if (!["rename-source", "rename-folder", "create-folder"].includes(action.action)) setDirectoryFailure(error instanceof Error ? error.message : String(error));
+				throw error;
+			}
 		});
 		mutationTail.current = operation;
 		return operation;

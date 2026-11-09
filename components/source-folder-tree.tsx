@@ -68,9 +68,15 @@ export function EditableSourceName({ name, onSave, onCancel, initiallyEditing = 
 	const input = useRef<HTMLInputElement>(null);
 	const submitting = useRef(false);
 	const cancelled = useRef(false);
+	// Enter or Esc closed the field: focus goes to the name, not <body>.
+	const byKey = useRef(false);
+	const button = useRef<HTMLButtonElement>(null);
 	const setRowEditing = useContext(RowEditing);
 	useLayoutEffect(() => { setRowEditing?.(editing); return () => setRowEditing?.(false); }, [editing, setRowEditing]);
-	useLayoutEffect(() => { if (editing) { input.current?.focus(); input.current?.select(); } }, [editing]);
+	useLayoutEffect(() => {
+		if (editing) { input.current?.focus(); input.current?.select(); }
+		else if (byKey.current) { byKey.current = false; if (!document.activeElement || document.activeElement === document.body) button.current?.focus(); }
+	}, [editing]);
 	const commit = async () => {
 		if (cancelled.current || submitting.current) return;
 		const value = draft.trim();
@@ -78,7 +84,7 @@ export function EditableSourceName({ name, onSave, onCancel, initiallyEditing = 
 		if (value === name && !initiallyEditing) { setEditing(false); return; }
 		submitting.current = true;
 		try { await onSave(value); setEditing(false); setFailure(""); }
-		catch (error) { setFailure(error instanceof Error ? error.message : String(error)); }
+		catch (error) { byKey.current = false; setFailure(error instanceof Error ? error.message : String(error)); }
 		finally { submitting.current = false; }
 	};
 	return <span className="min-w-0 flex-1">
@@ -86,10 +92,10 @@ export function EditableSourceName({ name, onSave, onCancel, initiallyEditing = 
 			className="block h-5 w-full min-w-0 border-0 bg-transparent p-0 text-sm font-medium leading-5 outline-none shadow-none focus:ring-0"
 			onChange={(e) => setDraft(e.target.value)} onBlur={() => { void commit(); }}
 			onKeyDown={(e) => {
-				if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); cancelled.current = true; setEditing(false); setFailure(""); onCancel?.(); }
-				if (e.key === "Enter" && !isComposing(e)) { e.preventDefault(); e.stopPropagation(); void commit(); }
+				if (e.key === "Escape" && !isComposing(e)) { e.preventDefault(); e.stopPropagation(); cancelled.current = true; byKey.current = true; setEditing(false); setFailure(""); onCancel?.(); }
+				if (e.key === "Enter" && !isComposing(e)) { e.preventDefault(); e.stopPropagation(); byKey.current = true; void commit(); }
 			}} onDragStart={(e) => { e.preventDefault(); e.stopPropagation(); }} />
-			: <button type="button" className={`block max-w-full truncate rounded-sm text-left text-sm font-medium leading-5 transition-colors hover:bg-accent${muted ? " text-muted-foreground/60" : ""}`} title="Rename"
+			: <button ref={button} type="button" className={`block max-w-full truncate rounded-sm text-left text-sm font-medium leading-5 transition-colors hover:bg-accent${muted ? " text-muted-foreground/60" : ""}`} title="Rename"
 				onClick={() => { cancelled.current = false; setDraft(name); setEditing(true); }}>{name}</button>}
 		{failure && <span role="alert" className="block text-xs text-red-400">{failure}</span>}
 	</span>;

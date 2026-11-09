@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { capName } from "@/src/core";
 import { isComposing } from "@/components/ime";
+import { focusComposer, watchUserMoves } from "@/components/focus-return";
 
 /** Rename a project, guarding against an edit from another Mac (the route compares `expected`). */
 export async function renameProject(id: string, name: string, expected: string): Promise<void> {
@@ -44,20 +45,34 @@ export function InlineRename({
 		if (finished.current) return;
 		finished.current = true;
 		const name = input.current?.value.trim() ?? "";
+		// Where the name shows again once the field closes.
+		const host = input.current?.parentElement;
+		const spot = host ? [...host.children].indexOf(input.current!) : -1;
 		if (save && name && name !== value) {
 			setSaving(true);
+			const movedOn = watchUserMoves();
 			try {
 				await onCommit(name);
 			} catch {
 				// The caller reports the error.
 				finished.current = false;
 				setSaving(false);
-				// Enter keeps editing; a click away keeps the field without taking focus back.
-				if (byKey) requestAnimationFrame(() => input.current?.focus());
+				// Enter keeps editing, unless the user moved on while it saved;
+				// a click away keeps the field without taking focus back.
+				if (byKey && !movedOn()) requestAnimationFrame(() => input.current?.focus());
 				return;
+			} finally {
+				movedOn();
 			}
 		}
 		onDone();
+		// Enter or Esc hands focus to the name's button, else the typing field.
+		if (byKey) requestAnimationFrame(() => {
+			if (document.activeElement && document.activeElement !== document.body) return;
+			const shown = host?.children[spot];
+			(shown?.matches("button") ? shown as HTMLElement : shown?.querySelector("button"))?.focus();
+			if (document.activeElement === document.body) focusComposer();
+		});
 	};
 	return (
 		<input
@@ -74,10 +89,10 @@ export function InlineRename({
 				if (event.key === "Enter" && !isComposing(event)) {
 					event.preventDefault();
 					void finish(true, true);
-				} else if (event.key === "Escape") {
+				} else if (event.key === "Escape" && !isComposing(event)) {
 					event.preventDefault();
 					event.stopPropagation();
-					void finish(false);
+					void finish(false, true);
 				}
 			}}
 			onBlur={() => void finish(true)}

@@ -50,3 +50,32 @@ it("one Escape cancels inline source/folder editing without closing the overlay 
 		assert.equal(closed, 1, "the next Escape closes the overlay normally"); assert.equal(windowEscapes, 0);
 	} finally { await act(async () => { root.unmount(); }); window.removeEventListener("keydown", onWindow); }
 });
+
+it("a failed source rename reports once, under its row, and Esc clears it", async () => {
+	globalThis.fetch = async (_url, init) => init?.method === "POST"
+		? Response.json({ error: "Could not rename." }, { status: 500 })
+		: Response.json({ organization: { version: 1, folders: [], placements: {} }, sources: [{ id: "chat", kind: "chat", label: "Unextracted", createdAt: "2026-10-30" }] });
+	const host = document.createElement("div");
+	document.body.append(host);
+	const root = createRoot(host);
+	const alerts = () => [...document.querySelectorAll('[role="alert"]')].filter((el) => el.textContent === "Could not rename.").length;
+	const key = (k: string) => { const event = new dom.window.Event("keydown", { bubbles: true, cancelable: true }); Object.defineProperty(event, "key", { value: k }); return event; };
+	try {
+		await act(async () => { root.render(<ServerEventsProvider connect={() => ({ close() {}, onOpen() {}, onEvent() {} })}>
+			<ChainTableOverlay open nodes={[]} chains={[]} sessions={{}} fileSources={{}} onClose={() => {}} />
+		</ServerEventsProvider>); });
+		await act(async () => { (document.querySelector('button[title="Rename"]') as HTMLElement).click(); });
+		const input = document.querySelector<HTMLInputElement>('[data-testid="source-name-input"]')!;
+		input.setAttribute("type", "text");
+		// react-dom loaded without oninput here: its old-IE path reads value changes between focusin and keyup.
+		Object.assign(input, { attachEvent() {}, detachEvent() {} });
+		await act(async () => { input.dispatchEvent(new dom.window.Event("focusin", { bubbles: true })); });
+		Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input, "Renamed");
+		await act(async () => { input.dispatchEvent(new dom.window.Event("keyup", { bubbles: true })); });
+		await act(async () => { input.dispatchEvent(key("Enter")); });
+		await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
+		assert.equal(alerts(), 1, "one error, under the row");
+		await act(async () => { document.querySelector('[data-testid="source-name-input"]')!.dispatchEvent(key("Escape")); });
+		assert.equal(alerts(), 0, "Esc clears it");
+	} finally { await act(async () => { root.unmount(); }); host.remove(); }
+});

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { captureFocus, focusComposer } from "@/components/focus-return";
+import { captureFocus, focusComposer, watchUserMoves } from "@/components/focus-return";
 import { isComposing } from "@/components/ime";
 
 /**
@@ -31,6 +31,7 @@ export function useSessionRename(chatId: string, title: string) {
 			setRenamingClear(false);
 			const t = next.trim();
 			if (t === "" || t === titleText) return; // empty commit = discard
+			const movedOn = watchUserMoves();
 			try {
 				const res = await fetch(`/api/chats/${chatId}`, {
 					method: "PUT",
@@ -46,9 +47,11 @@ export function useSessionRename(chatId: string, title: string) {
 				// Keep the old title; reopen the field with what was typed.
 				console.error("rename failed:", err);
 				setTitleDraft(t);
-				reopenQuietly.current = !byKey;
+				reopenQuietly.current = !byKey || movedOn();
 				setRenaming(true);
 				setRenameError("Chat could not be renamed. Try again.");
+			} finally {
+				movedOn();
 			}
 		},
 		[chatId, titleText, setRenamingClear],
@@ -83,10 +86,19 @@ export function useSessionRename(chatId: string, title: string) {
 		}
 	}, [renaming]);
 
-	// F2 opens the title rename; F2 inside the open rename keeps its draft.
+	// F2 opens the title rename; F2 inside the open rename keeps its draft,
+	// and F2 elsewhere moves into a quietly reopened one.
 	useEffect(() => {
 		const onRename = () => {
-			if (renaming) return;
+			if (renaming) {
+				const el = titleInputRef.current;
+				if (el && document.activeElement !== el) {
+					returnFocus.current = captureFocus();
+					el.focus();
+					el.select();
+				}
+				return;
+			}
 			setTitleDraft(titleText);
 			setRenaming(true);
 		};
@@ -95,15 +107,18 @@ export function useSessionRename(chatId: string, title: string) {
 	}, [titleText, renaming]);
 
 	// The sidebar's inline rename dispatches the same lh:chat-renamed event:
-	// if it renamed this chat, patch the header title in place.
+	// if it renamed this chat, patch the header title in place, and close a
+	// quietly reopened failed rename, whose draft is now stale.
 	useEffect(() => {
 		const onRenamed = (e: Event) => {
 			const { id, title } = (e as CustomEvent<{ id: string; title: string }>).detail;
-			if (id === chatId) setTitleText((prev) => (title !== prev ? title : prev));
+			if (id !== chatId) return;
+			setTitleText((prev) => (title !== prev ? title : prev));
+			if (titleInputRef.current && document.activeElement !== titleInputRef.current) setRenamingClear(false);
 		};
 		window.addEventListener("lh:chat-renamed", onRenamed);
 		return () => window.removeEventListener("lh:chat-renamed", onRenamed);
-	}, [chatId]);
+	}, [chatId, setRenamingClear]);
 
 	return { titleText, renaming, setRenaming: setRenamingClear, titleDraft, setTitleDraft, titleInputRef, commitRename, renameError };
 }
