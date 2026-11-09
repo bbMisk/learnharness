@@ -20,7 +20,7 @@ export function OfflineNotice() {
 	if (!shown) return null;
 	return (
 		<div role="status" data-testid="offline-notice" className="lh-offline-strip fixed inset-x-0 top-[env(safe-area-inset-top,0px)] z-50 flex h-7 items-center justify-center border-b border-border bg-card px-4 font-ui text-xs text-muted-foreground">
-			Can&apos;t reach the server. Waiting for it to come back…
+			<span className="truncate">Can&apos;t reach the server. Waiting for it to come back…</span>
 		</div>
 	);
 }
