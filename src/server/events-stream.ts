@@ -26,6 +26,25 @@
  */
 import { subscribe, type ServerEvent } from "../core/events.ts";
 
+/** Every open stream's closer. On SIGTERM/SIGINT they all end, so idle
+ *  windows can't hold the server's graceful close() open forever, and
+ *  their EventSources reconnect to the next server. Kept on globalThis so
+ *  a re-evaluated module (dev HMR) shares one set and one signal hook. */
+const SHUTDOWN = Symbol.for("lh.events-stream.shutdown");
+const shared = ((globalThis as { [SHUTDOWN]?: { open: Set<() => void>; hooked: boolean } })[SHUTDOWN] ??= { open: new Set(), hooked: false });
+const openStreams = shared.open;
+function closeOnShutdown() {
+	if (shared.hooked) return;
+	shared.hooked = true;
+	const onSignal = (signal: NodeJS.Signals) => {
+		for (const close of [...openStreams]) close();
+		// Ours was the only handler: keep the default "signal kills" behaviour.
+		if (process.listenerCount(signal) === 0) process.kill(process.pid, signal);
+	};
+	process.once("SIGTERM", onSignal);
+	process.once("SIGINT", onSignal);
+}
+
 /** One window's subscription as an SSE Response. */
 export function eventsResponse(): Response {
 	const encoder = new TextEncoder();
@@ -39,9 +58,20 @@ export function eventsResponse(): Response {
 			const stop = () => {
 				if (closed) return;
 				closed = true;
+				openStreams.delete(shutdown);
 				unsubscribe?.();
 				if (heartbeat) clearInterval(heartbeat);
 			};
+			const shutdown = () => {
+				stop();
+				try {
+					controller.close();
+				} catch {
+					// already closed by the reader
+				}
+			};
+			openStreams.add(shutdown);
+			closeOnShutdown();
 			// Enqueue is the ONLY place the socket can reject us (the reader
 			// died) — any failure routes through stop() so the listener and
 			// the heartbeat never outlive the connection.
