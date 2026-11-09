@@ -46,6 +46,8 @@ const GAP = 12;
 const PANEL_PAD = 24;
 /** The drawer's least height: over a tall check it overlaps the check while open. */
 const DRAWER_MIN_H = 420;
+/** A folded check's or problem's one-line bar (Enter opens it). */
+const FOLDED_BAR = '[data-testid="question-dock-bar"], [data-testid="teach-check-reveal"], [data-testid="practice-dock-bar"]';
 
 export type PinMode = "dock" | "drawer";
 
@@ -231,7 +233,12 @@ export function usePinnedVisual({
 	const hidden = shown && mode === "drawer" && !open && !showExpanded;
 	// A drawer closed by an Esc from inside its demo leaves no focus in the hidden card.
 	useEffect(() => {
-		if (hidden && document.activeElement?.closest('[data-testid="pin-slot"][data-pinned]')) focusComposer();
+		const inCard = () => document.activeElement?.closest('[data-testid="pin-slot"][data-pinned]');
+		if (!hidden || !inCard()) return;
+		focusComposer();
+		// No typing field shown (a folded check): its bar takes Enter, else the page does.
+		if (inCard()) document.querySelector<HTMLElement>(FOLDED_BAR)?.focus({ preventScroll: true });
+		if (inCard()) (document.activeElement as HTMLElement).blur();
 	}, [hidden]);
 
 	// Keep the reading position when the dock opens, closes or resizes (the

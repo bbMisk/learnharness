@@ -489,4 +489,42 @@ describe("the drawer over a tall check", () => {
 			delete (document as unknown as { activeElement?: unknown }).activeElement;
 		}
 	});
+
+	it("with no typing field shown, focus leaves the hidden demo: to the folded check's bar, else off the iframe", async () => {
+		for (const withBar of [true, false]) {
+			const host = document.createElement("div");
+			document.body.appendChild(host);
+			root = createRoot(host);
+			const area = document.createElement("div");
+			(area as unknown as { getBoundingClientRect: () => object }).getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 800 });
+			const view = projectView(record.slice(0, 5));
+			let latest: ReturnType<typeof usePinnedVisual> | null = null;
+			function Harness() {
+				latest = usePinnedVisual({ messages: view, tutorPin: { callId: "p1", jobId: "job_a" }, areaRef: { current: area }, bottomReserve: 0, getScroller: () => null });
+				return <div data-testid="pin-slot" data-pinned=""><iframe /></div>;
+			}
+			await act(async () => root!.render(<><Harness />{withBar && <button type="button" data-testid="question-dock-bar" />}</>));
+			let focused: Element = host.querySelector("iframe")!;
+			Object.defineProperty(document, "activeElement", { configurable: true, get: () => focused });
+			const proto = dom.window.HTMLElement.prototype as unknown as { focus: (this: Element) => void; blur: (this: Element) => void };
+			const realFocus = proto.focus;
+			const realBlur = proto.blur;
+			proto.focus = function () { focused = this; };
+			proto.blur = function () { if (focused === this) focused = document.body; };
+			try {
+				await act(async () => latest!.toggleDrawer());
+				await act(async () => latest!.toggleDrawer());
+				assert.equal(latest!.escState.drawer, "closed");
+				if (withBar) assert.ok(focused === host.querySelector('[data-testid="question-dock-bar"]'), "the folded bar");
+				else assert.ok(focused === document.body, "the page");
+			} finally {
+				proto.focus = realFocus;
+				proto.blur = realBlur;
+				delete (document as unknown as { activeElement?: unknown }).activeElement;
+				await act(async () => root!.unmount());
+				root = null;
+				host.remove();
+			}
+		}
+	});
 });
