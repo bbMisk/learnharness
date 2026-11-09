@@ -82,7 +82,7 @@ for (const details of [{ code: "models_not_configured", missing: ["cheap"] }, { 
 	globalThis.fetch = async () => Response.json({ results: [{ requestIndex: 0, filePath: "same.md", ok: false, outcome: "failed", error: "Existing raw error", ...details }] });
 	await mount(); await submit([files[0]!]);
 	const suffix = details.code !== "models_not_configured" ? ""
-		: details.missing?.length === 1 ? "\nChoose a Cheap model in Settings → Agent." : "\nChoose the Cheap, Strong and Vision models in Settings → Agent.";
+		: "\nConnect your AI account in Settings → Providers, then pick your models in Settings → Agent.";
 	assert.deepEqual(current.errors, [`same.md: Existing raw error${suffix}`]);
 });
 
