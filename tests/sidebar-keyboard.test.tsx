@@ -198,8 +198,9 @@ it("⌘⇧F from a closed sidebar focuses the search, even before React would re
 
 it("⌘⇧F selects a kept query, so typing replaces it", async () => {
 	const selected: Element[] = [];
-	const realSelect = dom.window.HTMLElement.prototype.select;
-	dom.window.HTMLElement.prototype.select = function (this: Element) {
+	const proto = dom.window.HTMLElement.prototype as unknown as { select(): void };
+	const realSelect = proto.select;
+	proto.select = function (this: Element) {
 		selected.push(this);
 	};
 	try {
@@ -207,7 +208,7 @@ it("⌘⇧F selects a kept query, so typing replaces it", async () => {
 		await settle();
 		assert.ok(selected.length === 1 && selected[0] === document.querySelector('[data-testid="session-search"]'), "the search's text is selected");
 	} finally {
-		dom.window.HTMLElement.prototype.select = realSelect;
+		proto.select = realSelect;
 	}
 });
 
