@@ -49,9 +49,10 @@ describe("Settings keyboard focus", () => {
 		document.body.append(opener);
 		opener.focus();
 		await render(<AppearanceProvider><SettingsDialog onClose={() => {}} initialSection="general" initialRow={null} /></AppearanceProvider>);
-		assert.notEqual(focused, opener, "the dialog took focus");
+		// Compare identities: a failing DOM-node diff would inspect the whole document.
+		assert.ok(focused !== opener, "the dialog took focus");
 		await act(async () => { root!.render(<AppearanceProvider>{null}</AppearanceProvider>); });
-		assert.equal(focused, opener);
+		assert.ok(focused === opener, "focus went back to the opener");
 		opener.remove();
 	});
 
