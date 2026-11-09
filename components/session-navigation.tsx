@@ -27,7 +27,14 @@ export function scrollSessionTarget(target: Range | HTMLElement, scope: HTMLElem
  * to where you were reading, not its bottom. A position is the transcript
  * row at the top of the view, counted from the end (older history fills in
  * above, and the dock's spacer below changes height), and its offset. */
-interface ReadingPosition { fromEnd: number; offset: number }
+interface ReadingPosition {
+	fromEnd: number;
+	offset: number;
+	/** Further from the bottom than the dock's spacer: the passage survives
+	 *  the question starting folded (a folded dock reserves less room, so a
+	 *  position inside that band would clamp to the bottom). */
+	clearOfDock: boolean;
+}
 const readingPositions = new Map<string, ReadingPosition>();
 /** Closer to the bottom than this counts as following the bottom. */
 const AT_BOTTOM_PX = 80;
@@ -51,13 +58,15 @@ function topRow(scroller: HTMLElement): ReadingPosition | null {
 		if (rows[mid]!.getBoundingClientRect().bottom > viewTop) hi = mid;
 		else lo = mid + 1;
 	}
-	return { fromEnd: rows.length - 1 - lo, offset: rows[lo]!.getBoundingClientRect().top - viewTop };
+	const fromBottom = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
+	const dock = scroller.querySelector<HTMLElement>('[data-testid="dock-spacer"]')?.offsetHeight ?? 0;
+	return { fromEnd: rows.length - 1 - lo, offset: rows[lo]!.getBoundingClientRect().top - viewTop, clearOfDock: fromBottom > dock };
 }
 
 /** True while this page will return to a saved reading position (above the
  * bottom), so a question arriving with it starts folded instead of covering it. */
 export function restoresReadingPosition(): boolean {
-	return typeof window !== "undefined" && !window.location.hash && readingPositions.has(window.location.pathname);
+	return typeof window !== "undefined" && !window.location.hash && readingPositions.get(window.location.pathname)?.clearOfDock === true;
 }
 
 export function useReadingPosition(contextRef: RefObject<StickToBottomContext>): void {

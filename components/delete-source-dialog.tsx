@@ -11,7 +11,7 @@ export function DeleteSourceBody({ sources, folders, deleteSessions, onDeleteSes
 }) {
 	const chats = sources.filter((s) => s.kind === "chat");
 	const names = [...sources.map((s) => s.label ?? s.id), ...folders.map((f) => f.name)];
-	return <div role="dialog" aria-modal="true" aria-label="Delete sources" data-testid="delete-source-dialog"
+	return <div role="dialog" aria-modal="true" data-lh-modal aria-label="Delete sources" data-testid="delete-source-dialog"
 		onClick={(e) => e.stopPropagation()} className="w-[32rem] max-w-[calc(100vw-2rem)] rounded-xl border bg-card p-5 shadow-xl">
 		<h2 className="text-sm font-semibold text-destructive">Delete selected sources and folders?</h2>
 		<p className="mt-1.5 font-mono text-sm" data-testid="source-deletion-names">{names.slice(0, 8).join(", ")}{names.length > 8 ? `, and ${names.length - 8} more` : ""}</p>

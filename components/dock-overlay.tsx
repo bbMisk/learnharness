@@ -228,6 +228,7 @@ export function DockOverlay({
 	// reads the lag as the learner leaving). On session mount the dock starts
 	// in its initial state: no scroll, no morph.
 	useEffect(() => {
+		holdFoldRef.current = false;
 		if (!pendingId || pendingId === initialPendingRef.current) return;
 		if (!requiresReveal && atBottomRef.current) void suppressFoldDuringReveal();
 		// fire only when a NEW question lands
@@ -382,8 +383,12 @@ export function DockOverlay({
 			expandIntentRef.current = false;
 		});
 	};
+	// An explicit Esc fold holds against the at-bottom re-open (the reveal
+	// scroll may still be landing) until the learner leaves the bottom.
+	const holdFoldRef = useRef(false);
 	const focusCheckRef = useRef(false);
 	const expandAndReveal = () => {
+		holdFoldRef.current = false;
 		setRevealed(true); // the teach-check invitation was accepted
 		rememberRevealed(pendingId);
 		setExpanded(true);
@@ -429,6 +434,7 @@ export function DockOverlay({
 			// Focus left in the hidden form would keep its Enter-to-submit.
 			const active = document.activeElement;
 			if (active instanceof HTMLElement && shellRef.current?.contains(active)) active.blur();
+			holdFoldRef.current = true;
 			setExpanded(false);
 		};
 		return () => { checkEscRef.current = null; };
@@ -452,6 +458,8 @@ export function DockOverlay({
 				// learner left the bottom: distance alone trips on stick-to-bottom's
 				// catch-up transients.
 				if (d > COLLAPSE_DIST && !expandIntentRef.current && !atBottomRef.current) setExpanded(false);
+			} else if (holdFoldRef.current) {
+				if (d > COLLAPSE_DIST && !expandIntentRef.current) holdFoldRef.current = false;
 			} else if (d < EXPAND_DIST) {
 				// Teach checks stay collapsed until the learner opens them: the
 				// at-bottom auto-expand would pop the form over the teaching.
@@ -460,8 +468,24 @@ export function DockOverlay({
 				void scrollToBottom();
 			}
 		};
+		// Wheeling down while already at the bottom emits no scroll event (and
+		// one muted above may have been the last): it re-opens a folded check too.
+		const onWheel = (e: WheelEvent) => {
+			if (e.deltaY <= 0 || expandedRef.current || holdFoldRef.current || !pendingRef.current) return;
+			if (requiresRevealRef.current && !revealedRef.current) return;
+			if (el.scrollHeight - el.clientHeight - el.scrollTop >= EXPAND_DIST) return;
+			setExpanded(true);
+			void scrollToBottom();
+		};
+		const block = blockRef.current;
 		el.addEventListener("scroll", onScroll, { passive: true });
-		return () => el.removeEventListener("scroll", onScroll);
+		el.addEventListener("wheel", onWheel, { passive: true });
+		block?.addEventListener("wheel", onWheel, { passive: true });
+		return () => {
+			el.removeEventListener("scroll", onScroll);
+			el.removeEventListener("wheel", onWheel);
+			block?.removeEventListener("wheel", onWheel);
+		};
 	}, [scrollRef, scrollToBottom]);
 
 	// The settled block height (gradient excluded), offered to the spacer.

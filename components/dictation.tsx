@@ -72,19 +72,19 @@ export const METER_CELLS = 48;
  *  section's openRow state and the PUT /api/keys/:id seam). */
 export const DEEPGRAM_KEY_ID = "DEEPGRAM_API_KEY";
 
-/** The client-authored keyless line: the token route's raw 503 message is
+/** The client-authored keyless line: the token route's raw keyless message is
  * dev-speak, so the surface says this instead. The errored idle button's
  * click recognizes it and deep-links Settings → Keys → the Deepgram row. */
 export const DICTATION_KEYLESS = "Dictation needs a Deepgram key";
 
 /** Mint a fresh short-lived token (the route holds the real key). The warm
- *  cache and the reconnect path both bottom out here. The keyless 503 is
- *  the route's only 503; it becomes DICTATION_KEYLESS. */
-async function mintFreshToken(): Promise<string> {
+ *  cache and the reconnect path both bottom out here. The route's keyless
+ *  answer (`unavailable`) becomes DICTATION_KEYLESS. Exported for tests. */
+export async function mintFreshToken(): Promise<string> {
 	const res = await fetch("/api/stt/token");
-	const data = (await res.json()) as { token?: string; message?: string };
+	const data = (await res.json()) as { token?: string; message?: string; unavailable?: boolean };
 	if (!res.ok || !data.token) {
-		if (res.status === 503) throw new Error(DICTATION_KEYLESS);
+		if (data.unavailable) throw new Error(DICTATION_KEYLESS);
 		throw new Error(data.message ?? `token route ${res.status}`);
 	}
 	return data.token;

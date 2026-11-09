@@ -16,7 +16,7 @@ Object.assign(globalThis, {
 });
 const { createRoot } = await import("react-dom/client");
 const { DispatchCard, DISPATCH_UNKNOWN_MS } = await import("../components/artifacts/dispatch-card.tsx");
-const { JobsContext } = await import("../components/jobs-context.ts");
+const { JobsContext, JobsFeedIdleContext } = await import("../components/jobs-context.ts");
 
 it("a dispatch the jobs feed never shows settles to a quiet 'Status not kept for older jobs'", async () => {
 	mock.timers.enable({ apis: ["setTimeout"] });
@@ -31,6 +31,26 @@ it("a dispatch the jobs feed never shows settles to a quiet 'Status not kept for
 		assert.ok(host.querySelector('[data-testid="dispatch-unknown"]'), "settled card");
 		assert.match(host.textContent ?? "", /Status not kept for older jobs/);
 		assert.ok(!host.querySelector('[role="status"]') && !/Dispatched…/.test(host.textContent ?? ""), "no spinner");
+	} finally {
+		await act(async () => root.unmount());
+		mock.timers.reset();
+	}
+});
+
+it("an old card settles at once when the loaded, idle jobs feed lacks its job", async () => {
+	mock.timers.enable({ apis: ["setTimeout"] });
+	const host = dom.document.createElement("div");
+	dom.document.body.append(host);
+	const root = createRoot(host as unknown as HTMLElement);
+	const part = { type: "tool-demo", state: "output-available", toolCallId: "call-old", output: "Dispatched." };
+	const render = (idle: boolean) => act(async () => root.render(
+		<JobsContext.Provider value={[]}><JobsFeedIdleContext.Provider value={idle}><DispatchCard part={part} /></JobsFeedIdleContext.Provider></JobsContext.Provider>,
+	));
+	try {
+		await render(false);
+		assert.match(host.textContent ?? "", /Dispatched…/, "feed not loaded, or a turn running: still waiting");
+		await render(true);
+		assert.ok(host.querySelector('[data-testid="dispatch-unknown"]'), "settled with no wait");
 	} finally {
 		await act(async () => root.unmount());
 		mock.timers.reset();

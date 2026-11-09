@@ -186,3 +186,63 @@ it("with no dictation running, Esc in the check's fields reaches the layered Esc
 	const chat = (await import("node:fs")).readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
 	assert.match(chat, /dictationCancel=\{dictation\.active \? dictation\.cancel : undefined\}/);
 });
+
+/** The transcript scroller StickToBottom attached, given a geometry. */
+function scrollerOf(host: HTMLElement, scrollHeight: number, clientHeight: number) {
+	const el = host.firstElementChild!.firstElementChild as HTMLElement;
+	Object.defineProperty(el, "scrollHeight", { configurable: true, value: scrollHeight });
+	Object.defineProperty(el, "clientHeight", { configurable: true, value: clientHeight });
+	return el;
+}
+const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 450)); }); // past the resize mute
+
+async function leaveScrolled(path: string, fromBottom: number, spacer: number) {
+	(window.location as { pathname: string }).pathname = path;
+	const scroller = document.createElement("div");
+	scroller.innerHTML = `<div data-session-find-root><div></div></div><div data-testid="dock-spacer"></div>`;
+	Object.defineProperty(scroller.querySelector('[data-testid="dock-spacer"]'), "offsetHeight", { value: spacer });
+	Object.defineProperty(scroller, "scrollHeight", { value: 9000 });
+	Object.defineProperty(scroller, "clientHeight", { value: 800 });
+	scroller.scrollTop = 9000 - 800 - fromBottom;
+	const saver = createRoot(document.createElement("div"));
+	await act(async () => saver.render(<SavePosition el={scroller} />));
+	await act(async () => { await new Promise((r) => setTimeout(r, 120)); });
+	await act(async () => saver.unmount());
+}
+
+it("a short scroll-up (inside the dock's band) comes back with the question open, not clamped folded at the bottom", async () => {
+	await leaveScrolled("/chat/short", 250, 600);
+	const back = await mount(<Overlay onSubmit={() => {}} reveal={false} />);
+	assert.ok(!back.querySelector('[data-testid="question-dock-bar"]'), "open: folding would shrink the page under the saved position");
+	await leaveScrolled("/chat/far", 2000, 600);
+	const far = await mount(<Overlay onSubmit={() => {}} reveal={false} />);
+	assert.ok(far.querySelector('[data-testid="question-dock-bar"]'), "a far position still starts folded");
+	(window.location as { pathname: string }).pathname = "/chat/p";
+});
+
+it("wheeling down at the bottom re-opens a folded question (no scroll event fires there)", async () => {
+	await leaveScrolled("/chat/wheel", 2000, 600);
+	const host = await mount(<Overlay onSubmit={() => {}} reveal={false} />);
+	assert.ok(host.querySelector('[data-testid="question-dock-bar"]'));
+	const el = scrollerOf(host, 2000, 800);
+	el.scrollTop = 1200; // at the bottom
+	await act(async () => { el.dispatchEvent(Object.assign(new dom.window.Event("wheel"), { deltaY: -40 })); });
+	assert.ok(host.querySelector('[data-testid="question-dock-bar"]'), "wheeling up keeps it folded");
+	await act(async () => { el.dispatchEvent(Object.assign(new dom.window.Event("wheel"), { deltaY: 40 })); });
+	assert.ok(!host.querySelector('[data-testid="question-dock-bar"]'), "re-opened");
+	(window.location as { pathname: string }).pathname = "/chat/p";
+});
+
+it("Esc right after Open stays folded when the reveal scroll lands at the bottom", async () => {
+	const escRef: React.RefObject<(() => void) | null> = { current: null };
+	const host = await mount(<Overlay onSubmit={() => {}} checkEscRef={escRef} id="q-hold" />);
+	const el = scrollerOf(host, 2000, 800);
+	el.scrollTop = 0;
+	await settle();
+	await act(async () => { (host.querySelector('[data-testid="teach-check-reveal"]') as HTMLElement).click(); });
+	await act(async () => escRef.current!());
+	assert.ok(host.querySelector('[data-testid="question-dock-bar"]'), "folded");
+	el.scrollTop = 1200;
+	await act(async () => { el.dispatchEvent(new dom.window.Event("scroll")); });
+	assert.ok(host.querySelector('[data-testid="question-dock-bar"]'), "the Esc fold wins over the at-bottom re-open");
+});
