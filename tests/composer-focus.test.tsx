@@ -140,8 +140,10 @@ it("closing the header rename by key hands focus back to the composer", async ()
 		const input = host.querySelector("input")!;
 		assert.ok(focused === input, "F2 opened the rename");
 		range = at(document.body, 0);
-		await act(async () => { input.dispatchEvent(Object.assign(new dom.window.Event("keydown", { bubbles: true, cancelable: true }), { key })); });
+		const press = Object.assign(new dom.window.Event("keydown", { bubbles: true, cancelable: true }), { key });
+		await act(async () => { input.dispatchEvent(press); });
 		assert.equal(host.querySelector("input"), null);
+		if (key === "Enter") assert.ok(press.defaultPrevented, "Enter types no newline into the composer it hands focus to");
 		assert.ok(focused === field, `${key} hands focus back to the composer`);
 		assert.ok(range?.startContainer === field.firstChild && range.startOffset === 5, `${key} keeps the caret where it was`);
 	}

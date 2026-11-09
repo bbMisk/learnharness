@@ -48,7 +48,12 @@ export function useSessionRename(chatId: string, title: string) {
 					returnFocus.current = captureFocus();
 					el.focus();
 					el.select();
-					const onKey = (e: KeyboardEvent) => { if (e.key === "Enter" || e.key === "Escape") closedByKey.current = true; };
+					const onKey = (e: KeyboardEvent) => {
+						if (e.key !== "Enter" && e.key !== "Escape") return;
+						closedByKey.current = true;
+						// The focus moves before Enter's default: keep it from typing a newline there.
+						if (e.key === "Enter" && !e.isComposing) e.preventDefault();
+					};
 					el.addEventListener("keydown", onKey);
 					return () => el.removeEventListener("keydown", onKey);
 			}
