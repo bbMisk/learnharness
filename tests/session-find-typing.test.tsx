@@ -75,3 +75,22 @@ it("a keystroke reads no computed styles; a session change rebuilds the index", 
 		await act(async () => root.unmount());
 	}
 });
+
+it("the index is built while Find sits idle, so even the first keystroke reads no styles", async () => {
+	dom.document.body.innerHTML = `<div id="scope"><div data-session-find-root=""><p>chain rule</p>${"<p>filler</p>".repeat(100)}</div></div><div id="bar"></div>`;
+	const scope = dom.document.getElementById("scope") as unknown as HTMLDivElement;
+	const root = createRoot(dom.document.getElementById("bar") as unknown as HTMLElement);
+	try {
+		await act(async () => root.render(<SessionFind scopeRef={{ current: scope }} scrollContextRef={{ current: null }} />));
+		await act(async () => { dom.window.dispatchEvent(new dom.window.Event(kbdEventForAction("find"))); });
+		await act(async () => { await new Promise((r) => setTimeout(r, 100)); });
+		styleReads = 0;
+		const input = dom.document.querySelector("input") as unknown as HTMLInputElement;
+		Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input, "ch");
+		await act(async () => { input.dispatchEvent(new dom.window.Event("input", { bubbles: true })); });
+		assert.equal(dom.document.querySelector('[data-testid="session-find-count"]')!.textContent, "1/1");
+		assert.ok(styleReads < 10, `the first keystroke searches the warmed index (${styleReads} style reads)`);
+	} finally {
+		await act(async () => root.unmount());
+	}
+});
