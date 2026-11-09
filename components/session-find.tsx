@@ -54,6 +54,8 @@ export function sessionFindHasForegroundLayer(doc: Document): boolean {
 		'[data-lh-menu], [data-radix-popper-content-wrapper], [role="menu"], [role="dialog"], [data-testid="cheat-sheet"]',
 	)).some((element) => {
 		if (element.getAttribute("data-state") === "closed" || element.hasAttribute("hidden")) return false;
+		// Tooltips share Radix's popper wrapper but are not a layer: they must not block Find.
+		if (element.querySelector('[data-slot="tooltip-content"], [role="tooltip"]')) return false;
 		const view = doc.defaultView;
 		if (typeof view?.getComputedStyle !== "function") return true;
 		const style = view.getComputedStyle(element);

@@ -133,6 +133,13 @@ describe("sessionFindHasForegroundLayer — the one-Esc law", () => {
 		assert.equal(sessionFindHasForegroundLayer(document), false);
 	});
 
+	it("an open tooltip is not a layer and never blocks Find", () => {
+		mount('<div data-radix-popper-content-wrapper><div data-slot="tooltip-content" data-state="delayed-open">Open side tutor</div></div>');
+		assert.equal(sessionFindHasForegroundLayer(document), false);
+		mount('<div data-radix-popper-content-wrapper><div role="tooltip">hint</div></div>');
+		assert.equal(sessionFindHasForegroundLayer(document), false);
+	});
+
 	it("a surfaced menu/dialog/cheat sheet outranks the Find bar", () => {
 		for (const html of [
 			'<div data-lh-menu></div>',
