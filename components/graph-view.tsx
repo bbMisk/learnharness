@@ -62,6 +62,7 @@ import { MenuShell } from "@/components/menu-shell.tsx";
 import { DeleteNodeDialog } from "@/components/delete-node-dialog.tsx";
 import { ChainTableOverlay } from "@/components/chain-table-lazy";
 import { Hint } from "@/components/ui/hint";
+import { captureFocus, focusComposer } from "@/components/focus-return";
 import {
 	ARROW_LENGTH_LADDER,
 	CHARGE_RANGE,
@@ -663,6 +664,7 @@ export function GraphChromeRow({
 	changeSettings,
 	onOpenChains,
 	onFit,
+	onLeaveSearch,
 }: {
 	isEmpty: boolean;
 	query: string;
@@ -679,6 +681,8 @@ export function GraphChromeRow({
 	onOpenChains: () => void;
 	/** Re-frames the whole graph. */
 	onFit: () => void;
+	/** Esc left the empty search: hand focus back. */
+	onLeaveSearch?: () => void;
 }) {
 	return (
 		<>
@@ -703,7 +707,7 @@ export function GraphChromeRow({
 								e.preventDefault();
 								e.stopPropagation();
 								if (query) onQuery("");
-								else e.currentTarget.blur();
+								else { e.currentTarget.blur(); onLeaveSearch?.(); }
 							}}
 							placeholder="Search nodes…"
 							aria-label="Search nodes"
@@ -876,9 +880,19 @@ export function GraphView({
 	// The chain table overlay — component-local: a browsing surface, not
 	// graph state.
 	const [chainsOpen, setChainsOpen] = useState(false);
+	// Esc out of a ⌘F search hands focus back to where the shortcut found it.
+	const searchReturn = useRef<ReturnType<typeof captureFocus>>(null);
+	const leaveSearch = useCallback(() => {
+		const restore = searchReturn.current;
+		searchReturn.current = null;
+		if (!restore?.(true)) focusComposer();
+	}, []);
 	useEffect(() => {
 		if (chainsOpen) return;
-		const onFind = () => searchInputRef.current?.focus();
+		const onFind = () => {
+			if (document.activeElement !== searchInputRef.current) searchReturn.current = captureFocus();
+			searchInputRef.current?.focus();
+		};
 		window.addEventListener("lh:kbd-find", onFind);
 		return () => window.removeEventListener("lh:kbd-find", onFind);
 	}, [chainsOpen]);
@@ -1049,7 +1063,8 @@ export function GraphView({
 			setCtxNode(null);
 		};
 		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
+			if (e.key === "Escape" && !e.defaultPrevented) {
+				e.preventDefault();
 				e.stopPropagation();
 				setCtxNode(null);
 			}
@@ -1390,6 +1405,7 @@ export function GraphView({
 					changeSettings={changeSettings}
 					onOpenChains={() => setChainsOpen(true)}
 					onFit={() => rendererRef.current?.fit()}
+					onLeaveSearch={leaveSearch}
 				/>
 			</div>
 

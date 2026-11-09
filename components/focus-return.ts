@@ -18,7 +18,10 @@ export function captureFocus(): ((preventScroll: boolean) => boolean) | null {
 	return (preventScroll) => {
 		if (!el.isConnected) return false;
 		if (document.activeElement === el) return true; // it has focus again: keep its current caret
+		// Hidden (a folded check), disabled or gone: the caller's fallback picks a visible field.
+		if (!(el.checkVisibility?.({ visibilityProperty: true }) ?? true)) return false;
 		el.focus({ preventScroll });
+		if (document.activeElement !== el) return false;
 		if (field && start !== null && end !== null) {
 			try { field.setSelectionRange(start, end); } catch { /* not a text-type input */ }
 		}
