@@ -22,7 +22,7 @@ Object.assign(globalThis, {
 	requestAnimationFrame: (cb: () => void) => setTimeout(cb, 0),
 	cancelAnimationFrame: (id: number) => clearTimeout(id),
 });
-const { ChatGate } = await import("../components/chat-gate.tsx");
+const { ChatGate, useChatArchived } = await import("../components/chat-gate.tsx");
 const { ServerEventsProvider } = await import("../components/server-events.tsx");
 const NotFound = (await import("../app/not-found.tsx")).default;
 
@@ -35,7 +35,7 @@ afterEach(async () => {
 	globalThis.fetch = realFetch;
 });
 
-async function mount(respond: () => Response) {
+async function mount(respond: () => Response, children: React.ReactNode = <p>live chat</p>) {
 	const urls: string[] = [];
 	globalThis.fetch = (async (input: RequestInfo | URL) => {
 		urls.push(String(input));
@@ -57,7 +57,7 @@ async function mount(respond: () => Response) {
 		root.render(
 			<ServerEventsProvider connect={channel}>
 				<ChatGate chatId="chat_x" title="Old title">
-					<p>live chat</p>
+					{children}
 				</ChatGate>
 			</ServerEventsProvider>,
 		),
@@ -98,6 +98,19 @@ it("a rename in another tab goes out as lh:chat-renamed, once", async () => {
 	} finally {
 		window.removeEventListener("lh:chat-renamed", listen);
 	}
+});
+
+it("an archive in another tab (chats-changed) reaches the open chat", async () => {
+	let archived = false;
+	const Probe = () => <p>{useChatArchived() ? "archived" : "live chat"}</p>;
+	const { event } = await mount(() => new Response(JSON.stringify({ title: "Old title", archived }), { status: 200 }), <Probe />);
+	assert.match(host.textContent ?? "", /live chat/);
+	archived = true;
+	await event("chats-changed");
+	assert.match(host.textContent ?? "", /archived/);
+	archived = false;
+	await event("chats-changed");
+	assert.match(host.textContent ?? "", /live chat/);
 });
 
 it("the app's not-found page links home", () => {

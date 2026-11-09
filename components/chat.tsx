@@ -26,6 +26,7 @@ import { DictationBar, joinDictation, useDictation } from "@/components/dictatio
 import { useFieldCycle } from "@/components/field-cycle";
 import { JobsContext } from "@/components/jobs-context";
 import { useServerDown, useServerEvent, useServerResync } from "@/components/server-events";
+import { useChatArchived } from "@/components/chat-gate";
 import {
 	isProviderKeyRefusal,
 	cliContextWindowOf,
@@ -459,6 +460,7 @@ export function Chat({
 	const { catalog, configured, zeroKeys } = useModelSetup(initialConfigured);
 	// While the server is unreachable the offline notice says so; setup can't load.
 	const serverDown = useServerDown();
+	const archived = useChatArchived();
 	const catalogRef = useRef(catalog);
 	catalogRef.current = catalog;
 	const [selectedModel, setSelectedModel] = useState<string | undefined>();
@@ -1303,6 +1305,7 @@ export function Chat({
 							)}
 							{openingError && <p role="alert" className="text-sm text-destructive">{OPENING_PROMPT_FAILURE}</p>}
 							{settingsRefreshError && <p role="alert" className="text-xs text-destructive">{settingsRefreshError}</p>}
+							{archived && <p data-testid="chat-archived" className="font-ui text-xs text-muted-foreground">This chat is archived.</p>}
 							{error && (
 								<div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm">
 									<span>{isNetworkFailure(error.message) ? "Can't reach the server." : `Something went wrong: ${error.message}`}</span>
