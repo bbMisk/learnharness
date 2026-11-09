@@ -20,6 +20,7 @@ let started = false, revealed = false, saving = false, cacheReady = false, conne
 let syncTask: Promise<void> | undefined;
 let selectedIndex: number | undefined, optionOrder: number[] = [];
 let questionKey = "", preparingQuestion = false, questionError = "", questionBlocked = false; // blocked: no usable model (503)
+let questionOffline = false; // a choices request failed to reach the host: wait for the next sync
 const QUESTION_OFFLINE = "Reconnect to prepare choices.";
 /** Cards skipped this visit (choices could not be prepared): not rated, just passed over. */
 const skipped = new Set<string>();
@@ -124,8 +125,8 @@ function render() {
     element("skip").hidden = !fallback;
     element("skip").textContent = revealed ? "Next card" : "Skip";
     element<HTMLButtonElement>("mcq-continue").disabled = saving;
-    if (mcq && !current.mcq && !questionBlocked && questionKey !== current.id + current.revision) void prepareQuestion(current);
-    const nextDrawn = `${currentToken}:${revealed}:${selectedIndex}:${!!current.mcq}:${preparingQuestion}:${questionError}:${saving}`;
+    if (mcq && !current.mcq && !questionBlocked && !questionOffline && navigator.onLine && !preparingQuestion && questionKey !== current.id + current.revision) void prepareQuestion(current);
+    const nextDrawn = `${currentToken}:${revealed}:${selectedIndex}:${!!current.mcq}:${preparingQuestion}:${questionError}:${questionBlocked}:${saving}`;
 	if (drawn !== nextDrawn) {
 		drawn = nextDrawn;
 		const projectNames = new Map(state?.snapshot?.projects?.map(project => [project.id,project.name]));
@@ -203,9 +204,12 @@ async function prepareQuestion(card: ReviewSnapshot["cards"][number]) {
         cardsKey = "";
         if (current?.id === card.id && current.revision === card.revision) current = {...current, mcq:body.question};
         signal();
-    } catch (error) { questionError = error instanceof Error && !(error instanceof TypeError) ? error.message : QUESTION_OFFLINE; }
+    } catch (error) { questionOffline = error instanceof TypeError; questionError = error instanceof Error && !(error instanceof TypeError) ? error.message : QUESTION_OFFLINE; }
     finally { preparingQuestion = false; render(); }
 }
+
+/** A model may have been connected since the 503: ask again, the current card included. */
+function askAgain() { questionBlocked = false; questionKey = ""; }
 
 async function readState() { if (database) { state = await database.read(); render(); } }
 
@@ -226,6 +230,7 @@ function sync(): Promise<void> {
 				if (!batch.every(attempt => isReceipted(attempt, state!.snapshot!.receipts))) throw new Error("The host did not acknowledge every review. They remain saved here.");
 				connected = true; notify(""); signal();
 				if (questionError === QUESTION_OFFLINE) questionKey = ""; // back online: ask for the card's choices again
+				questionBlocked = false; questionOffline = false; // a model may be connected now
 				render();
 				if (body.engineId !== REVIEW_ENGINE.engineId) element("update").hidden = false;
 				if (!state.pending.length) break;
@@ -283,7 +288,7 @@ async function prepareOffline() {
 element("mcq-retry").onclick = () => { if (current) void prepareQuestion(current); };
 element("skip").onclick = () => { if (!current) return; skipped.add(current.id); current = undefined; revealed = false; render(); };
 element("mcq-continue").onclick = () => { if (current?.mcq && selectedIndex !== undefined) void rate(selectedIndex === current.mcq.correctIndex ? 3 : 1); };
-start.onclick = () => { started = true; notify(""); render(); scrollTo(0, 0); };
+start.onclick = () => { started = true; askAgain(); notify(""); render(); scrollTo(0, 0); };
 reveal.onclick = () => { if (!current || saving) return; revealed = true; revealedAt = Date.now(); render(); };
 for (const button of ratingButtons) button.onclick = () => void rate(Number(button.dataset.rating) as ReviewRating);
 const chooseProjects = () => { started = false; current = undefined; skipped.clear(); render(); scrollTo(0, 0); projectOptions.querySelector<HTMLButtonElement>("button[aria-pressed='true']")?.focus(); };
@@ -291,7 +296,7 @@ element("choose-projects").onclick = chooseProjects;
 element("back").onclick = chooseProjects;
 // Installed to the Home Screen: the install instructions no longer apply.
 element("install").hidden = matchMedia("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone === true;
-syncButton.onclick = () => void sync();
+syncButton.onclick = () => { askAgain(); void sync(); };
 element("reload").onclick = () => location.reload();
 element("install").onclick = () => element<HTMLDialogElement>("install-dialog").showModal();
 element("backup").onclick = async () => {
@@ -312,7 +317,7 @@ document.addEventListener("keydown", event => {
 });
 document.addEventListener("visibilitychange", () => {
 	if (document.hidden) { foregroundMs = foregroundTime(); foregroundStart = null; }
-	else { if (current) foregroundStart = performance.now(); void readState(); void sync(); }
+	else { if (current) foregroundStart = performance.now(); askAgain(); void readState(); void sync(); }
 });
 window.addEventListener("online", () => void sync());
 window.addEventListener("offline", () => { connected = false; render(); });

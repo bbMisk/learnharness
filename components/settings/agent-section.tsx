@@ -390,8 +390,9 @@ export function AgentSection({
 		if (saved) latestAgent.current = next;
 		return saved;
 	};
+	/** Resolves whether the save landed. */
 	const saveAgent = (compose: (base: AgentSettings | undefined) => AgentSettings) =>
-		enqueue(() => commitAgent(compose(latestAgent.current)));
+		new Promise<boolean>((resolve) => enqueue(() => commitAgent(compose(latestAgent.current)).then(resolve, (error) => { resolve(false); throw error; })));
 	const folderText = useRef("");
 	const [search, setSearch] = useState<{ available: boolean; engine: string | null; reason: string } | null>(null);
 	/** Which search engines have a key (/api/keys) — the no-keys-anywhere
@@ -479,7 +480,11 @@ export function AgentSection({
 			method: "PUT",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ text }),
-		});
+		}).catch(() => null);
+		if (!res) {
+			setSegmentStatus("Save failed. Try again.");
+			return;
+		}
 		if (!res.ok) {
 			setSegmentStatus(`Save failed: ${(await res.json().catch(() => ({}))).error ?? res.status}`);
 			return;
@@ -499,7 +504,11 @@ export function AgentSection({
 
 	async function deleteSegment(path: string) {
 		setSegmentStatus(null);
-		const res = await fetch(`/api/settings/prompts/${path}`, { method: "DELETE" });
+		const res = await fetch(`/api/settings/prompts/${path}`, { method: "DELETE" }).catch(() => null);
+		if (!res) {
+			setSegmentStatus("Delete failed. Try again.");
+			return;
+		}
 		if (!res.ok) {
 			setSegmentStatus(`Delete failed: ${res.status}`);
 			return;
@@ -979,9 +988,9 @@ export function AgentSection({
 				})()}
 			</SettingsGroup>
 
-			<FlashcardAgentSection agent={agent} onChange={(next) => saveAgent((base) => ({ ...base, flashcards: next.flashcards }))}/>
+			<FlashcardAgentSection agent={agent} onChange={saveAgent}/>
 
-			<ModelInstructionsSection agent={agent} catalog={catalog ?? undefined} strong={models?.strong?.model ?? slots?.strong?.model} onChange={(next) => saveAgent((base) => ({ ...base, modelInstructions: next.modelInstructions }))} />
+			<ModelInstructionsSection agent={agent} catalog={catalog ?? undefined} strong={models?.strong?.model ?? slots?.strong?.model} onChange={saveAgent} />
 
 			<SettingsGroup label="Context" testid="group-context">
 				<SettingsRow

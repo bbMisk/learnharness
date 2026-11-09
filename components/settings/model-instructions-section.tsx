@@ -24,7 +24,8 @@ export function ModelInstructionsSection({
 	catalog: ModelCatalogEntry[] | undefined;
 	/** The Strong slot's model: the picker starts there when nothing is saved. */
 	strong?: { provider: string; id: string };
-	onChange: (next: AgentSettings) => void;
+	/** Queues a save composed on the latest saved settings; resolves whether it landed. */
+	onChange: (compose: (base: AgentSettings | undefined) => AgentSettings) => void | Promise<boolean>;
 }) {
 	const saved = useMemo(() => agent?.modelInstructions ?? {}, [agent?.modelInstructions]);
 	// Every catalog model, plus saved ones whose provider left the catalog
@@ -50,11 +51,17 @@ export function ModelInstructionsSection({
 	};
 	const suggestion = suggestedModelInstructions(options.find((o) => o.key === key)?.id ?? "");
 	const save = (value: string) => {
-		drafts.delete(key);
-		const next = { ...saved };
-		if (value.trim()) next[key] = value;
-		else delete next[key];
-		onChange({ ...agent, modelInstructions: next });
+		const model = key;
+		const saving = onChange((base) => {
+			const next = { ...base?.modelInstructions };
+			if (value.trim()) next[model] = value;
+			else delete next[model];
+			return { ...base, modelInstructions: next };
+		});
+		// The draft goes only once the save lands: a failed save keeps it.
+		void Promise.resolve(saving).then((ok) => {
+			if (ok !== false && drafts.get(model) === value) drafts.delete(model);
+		});
 	};
 	return (
 		<SettingsGroup label="Model instructions" testid="group-model-instructions">
