@@ -138,6 +138,16 @@ describe("fitTransform", () => {
 		assert.ok(Math.abs(t.y - 120) < 1e-9, `y=${t.y}`);
 	});
 
+	test("keeps screen-sized labels near the edge inside the viewport", () => {
+		// k = 4.2 alone puts a label centred at world x 50 at screen 460; a
+		// 60px half-width label would end at 520 > 500. Fit shrinks k so it
+		// ends 8px inside: (250 - 60 - 8) / 50 = 3.64.
+		const t = fitTransform({ minX: -50, maxX: 50, minY: -25, maxY: 25 }, 500, 300, 40, undefined, [{ cx: 50, halfWidth: 60 }, { cx: 0, halfWidth: 200 }]);
+		assert.ok(Math.abs(t.k - 3.64) < 1e-9, `k=${t.k}`);
+		assert.ok(Math.abs(t.x - 250) < 1e-9, `x=${t.x}`);
+		assert.ok(50 * t.k + t.x + 60 <= 500 - 8 + 1e-9, "the label ends inside");
+	});
+
 	test("never returns a non-positive scale for degenerate bboxes", () => {
 		const t = fitTransform({ minX: 5, maxX: 5, minY: 5, maxY: 5 }, 100, 100, 10);
 		assert.ok(t.k > 0 && Number.isFinite(t.k));
