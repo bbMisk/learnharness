@@ -161,3 +161,21 @@ describe("computeMenuPlacement — real DOMRect anchors", () => {
 		}
 	});
 });
+
+it("an anchor clipped past the right or left edge (a scrolled header strip after a shrink) keeps the menu on-screen", () => {
+	class GetterRect {
+		#l: number; #r: number;
+		constructor(l: number, r: number) { this.#l = l; this.#r = r; }
+		get left() { return this.#l; } get right() { return this.#r; } get top() { return 20; } get bottom() { return 44; }
+	}
+	// "Qs: MCQ" at x 854–940 in a 900-px window; then 505–649 in a 390-px portrait phone.
+	for (const [width, left, right] of [[900, 854, 940], [390, 505, 649]] as const) {
+		const p = computeMenuPlacement(new GetterRect(left, right), { width, height: 480 }, 120, "down", "right");
+		assert.equal(p.style.right, 0, `${width}: the menu's right edge stays at the window's`);
+		assert.ok((p.style.maxWidth as number) <= width - 8);
+	}
+	const offLeft = computeMenuPlacement(new GetterRect(-60, 40), { width: 900, height: 480 }, 120, "down", "left");
+	assert.equal(offLeft.style.left, 0);
+	// A visible anchor keeps its edge.
+	assert.equal(computeMenuPlacement(new GetterRect(700, 860), { width: 900, height: 480 }, 120, "down", "right").style.right, 40);
+});

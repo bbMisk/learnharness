@@ -17,7 +17,8 @@ import { createPortal } from "react-dom";
  *  - Cap: max-height = min(60vh, the chosen side's room), and max-width = the
  *    safe room on the side the menu extends toward; the menu scrolls
  *    internally instead of escaping the viewport.
- *  - Re-placement: capture-phase scroll (inner scrollers included) + resize.
+ *  - Re-placement: capture-phase scroll (inner scrollers included), resize,
+ *    and content that grows past the cap.
  *
  * SSR: menus only mount client-side while open; the hidden measuring pass
  * below is the only pre-placement render, so a server render never emits a
@@ -68,8 +69,9 @@ export function computeMenuPlacement(
 ): MenuPlacement {
 	// An anchor left off-screen by a resize or rotation places from the edge it left by.
 	const clampY = (y: number) => Math.min(Math.max(y, safe.top), viewport.height - safe.bottom);
+	const clampX = (x: number) => Math.min(Math.max(x, safe.left ?? 0), viewport.width - (safe.right ?? 0));
 	// Copy fields explicitly: a DOMRect keeps them as prototype getters, which spread drops.
-	rect = { left: rect.left, right: rect.right, top: clampY(rect.top), bottom: clampY(rect.bottom) };
+	rect = { left: clampX(rect.left), right: clampX(rect.right), top: clampY(rect.top), bottom: clampY(rect.bottom) };
 	const availDown = viewport.height - safe.bottom - EDGE - (rect.bottom + GAP);
 	const availUp = rect.top - GAP - EDGE - safe.top;
 	// contentHeight ≤ 0 (nothing measured yet) keeps the preferred side —
@@ -225,8 +227,17 @@ export function MenuShell({
 		};
 		window.addEventListener("scroll", rePlace, true);
 		window.addEventListener("resize", rePlace);
+		// Content that arrives after placement (the chat row's coverage) and no
+		// longer fits re-decides the side. Growth only: a search narrowing the
+		// list never moves the menu under the typing.
+		const grown = typeof MutationObserver === "undefined" ? null : new MutationObserver(() => {
+			const el = menuRef.current;
+			if (el && el.scrollHeight > el.clientHeight) rePlace();
+		});
+		if (menuRef.current) grown?.observe(menuRef.current, { childList: true, subtree: true, characterData: true });
 		return () => {
 			cancelAnimationFrame(raf);
+			grown?.disconnect();
 			window.removeEventListener("scroll", rePlace, true);
 			window.removeEventListener("resize", rePlace);
 		};
