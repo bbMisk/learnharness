@@ -138,6 +138,7 @@ describe("setup polish interactions", () => {
 		await click(element('[data-testid="setup-key-provider"]'));
 		await escape();
 		assertSameNode(document.querySelector('[data-testid="setup-key-provider-menu"]'), null);
+		assert.ok(document.activeElement === element('[data-testid="setup-key-provider"]'), "focus goes back to the trigger");
 		assert.ok(document.querySelector('[data-testid="setup-dialog"]'));
 		assert.equal(closed, 0);
 		await escape();

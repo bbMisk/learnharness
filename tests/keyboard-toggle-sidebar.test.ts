@@ -63,6 +63,13 @@ describe("the thinking pill suffix — ⇧⇥ via the registry", () => {
 	});
 });
 
+describe("the Space bar has a name", () => {
+	it("a Space binding (stored as its key, \" \") formats as Space", () => {
+		assert.equal(formatBinding("alt+ "), IS_MAC ? "⌥Space" : "Alt+Space");
+		assert.equal(formatBinding(" "), "Space");
+	});
+});
+
 describe("the Alt session cycle is RETIRED (owner, 2026-10-10)", () => {
 	// Barely used, felt laggy — session navigation lives IN the search
 	// now (↑/↓ walk the filtered list, Enter opens; sidebar.tsx).

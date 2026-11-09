@@ -70,3 +70,18 @@ it("phone opens and closes leave the desktop preference, which returns on wideni
 	assert.equal(sidebar.open, true, "widening restores the stored open sidebar");
 	await act(async () => root.unmount());
 });
+
+it("rotating to landscape and back leaves the phone drawer closed", async () => {
+	phone = true;
+	storage.delete("lh:sidebar-open"); // phones never store one
+	const root = createRoot(document.createElement("div"));
+	await act(async () => root.render(<SidebarProvider><Probe /></SidebarProvider>));
+	assert.equal(sidebar.open, false, "phones start closed");
+	phone = false;
+	await act(async () => { for (const cb of mediaListeners) cb(); });
+	assert.equal(sidebar.open, true, "landscape shows the inline sidebar");
+	phone = true;
+	await act(async () => { for (const cb of mediaListeners) cb(); });
+	assert.equal(sidebar.open, false, "back in portrait the drawer is closed over the chat");
+	await act(async () => root.unmount());
+});

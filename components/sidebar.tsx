@@ -198,11 +198,12 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 		});
 	}, [narrow, open]);
 
-	// Leaving phone width restores the stored preference.
+	// Leaving phone width restores the stored preference; entering it
+	// (rotating back to portrait) closes the drawer, as phones start closed.
 	useEffect(() => {
 		const media = window.matchMedia?.(PHONE_QUERY);
 		if (!media) return;
-		const onChange = () => { if (!media.matches) setOpen(localStorage.getItem(STORAGE_KEY) !== "0"); };
+		const onChange = () => setOpen(!media.matches && localStorage.getItem(STORAGE_KEY) !== "0");
 		media.addEventListener("change", onChange);
 		return () => media.removeEventListener("change", onChange);
 	}, []);

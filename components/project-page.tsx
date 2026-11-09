@@ -12,7 +12,7 @@ import { useFileDrop } from "@/components/file-drop";
 import { FileDropFeedback } from "@/components/file-drop-feedback";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import type { ChatListItem, ProjectView } from "@/src/core";
-import { InlineRename } from "@/components/inline-rename";
+import { actionError, InlineRename } from "@/components/inline-rename";
 import { NotFoundView } from "@/components/not-found-view";
 import { APP_TITLE } from "@/lib/utils";
 import { ConnectionDialog } from "@/components/settings/connection-controls";
@@ -121,7 +121,7 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 			setEdits({});
 			setSaved(true);
 		} catch (error) {
-			setError(error instanceof Error ? error.message : "Could not save project.");
+			setError(actionError(error, "Project could not be saved. Try again."));
 		} finally {
 			setSaving(false);
 		}
@@ -229,7 +229,7 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 										try {
 											await save({ name, expected: { name: project.name } });
 										} catch (error) {
-											setError(error instanceof Error ? error.message : "Could not rename the project.");
+											setError(actionError(error, "Project could not be renamed. Try again."));
 											throw error;
 										}
 									}}
@@ -381,7 +381,7 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 										<button
 											type="button"
 											aria-label="Remove unavailable file"
-											onClick={() => void save({ removeFileIds: [id] }).catch((error) => setError(error.message))}
+											onClick={() => void save({ removeFileIds: [id] }).catch((error) => setError(actionError(error, "File could not be removed. Try again.")))}
 											className={buttonClass}
 										>
 											<XIcon className="size-4" />
@@ -405,7 +405,7 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 												type="button"
 												aria-label={"Remove " + file.name}
 												onClick={() =>
-													void save({ removeFileIds: [file.id] }).catch((error) => setError(error.message))
+													void save({ removeFileIds: [file.id] }).catch((error) => setError(actionError(error, "File could not be removed. Try again.")))
 												}
 												className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 											>

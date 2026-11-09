@@ -7,7 +7,7 @@ import { ChevronRightIcon, FolderIcon, PlusIcon } from "lucide-react";
 import { Dialog } from "radix-ui";
 import type { ChatListItem, ProjectSummary } from "@/src/core";
 import { capName } from "@/src/core";
-import { InlineRename, renameProject } from "@/components/inline-rename";
+import { actionError, InlineRename, renameProject } from "@/components/inline-rename";
 type ProjectChats = {
 	chats: ChatListItem[];
 	moveChat: (id: string, projectId: string | null) => void;
@@ -67,7 +67,7 @@ export function ProjectSidebar({
 			refresh();
 			router.push("/project/" + body.id);
 		} catch (e) {
-			setError(e instanceof Error ? e.message : "Could not create project.");
+			setError(actionError(e, "Project could not be created. Try again."));
 		} finally {
 			setSaving(false);
 		}
@@ -231,7 +231,7 @@ function ProjectFolder({
 								await renameProject(project.id, name, project.name);
 								refresh();
 							} catch (error) {
-								setRenameError(error instanceof Error ? error.message : "Could not rename the project.");
+								setRenameError(actionError(error, "Project could not be renamed. Try again."));
 								throw error;
 							}
 						}}

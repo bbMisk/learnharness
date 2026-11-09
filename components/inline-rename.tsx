@@ -5,6 +5,13 @@ import { capName } from "@/src/core";
 import { isComposing } from "@/components/ime";
 import { focusComposer, watchUserMoves } from "@/components/focus-return";
 
+/** A refused action's message: the server's own line, or `fallback` when the
+ *  request never got an answer (fetch's raw "Failed to fetch" TypeError, an
+ *  unreadable body). */
+export function actionError(error: unknown, fallback: string): string {
+	return error instanceof Error && error.name === "Error" && error.message ? error.message : fallback;
+}
+
 /** Rename a project, guarding against an edit from another Mac (the route compares `expected`). */
 export async function renameProject(id: string, name: string, expected: string): Promise<void> {
 	const response = await fetch("/api/projects/" + id, {
