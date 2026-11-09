@@ -1178,7 +1178,6 @@ export function Chat({
 								title="Rename this chat"
 								className="lh-no-drag min-w-[8ch] max-w-[70%] shrink-0 bg-transparent font-title text-3xl tracking-tight caret-current outline-none [field-sizing:content]"
 							/>
-							{renameError && <span role="alert" className="min-w-0 truncate text-xs text-destructive">{renameError}</span>}
 							{/* flex-1 spacer during rename too, so the chips stay at
 							    the right edge; clicks here commit via the header
 							    mousedown handler. */}
@@ -1261,6 +1260,7 @@ export function Chat({
 						<PhaseChip phase={phases.at(-1) ?? "probe"} />
 					)}
 				</TopBar>
+				{renameError && <p role="alert" className="shrink-0 px-3 py-1.5 text-xs text-destructive">{renameError}</p>}
 				<ChatNote />
 
 				<SessionFind scopeRef={sessionFindScopeRef} scrollContextRef={scrollContextRef} />
