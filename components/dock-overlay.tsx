@@ -441,6 +441,7 @@ export function DockOverlay({
 		return () => document.removeEventListener("keydown", onKeyDown);
 	}, [pending, expanded]);
 	const checkCollapsible = !!pending && requiresReveal && expanded;
+	const refocusOnFoldRef = useRef(false);
 	useEffect(() => {
 		if (!checkEscRef || !checkCollapsible) return;
 		checkEscRef.current = () => {
@@ -449,13 +450,18 @@ export function DockOverlay({
 			const active = document.activeElement;
 			if (active instanceof HTMLElement && shellRef.current?.contains(active)) {
 				active.blur();
-				requestAnimationFrame(() => { if (document.activeElement === document.body) focusComposer(); });
+				refocusOnFoldRef.current = true;
 			}
 			holdFoldRef.current = true;
 			setExpanded(false);
 		};
 		return () => { checkEscRef.current = null; };
 	}, [checkEscRef, checkCollapsible]);
+	useEffect(() => {
+		if (expanded || !refocusOnFoldRef.current) return;
+		refocusOnFoldRef.current = false;
+		if (document.activeElement === document.body) focusComposer();
+	}, [expanded]);
 
 	useEffect(() => {
 		const el = scrollRef.current;
