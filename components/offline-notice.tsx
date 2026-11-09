@@ -18,8 +18,9 @@ export function OfflineNotice() {
 		return () => document.documentElement.classList.remove("lh-offline");
 	}, [shown]);
 	if (!shown) return null;
+	// z-[45]: above page overlays (z-40), below dialogs (z-50) even when it mounts after them.
 	return (
-		<div role="status" data-testid="offline-notice" className="lh-offline-strip fixed inset-x-0 top-[env(safe-area-inset-top,0px)] z-50 flex h-7 items-center justify-center border-b border-border bg-card px-4 font-ui text-xs text-muted-foreground">
+		<div role="status" data-testid="offline-notice" className="lh-offline-strip fixed inset-x-0 top-[env(safe-area-inset-top,0px)] z-[45] flex h-7 items-center justify-center border-b border-border bg-card px-4 font-ui text-xs text-muted-foreground">
 			<span className="truncate">Can&apos;t reach the server. Waiting for it to come back…</span>
 		</div>
 	);

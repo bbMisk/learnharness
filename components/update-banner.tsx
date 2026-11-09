@@ -35,11 +35,12 @@ export default function UpdateBanner() {
 		return () => document.documentElement.classList.remove("lh-update-band");
 	}, [shown]);
 	if (!shown) return null;
+	// z-[45]: above page overlays (z-40), below dialogs (z-50) even when it mounts after them.
 	return (
 		<div
 			data-testid="update-banner"
 			data-status={ready.status}
-			className="fixed inset-x-0 bottom-[calc(var(--lh-safe-bottom)-2.75rem)] z-50 flex h-11 items-center justify-center gap-3 border-t border-border bg-popover pr-[calc(1rem+env(safe-area-inset-right,0px))] pl-[calc(1rem+env(safe-area-inset-left,0px))]"
+			className="fixed inset-x-0 bottom-[calc(var(--lh-safe-bottom)-2.75rem)] z-[45] flex h-11 items-center justify-center gap-3 border-t border-border bg-popover pr-[calc(1rem+env(safe-area-inset-right,0px))] pl-[calc(1rem+env(safe-area-inset-left,0px))]"
 		>
 			{ready.status === "downloaded" && (
 				<>

@@ -70,7 +70,7 @@ export function DeployReload({
 			aria-label="LearnHarness updated · Reload"
 			title="LearnHarness updated · Reload"
 			// Icon-only in narrow windows, where the centred composer reaches the corner.
-			className="fixed bottom-[calc(1rem+var(--lh-safe-bottom))] left-[calc(1rem+env(safe-area-inset-left,0px))] z-50 flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 font-ui text-xs shadow-lg hover:bg-muted max-[1100px]:px-2"
+			className="fixed bottom-[calc(1rem+var(--lh-safe-bottom))] left-[calc(1rem+env(safe-area-inset-left,0px))] z-[45] flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 font-ui text-xs shadow-lg hover:bg-muted max-[1100px]:px-2"
 		>
 			<RefreshCwIcon className="size-3.5 text-primary" aria-hidden />
 			<span className="max-[1100px]:hidden">Updated · Reload</span>
