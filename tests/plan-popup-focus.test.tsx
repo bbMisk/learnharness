@@ -44,3 +44,23 @@ it("focus moves into the plan popup, Tab stays inside it, and closing returns fo
 		await act(async () => root.unmount());
 	}
 });
+
+it("opened by a pointer click (the chip blurs itself), closing falls back to the visible typing field", async () => {
+	const host = dom.document.createElement("div");
+	dom.document.body.append(host);
+	const root = createRoot(host as unknown as HTMLElement);
+	function Page({ open }: { open: boolean }) {
+		return <><div data-testid="composer"><textarea data-file-path-input="" /></div>{open && <PlanPopup messages={[]} onClose={() => {}} />}</>;
+	}
+	try {
+		await act(async () => root.render(<Page open={false} />));
+		focused = null; // the chip's blurAfterPointerClick left focus on the body
+		await act(async () => root.render(<Page open />));
+		await act(async () => root.render(<Page open={false} />));
+		const field = host.querySelector("textarea");
+		assert.ok(dom.document.activeElement === field, "focus is in the typing field");
+	} finally {
+		await act(async () => root.unmount());
+		host.remove();
+	}
+});

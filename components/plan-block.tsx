@@ -17,7 +17,7 @@ import type { PlanBlockData, PlanNodeStatus, PlanTree } from "@/src/core";
 import { derivedNodeStatus, derivePlanStatuses } from "@/src/core";
 import { Hint } from "@/components/ui/hint";
 import { useSessionOverlay } from "@/components/session-overlay";
-import { useFocusReturn } from "@/components/focus-return";
+import { focusComposer, useFocusReturn } from "@/components/focus-return";
 
 /**
  * PLAN BLOCKS — the plan lives in the chat: persisted `data-plan-block`
@@ -705,9 +705,9 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 	}, [onClose]);
 
 	// Focus moves into the popup (a modal: the shortcuts' Tab trap keeps it
-	// there) and returns to whatever held it on close.
+	// there) and returns to whatever held it on close, else the typing field.
 	const dialogRef = useRef<HTMLDivElement>(null);
-	useFocusReturn(true);
+	useFocusReturn(true, focusComposer);
 	useEffect(() => {
 		dialogRef.current?.focus({ preventScroll: true });
 	}, []);
