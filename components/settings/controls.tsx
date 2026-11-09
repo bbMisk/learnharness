@@ -275,7 +275,15 @@ export function CommitInput({
 				setEditing(true);
 				setDraft(e.target.value);
 			}}
-			onBlur={() => {
+			onBlur={(e) => {
+				// Letters in a number field read as "" — refuse them instead of
+				// committing a clear, and show the stored value again.
+				if (type === "number" && e.currentTarget.validity?.badInput && !cancelled.current) {
+					setEditing(false);
+					e.currentTarget.value = value;
+					setError("Enter a number.");
+					return;
+				}
 				if (!editing) return;
 				setEditing(false);
 				if (cancelled.current) {
