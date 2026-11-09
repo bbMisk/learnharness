@@ -71,8 +71,28 @@ function outcomeLabel(outcome: string): string {
 	return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
-/** One tool result's learner-visible outcome, rendered as body lines. */
-function toolResultBody(result: ToolResultMessage, ctx?: MarkdownContext): { heading: string; body: string[] } {
+/** A message's own headings sit under its `### Teacher`/`### Learner`
+ *  block: each moves down three levels (capped at ######). Code fences are
+ *  left alone. */
+function demoteHeadings(text: string): string {
+	let fence: string | null = null;
+	return text
+		.split("\n")
+		.map((line) => {
+			const open = /^\s{0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+			if (open && (fence === null || (open[0] === fence[0] && open.length >= fence.length))) {
+				fence = fence === null ? open : null;
+				return line;
+			}
+			if (fence !== null) return line;
+			return line.replace(/^( {0,3})(#{1,6})(?=\s|$)/, (_, indent: string, hashes: string) => indent + "#".repeat(Math.min(6, hashes.length + 3)));
+		})
+		.join("\n");
+}
+
+/** One tool result's learner-visible outcome, rendered as body lines; null
+ *  for a tool with nothing to show the learner. */
+function toolResultBody(result: ToolResultMessage, ctx?: MarkdownContext): { heading: string; body: string[] } | null {
 	const out = result.details as
 		| Partial<{
 				questionText: string;
@@ -149,8 +169,8 @@ function toolResultBody(result: ToolResultMessage, ctx?: MarkdownContext): { hea
 		return { heading: "Question", body };
 	}
 
-	// Parity with the line builder: other clean tool results are one line.
-	return { heading: "Tool", body: [`*${result.toolName} result delivered*`] };
+	// Other tools (file reads, plans, demos…) are the teacher's working steps.
+	return null;
 }
 
 /**
@@ -170,18 +190,20 @@ export function messageMarkdown(
 
 	if (role === "user") {
 		for (const text of userFacingTextOf((message as { content: unknown }).content)) {
-			parts.push(`### Learner${anchor}\n\n${text.trim()}`);
+			parts.push(`### Learner${anchor}\n\n${demoteHeadings(text.trim())}`);
 		}
 	} else if (role === "assistant") {
 		for (const text of userFacingTextOf((message as { content: unknown }).content, ctx?.failedOutputCalls ?? failedOutputCallIds([message]))) {
-			parts.push(`### Teacher${anchor}\n\n${text.trim()}`);
+			parts.push(`### Teacher${anchor}\n\n${demoteHeadings(text.trim())}`);
 		}
 	} else if (role === "toolResult") {
 		const result = message as ToolResultMessage;
 		if (result.isError || result.toolName === SEND_TO_USER_TOOL) return null; // retry context or output ack, not learning evidence
 		// Lesson tracking and pins are bookkeeping the transcript never shows (view.ts).
 		if (isLessonTrackingTool(result.toolName) || result.toolName === PIN_VISUAL_TOOL) return null;
-		const { heading, body } = toolResultBody(result, ctx);
+		const rendered = toolResultBody(result, ctx);
+		if (!rendered) return null;
+		const { heading, body } = rendered;
 		parts.push(`### ${heading}${anchor}\n\n${body.join("\n\n")}`);
 	}
 

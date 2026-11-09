@@ -75,6 +75,11 @@ describe("messageMarkdown", () => {
 		assert.equal(md2, "### Teacher · a1\n\nThe derivative measures change.");
 	});
 
+	it("a message's own headings sit below its speaker heading; code is untouched", () => {
+		const md = messageMarkdown(teacher("a1", "## Plan\n\n### Step 1\n\n```md\n# not a heading\n```\n\n#hashtag"), "a1", false);
+		assert.equal(md, "### Teacher\n\n##### Plan\n\n###### Step 1\n\n```md\n# not a heading\n```\n\n#hashtag");
+	});
+
 	it("anchors off — the same document without the ids (the user export)", () => {
 		const md = messageMarkdown(user("u1", "hello"), "u1", false);
 		assert.equal(md, "### Learner\n\nhello");
@@ -133,8 +138,8 @@ describe("messageMarkdown", () => {
 		assert.match(free, /The learner answered: because/);
 	});
 
-	it("other clean tool results: one line; failed calls and markers: nothing", () => {
-		assert.equal(messageMarkdown(result("r1", "j1", "research", { brief: "long" }), "r1"), "### Tool · r1\n\n*research result delivered*");
+	it("other tool results (the teacher's working steps), failed calls and markers: nothing", () => {
+		assert.equal(messageMarkdown(result("r1", "j1", "research", { brief: "long" }), "r1"), null);
 		assert.equal(messageMarkdown(result("r2", "j2", "research", {}, true), "r2"), null, "a failed call is retry context");
 		assert.equal(messageMarkdown(user("u3", "   "), "u3"), null, "empty text renders nothing");
 	});
