@@ -22,7 +22,7 @@ Object.assign(globalThis, {
 	requestAnimationFrame: (cb: () => void) => setTimeout(cb, 0),
 	cancelAnimationFrame: (id: number) => clearTimeout(id),
 });
-const { ChatGate } = await import("../components/chat-gate.tsx");
+const { ChatGate, ChatNote } = await import("../components/chat-gate.tsx");
 const { ServerEventsProvider } = await import("../components/server-events.tsx");
 const NotFound = (await import("../app/not-found.tsx")).default;
 
@@ -57,6 +57,8 @@ async function mount(respond: () => Response) {
 		root.render(
 			<ServerEventsProvider connect={channel}>
 				<ChatGate chatId="chat_x" title="Old title">
+					<header>bar</header>
+					<ChatNote />
 					<p>live chat</p>
 				</ChatGate>
 			</ServerEventsProvider>,
@@ -117,6 +119,9 @@ it("an archived open chat says so; the window title follows the chat's", async (
 	body = { title: "New title", archived: true };
 	await event("chats-changed");
 	assert.match(host.textContent ?? "", /This chat is archived\./);
+	const note = host.querySelector('[data-testid="chat-archived"]')!;
+	assert.equal(note.previousElementSibling?.tagName, "HEADER", "the note takes its own band under the header");
+	assert.doesNotMatch(note.className, /absolute/, "in flow, never over the transcript");
 	assert.equal(document.title, "New title");
 	body = { title: "New title", archived: false };
 	await event("chats-changed");

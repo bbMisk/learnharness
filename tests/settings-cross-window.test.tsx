@@ -28,6 +28,8 @@ let settingsReads = 0;
 let root: Root | null = null;
 let host: HTMLElement | null = null;
 let emit: (name: string, data: unknown) => void = () => {};
+let reopen = () => {};
+let serverDown = false;
 let seen: ReturnType<typeof useAppearance>["appearance"] | null = null;
 
 function Probe() { seen = useAppearance().appearance; return null; }
@@ -39,17 +41,18 @@ afterEach(async () => {
 	globalThis.fetch = realFetch;
 	puts.length = 0;
 	settingsReads = 0;
+	serverDown = false;
 });
 
 async function mount(children: React.ReactNode) {
 	globalThis.fetch = (async (url: string, init?: RequestInit) => {
-		if (url === "/api/settings") { settingsReads++; return Response.json({ settings: stored }); }
+		if (url === "/api/settings") { settingsReads++; if (serverDown) throw new TypeError("Failed to fetch"); return Response.json({ settings: stored }); }
 		if (init?.method === "PUT") { puts.push({ url, body: JSON.parse(String(init.body)) }); return Response.json({}); }
 		return Response.json({});
 	}) as typeof fetch;
 	const listeners = new Map<string, (data: string) => void>();
 	emit = (name, data) => listeners.get(name)?.(JSON.stringify(data));
-	const connect = () => ({ close() {}, onOpen() {}, onEvent(name: string, cb: (data: string) => void) { listeners.set(name, cb); } });
+	const connect = () => ({ close() {}, onOpen(cb: () => void) { reopen = cb; }, onEvent(name: string, cb: (data: string) => void) { listeners.set(name, cb); } });
 	host = document.createElement("div");
 	document.body.append(host);
 	root = createRoot(host);
@@ -77,5 +80,16 @@ describe("settings saved in another window", () => {
 		assert.ok(settingsReads > before, "the dialog re-reads the record");
 		const input = document.querySelector<HTMLInputElement>('[data-testid="input-heading-weight"]');
 		assert.equal(input?.value, "300");
+	});
+
+	it("a dialog opened while the server was down loads once the events channel reconnects", async () => {
+		stored = { version: 1, appearance: { mdRendering: { headingWeight: 900 } } };
+		serverDown = true;
+		await mount(<SettingsDialogBody initialSection="appearance" onClose={() => {}} />);
+		assert.match(document.body.textContent ?? "", /Settings could not be loaded/);
+		serverDown = false;
+		await act(async () => { reopen(); });
+		assert.doesNotMatch(document.body.textContent ?? "", /could not be loaded/);
+		assert.equal(document.querySelector<HTMLInputElement>('[data-testid="input-heading-weight"]')?.value, "900");
 	});
 });

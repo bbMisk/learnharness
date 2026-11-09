@@ -636,6 +636,18 @@ body {
 :root.lh-offline {
 	--lh-safe-top: calc(env(safe-area-inset-top, 0px) + 1.75rem);
 }
+/* In Electron the top band is the title bar (traffic lights, window drag,
+   Windows controls), so the strip sits at the bottom instead. */
+:root.lh-offline.lh-electron {
+	--lh-safe-top: env(safe-area-inset-top, 0px);
+	--lh-safe-bottom: calc(env(safe-area-inset-bottom, 0px) + 1.75rem);
+}
+.lh-electron .lh-offline-strip {
+	top: auto;
+	bottom: env(safe-area-inset-bottom, 0px);
+	border-style: solid;
+	border-width: 1px 0 0;
+}
 body {
 	padding: var(--lh-safe-top) env(safe-area-inset-right, 0px) var(--lh-safe-bottom) env(safe-area-inset-left, 0px);
 }
