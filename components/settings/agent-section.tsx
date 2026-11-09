@@ -681,7 +681,7 @@ export function AgentSection({
 											}}
 											footer={
 												catalog && catalog.length === 0
-													? "No models — add a provider key in Keys"
+													? "No models — add a provider key in Providers"
 													: "Runs every agent of this tier"
 											}
 										/>

@@ -387,7 +387,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 						onPick={pickModel}
 						footer={
 							catalog && catalog.models.length === 0
-								? "No models — add a provider key in Keys"
+								? "No models — add a provider key in Providers"
 								: chatId
 									? "This session's model"
 									: "Strong tier — the default for new sessions"
