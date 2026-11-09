@@ -611,3 +611,28 @@ test("single-line IME sanitizes after completion, and queued external assignment
 	assert.equal(readPathInput(f.root), "externalvalue");
 	assert.deepEqual(f.writes, ["a中文"]);
 });
+
+test("mount autofocus leaves focus in an already-open dialog", async () => {
+	for (const modal of [true, false]) {
+		const { window: win, document: doc } = parseHTML(`<html><body>${modal ? "<div data-lh-modal><button id='close'></button></div>" : ""}<div id='root'></div></body></html>`);
+		let active: Element = doc.getElementById("close") ?? doc.body;
+		Object.defineProperty(doc, "activeElement", { get: () => active });
+		Object.assign(doc, { getSelection: () => ({ setBaseAndExtent() {} }), oninput: null });
+		win.HTMLElement.prototype.focus = function () { active = this; };
+		const previous = new Map<string, PropertyDescriptor | undefined>();
+		for (const [name, value] of Object.entries({ React, window: win, document: doc, HTMLElement: win.HTMLElement, Element: win.Element, Event: win.Event, IS_REACT_ACT_ENVIRONMENT: true })) {
+			previous.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
+			Object.defineProperty(globalThis, name, { configurable: true, writable: true, value });
+		}
+		const { createRoot } = await import("react-dom/client");
+		const reactRoot = createRoot(doc.getElementById("root")!);
+		await act(async () => { reactRoot.render(<PathInput value="" onValueChange={() => {}} autoFocus />); });
+		assert.equal(active.getAttribute("role"), modal ? null : "textbox");
+		if (modal) assert.equal(active.id, "close");
+		await act(async () => { reactRoot.unmount(); });
+		for (const [name, descriptor] of previous) {
+			if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+			else delete (globalThis as Record<string, unknown>)[name];
+		}
+	}
+});

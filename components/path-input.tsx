@@ -4,6 +4,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import { FilePathChip } from "./file-path-chip";
 import { cn } from "../lib/utils";
+import { openModal } from "./open-modal";
 import {
 	adjacentPathRange, atomicPathRange, clampPathSelection,
 	normalizePathEdit, normalizePathInputValue, pathInputStaticRange, PathInputHistory, readPathInput, readPathSelection, renderPathInput,
@@ -222,7 +223,8 @@ export const PathInput = React.forwardRef<HTMLDivElement, PathInputProps>(functi
 			},
 		};
 		paint(saved, false);
-		if (initial.current.autoFocus) { root.focus(); restorePathSelection(root, saved); }
+		// An open dialog keeps focus (e.g. /settings opens one before the draft mounts).
+		if (initial.current.autoFocus && !openModal()) { root.focus(); restorePathSelection(root, saved); }
 		root.addEventListener("beforeinput", beforeInput);
 		root.addEventListener("input", input);
 		root.addEventListener("keydown", keyDown);
