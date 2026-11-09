@@ -3,6 +3,7 @@ import React, { act, Component, type ReactNode } from "react";
 (globalThis as Record<string, unknown>).React = React;
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createRoot, type Root } from "react-dom/client";
@@ -102,7 +103,7 @@ describe("split dialogs and overlays", () => {
 		await act(async () => sortName().click());
 		assert.equal(sortName().getAttribute("aria-sort"), "descending");
 		await act(async () => root.render(view(false)));
-		assert.equal(overlay(), null);
+		assertSameNode(overlay(), null);
 		await act(async () => root.render(view(true)));
 		assert.ok(overlay(), "a reopen renders on the first frame");
 		assert.equal(sortName().getAttribute("aria-sort"), "descending", "the table's state survives closing");
@@ -123,7 +124,7 @@ describe("split dialogs and overlays", () => {
 		const { host } = await mount(<SettingsDialogProvider><Opener /></SettingsDialogProvider>);
 		assert.equal(host.textContent, "app");
 		assert.equal(subscriptions, 1, "the ChatGPT connection subscribes while the dialog is closed");
-		assert.equal(document.querySelector('[data-testid="settings-dialog"]'), null);
+		assertSameNode(document.querySelector('[data-testid="settings-dialog"]'), null);
 		await act(async () => opener!("keyboard"));
 		await act(async () => {});
 		assert.ok(document.querySelector('[data-testid="settings-dialog"]'));

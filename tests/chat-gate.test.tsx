@@ -4,6 +4,7 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, it } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -115,7 +116,7 @@ it("an archived open chat says so; the window title follows the chat's", async (
 	document.title = "Old title"; // the server sets the chat's own title
 	const { event } = await mount(() => new Response(JSON.stringify(body), { status: 200 }));
 	assert.equal(document.title, "Old title");
-	assert.equal(host.querySelector('[data-testid="chat-archived"]'), null);
+	assertSameNode(host.querySelector('[data-testid="chat-archived"]'), null);
 	body = { title: "New title", archived: true };
 	await event("chats-changed");
 	assert.match(host.textContent ?? "", /This chat is archived\./);
@@ -125,7 +126,7 @@ it("an archived open chat says so; the window title follows the chat's", async (
 	assert.equal(document.title, "New title");
 	body = { title: "New title", archived: false };
 	await event("chats-changed");
-	assert.equal(host.querySelector('[data-testid="chat-archived"]'), null, "restored elsewhere: the note goes");
+	assertSameNode(host.querySelector('[data-testid="chat-archived"]'), null, "restored elsewhere: the note goes");
 	await act(async () => root.unmount());
 	assert.equal(document.title, "LearnHarness", "leaving the chat restores the app title");
 });

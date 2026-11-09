@@ -8,6 +8,7 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import * as fs from "node:fs";
 import { afterEach, it } from "node:test";
 import { parseHTML } from "linkedom";
@@ -172,7 +173,7 @@ it("only the latest Agent read lands: a slower, older response never restores th
 it("opens a three-option menu with the current type checked", async () => {
 	fakeApi({});
 	await mount(<Harness cram />);
-	assert.equal(menu(), null);
+	assertSameNode(menu(), null);
 	assert.equal(chip().getAttribute("aria-expanded"), "false");
 	await click(chip());
 	assert.ok(menu());
@@ -186,7 +187,7 @@ it("opens a three-option menu with the current type checked", async () => {
 		],
 	);
 	await click(chip());
-	assert.equal(menu(), null, "the chip toggles it closed");
+	assertSameNode(menu(), null, "the chip toggles it closed");
 });
 
 it("a pick saves only { questionType } through the chat settings API, updates at once, then reconciles", async () => {
@@ -201,7 +202,7 @@ it("a pick saves only { questionType } through the chat settings API, updates at
 	await click(option("saq"));
 	await settle();
 	assert.equal(chip().textContent, "Qs: SAQ");
-	assert.equal(menu(), null, "the menu closes on a saved pick");
+	assertSameNode(menu(), null, "the menu closes on a saved pick");
 	assert.deepEqual(chatCalls(), [PUT("saq"), GET], "no read-then-write of the model fields; one reconcile read after the commit");
 	assert.deepEqual(api.settings, { model: MODEL, thinkingLevel: "low", questionType: "saq" });
 	await click(chip());
@@ -218,7 +219,7 @@ it("a pick saves only { questionType } through the chat settings API, updates at
 	assert.deepEqual(chatCalls().slice(-2), [PUT("mixed"), GET]);
 	assert.equal(chatCalls().length, 6);
 	assert.equal(api.settings.questionType, "mixed");
-	assert.equal(menu(), null);
+	assertSameNode(menu(), null);
 });
 
 it("a failed save changes nothing and says so", async () => {

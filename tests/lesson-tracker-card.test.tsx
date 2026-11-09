@@ -6,6 +6,7 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import fs from "node:fs";
 import { afterEach, it } from "node:test";
 import { parseHTML } from "linkedom";
@@ -170,12 +171,12 @@ it("beside the closed pin drawer's tab, the card narrows to clear it and keeps i
 it("shows only the sections that exist", async () => {
 	const mistakesOnly: LessonTracking = deriveLessonTracking([record[3]!]);
 	let host = await mount(<LessonTrackerCard tracking={mistakesOnly} bottomReserve={0} />);
-	assert.equal(host.querySelector('[data-testid="lesson-tracker-problems"]'), null);
+	assertSameNode(host.querySelector('[data-testid="lesson-tracker-problems"]'), null);
 	assert.equal(count(host, "mistakes"), "1 open");
 	await act(async () => root!.unmount());
 	const listOnly = deriveLessonTracking([record[0]!]);
 	host = await mount(<LessonTrackerCard tracking={listOnly} bottomReserve={0} />);
-	assert.equal(host.querySelector('[data-testid="lesson-tracker-mistakes"]'), null);
+	assertSameNode(host.querySelector('[data-testid="lesson-tracker-mistakes"]'), null);
 	assert.equal(count(host, "problems"), "0/5");
 	assert.deepEqual(rows(host, "problems").map((r) => r[0]), ["todo", "todo", "todo", "todo", "todo"], "nothing started: nothing current");
 	// Legacy records (no outcome) read as correct; a restarted correct problem is current and still counted.
@@ -211,14 +212,14 @@ it("shown by default; the chip toggles it and the choice is remembered", async (
 	assert.ok(card(host), "shown by default on a wide layout");
 	assert.equal(chip(host).getAttribute("aria-pressed"), "true");
 	await act(async () => chip(host).click());
-	assert.equal(card(host), null);
+	assertSameNode(card(host), null);
 	assert.equal(chip(host).getAttribute("aria-pressed"), "false");
 	assert.equal(store.get("lh:lesson-tracker"), "0");
 
 	// A remount (reload) keeps the choice.
 	await act(async () => root!.unmount());
 	host = await mount(<Harness messages={record} />);
-	assert.equal(card(host), null, "hidden stays hidden after a reload");
+	assertSameNode(card(host), null, "hidden stays hidden after a reload");
 	await act(async () => chip(host).click());
 	assert.ok(card(host));
 	assert.equal(store.get("lh:lesson-tracker"), "1");
@@ -227,7 +228,7 @@ it("shown by default; the chip toggles it and the choice is remembered", async (
 it("updates live as tracking results arrive; no chip or card before any", async () => {
 	const host = await mount(<Harness messages={[]} />);
 	assert.ok(host.querySelector('[data-testid="empty"]'));
-	assert.equal(chip(host), null);
+	assertSameNode(chip(host), null);
 	await act(async () => root!.render(<Harness messages={record.slice(0, 1)} />));
 	assert.equal(count(host, "problems"), "0/5");
 	await act(async () => root!.render(<Harness messages={record.slice(0, 2)} />));
@@ -242,7 +243,7 @@ it("phone width starts hidden and opens from the chip", async () => {
 	phone = true;
 	store.set("lh:lesson-tracker", "1");
 	const host = await mount(<Harness messages={record} />);
-	assert.equal(card(host), null, "a phone-width layout starts hidden");
+	assertSameNode(card(host), null, "a phone-width layout starts hidden");
 	assert.ok(chip(host));
 	await act(async () => chip(host).click());
 	assert.ok(card(host), "the chip opens it");
@@ -253,7 +254,7 @@ it("blocked storage costs only the memory", async () => {
 	const host = await mount(<Harness messages={record} />);
 	assert.ok(card(host));
 	await act(async () => chip(host).click());
-	assert.equal(card(host), null);
+	assertSameNode(card(host), null);
 });
 
 it("makes room: while shown on a wide session area the column clears the card; otherwise layout is untouched", async () => {
@@ -370,12 +371,12 @@ it("plan: a teach lesson with a plan shows the section — covered/total, one ro
 	assert.match(score(scoreRow!)!.getAttribute("class")!, /\bml-auto\b.*\btabular-nums\b/);
 	assert.equal(visible(score(fisherRow!)!), "1/2");
 	assert.match(score(fisherRow!)!.getAttribute("class")!, /\btext-red-500\b/);
-	assert.equal(score(planRow(host, "current")), null, "no answered check: no score");
-	assert.equal(score(planRow(host, "upcoming")), null);
+	assertSameNode(score(planRow(host, "current")), null, "no answered check: no score");
+	assertSameNode(score(planRow(host, "upcoming")), null);
 	// An ungraded (explain) answer: no score at all, not a grey "0/1".
 	const explainView: ViewMessage[] = [{ parts: [{ type: "tool-explain", state: "output-available", input: { nodeId: "score" }, output: { kind: "explain", dontKnow: false, answers: [], text: "x", questionText: "q", answeredAt: "t" } }] }];
 	await act(async () => root!.render(<PlanHarness view={explainView} />));
-	assert.equal(score(planRow(host, "current")), null);
+	assertSameNode(score(planRow(host, "current")), null);
 });
 
 it("plan: updates live as tagged checks stream in and answers land", async () => {
@@ -384,7 +385,7 @@ it("plan: updates live as tagged checks stream in and answers land", async () =>
 	assert.deepEqual(rows(host, "plan").map((r) => r[0]), ["upcoming", "upcoming", "upcoming", "upcoming"]);
 	await act(async () => root!.render(<PlanHarness view={[{ parts: [tagged("score")] }]} />));
 	assert.equal(rows(host, "plan")[0]![0], "current");
-	assert.equal(score(planRow(host, "current")), null, "posed, not answered");
+	assertSameNode(score(planRow(host, "current")), null, "posed, not answered");
 	await act(async () => root!.render(<PlanHarness view={[{ parts: [tagged("score", graded(true))] }]} />));
 	assert.equal(visible(score(planRow(host, "current"))!), "1/1");
 	await act(async () => root!.render(<PlanHarness view={[{ parts: [tagged("score", graded(true))] }, { parts: [tagged("fisher")] }]} />));
@@ -396,22 +397,22 @@ it("plan: none in cram (Problems + Mistakes only), none without a plan", async (
 	// Cram with a problem list: the card keeps Problems + Mistakes, no Plan.
 	let host = await mount(<PlanHarness cram messages={record} />);
 	assert.ok(card(host));
-	assert.equal(host.querySelector('[data-testid="lesson-tracker-plan"]'), null, "no plan section in cram");
+	assertSameNode(host.querySelector('[data-testid="lesson-tracker-plan"]'), null, "no plan section in cram");
 	assert.ok(host.querySelector('[data-testid="lesson-tracker-problems"]'));
 	assert.ok(host.querySelector('[data-testid="lesson-tracker-mistakes"]'));
 	// Cram with a plan and nothing else tracked: no chip, no card.
 	await act(async () => root!.render(<PlanHarness cram />));
 	assert.ok(host.querySelector('[data-testid="empty"]'));
-	assert.equal(chip(host), null);
+	assertSameNode(chip(host), null);
 	await act(async () => root!.unmount());
 	// No plan (none, or an empty tree): no section; nothing else → no chip.
 	host = await mount(<PlanHarness tree={null} />);
-	assert.equal(chip(host), null);
+	assertSameNode(chip(host), null);
 	await act(async () => root!.render(<PlanHarness tree={{ nodes: [], edges: [], version: 1 }} />));
-	assert.equal(chip(host), null);
+	assertSameNode(chip(host), null);
 	await act(async () => root!.render(<PlanHarness tree={null} messages={[record[3]!]} />));
 	assert.ok(card(host));
-	assert.equal(host.querySelector('[data-testid="lesson-tracker-plan"]'), null);
+	assertSameNode(host.querySelector('[data-testid="lesson-tracker-plan"]'), null);
 });
 
 it("plan: Plan first, then Mistakes; a long plan scrolls inside the card, bounded by the dock", async () => {
@@ -504,7 +505,7 @@ it("weak spots: a button while a plan step's latest check is wrong or a mistake 
 	assert.ok(card(host) && !practiceButton(host));
 	// No handler (models not set up): no button even with weak spots.
 	await act(async () => root!.render(<LessonTrackerCard tracking={tracking} plan={plan} bottomReserve={0} />));
-	assert.equal(practiceButton(host), null);
+	assertSameNode(practiceButton(host), null);
 	// Practice sessions carry no plan section and no mistake tools: nothing to practise.
 	assert.equal(lessonPlanProgress(planTree, planView, { cram: false, practice: true }), null);
 	assert.deepEqual(lessonWeakSpots(deriveLessonTracking([]), null), []);

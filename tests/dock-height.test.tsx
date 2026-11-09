@@ -1,6 +1,7 @@
 import React, { act, useLayoutEffect, useRef, useState } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
+import { assertSameNode, assertNotSameNode } from "./helpers/same-node.ts";
 import { describe, it } from "node:test";
 import { createRoot } from "react-dom/client";
 import { parseHTML } from "linkedom";
@@ -159,7 +160,7 @@ describe("measured question/practice DOM and observer lifecycle", () => {
 			Object.assign(sizes, { block: 104, viewport: 44, body: 44, shell: 44, content: 42 });
 			await render({ practice: true, expanded: false });
 			const collapsedObserver = observers.at(-1)!;
-			assert.equal(host.querySelector('[data-dock-scroll-area]'), null);
+			assertSameNode(host.querySelector('[data-dock-scroll-area]'), null);
 			resetSizes();
 			await render({ practice: true, expanded: true });
 			assert.equal(collapsedObserver.disconnected, true);
@@ -214,7 +215,7 @@ describe("measured question/practice DOM and observer lifecycle", () => {
 			const oldContent = part(host, "content");
 			await render({ practice: true });
 			assert.equal(previous.disconnected, true);
-			assert.notEqual(part(host, "content"), oldContent);
+			assertNotSameNode(part(host, "content"), oldContent);
 			assert.ok(observers.at(-1)!.elements.has(part(host, "content")));
 		});
 	});

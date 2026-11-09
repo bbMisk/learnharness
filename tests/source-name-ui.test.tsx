@@ -1,6 +1,7 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { after, it } from "node:test";
 import { createRoot } from "react-dom/client";
 import { parseHTML } from "linkedom";
@@ -37,7 +38,7 @@ it("one Escape cancels inline source/folder editing without closing the overlay 
 			assert.ok(input);
 			const event = new dom.window.Event("keydown", { bubbles: true, cancelable: true }); Object.defineProperty(event, "key", { value: "Escape" });
 			await act(async () => { input.dispatchEvent(event); });
-			assert.equal(document.querySelector('[data-testid="source-name-input"]'), null);
+			assertSameNode(document.querySelector('[data-testid="source-name-input"]'), null);
 			assert.equal(closed, 0); assert.equal(writes, 0); assert.equal(windowEscapes, 0);
 		};
 		await act(async () => { (document.querySelector('button[title="Rename"]') as HTMLElement).click(); });

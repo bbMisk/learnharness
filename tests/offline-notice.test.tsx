@@ -4,6 +4,7 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, it } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
@@ -50,11 +51,11 @@ it("the notice follows the events channel: shown when it drops, gone when it reo
 	);
 	const notice = () => host.querySelector('[data-testid="offline-notice"]');
 	await act(async () => open());
-	assert.equal(notice(), null);
+	assertSameNode(notice(), null);
 	await act(async () => error());
 	assert.match(notice()?.textContent ?? "", /Can.t reach the server/);
 	assert.ok(document.documentElement.classList.contains("lh-offline"), "the app moves down to make room");
 	await act(async () => open());
-	assert.equal(notice(), null);
+	assertSameNode(notice(), null);
 	assert.ok(!document.documentElement.classList.contains("lh-offline"));
 });

@@ -1,6 +1,7 @@
 /** The practice metadata popover closes on outside scroll/resize but not when it scrolls itself */
 import React, { act } from "react";
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { test } from "node:test";
 import { parseHTML } from "linkedom";
 
@@ -44,13 +45,13 @@ test("scrolling inside the open popover keeps it open; an outside scroll or a re
 		await scroll(box.querySelector("dl")!);
 		assert.ok(document.querySelector('[data-testid="metadata-box"]'), "its own scroll does not close it");
 		await scroll(document.body);
-		assert.equal(document.querySelector('[data-testid="metadata-box"]'), null, "an outside scroll closes it");
+		assertSameNode(document.querySelector('[data-testid="metadata-box"]'), null, "an outside scroll closes it");
 		await open();
 		await scroll(document);
-		assert.equal(document.querySelector('[data-testid="metadata-box"]'), null, "a document scroll closes it");
+		assertSameNode(document.querySelector('[data-testid="metadata-box"]'), null, "a document scroll closes it");
 		await open();
 		await act(async () => { window.dispatchEvent(new window.Event("resize")); });
-		assert.equal(document.querySelector('[data-testid="metadata-box"]'), null, "a resize closes it");
+		assertSameNode(document.querySelector('[data-testid="metadata-box"]'), null, "a resize closes it");
 	} finally {
 		window.addEventListener = add;
 		await act(async () => root.unmount());

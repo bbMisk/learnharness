@@ -2,6 +2,7 @@ import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 
 import assert from "node:assert/strict";
+import { assertSameNode, assertNotSameNode } from "./helpers/same-node.ts";
 import { afterEach, it } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
@@ -177,7 +178,7 @@ it("a failed click-away rename keeps the text and error but not focus; Enter kee
 	await act(async () => { root!.render(<RenameHarness />); });
 	const q = (id: string) => host.querySelector<HTMLInputElement>(`[data-testid="${id}"]`)!;
 	await act(async () => { q("title").click(); });
-	assert.equal(focused, q("title-input"), "opening focuses the field");
+	assertSameNode(focused, q("title-input"), "opening focuses the field");
 	// Click away: focus moves on, then the field blurs.
 	q("elsewhere").focus();
 	await act(async () => { q("title-input").dispatchEvent(new dom.window.Event("focusout", { bubbles: true })); });
@@ -185,13 +186,13 @@ it("a failed click-away rename keeps the text and error but not focus; Enter kee
 	assert.equal(puts, 1);
 	assert.ok(q("title-input"), "the field reopened");
 	assert.equal(q("err").textContent, "Chat could not be renamed. Try again.");
-	assert.equal(focused, q("elsewhere"), "focus stays where the user went");
+	assertSameNode(focused, q("elsewhere"), "focus stays where the user went");
 	// Enter in the reopened field: a failure keeps editing there.
 	q("title-input").focus();
 	await act(async () => { q("title-input").dispatchEvent(key("Enter")); });
 	await frame();
 	assert.equal(puts, 2);
-	assert.equal(focused, q("title-input"), "Enter's failure keeps the field focused");
+	assertSameNode(focused, q("title-input"), "Enter's failure keeps the field focused");
 });
 
 it("the sidebar rename row: Enter or a click away tells the commit which, and a quiet reopen takes no focus", async () => {
@@ -201,7 +202,7 @@ it("the sidebar rename row: Enter or a click away tells the commit which, and a 
 	const host = mountHost();
 	await act(async () => { root!.render(<RenameRow chat={chat} takeFocus={false} onCommit={(_, byKey) => { commits.push(byKey); }} onCancel={() => {}} />); });
 	const input = host.querySelector<HTMLInputElement>('[data-testid="session-rename-input"]')!;
-	assert.notEqual(focused, input, "a quiet reopen leaves focus alone");
+	assertNotSameNode(focused, input, "a quiet reopen leaves focus alone");
 	await act(async () => { input.dispatchEvent(new dom.window.Event("focusout", { bubbles: true })); });
 	await act(async () => { input.dispatchEvent(key("Enter")); input.dispatchEvent(new dom.window.Event("focusout", { bubbles: true })); });
 	assert.deepEqual(commits, [false, true]);
@@ -230,7 +231,7 @@ it("a rejected setup key gives focus back to the key field", async () => {
 	await act(async () => { root!.render(<SetupKeysBody {...props} saving error={null} />); });
 	focused = null; // the disabled field dropped focus
 	await act(async () => { root!.render(<SetupKeysBody {...props} saving={false} error="A key can't contain spaces or line breaks" />); });
-	assert.equal(focused, host.querySelector('[data-testid="setup-key-input"]'));
+	assertSameNode(focused, host.querySelector('[data-testid="setup-key-input"]'));
 });
 
 it("the Chains source rename is marked as a rename, so F keys leave it alone", async () => {

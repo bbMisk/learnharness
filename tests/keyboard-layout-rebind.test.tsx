@@ -3,6 +3,7 @@ import React, { act } from "react";
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, describe, it } from "node:test";
 import { parseHTML } from "linkedom";
 import type { Root } from "react-dom/client";
@@ -109,7 +110,7 @@ describe("keyboard rebind shares layout normalization with dispatch", () => {
 		assert.equal(alert(), "");
 		await click(host, "kbd-rebind-cheat-sheet");
 		await press({ key: "?", code: "Slash", shiftKey: true });
-		assert.equal(host.querySelector('[data-testid="kbd-row-cheat-sheet"] [role="alert"]'), null, "? stays allowed for the cheat sheet");
+		assertSameNode(host.querySelector('[data-testid="kbd-row-cheat-sheet"] [role="alert"]'), null, "? stays allowed for the cheat sheet");
 	});
 
 	it("Reset all to defaults needs a second click", async () => {

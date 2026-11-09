@@ -2,6 +2,7 @@ import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, it } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
@@ -154,7 +155,7 @@ it("Esc in the ⌘K model menu hands focus back mid-typing, caret kept", async (
 	assert.ok(menu, "⌘K opened the menu");
 	(menu.querySelector("input") ?? menu).focus(); // MenuShell's focus once placed
 	await escape();
-	assert.equal(document.querySelector('[data-testid="model-menu"]'), null);
+	assertSameNode(document.querySelector('[data-testid="model-menu"]'), null);
 	assert.ok(caretMidText(composer), "back in the field, caret where it was");
 	assert.ok(host.isConnected);
 });
@@ -188,7 +189,7 @@ it("setup opened by a failed answer submit (nothing focused) closes into Your th
 	await mountSetup();
 	assert.ok(document.querySelector('[data-testid="setup-dialog"]'));
 	await escape();
-	assert.equal(document.querySelector('[data-testid="setup-dialog"]'), null);
+	assertSameNode(document.querySelector('[data-testid="setup-dialog"]'), null);
 	assert.ok(caretAtEnd(thinking), "focus is in Your thinking, not on the body");
 });
 
@@ -211,6 +212,6 @@ it("a saved key moves focus to the first model picker; closing then goes to the 
 	assert.ok(focused === document.querySelector('[data-testid="setup-trigger-strong"]'), "focus is on the Strong picker");
 	pill.remove(); // a key retires the pill
 	await escape();
-	assert.equal(document.querySelector('[data-testid="setup-dialog"]'), null);
+	assertSameNode(document.querySelector('[data-testid="setup-dialog"]'), null);
 	assert.ok(caretAtEnd(composer), "the opener is gone: focus goes to the composer");
 });

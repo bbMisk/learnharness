@@ -1,6 +1,7 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { it } from "node:test";
 import { parseHTML } from "linkedom";
 import type { AgentSettings } from "../src/core";
@@ -119,7 +120,7 @@ it("a folder add that fails to save is not kept: the text stays, a retry adds it
 	assert.equal(input().value, "/usr/local", "a failed save keeps the typed folder");
 	fail = false;
 	await add("/usr/local");
-	assert.equal(document.querySelector('[data-testid="file-access-input-error"]'), null, "the retry is not refused as already listed");
+	assertSameNode(document.querySelector('[data-testid="file-access-input-error"]'), null, "the retry is not refused as already listed");
 	assert.deepEqual(writes.at(-1)?.fileAccess?.folders, ["/tmp", "/usr/local"]);
 	await act(async () => root.unmount());
 

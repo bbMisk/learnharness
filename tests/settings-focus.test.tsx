@@ -2,6 +2,7 @@ import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, describe, it } from "node:test";
 import { parseHTML } from "linkedom";
 import type { Root } from "react-dom/client";
@@ -93,7 +94,7 @@ describe("Settings keyboard focus", () => {
 		assert.ok(host!.querySelector('[data-testid="input-error"]'), "the error shows");
 		assert.ok(host!.querySelector("input") === input, "not remounted when the error appears");
 		await commit("30");
-		assert.equal(host!.querySelector('[data-testid="input-error"]'), null, "the error clears");
+		assertSameNode(host!.querySelector('[data-testid="input-error"]'), null, "the error clears");
 		assert.ok(host!.querySelector("input") === input, "not remounted when the error clears");
 	});
 

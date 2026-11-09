@@ -1,5 +1,6 @@
 import React, { act } from "react";
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import test from "node:test";
 import { createRoot } from "react-dom/client";
 import { parseHTML } from "linkedom";
@@ -35,7 +36,7 @@ test("cache hit rate appears only inside expanded session stats, follows the ses
 		await act(async () => render([turn(900)]));
 		const collapsedSummary = summary().textContent;
 		assert.equal(collapsedSummary, "42k·—");
-		assert.equal(cacheRow(), null);
+		assertSameNode(cacheRow(), null);
 		assert(!host.textContent?.includes("Cache hit rate"), "no new chip in the collapsed bar");
 
 		await act(async () => summary().click());
@@ -52,13 +53,13 @@ test("cache hit rate appears only inside expanded session stats, follows the ses
 
 		for (const turns of [[], [turn(undefined, undefined)], [turn(0)], [turn(0, 900)]]) {
 			await act(async () => render(turns));
-			assert.equal(cacheRow(), null, "unknown, empty, all-zero and write-only records stay hidden even while expanded");
+			assertSameNode(cacheRow(), null, "unknown, empty, all-zero and write-only records stay hidden even while expanded");
 		}
 		await act(async () => render([turn(900)]));
 		assert.equal(cacheRow()?.textContent, "Cache hit rate90.0%");
 		await act(async () => summary().click());
-		assert.equal(host.querySelector('[data-testid="stats-detail"]'), null);
-		assert.equal(cacheRow(), null);
+		assertSameNode(host.querySelector('[data-testid="stats-detail"]'), null);
+		assertSameNode(cacheRow(), null);
 		assert.equal(summary().textContent, collapsedSummary);
 	} finally {
 		await act(async () => root.unmount()); host.remove(); globalThis.fetch = originalFetch;

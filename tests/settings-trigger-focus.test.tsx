@@ -1,6 +1,7 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, it } from "node:test";
 import { parseHTML } from "linkedom";
 import type { ModelCatalogEntry } from "../src/core";
@@ -58,7 +59,7 @@ it("the first pick into an empty model slot keeps focus on its trigger", async (
 	await click("slot-model-vision");
 	await click("model-option-fixture-vision");
 	assert.ok(trigger.isConnected, "the trigger was not remounted");
-	assert.equal(document.activeElement, trigger);
+	assertSameNode(document.activeElement, trigger);
 });
 
 it("closing the Reading font menu keeps focus on its trigger", async () => {
@@ -69,7 +70,7 @@ it("closing the Reading font menu keeps focus on its trigger", async () => {
 	await act(async () => {
 		document.dispatchEvent(Object.assign(new dom.window.Event("keydown", { bubbles: true }), { key: "Escape" }));
 	});
-	assert.equal(document.querySelector('[data-testid="font-menu"]'), null);
+	assertSameNode(document.querySelector('[data-testid="font-menu"]'), null);
 	assert.ok(trigger.isConnected, "the trigger was not remounted");
-	assert.equal(document.activeElement, trigger);
+	assertSameNode(document.activeElement, trigger);
 });

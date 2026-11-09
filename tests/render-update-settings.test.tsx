@@ -4,6 +4,7 @@ import React, { act } from "react";
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { describe, it, afterEach } from "node:test";
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -104,8 +105,8 @@ describe("General update rows", () => {
 
 	it("unpackaged/unavailable updater shows the version-only surface", async () => {
 		const b = bridge(state({ status: "disabled" })); const host = await mount(<UpdateSettings {...props} />);
-		assert.ok(q(host, "row-version")); assert.equal(q(host, "update-check"), null);
-		assert.equal(q(host, "row-auto-update"), null); assert.equal(b.calls.check, 0);
+		assert.ok(q(host, "row-version")); assertSameNode(q(host, "update-check"), null);
+		assertSameNode(q(host, "row-auto-update"), null); assert.equal(b.calls.check, 0);
 	});
 
 	it("idle shows two rows and clear consequences; opening Settings never checks", async () => {
@@ -114,7 +115,7 @@ describe("General update rows", () => {
 		assert.deepEqual([...host.children].map(el => el.getAttribute("data-testid")), ["row-version", "row-auto-update"]);
 		assert.ok(q(host, "row-version")!.contains(q(host, "update-check")));
 		assert.ok(host.textContent!.includes(MANUAL_UPDATE_HINT)); assert.ok(host.textContent!.includes(AUTO_UPDATE_HINT));
-		assert.equal(q(host, "update-status"), null); assert.equal(b.calls.check, 0);
+		assertSameNode(q(host, "update-status"), null); assert.equal(b.calls.check, 0);
 		await click(q(host, "toggle-auto-update")); assert.deepEqual(seen, [false]);
 		await click(q(host, "update-check")); assert.equal(b.calls.check, 1);
 	});
@@ -135,7 +136,7 @@ describe("General update rows", () => {
 		assert.equal(q(host, "update-status")!.textContent, "Downloading version 0.3.8…");
 		assert.equal((q(host, "update-check") as HTMLButtonElement).disabled, true);
 		await b.push(state({ status: "downloaded", version: "0.3.8", revision: 3 }));
-		assert.equal(q(host, "update-check"), null); assert.ok(q(host, "update-status")!.textContent!.includes("quit the app"));
+		assertSameNode(q(host, "update-check"), null); assert.ok(q(host, "update-status")!.textContent!.includes("quit the app"));
 		await click(q(host, "update-restart")); assert.equal(b.calls.install, 1);
 	});
 
@@ -171,12 +172,12 @@ describe("General update rows", () => {
 			const host = await mount(<><UpdateSettings {...props} /><UpdateBanner /></>);
 			const dismiss = host.querySelector<HTMLElement>("[aria-label='Dismiss update notification']");
 			await click(dismiss);
-			assert.equal(q(host, "update-banner"), null);
+			assertSameNode(q(host, "update-banner"), null);
 			assert.equal(b.calls.install, 0, "dismiss must not restart or install");
 			assert.equal(b.calls.check, 0, "dismiss must not check for updates");
 
 			await b.push(state({ status: "downloaded", version, revision: 2 }));
-			assert.equal(q(host, "update-banner"), null, "repeated status must stay dismissed");
+			assertSameNode(q(host, "update-banner"), null, "repeated status must stay dismissed");
 			await click(q(host, "update-restart"));
 			assert.equal(b.calls.install, 1, "Settings still offers installation");
 
@@ -191,7 +192,7 @@ describe("General update rows", () => {
 		await click(host.querySelector("[aria-label='Dismiss update notification']"));
 		await b.push(state({ status: "checking", revision: 2 }));
 		await b.push(state({ status: "downloaded", version: "0.4.1", revision: 3 }));
-		assert.equal(q(host, "update-banner"), null, "the same staged version stays hidden");
+		assertSameNode(q(host, "update-banner"), null, "the same staged version stays hidden");
 
 		const { root } = roots.pop()!;
 		await act(async () => { root.unmount(); });
@@ -254,7 +255,7 @@ describe("Settings integration", () => {
 		const b = bridge();
 		globalThis.fetch = async () => Response.json({ settings: { version: 1 } });
 		const host = await mount(<SettingsDialogProvider><span>app</span></SettingsDialogProvider>);
-		assert.equal(q(document, "settings-dialog"), null);
+		assertSameNode(q(document, "settings-dialog"), null);
 		await b.open();
 		assert.equal(q(document, "settings-nav-general")!.getAttribute("aria-current"), "true");
 		assert.ok(q(document, "row-version")); assert.equal(b.calls.check, 0);
@@ -280,7 +281,7 @@ describe("macOS self-updater rows (review fixes 5, 6)", () => {
 		assert.equal(link!.getAttribute("href"), "https://github.com/bbMisk/learnharness/releases/latest/download/LearnHarness-arm64.dmg");
 		assert.equal(link!.getAttribute("target"), "_blank");
 		await b.push(state({ status: "up-to-date", revision: 2 }));
-		assert.equal(q(host, "update-download"), null, "gone once the state changes");
+		assertSameNode(q(host, "update-download"), null, "gone once the state changes");
 	});
 
 	it("shows the active updater's check interval", async () => {

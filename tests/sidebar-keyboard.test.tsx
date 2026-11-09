@@ -4,6 +4,7 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { after, it } from "node:test";
 import type { Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -104,7 +105,7 @@ it("⌥↵ on the walked row opens its menu; a failed rename shows an error", as
 	await settle();
 	const search = document.querySelector('[data-testid="session-search"]')!;
 	await key(search, "Enter", { altKey: true });
-	assert.equal(menu(), null, "nothing walked yet: no menu");
+	assertSameNode(menu(), null, "nothing walked yet: no menu");
 	await key(search, "ArrowDown");
 	await key(search, "ArrowDown");
 	await key(search, "F10", { shiftKey: true });
@@ -122,7 +123,7 @@ it("⌥↵ on the walked row opens its menu; a failed rename shows an error", as
 	const reopened = document.querySelector('[data-testid="session-rename-input"]') as HTMLInputElement;
 	assert.equal(reopened?.value, "Offline rename", "the failed rename keeps what was typed");
 	await key(reopened, "Escape");
-	assert.equal(document.querySelector('[data-testid="session-rename-input"]'), null, "Esc discards it");
+	assertSameNode(document.querySelector('[data-testid="session-rename-input"]'), null, "Esc discards it");
 	assert.ok(![...document.querySelectorAll('[role="alert"]')].some((el) => /renamed/.test(el.textContent ?? "")), "and its error");
 
 	await key(search, "ArrowDown");
@@ -141,14 +142,14 @@ it("closing the walked row's menu hands focus back to the search; ⌘⇧F restar
 		assert.ok(menu(), "the previous test left the menu open");
 		await key(document as unknown as Element, "Escape");
 		await settle();
-		assert.equal(menu(), null);
-		assert.equal(focused.at(-1), search, "Esc returns focus to the search");
+		assertSameNode(menu(), null);
+		assertSameNode(focused.at(-1), search, "Esc returns focus to the search");
 		await key(search, "ArrowDown");
 		await key(search, "F10", { shiftKey: true });
 		focused.length = 0;
 		await act(async () => (document.querySelector('[data-testid="ctx-archive"]')!.nextElementSibling as HTMLElement).click());
 		await settle();
-		assert.equal(focused.at(-1), search, "Pin returns focus to the search");
+		assertSameNode(focused.at(-1), search, "Pin returns focus to the search");
 		await key(search, "ArrowDown"); // the walk now sits on the first row; the next ↓ would leave it
 		await key(search, "ArrowDown");
 		await act(async () => void window.dispatchEvent(new CustomEvent("lh:kbd-sessions-search")));
@@ -156,7 +157,7 @@ it("closing the walked row's menu hands focus back to the search; ⌘⇧F restar
 		await key(search, "ArrowDown");
 		const walked = document.querySelector('[data-testid="session-row-kbd"]');
 		const first = document.querySelector('[data-testid="unassigned-chat-list"] button');
-		assert.equal(walked, first, "a new ⌘⇧F walk starts at the first row");
+		assertSameNode(walked, first, "a new ⌘⇧F walk starts at the first row");
 	} finally {
 		dom.window.HTMLElement.prototype.focus = realFocus;
 	}

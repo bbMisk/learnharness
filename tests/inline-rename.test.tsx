@@ -1,6 +1,7 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, it } from "node:test";
 import type { Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
@@ -204,7 +205,7 @@ it("the New project dialog reopens empty after a rejected name is closed", async
 	});
 	assert.match(document.body.textContent ?? "", /already exists/);
 	await act(async () => (document.querySelector('[aria-label="Close new project"]') as HTMLButtonElement).click());
-	assert.equal(field(), null, "closed");
+	assertSameNode(field(), null, "closed");
 	await act(async () => add.click());
 	assert.equal(field()!.value, "", "the rejected name is gone");
 	assert.doesNotMatch(document.body.textContent ?? "", /already exists/);

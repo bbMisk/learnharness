@@ -1,6 +1,7 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, it } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
@@ -46,11 +47,11 @@ it("a failed deletion keeps its original confirmation targets for retry even aft
 		await mount(<ChainTableOverlay open nodes={[]} chains={[]} sessions={{}} fileSources={{}} onClose={() => {}} />);
 		await click("cluster-checkbox-a"); await click("chain-delete"); await click("source-delete-confirm");
 		assert.match(document.querySelector('[data-testid="source-delete-failure"]')!.textContent!, /Some entries/);
-		assert.equal(document.querySelector('[data-testid="cluster-checkbox-a"]'), null);
+		assertSameNode(document.querySelector('[data-testid="cluster-checkbox-a"]'), null);
 		assert.match(document.querySelector('[data-testid="source-deletion-names"]')!.textContent!, /a book/);
-		assert.equal(document.querySelector('[data-testid="chain-selection-bar"]'), null);
+		assertSameNode(document.querySelector('[data-testid="chain-selection-bar"]'), null);
 		await click("source-delete-confirm");
-		assert.equal(document.querySelector('[data-testid="delete-source-dialog"]'), null);
+		assertSameNode(document.querySelector('[data-testid="delete-source-dialog"]'), null);
 		assert.deepEqual(requests, [{ sourceIds: ["a"], folderIds: [], deleteSessions: false }, { sourceIds: ["a"], folderIds: [], deleteSessions: false }]);
 		assert.equal(revisions, 2, "even a partial/ambiguous failure refreshes graph content");
 	} finally { window.removeEventListener("lh:graph-revision", onRevision); }
@@ -59,7 +60,7 @@ it("clearing ordinary source selection does not clear the caller's independent p
 	let changes = 0; globalThis.fetch = async () => Response.json(directory());
 	await mount(<ChainTableOverlay open nodes={[]} chains={[]} sessions={{}} fileSources={{}} controlledSelection={new Set(["practice-node"])} onSelectionChange={() => { changes++; }} onClose={() => {}} />);
 	await click("cluster-checkbox-a"); assert.match(document.querySelector('[data-testid="chain-selected-summary"]')!.textContent!, /1 source/);
-	await click("chain-clear"); assert.equal(document.querySelector('[data-testid="chain-selection-bar"]'), null); assert.equal(changes, 0);
+	await click("chain-clear"); assertSameNode(document.querySelector('[data-testid="chain-selection-bar"]'), null); assert.equal(changes, 0);
 });
 const practiceDirectory = (): SourceDirectory => ({
 	organization: { version: 1, folders: [{ id: "f", name: "Mixed folder", parentId: null, createdAt: "now" }], placements: { a: { folderId: "f" }, b: { folderId: "f" }, practice: { folderId: "f" } } },
@@ -70,9 +71,9 @@ it("practice provenance rows never flash before the source inventory arrives", a
 	let respond!: (response: Response) => void;
 	globalThis.fetch = () => new Promise((resolve) => { respond = resolve; });
 	await mount(<ChainTableOverlay open nodes={[sourceNode("historical", "practice")]} chains={[]} sessions={{ practice: "Hidden practice" }} fileSources={{}} onClose={() => {}} />);
-	assert.equal(document.querySelector('[data-testid="cluster-group-practice"]'), null);
+	assertSameNode(document.querySelector('[data-testid="cluster-group-practice"]'), null);
 	await act(async () => { respond(Response.json(practiceDirectory())); });
-	assert.equal(document.querySelector('[data-testid="cluster-group-practice"]'), null);
+	assertSameNode(document.querySelector('[data-testid="cluster-group-practice"]'), null);
 	assert.ok(document.querySelector('[data-testid="folder-checkbox-f"]'));
 });
 for (const selectMode of [false, true]) it(`reopening ${selectMode ? "practice picking" : "chains browsing"} waits for fresh source kinds before showing cached/provenance groups`, async () => {
@@ -90,7 +91,7 @@ for (const selectMode of [false, true]) it(`reopening ${selectMode ? "practice p
 	assert.equal(document.querySelector('[data-testid="cluster-checkbox-practice"]') === null, true, "the stale source cannot be selected while the refresh is delayed");
 	assert.equal(document.querySelector('[data-testid="cluster-group-unknown"]') === null, true, "wait for classification, not just an old nonempty inventory");
 	await act(async () => { respond(Response.json({ ...directory(), sources: [...directory().sources, { id: "practice", kind: "chat", chatKind: "practice", label: "New practice", createdAt: "now" }] })); });
-	assert.equal(document.querySelector('[data-testid="cluster-group-practice"]'), null);
+	assertSameNode(document.querySelector('[data-testid="cluster-group-practice"]'), null);
 	assert.ok(document.querySelector('[data-testid="cluster-group-a"]'));
 	assert.ok(document.querySelector('[data-testid="cluster-group-unknown"]'), "genuinely unknown provenance remains visible after a successful read");
 	if (selectMode) assert.equal(document.querySelector('[data-testid="chain-selected-summary"]')!.textContent, "1 node → 1 chain");
@@ -110,7 +111,7 @@ it("an older opening's late mutation reply cannot unlock a reopened tree with st
 	assert.equal(document.querySelector('[data-testid="cluster-group-practice"]') === null, true, "the old response cannot reinstall stale visible groups");
 	assert.equal(reads.length, 2, "reopening and the completed deletion each request fresh metadata");
 	await act(async () => { for (const respond of reads) respond(Response.json({ ...directory(), sources: [...directory().sources, { id: "practice", kind: "chat", chatKind: "practice", label: "New practice", createdAt: "now" }] })); });
-	assert.equal(document.querySelector('[data-testid="cluster-group-practice"]'), null);
+	assertSameNode(document.querySelector('[data-testid="cluster-group-practice"]'), null);
 	assert.ok(document.querySelector('[data-testid="cluster-group-a"]'));
 });
 
@@ -125,7 +126,7 @@ it("folder selection, counts and confirmed source deletion exclude hidden practi
 	await click("folder-checkbox-f");
 	assert.equal(document.querySelector('[data-testid="chain-selected-summary"]')!.textContent, "2 sources · 1 folder");
 	await click("folder-icon-f");
-	assert.equal(document.querySelector('[data-testid="cluster-checkbox-practice"]'), null);
+	assertSameNode(document.querySelector('[data-testid="cluster-checkbox-practice"]'), null);
 	for (const id of ["a", "b"]) assert.equal(document.querySelector<HTMLInputElement>(`[data-testid="cluster-checkbox-${id}"]`)!.checked, true);
 	await click("chain-delete");
 	assert.doesNotMatch(document.querySelector('[data-testid="source-deletion-names"]')!.textContent!, /Hidden practice/);
@@ -140,7 +141,7 @@ it("practice folder picking omits practice-born groups and retains caller-owned 
 	assert.deepEqual(changes, [], "rendering does not mutate existing practice picks");
 	await click("folder-checkbox-f");
 	assert.deepEqual(changes, [["already-picked", "visible"]]);
-	assert.equal(document.querySelector('[data-testid="chain-delete"]'), null);
+	assertSameNode(document.querySelector('[data-testid="chain-delete"]'), null);
 });
 
 it("minimal home refreshes its snapshot and summary immediately after source deletion, without a reload", async () => {
@@ -156,5 +157,5 @@ it("minimal home refreshes its snapshot and summary immediately after source del
 	assert.match(document.querySelector('[data-testid="knowledge-summary"]')!.textContent!, /1 imported note/);
 	await click("open-chain-table"); await click("cluster-checkbox-a"); await click("chain-delete"); await click("source-delete-confirm");
 	assert.match(document.querySelector('[data-testid="knowledge-summary"]')!.textContent!, /0 imported notes/);
-	assert.equal(document.querySelector('[data-testid="cluster-checkbox-a"]'), null);
+	assertSameNode(document.querySelector('[data-testid="cluster-checkbox-a"]'), null);
 });

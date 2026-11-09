@@ -1,5 +1,6 @@
 import React, { act, useState } from "react";
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { readFileSync } from "node:fs";
 import { afterEach, test } from "node:test";
 import { parseHTML } from "linkedom";
@@ -143,7 +144,7 @@ test("desktop drop routes the full backing path to the focused field, not File.n
 	assert.equal(f.drafts.message, paths.map((path) => JSON.stringify(path)).join("\n"));
 	assert.equal(f.drafts.thinking, "", "focus wins over the higher-priority field");
 	assert.deepEqual(f.resolved, files, "only Electron's full path, never File.name, enters the draft");
-	assert.equal(f.doc.activeElement, f.input("message"), "the receiving field is focused after the drop");
+	assertSameNode(f.doc.activeElement, f.input("message"), "the receiving field is focused after the drop");
 	assert.equal(f.alert, "", "successful attachment raises no alert");
 	f.assertPathOnly();
 });
@@ -183,7 +184,7 @@ test("attached files show a removable preview; removing it deletes the path from
 	assert.ok(remove, "dropped file is previewed by name");
 	await act(async () => remove.click());
 	assert.equal(f.drafts.message, "");
-	assert.equal(f.doc.querySelector('[aria-label="Remove notes.pdf"]'), null);
+	assertSameNode(f.doc.querySelector('[aria-label="Remove notes.pdf"]'), null);
 	f.assertPathOnly();
 });
 

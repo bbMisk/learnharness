@@ -1,6 +1,7 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { it } from "node:test";
 import { parseHTML } from "linkedom";
 import { AgentSection } from "../components/settings/agent-section.tsx";
@@ -59,7 +60,7 @@ it("keyless settings keep Research interactive while search-engine setup retains
 		const engine = document.querySelector<HTMLButtonElement>('[data-testid="search-engine-trigger"]')!;
 		assert.ok(engine.className.includes("cursor-not-allowed"), "search engine preference retains its own key gate");
 		act(() => { engine.click(); });
-		assert.equal(document.querySelector('[data-testid="search-engine-menu"]'), null, "keyless engine preference does not open");
+		assertSameNode(document.querySelector('[data-testid="search-engine-menu"]'), null, "keyless engine preference does not open");
 		assert.ok(document.querySelector('[data-testid="search-engine-row"]')?.textContent?.includes(reason));
 	} finally {
 		act(() => { root.unmount(); });

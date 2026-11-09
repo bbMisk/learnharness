@@ -2,6 +2,7 @@ import React from "react";
 (globalThis as Record<string, unknown>).React = React;
 
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
@@ -37,10 +38,10 @@ describe("composer action row", () => {
 			assert.ok(row.classList.contains("flex-wrap"));
 			assert.ok(row.classList.contains("pointer-events-auto"));
 			assert.equal(row.children.length, 2);
-			assert.equal(chip.parentElement, row.firstElementChild);
+			assertSameNode(chip.parentElement, row.firstElementChild);
 			assert.equal(row.lastElementChild!.tagName, "BUTTON");
 			assert.equal(chip.textContent, "Pick nodes");
-			assert.equal(document.querySelector('[data-testid="practice-props-clear"]'), null);
+			assertSameNode(document.querySelector('[data-testid="practice-props-clear"]'), null);
 		});
 
 		it(`${label}: the practice draft uses that same row and order`, () => {
@@ -64,7 +65,7 @@ describe("composer action row", () => {
 			const chip = document.querySelector('[data-testid="practice-props-chip"]')!;
 			const clear = document.querySelector('[data-testid="practice-props-clear"]')!;
 			assert.equal(chip.textContent, `${count} ${count === 1 ? "node" : "nodes"} selected`);
-			assert.equal(chip.parentElement, clear.parentElement);
+			assertSameNode(chip.parentElement, clear.parentElement);
 			assert.equal(chip.parentElement!.parentElement!.getAttribute("data-testid"), "composer-actions");
 			assert.ok(!chip.parentElement!.classList.contains("flex-wrap"), "count and Clear never wrap apart");
 		}

@@ -1,6 +1,7 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -126,7 +127,7 @@ it("the switch offers Teach, Practice and Cram and reports the choice", async ()
 		["Teach", "Cram"],
 	);
 	await act(async () => root!.render(<ModeSwitch mode="teach" modes={["teach"]} onChange={() => {}} />));
-	assert.equal(host.querySelector("button"), null);
+	assertSameNode(host.querySelector("button"), null);
 });
 
 it("hidden modes: known, unique, never all of them", async () => {

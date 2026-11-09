@@ -1,6 +1,7 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
+import { assertSameNode, assertNotSameNode } from "./helpers/same-node.ts";
 import { test } from "node:test";
 import { createRoot } from "react-dom/client";
 import { parseHTML } from "linkedom";
@@ -41,8 +42,8 @@ for (const reusedId of [false, true]) {
 			await act(async () => { host.querySelector<HTMLButtonElement>('[role="radio"]')!.click(); });
 			assert.ok(host.querySelector('[role="radio"][aria-checked="true"]'));
 			await render([old, question("new", reusedId ? "q1" : "q2", "NEW question")]);
-			assert.notEqual(host.querySelector('[data-testid="question-dock"]'), oldForm);
-			assert.equal(host.querySelector('[role="radio"][aria-checked="true"]'), null);
+			assertNotSameNode(host.querySelector('[data-testid="question-dock"]'), oldForm);
+			assertSameNode(host.querySelector('[role="radio"][aria-checked="true"]'), null);
 			assert.match(host.textContent!, /NEW question/);
 			assert.doesNotMatch(host.textContent!, /OLD question/);
 		} finally { await act(async () => root.unmount()); host.remove(); }
@@ -75,7 +76,7 @@ test("live question validation → turn_end placeholder → canonical sync keeps
 		const { id: _savedId, ...message } = saved;
 		await event({ type: "message_start", message });
 		await event({ type: "message_end", message });
-		assert.equal(host.querySelector('[data-testid="question-dock"]'), null, "validation still gates the form");
+		assertSameNode(host.querySelector('[data-testid="question-dock"]'), null, "validation still gates the form");
 		await event({ type: "tool_execution_end", toolCallId: "q1", toolName: "quiz", isError: false,
 			result: { content: [{ type: "text", text: "Question posed" }], details: null } });
 		const form = host.querySelector('[data-testid="question-dock"]');
@@ -126,7 +127,7 @@ test("saving a unique live question preserves its mounted form and selection", a
 		// Append-only adoption can briefly retain the live copy beside the saved one.
 		await render([saved, live]);
 		await render([saved]);
-		assert.equal(host.querySelector('[data-testid="question-dock"]'), form);
+		assertSameNode(host.querySelector('[data-testid="question-dock"]'), form);
 		assert.ok(host.querySelector('[role="radio"][aria-checked="true"]'));
 	} finally { await act(async () => root.unmount()); host.remove(); }
 });

@@ -1,5 +1,6 @@
 import React, { act } from "react";
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, test } from "node:test";
 import { parseHTML } from "linkedom";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -74,14 +75,14 @@ test("trailing newline caret placeholder is presentation-only and logical end ma
 		assert.equal(root.textContent, value);
 		assert.equal(readPathInput(root), value);
 		const point = pathInputPoint(root, value.length);
-		assert.equal(point.node, root);
+		assertSameNode(point.node, root);
 		assert.equal(point.offset, root.childNodes.length - 1);
 		assert.equal(pathInputOffset(root, point.node, point.offset), value.length);
 		assert.equal(pathInputOffset(root, root.lastChild!, 0), value.length);
 	}
 	for (const value of ["", "one", "one\ntwo"]) {
 		renderPathInput(root, value);
-		assert.equal(root.querySelector(`[${PATH_CARET_ATTRIBUTE}]`), null);
+		assertSameNode(root.querySelector(`[${PATH_CARET_ATTRIBUTE}]`), null);
 		assert.equal(readPathInput(root), value);
 	}
 });
@@ -123,7 +124,7 @@ test("SSR preserves the full escaped initial draft without waiting for client ef
 	assert.equal(field.textContent, draft);
 	assert.equal(field.getAttribute("contenteditable") ?? field.getAttribute("contentEditable"), "true");
 	assert.equal(field.getAttribute("data-empty"), "false");
-	assert.equal(field.querySelector("reasoning"), null);
+	assertSameNode(field.querySelector("reasoning"), null);
 	assert.match(html, /&lt;reasoning&gt;/);
 	const single = renderToStaticMarkup(<PathInput singleLine value={"one\r\ntwo"} onValueChange={() => {}} />);
 	assert.equal(parseHTML(`<html><body>${single}</body></html>`).document.body.textContent, "onetwo");
@@ -301,7 +302,7 @@ test("browser target ranges that intersect a visual chip interior expand the com
 	assert.ok(mapped.focus < source.lastIndexOf("`") + 1);
 	await f.event("beforeinput", { inputType: "deleteWordForward", getTargetRanges: () => [target] });
 	assert.equal(f.value, "keep  tail");
-	assert.equal(f.root.querySelector(`[${PATH_SOURCE_ATTRIBUTE}]`), null);
+	assertSameNode(f.root.querySelector(`[${PATH_SOURCE_ATTRIBUTE}]`), null);
 });
 
 test("missing or invalid word/line target ranges defer to native editing and preserve owned undo", async () => {
@@ -404,7 +405,7 @@ test("plaintext paste ignores HTML and copy/cut use full token source in either 
 	f.select(5);
 	await f.event("paste", { clipboardData });
 	assert.equal(f.value, "read <img src=x onerror=alert(1)>\n中 now");
-	assert.equal(f.root.querySelector("img"), null);
+	assertSameNode(f.root.querySelector("img"), null);
 	assert.equal(readPathInput(f.root), f.value);
 });
 
@@ -502,7 +503,7 @@ test("multiple trailing newlines preserve selection and survive native Backspace
 	f.select(f.value.length, 1);
 	assert.deepEqual(readPathSelection(f.root), { anchor: 5, focus: 1 });
 	f.select(f.value.length);
-	assert.equal(f.selection.focusNode, f.root);
+	assertSameNode(f.selection.focusNode, f.root);
 	assert.equal(f.root.lastElementChild?.hasAttribute(PATH_CARET_ATTRIBUTE), true);
 	// linkedom has no default Backspace action; model the native text deletion.
 	await f.nativeText("one\n", "deleteContentBackward");
@@ -518,13 +519,13 @@ test("multiple trailing newlines preserve selection and survive native Backspace
 	assert.deepEqual(readPathSelection(f.root), { anchor: 4, focus: 4 });
 	await f.external("");
 	assert.equal(f.root.dataset.empty, "true");
-	assert.equal(f.root.querySelector(`[${PATH_CARET_ATTRIBUTE}]`), null);
+	assertSameNode(f.root.querySelector(`[${PATH_CARET_ATTRIBUTE}]`), null);
 });
 
 test("single-line mode never adds a trailing newline caret placeholder", async () => {
 	const f = await fixture("one\n\n", true);
 	assert.equal(readPathInput(f.root), "one");
-	assert.equal(f.root.querySelector(`[${PATH_CARET_ATTRIBUTE}]`), null);
+	assertSameNode(f.root.querySelector(`[${PATH_CARET_ATTRIBUTE}]`), null);
 });
 
 test("paste during IME stays plaintext and is deferred until composition finishes", async () => {
@@ -541,7 +542,7 @@ test("paste during IME stays plaintext and is deferred until composition finishe
 	assert.equal(f.writes.length, 0);
 	await f.event("compositionend");
 	assert.equal(f.value, "中<b>plain</b>");
-	assert.equal(f.root.querySelector("b"), null);
+	assertSameNode(f.root.querySelector("b"), null);
 });
 
 test("single-line normalization strips only CR/LF and remaps directional UTF-16 selections", () => {

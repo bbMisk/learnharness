@@ -71,4 +71,23 @@ export default defineConfig([
 			],
 		},
 	},
+	// A failing assert.equal on a DOM node prints the node; a linkedom node
+	// reaches the whole document and the message grows without bound.
+	{
+		files: ["tests/**/*.{ts,tsx}"],
+		rules: {
+			"no-restricted-syntax": [
+				"error",
+				...[
+					'Identifier[name="focused"].arguments',
+					'MemberExpression[property.name="activeElement"].arguments',
+					'CallExpression[callee.property.name="querySelector"].arguments',
+					'TSNonNullExpression.arguments > CallExpression[callee.property.name="querySelector"]',
+				].map((node) => ({
+					selector: `CallExpression[callee.object.name="assert"][callee.property.name=/^(not)?(deep)?(strict)?equal$/i] > ${node}`,
+					message: "Compare DOM nodes with assertSameNode (tests/helpers/same-node.ts): assert prints the node on failure.",
+				})),
+			],
+		},
+	},
 ]);

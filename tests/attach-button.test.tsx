@@ -7,6 +7,7 @@
 import React, { act, useState } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, it } from "node:test";
 import { parseHTML } from "linkedom";
 
@@ -68,7 +69,7 @@ it("desktop: the paperclip offers Files… and Folder…; a picked folder attach
 	await click(q("attach-folder"));
 	assert.equal(picks, 1);
 	assert.equal(draft, 'Read this:\n"/Users/me/My Notes/"');
-	assert.equal(q("attach-menu"), null, "the menu closes after a pick");
+	assertSameNode(q("attach-menu"), null, "the menu closes after a pick");
 	await click(q("attach-button"));
 	await click(q("attach-files"));
 	assert.equal(page.chooserOpened(), 1);
@@ -85,7 +86,7 @@ for (const [name, lh] of [["web", undefined], ["remote-server desktop", { remote
 	it(`${name}: the paperclip opens the file chooser directly`, async () => {
 		const page = await mount(lh);
 		await click(q("attach-button"));
-		assert.equal(q("attach-menu"), null);
+		assertSameNode(q("attach-menu"), null);
 		assert.equal(page.chooserOpened(), 1);
 	});
 }

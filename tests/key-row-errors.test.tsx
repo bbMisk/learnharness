@@ -2,6 +2,7 @@ import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, test } from "node:test";
 import { parseHTML } from "linkedom";
 import type { Root } from "react-dom/client";
@@ -77,10 +78,10 @@ test("a key row's rejection keeps focus in the field and clears on Cancel or Esc
 		input.focus = () => { focused = input; };
 		await enter(input);
 		assert.equal(byTest("key-deepgram_api_key-error")?.textContent, "A key can't contain spaces or line breaks");
-		assert.equal(focused, input, "the re-enabled field takes focus back");
+		assertSameNode(focused, input, "the re-enabled field takes focus back");
 		if (fold === "cancel") await click(byTest("key-deepgram_api_key-cancel"));
 		else await act(async () => { document.dispatchEvent(Object.assign(new dom.window.Event("keydown", { bubbles: true, cancelable: true }), { key: "Escape" })); });
-		assert.equal(byTest("key-deepgram_api_key-editor"), null, `${fold} folds the editor`);
-		assert.equal(byTest("key-deepgram_api_key-error"), null, `${fold} drops the error`);
+		assertSameNode(byTest("key-deepgram_api_key-editor"), null, `${fold} folds the editor`);
+		assertSameNode(byTest("key-deepgram_api_key-error"), null, `${fold} drops the error`);
 	}
 });

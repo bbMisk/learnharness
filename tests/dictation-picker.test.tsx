@@ -1,5 +1,6 @@
 import React, { act } from "react";
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, test } from "node:test";
 import { parseHTML } from "linkedom";
 import { setDictationActive } from "../components/dictation-state.ts";
@@ -102,7 +103,7 @@ test("an initial load failure is visible and opening the menu again can retry", 
 	f.state.failRead = false;
 	await click(trigger());
 	await click(trigger());
-	assert.equal(menu()!.querySelector('[role="alert"]'), null);
+	assertSameNode(menu()!.querySelector('[role="alert"]'), null);
 	await search("Polish");
 	await key(input(), "Enter");
 	assert.match(trigger().textContent!, /Polish/);
@@ -118,7 +119,7 @@ test("the real picker searches by language, chooses with Arrow/Enter, and restor
 	for (const token of ["h-7", "font-ui", "text-xs"]) {
 		assert.ok(input().className.split(" ").includes(token), `menu-sized search field: ${token}`);
 	}
-	assert.equal(document.activeElement, input());
+	assertSameNode(document.activeElement, input());
 	assert.equal(document.querySelector('[data-testid="dictation-language-list"] button')!.textContent, "Multilingual");
 	await search("Polish");
 	assert.equal(document.querySelectorAll('[data-testid="dictation-language-list"] button').length, 1);
@@ -126,8 +127,8 @@ test("the real picker searches by language, chooses with Arrow/Enter, and restor
 	await key(input(), "Enter");
 	assert.deepEqual(f.state.writes, ["pl"]);
 	assert.match(trigger().textContent!, /Polish/);
-	assert.equal(menu(), null);
-	assert.equal(document.activeElement, trigger());
+	assertSameNode(menu(), null);
+	assertSameNode(document.activeElement, trigger());
 	await f.remount();
 	assert.match(trigger().textContent!, /Polish/);
 });
@@ -149,7 +150,7 @@ test("Enter on a focused option preserves native button activation", async () =>
 	});
 	assert.equal(prevented, false, "focused option Enter must retain its native click");
 	assert.deepEqual(f.state.writes, ["multi"]);
-	assert.equal(menu(), null);
+	assertSameNode(menu(), null);
 	assert.match(trigger().textContent!, /Multilingual/);
 });
 
@@ -161,15 +162,15 @@ test("empty results cannot save; Escape and outside click close the menu without
 	await key(input(), "Enter");
 	assert.deepEqual(f.state.writes, []);
 	await key(input(), "Escape");
-	assert.equal(menu(), null);
+	assertSameNode(menu(), null);
 	assert.equal(f.state.outerEscapes, 0);
 	await click(trigger());
 	await key(trigger(), "Escape");
-	assert.equal(menu(), null);
+	assertSameNode(menu(), null);
 	assert.equal(f.state.outerEscapes, 0);
 	await click(trigger());
 	await act(async () => { document.body.dispatchEvent(new window.Event("pointerdown", { bubbles: true })); });
-	assert.equal(menu(), null);
+	assertSameNode(menu(), null);
 });
 
 test("failed saves retain the confirmed choice and the same menu can retry", async () => {
@@ -182,7 +183,7 @@ test("failed saves retain the confirmed choice and the same menu can retry", asy
 	assert.match(menu()!.querySelector('[role="alert"]')!.textContent!, /Could not save/);
 	f.state.failWrite = false;
 	await click(byTest("dictation-language-pl"));
-	assert.equal(menu(), null);
+	assertSameNode(menu(), null);
 	assert.match(trigger().textContent!, /Polish/);
 	assert.deepEqual(f.state.writes, ["pl", "pl"]);
 });
@@ -197,7 +198,7 @@ test("a remounted picker stays disabled throughout an outstanding save", async (
 	await f.remount();
 	assert.equal(trigger().disabled, true);
 	await click(trigger());
-	assert.equal(menu(), null);
+	assertSameNode(menu(), null);
 	f.state.record.dictation = { language: "multi" };
 	await act(async () => { complete(Response.json({ settings: f.state.record })); });
 	assert.equal(trigger().disabled, false);
@@ -211,7 +212,7 @@ test("capture locks the row and dismisses an open language menu until capture en
 	await act(async () => { setDictationActive(true); });
 	assert.equal(trigger().disabled, true);
 	assert.match(byTest("row-dictation-language").className, /opacity-40/);
-	assert.equal(menu(), null);
+	assertSameNode(menu(), null);
 	await act(async () => { setDictationActive(false); });
 	assert.equal(trigger().disabled, false);
 	await click(trigger());
@@ -245,7 +246,7 @@ for (const source of ["none", "file", "env"] as const) test(`Language is below t
 	await click(trigger());
 	assert(menu());
 	await key(input(), "Escape");
-	assert.equal(menu(), null);
+	assertSameNode(menu(), null);
 	assert.equal(f.state.outerEscapes, 0);
 	if (source !== "env") assert.ok(byTest("key-deepgram_api_key-editor"), "first Escape closes only the menu");
 });
@@ -262,7 +263,7 @@ test("the shared model menu preserves ranking, provider identity, keyboard clamp
 	await f.render(<ModelMenuList models={models} effectiveId="alpha" effectiveProvider="p2" onPick={(m) => picked.push(m)} footer="Model footer" />);
 	const modelInput = document.querySelector<HTMLInputElement>('[data-testid="model-search"]')!;
 	const options = () => [...document.querySelectorAll<HTMLButtonElement>('[data-testid="model-list"] button')];
-	assert.equal(document.activeElement, modelInput);
+	assertSameNode(document.activeElement, modelInput);
 	assert.match(options()[0]!.textContent!, /p1 · alpha/);
 	assert.match(options()[1]!.textContent!, /p2 · alpha/);
 	assert.ok(!options()[0]!.className.includes("bg-muted/60"));
@@ -317,11 +318,11 @@ test("Add Provider owns Escape above an open key editor", async () => {
 		await click(byTest("add-provider"));
 		assert.ok(document.querySelector('[data-lh-menu]'));
 		await key(document.activeElement as HTMLElement, "Escape");
-		assert.equal(document.querySelector('[data-lh-menu]'), null);
+		assertSameNode(document.querySelector('[data-lh-menu]'), null);
 		assert.ok(byTest("key-deepgram_api_key-editor"));
 		assert.equal(outer, 0);
 		await key(byTest("key-deepgram_api_key-editor"), "Escape");
-		assert.equal(byTest("key-deepgram_api_key-editor"), null);
+		assertSameNode(byTest("key-deepgram_api_key-editor"), null);
 		assert.equal(outer, 0);
 	} finally { window.removeEventListener("keydown", fallback); }
 });
@@ -344,11 +345,11 @@ test("Settings above the plan consumes one Escape without reaching the abort fal
 		await f.render(<Layers />);
 		await click(byTest("open-settings"));
 		await key(byTest("settings-close"), "Escape");
-		assert.equal(byTest("settings-dialog"), null);
+		assertSameNode(byTest("settings-dialog"), null);
 		assert.ok(byTest("plan-popup"));
 		assert.equal(outer, 0);
 		await key(byTest("plan-popup"), "Escape");
-		assert.equal(byTest("plan-popup"), null);
+		assertSameNode(byTest("plan-popup"), null);
 		assert.equal(outer, 0);
 		await key(document.body, "Escape");
 		assert.equal(outer, 1);

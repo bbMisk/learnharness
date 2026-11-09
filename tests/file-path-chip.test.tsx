@@ -1,5 +1,6 @@
 import React from "react";
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
@@ -22,7 +23,7 @@ describe("FilePathChip", () => {
 		assert.equal(chip.getAttribute("aria-label"), path);
 		assert.equal(chip.querySelector("svg")!.getAttribute("aria-hidden"), "true");
 		assert.ok(chip.querySelector(".lucide-file-text"));
-		assert.equal(document.querySelector("a, button, input, [tabindex]"), null);
+		assertSameNode(document.querySelector("a, button, input, [tabindex]"), null);
 		assert.equal(chip.getAttributeNames().some((name) => name.toLowerCase() === "contenteditable"), false);
 		assert.ok(chip.classList.contains("inline-flex"));
 		assert.ok(chip.querySelector(".truncate"));
@@ -58,7 +59,7 @@ describe("FilePathChip", () => {
 		}
 		for (const path of ["/course/README", "/historical/unmarked-folder", "/POSIX-name\\"]) {
 			const document = documentFor(<FilePathChip path={path} />);
-			assert.equal(document.querySelector(".lucide-folder"), null, path);
+			assertSameNode(document.querySelector(".lucide-folder"), null, path);
 			assert.ok(document.querySelector(".lucide-file"), path);
 		}
 	});
@@ -68,7 +69,7 @@ describe("FilePathChip", () => {
 		const document = documentFor(<FilePathChip path={path} />);
 		assert.equal(document.body.textContent, '<img src=x onerror="alert(1)">.pdf');
 		assert.equal(document.body.firstElementChild!.getAttribute("title"), path);
-		assert.equal(document.querySelector("img, script, [onerror], a"), null);
+		assertSameNode(document.querySelector("img, script, [onerror], a"), null);
 	});
 });
 
@@ -104,7 +105,7 @@ describe("PathText", () => {
 	it("does not interpret HTML in ordinary text or path labels", () => {
 		const path = '/tmp/<img src=x onerror="alert(1)">.png';
 		const document = documentFor(<PathText text={`<script>alert(1)</script> ${quoteFilePath(path)}`} />);
-		assert.equal(document.querySelector("script, img, [onerror], a"), null);
+		assertSameNode(document.querySelector("script, img, [onerror], a"), null);
 		assert.equal(document.querySelector('[role="img"]')!.getAttribute("title"), path);
 		assert.equal(document.body.textContent, '<script>alert(1)</script> <img src=x onerror="alert(1)">.png');
 	});

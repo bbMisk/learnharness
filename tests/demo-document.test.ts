@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { readFileSync } from "node:fs";
 import { Script, runInNewContext } from "node:vm";
 import { buildDemoDocument, DEMO_BRIDGE_SCRIPT, loadDemoRuntimes, peekDemoRuntimes, renderDemoDocument, type DemoRenderer } from "../src/core/demo-document.ts";
@@ -246,7 +247,7 @@ it("opens data-tooltip popups on touch, links them for screen readers and closes
 	const esc = new window.Event("keydown", { bubbles: true });
 	Object.defineProperty(esc, "key", { value: "Escape" });
 	document.dispatchEvent(esc);
-	assert.equal(document.querySelector(".lh-tooltip"), null);
+	assertSameNode(document.querySelector(".lh-tooltip"), null);
 	assert.equal(trigger.hasAttribute("aria-describedby"), false);
 	assert.deepEqual(placed, ["stopped"]);
 });

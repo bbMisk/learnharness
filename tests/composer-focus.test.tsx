@@ -2,6 +2,7 @@ import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, it } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
@@ -111,7 +112,7 @@ it("saving setup hands focus to the composer, caret at the end", async () => {
 	const save = document.querySelector<HTMLButtonElement>('[data-testid="setup-save"]');
 	assert.ok(save && !save.disabled, "the prefilled slots can be saved");
 	await act(async () => { save.click(); await new Promise((resolve) => setTimeout(resolve, 10)); });
-	assert.equal(document.querySelector('[data-testid="setup-dialog"]'), null, "setup closed");
+	assertSameNode(document.querySelector('[data-testid="setup-dialog"]'), null, "setup closed");
 	pill.remove(); // the saved models retire the pill
 	assert.ok(focused === field, "focus is in the composer, not on the retired pill");
 	assert.ok(caretAtEnd(field));
@@ -142,7 +143,7 @@ it("closing the header rename by key hands focus back to the composer", async ()
 		range = at(document.body, 0);
 		const press = Object.assign(new dom.window.Event("keydown", { bubbles: true, cancelable: true }), { key });
 		await act(async () => { input.dispatchEvent(press); });
-		assert.equal(host.querySelector("input"), null);
+		assertSameNode(host.querySelector("input"), null);
 		if (key === "Enter") assert.ok(press.defaultPrevented, "Enter types no newline into the composer it hands focus to");
 		assert.ok(focused === field, `${key} hands focus back to the composer`);
 		assert.ok(range?.startContainer === field.firstChild && range.startOffset === 5, `${key} keeps the caret where it was`);
@@ -193,11 +194,11 @@ it("a failed header rename keeps the field open with the typed name and says so"
 		await press("Escape");
 		assert.equal(host.querySelector('[data-testid="title"]')?.textContent, "Old");
 		await open();
-		assert.equal(host.querySelector('[role="alert"]'), null, "a reopened field starts clean");
+		assertSameNode(host.querySelector('[role="alert"]'), null, "a reopened field starts clean");
 		fail = false;
 		await press("Enter");
 		assert.equal(host.querySelector('[data-testid="title"]')?.textContent, "New name");
-		assert.equal(host.querySelector('[role="alert"]'), null);
+		assertSameNode(host.querySelector('[role="alert"]'), null);
 	} finally {
 		console.error = quiet;
 	}

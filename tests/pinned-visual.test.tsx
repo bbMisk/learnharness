@@ -9,6 +9,7 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import fs from "node:fs";
 import { afterEach, describe, it } from "node:test";
 import { parseHTML } from "linkedom";
@@ -268,16 +269,16 @@ describe("pinning restyles the card in place", () => {
 		const iframe = host.querySelector('[data-testid="demo-iframe"]');
 		assert.ok(iframe);
 		const [demoSlot] = host.querySelectorAll('[data-testid="pin-slot"]');
-		assert.equal(host.querySelector('[data-testid="pin-placeholder"]'), null);
+		assertSameNode(host.querySelector('[data-testid="pin-placeholder"]'), null);
 		assert.equal(host.querySelectorAll('[data-testid="pin-toggle"]').length, 2, "both cards offer a pin");
-		assert.equal(host.querySelector('[data-testid="pin-expand"]'), null, "expand only once pinned");
+		assertSameNode(host.querySelector('[data-testid="pin-expand"]'), null, "expand only once pinned");
 
 		(host.querySelector('[data-testid="pin-toggle"]') as HTMLElement).click();
 		assert.deepEqual(calls, ["pin job_a"]);
 
 		await render("job_a");
-		assert.equal(host.querySelector('[data-testid="demo-iframe"]'), iframe, "no remount: the very same iframe");
-		assert.equal(host.querySelectorAll('[data-testid="pin-slot"]')[0], demoSlot);
+		assertSameNode(host.querySelector('[data-testid="demo-iframe"]'), iframe, "no remount: the very same iframe");
+		assertSameNode(host.querySelectorAll('[data-testid="pin-slot"]')[0], demoSlot);
 		const panel = demoSlot!.querySelector('[data-testid="pin-panel"]') as HTMLElement;
 		assert.match(panel.getAttribute("class") ?? "", /\bfixed\b/);
 		const style = panel.getAttribute("style") ?? "";
@@ -293,12 +294,12 @@ describe("pinning restyles the card in place", () => {
 		assert.doesNotMatch(figurePanel.getAttribute("class") ?? "", /fixed/, "only one card is pinned");
 
 		await render("job_a", { hidden: true });
-		assert.equal(host.querySelector('[data-testid="demo-iframe"]'), iframe, "a collapsed drawer hides, never unmounts");
+		assertSameNode(host.querySelector('[data-testid="demo-iframe"]'), iframe, "a collapsed drawer hides, never unmounts");
 		assert.match(panel.getAttribute("style") ?? "", /visibility:\s*hidden/);
 		assert.match(demoSlot!.querySelector('[data-testid="pin-placeholder"]')!.textContent ?? "", /Pinned in the side drawer/, "a closed drawer isn't beside the chat");
 
 		await render("job_f");
-		assert.equal(host.querySelector('[data-testid="demo-iframe"]'), iframe, "unpinned: back in its row, same element");
+		assertSameNode(host.querySelector('[data-testid="demo-iframe"]'), iframe, "unpinned: back in its row, same element");
 		assert.doesNotMatch(panel.getAttribute("class") ?? "", /fixed/);
 		// (linkedom keeps the cleared declarations as empty ones.)
 		assert.doesNotMatch(panel.getAttribute("style") ?? "", /:\s*[^;\s]/, "no position left on it");
@@ -312,7 +313,7 @@ describe("pinning restyles the card in place", () => {
 		document.body.appendChild(host);
 		root = createRoot(host);
 		await act(async () => root!.render(<PinnableArtifact jobId="job_a" kind="demo"><DemoOutputCard output={DEMO} /></PinnableArtifact>));
-		assert.equal(host.querySelector('[data-testid="pin-toggle"]'), null);
+		assertSameNode(host.querySelector('[data-testid="pin-toggle"]'), null);
 		assert.ok(host.querySelector('[data-testid="demo-iframe"]'));
 	});
 });

@@ -1,6 +1,7 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, test } from "node:test";
 import type { Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
@@ -38,9 +39,9 @@ afterEach(async () => { await act(async () => root?.unmount()); host?.remove(); 
 for (const setup of [false, true]) {
 	test(`${setup ? "Setup" : "Settings"} hides key input in Keyless and reveals it only in API key mode`, async () => {
 		await mount(setup);
-		assert.equal(document.querySelector('[data-testid="custom-key-input"]'), null);
+		assertSameNode(document.querySelector('[data-testid="custom-key-input"]'), null);
 		await selectMode("apiKey"); assert.equal(element("custom-key-input").getAttribute("type"), "password");
-		await selectMode("keyless"); assert.equal(document.querySelector('[data-testid="custom-key-input"]'), null);
+		await selectMode("keyless"); assertSameNode(document.querySelector('[data-testid="custom-key-input"]'), null);
 		assert.ok(element("custom-save"));
 	});
 }
@@ -50,8 +51,8 @@ test("model controls use approved effort labels, right-align Save limits, and gr
 	assert.equal(select.getAttribute("aria-label"), "fixture-model reasoning effort support");
 	assert.deepEqual(Array.from(select.children).map(option => option.textContent), ["Reasoning effort: Use reported", "Reasoning effort: Supported", "Reasoning effort: Not supported"]);
 	assert.deepEqual(Array.from(select.children).map(option => option.getAttribute("value")), ["", "on", "off"], "capability values unchanged");
-	const save = element("custom-pins-save"); assert.ok(save.classList.contains("ml-auto")); assert.equal(save.parentElement!.lastElementChild, save);
-	const help = element("custom-help"); assert.equal(element("custom-budget-help").parentElement, help); assert.equal(element("custom-reasoning-help").parentElement, help);
+	const save = element("custom-pins-save"); assert.ok(save.classList.contains("ml-auto")); assertSameNode(save.parentElement!.lastElementChild, save);
+	const help = element("custom-help"); assertSameNode(element("custom-budget-help").parentElement, help); assertSameNode(element("custom-reasoning-help").parentElement, help);
 	const children = Array.from(element("custom-endpoint-editor").children); assert.ok(children.indexOf(help) > children.indexOf(element("custom-pins")));
 	assert.match(help.textContent ?? "", /do not resize backend context/); assert.match(help.textContent ?? "", /Off may not disable/);
 });

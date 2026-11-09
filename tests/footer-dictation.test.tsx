@@ -1,6 +1,7 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, test } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
@@ -38,7 +39,7 @@ test("End transcription restores its recording field, sends one stop, and waits 
  await until(()=>current.phase==="recording");
  document.querySelector<HTMLInputElement>("input")!.focus();
  await act(async()=>document.querySelector<HTMLButtonElement>('[aria-label="End transcription"]')!.click());
- assert.equal(document.activeElement,document.querySelector("textarea"));
+ assertSameNode(document.activeElement,document.querySelector("textarea"));
  const ending=document.querySelector<HTMLButtonElement>('[aria-label="End transcription"]')!;
  assert.equal(ending.disabled,true);assert.equal(ending.textContent,"Transcribing…");
  await until(()=>stopped===1);
@@ -80,7 +81,7 @@ async function richCase(focusFirst:boolean){
  if(focusFirst)(rich as HTMLElement).focus();
  await act(async()=>current.toggle());
  assert.equal(current.error,null);
- assert.equal(document.activeElement,rich);
+ assertSameNode(document.activeElement,rich);
  await until(()=>current.phase==="idle");
 }
 test("dictation keeps a focused lesson rich text box",()=>richCase(true));

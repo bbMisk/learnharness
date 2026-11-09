@@ -2,6 +2,7 @@ import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, it } from "node:test";
 import type { Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
@@ -146,7 +147,7 @@ it("the header rename's IME Enter doesn't commit, and the IME keeps its Enter", 
 		assert.equal(composing.defaultPrevented, false, "the IME keeps its Enter");
 		assert.deepEqual(puts, []);
 		await enter(input, false);
-		assert.equal(el.querySelector("input"), null);
+		assertSameNode(el.querySelector("input"), null);
 		assert.equal(puts.length, 1);
 	} finally {
 		globalThis.fetch = realFetch;

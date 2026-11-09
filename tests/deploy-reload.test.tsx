@@ -1,6 +1,7 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, it } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
@@ -108,7 +109,7 @@ it("a hidden pill keeps watching, so it shows at once when unhidden (sidebar clo
 		open();
 		await new Promise((resolve) => setTimeout(resolve, 0));
 	});
-	assert.equal(document.querySelector('[data-testid="deploy-reload"]'), null);
+	assertSameNode(document.querySelector('[data-testid="deploy-reload"]'), null);
 	await act(async () => root!.render(view(false)));
 	assert.ok(document.querySelector('[data-testid="deploy-reload"]'), "no reconnect needed");
 });

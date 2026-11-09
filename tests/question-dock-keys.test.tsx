@@ -1,6 +1,7 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
+import { assertSameNode, assertNotSameNode } from "./helpers/same-node.ts";
 import { afterEach, describe, it } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
@@ -89,7 +90,7 @@ describe("an open modal keeps keys away from the quiz", () => {
 				assert.equal(e.defaultPrevented, false, `${JSON.stringify(key)} left to the modal`);
 			});
 		}
-		assert.equal(focused, nav, "focus stays in the modal");
+		assertSameNode(focused, nav, "focus stays in the modal");
 		assert.equal(host.innerHTML, before, "the dock is unchanged");
 		assert.equal(submits.length, 0);
 	});
@@ -176,9 +177,9 @@ describe("cancelling the Dismiss confirm", () => {
 		root = createRoot(host);
 		const render = (mode: "question" | null) => act(async () => root!.render(<AbortTurnDialog mode={mode} onClose={() => {}} onConfirm={() => {}} />));
 		await render("question");
-		assert.notEqual(focused, field, "the confirm took focus");
+		assertNotSameNode(focused, field, "the confirm took focus");
 		await render(null);
-		assert.equal(focused, field);
+		assertSameNode(focused, field);
 	});
 
 	it("after a backdrop click, the caret goes back where it was in the field, not to its start", async () => {
@@ -209,7 +210,7 @@ describe("cancelling the Dismiss confirm", () => {
 			await render("question");
 			range = at(document.body, 0); // the backdrop's mousedown moved the selection
 			await render(null);
-			assert.equal(focused, field);
+			assertSameNode(focused, field);
 			assert.ok(range?.startContainer === field.firstChild, "the caret is back in the field"); // equal() would diff whole DOM trees
 			assert.equal(range?.startOffset, 11, "after hello world, where it was");
 		} finally {

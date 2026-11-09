@@ -1,6 +1,7 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, it } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
@@ -50,7 +51,7 @@ it("dragging the name moves the item with an icon/name-only preview, not the who
 	assert.deepEqual(JSON.parse(data.getData("application/x-learnharness-source")), { kind: "source", id: "b" });
 	assert.equal(data.effectAllowed, "move"); assert.equal(data.preview?.textContent, "Source B");
 	assert.equal(data.preview?.querySelectorAll("svg").length, 1); assert.equal(data.preview?.querySelectorAll("input,button").length, 0);
-	assert.equal(document.querySelector('[data-testid="source-name-input"]'), null, "a drag does not enter rename mode");
+	assertSameNode(document.querySelector('[data-testid="source-name-input"]'), null, "a drag does not enter rename mode");
 });
 
 it("folder contents, including expanded propositions, drop into their containing folder with stable background feedback", async () => {
@@ -61,7 +62,7 @@ it("folder contents, including expanded propositions, drop into their containing
 	assert.equal(document.querySelector('[data-testid="folder-row-f1"]')?.getAttribute("data-drop-active"), "false");
 	await fire('[data-testid="prop-row-n1"]', "drop", data);
 	assert.deepEqual(actions, [{ action: "move", kind: "source", id: "b", parentId: "f2" }]);
-	assert.equal(document.querySelector('[data-drop-active="true"]'), null);
+	assertSameNode(document.querySelector('[data-drop-active="true"]'), null);
 });
 
 it("folder headers and unlabelled blank space below the tree accept folder/root placement", async () => {
@@ -75,7 +76,7 @@ it("folder headers and unlabelled blank space below the tree accept folder/root 
 it("dragging a folder onto its descendants neither highlights nor performs an invalid move", async () => {
 	await mount(); const data = transfer(); await fire('[data-source-drag-row="f1"]', "dragstart", data);
 	await fire('[data-testid="prop-row-n1"]', "dragover", data);
-	assert.equal(data.dropEffect, "none"); assert.equal(document.querySelector('[data-drop-active="true"]'), null);
+	assert.equal(data.dropEffect, "none"); assertSameNode(document.querySelector('[data-drop-active="true"]'), null);
 	await fire('[data-testid="prop-row-n1"]', "drop", data); assert.deepEqual(actions, []);
 });
 

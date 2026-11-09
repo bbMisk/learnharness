@@ -2,6 +2,7 @@ import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, describe, it } from "node:test";
 import type { Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
@@ -138,7 +139,7 @@ describe("shortcuts from a text field", () => {
 			await act(async () => { typed({ key: "F2", code: "F2" }); });
 			assert.deepEqual(renames, ["rename"]);
 			await act(async () => { typed({ key: "?", code: "Slash", shiftKey: true }); });
-			assert.equal(document.querySelector('[data-testid="cheat-sheet"]'), null);
+			assertSameNode(document.querySelector('[data-testid="cheat-sheet"]'), null);
 		} finally {
 			window.removeEventListener("lh:kbd-rename-session", onRename);
 		}
@@ -192,7 +193,7 @@ describe("the shortcut cheat sheet is a modal", () => {
 			let esc: Event | null = null;
 			await act(async () => { esc = press({ key: "Escape", code: "Escape" }); });
 			assert.equal(esc!.defaultPrevented, true);
-			assert.equal(document.querySelector('[data-testid="cheat-sheet"]'), null, "Esc closes it");
+			assertSameNode(document.querySelector('[data-testid="cheat-sheet"]'), null, "Esc closes it");
 			assert.deepEqual(aborts, [], "the Esc never reaches the abort chain");
 		} finally {
 			window.removeEventListener("lh:kbd-abort-turn", onAbort);
@@ -211,11 +212,11 @@ describe("the shortcut cheat sheet is a modal", () => {
 		await act(async () => { press({ key: "?", code: "Slash", shiftKey: true }); });
 		const sheet = document.querySelector<HTMLElement>('[data-testid="cheat-sheet"]')!;
 		assert.ok(sheet.contains(document.activeElement), "focus moves into the sheet");
-		assert.equal(document.body.lastElementChild, sheet, "portaled after the update band and the offline strip");
+		assertSameNode(document.body.lastElementChild, sheet, "portaled after the update band and the offline strip");
 		const row = [...sheet.querySelectorAll("div")].find((d) => d.firstElementChild?.textContent === "Toggle dictation")!;
 		assert.equal(row.querySelector("kbd")?.textContent, "Not bound");
 		await act(async () => { press({ key: "Escape", code: "Escape" }); });
-		assert.equal(document.querySelector('[data-testid="cheat-sheet"]'), null);
-		assert.equal(document.activeElement, table, "focus goes back to what had it");
+		assertSameNode(document.querySelector('[data-testid="cheat-sheet"]'), null);
+		assertSameNode(document.activeElement, table, "focus goes back to what had it");
 	});
 });

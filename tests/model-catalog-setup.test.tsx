@@ -1,6 +1,7 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, test } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
@@ -74,10 +75,10 @@ afterEach(async () => {
 test("cold setup is loading, not keyless; failure/Retry does not invent a key stage", async () => {
 	installFetch(); await render(setup());
 	assert.ok(element("setup-stage-loading"));
-	assert.equal(document.querySelector('[data-testid="setup-stage-keys"]'), null);
+	assertSameNode(document.querySelector('[data-testid="setup-stage-keys"]'), null);
 	await answer(0, null);
 	assert.ok(element("setup-catalog-error"));
-	assert.equal(document.querySelector('[data-testid="setup-stage-keys"]'), null);
+	assertSameNode(document.querySelector('[data-testid="setup-stage-keys"]'), null);
 	await click("setup-retry"); assert.ok(element("setup-stage-loading"));
 	const empty = catalog(false); empty.slots = { strong: null, cheap: null, vision: null };
 	await answer(1, empty); assert.ok(element("setup-stage-keys"));
@@ -88,7 +89,7 @@ test("cached setup is immediately usable; fresh metadata/untouched slots update 
 	await render(<><Reader />{setup()}</>);
 	assert.equal(requests.length, 2);
 	assert.ok(element("setup-stage-pickers"));
-	assert.equal(document.querySelector('[data-testid="setup-stage-keys"]'), null);
+	assertSameNode(document.querySelector('[data-testid="setup-stage-keys"]'), null);
 	assert.equal(element("setup-trigger-strong").textContent, "model:free▾");
 	await click("setup-trigger-strong"); await click("model-option-claude-opus-5-5");
 	await click("setup-thinking-strong"); await click("thinking-option-medium");
@@ -117,16 +118,16 @@ test("zero providers always means exclusive connection stage; reconnecting the s
 	await click("setup-trigger-strong");
 	await act(async () => notifySettingsSaved("keys"));
 	assert.ok(element("setup-stage-loading"));
-	assert.equal(document.querySelector('[data-testid="model-option-claude-opus-5-5"]'), null);
+	assertSameNode(document.querySelector('[data-testid="model-option-claude-opus-5-5"]'), null);
 	await answer(2, catalog(false));
 	assert.ok(element("setup-stage-keys"));
-	assert.equal(document.querySelector('[data-testid="setup-stage-pickers"]'), null);
-	assert.equal(document.querySelector('[data-testid="setup-add-provider"]'), null);
-	assert.equal(document.querySelector('[data-testid="setup-save"]'), null);
+	assertSameNode(document.querySelector('[data-testid="setup-stage-pickers"]'), null);
+	assertSameNode(document.querySelector('[data-testid="setup-add-provider"]'), null);
+	assertSameNode(document.querySelector('[data-testid="setup-save"]'), null);
 	await act(async () => notifySettingsSaved("keys"));
 	await answer(3, catalog());
 	assert.equal(closed, 1); assert.equal(completed, 0); assert.deepEqual(writes, []);
-	assert.equal(document.querySelector('[data-testid="setup-dialog"]'), null, "no intermediate picker frame after reconnect");
+	assertSameNode(document.querySelector('[data-testid="setup-dialog"]'), null, "no intermediate picker frame after reconnect");
 });
 
 test("a key for a provider the saved slots don't use keeps setup open on the pickers", async () => {
@@ -167,7 +168,7 @@ for (const count of [0, 1, 2]) test(`connecting another provider with ${count} s
 	assert.ok(element("setup-stage-keys"));
 	const connected = { ...before, models: [{ ...b, provider: "other" }], providers: [{ id: "other", envVar: "OTHER_KEY", keyPresent: true }] };
 	await act(async () => notifySettingsSaved("keys")); await answer(2, connected);
-	assert.ok(element("setup-stage-pickers")); assert.equal(document.querySelector('[data-testid="setup-stage-keys"]'), null); assert.equal(closed, 0);
+	assert.ok(element("setup-stage-pickers")); assertSameNode(document.querySelector('[data-testid="setup-stage-keys"]'), null); assert.equal(closed, 0);
 	if (count > 0) {
 		assert.equal(element("setup-trigger-strong").textContent, "model:free▾", "the stale pick stays shown");
 		assert.equal(element("setup-thinking-strong").textContent?.trim(), "xhigh▾");
@@ -177,7 +178,7 @@ for (const count of [0, 1, 2]) test(`connecting another provider with ${count} s
 	for (const slot of ["strong", "cheap", "vision"] as const) {
 		await click(`setup-trigger-${slot}`); await click("model-option-claude-opus-5-5");
 	}
-	assert.equal(document.querySelector('[data-testid^="setup-needed-"]'), null);
+	assertSameNode(document.querySelector('[data-testid^="setup-needed-"]'), null);
 	await click("setup-save");
 	for (const slot of ["strong", "cheap", "vision"] as const) assert.equal(writes[0]?.[slot]?.model?.provider, "other");
 });
@@ -194,7 +195,7 @@ test("saved slots on a provider without a key keep the setup pill and are marked
 	assert.ok(element("slot-disconnected-strong"));
 	await act(async () => notifySettingsSaved("keys")); await answer(1, catalog());
 	assert.equal(state!.configured, true);
-	assert.equal(document.querySelector('[data-testid="slot-disconnected-strong"]'), null);
+	assertSameNode(document.querySelector('[data-testid="slot-disconnected-strong"]'), null);
 });
 
 test("a partial setup's model/thinking edits survive exclusive provider recovery and reopening", async () => {
@@ -203,7 +204,7 @@ test("a partial setup's model/thinking edits survive exclusive provider recovery
 	await click("setup-trigger-strong"); await click("model-option-claude-opus-5-5");
 	await click("setup-thinking-strong"); await click("thinking-option-medium");
 	await act(async () => notifySettingsSaved("keys")); await answer(2, { ...before, models: [], providers: [] });
-	assert.ok(element("setup-stage-keys")); assert.equal(document.querySelector('[data-testid="setup-stage-pickers"]'), null);
+	assert.ok(element("setup-stage-keys")); assertSameNode(document.querySelector('[data-testid="setup-stage-pickers"]'), null);
 	await act(async () => notifySettingsSaved("keys")); await answer(3, before);
 	assert.equal(element("setup-trigger-strong").textContent, "claude-opus-5-5▾");
 	assert.equal(element("setup-thinking-strong").textContent?.trim(), "medium▾");
@@ -257,8 +258,8 @@ test("blocked session recovery opens its ordinary picker, never changes Strong o
 	assert.equal(selectedModelUnavailable(body, selected), true);
 	assert.deepEqual(sessionWrites, []);
 	await act(async () => openModelPicker());
-	assert.ok(element("model-menu")); assert.equal(document.querySelector('[data-testid="setup-dialog"]'), null);
-	assert.equal(document.querySelector('[data-testid="model-option-vendor_model_free"]'), null);
+	assert.ok(element("model-menu")); assertSameNode(document.querySelector('[data-testid="setup-dialog"]'), null);
+	assertSameNode(document.querySelector('[data-testid="model-option-vendor_model_free"]'), null);
 	await click("model-option-claude-opus-5-5");
 	assert.deepEqual(sessionWrites, [{ model: { provider: "other", id: b.id }, thinkingLevel: "xhigh" }]);
 	assert.equal(selected, `other:${b.id}`); assert.deepEqual(globals, { strong: body.slots.strong });
@@ -293,7 +294,7 @@ for (const result of ["override", "legacy", "http-failure", "network-failure"] a
 	const expected = result === "legacy" ? `${a.provider}:${a.id}` : result === "override" ? `other:${b.id}` : undefined;
 	assert.equal(identities.at(-1), expected);
 	assert.equal(selectedModelUnavailable(snapshot.catalog, identities.at(-1)), result === "legacy", "only a confirmed legacy record may inherit the unavailable Strong pin");
-	assert.equal(document.querySelector('[data-testid="model-menu"]'), null);
+	assertSameNode(document.querySelector('[data-testid="model-menu"]'), null);
 	assert.deepEqual(writes, []);
 });
 
@@ -337,7 +338,7 @@ test("cache retention is hidden by default, slot-specific, resettable, and prese
 	await render(<Settings />); await answer(1, catalog());
 	assert.equal(element("models-advanced").textContent, "Show advanced settings");
 	assert.equal(element("models-advanced").getAttribute("aria-expanded"), "false");
-	assert.equal(document.querySelector('[data-testid="slot-cache-strong"]'), null);
+	assertSameNode(document.querySelector('[data-testid="slot-cache-strong"]'), null);
 	assert.equal(changes.length, 0, "mounting untouched controls writes nothing");
 	await click("models-advanced");
 	assert.equal(element("models-advanced").textContent, "Hide advanced settings");
@@ -348,7 +349,7 @@ test("cache retention is hidden by default, slot-specific, resettable, and prese
 	const escape = new dom.window.Event("keydown", { bubbles: true, cancelable: true });
 	Object.assign(escape, { key: "Escape" });
 	await act(async () => { element("slot-cache-menu-strong").dispatchEvent(escape); });
-	assert.equal(document.querySelector('[data-testid="slot-cache-menu-strong"]'), null);
+	assertSameNode(document.querySelector('[data-testid="slot-cache-menu-strong"]'), null);
 	assert.equal(escape.defaultPrevented, true, "Escape is claimed before the outer dialog's document listener");
 	for (const value of ["short", "none", "long", "default"]) {
 		await click("slot-cache-strong");
@@ -367,11 +368,11 @@ test("cache retention is hidden by default, slot-specific, resettable, and prese
 	assert.equal(changes.at(-1)?.strong?.cacheRetention, "long");
 	await click("slot-cache-strong");
 	await click("models-advanced");
-	assert.equal(document.querySelector('[data-testid="slot-cache-menu-strong"]'), null, "collapse also closes the portaled menu");
+	assertSameNode(document.querySelector('[data-testid="slot-cache-menu-strong"]'), null, "collapse also closes the portaled menu");
 	await click("models-advanced");
 	assert.equal(element("slot-cache-strong").textContent, "Cache: long▾", "hiding did not reset the preference");
 	await render(<Settings key="new-open" />);
-	assert.equal(document.querySelector('[data-testid="slot-cache-strong"]'), null, "a new settings mount starts collapsed");
+	assertSameNode(document.querySelector('[data-testid="slot-cache-strong"]'), null, "a new settings mount starts collapsed");
 });
 
 test("initial setup exposes no advanced controls and preserves all saved retention preferences on Save", async () => {
@@ -381,8 +382,8 @@ test("initial setup exposes no advanced controls and preserves all saved retenti
 	body.slots.cheap!.cacheRetention = "short";
 	body.slots.vision!.cacheRetention = "none";
 	await warm(body); await render(<><Reader />{setup()}</>); await answer(1, body);
-	assert.equal(document.querySelector('[data-testid="models-advanced"]'), null);
-	assert.equal(document.querySelector('[data-testid^="slot-cache-"]'), null);
+	assertSameNode(document.querySelector('[data-testid="models-advanced"]'), null);
+	assertSameNode(document.querySelector('[data-testid^="slot-cache-"]'), null);
 	await click("setup-trigger-strong"); await click("model-option-claude-opus-5-5");
 	await click("setup-save");
 	assert.equal(writes[0]?.strong?.cacheRetention, "long");
