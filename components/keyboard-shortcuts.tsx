@@ -24,7 +24,9 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
+import { useFocusReturn } from "@/components/focus-return";
 import { usePathname, useRouter } from "next/navigation";
 import {
 	actionForBinding,
@@ -99,12 +101,6 @@ export function KeyboardShortcuts() {
 	useEffect(() => {
 		const onKeyDown = (e: KeyboardEvent) => {
 			if (e.defaultPrevented) return;
-			// The cheat sheet is a modal too: its own Esc closes it.
-			if (e.key === "Escape" && cheatOpen) {
-				setCheatOpen(false);
-				e.preventDefault();
-				return;
-			}
 			// An open modal owns the keyboard: Tab stays inside it and no
 			// global shortcut acts on the page behind it.
 			const modal = openModal();
@@ -194,7 +190,7 @@ export function KeyboardShortcuts() {
 		};
 		window.addEventListener("keydown", onKeyDown);
 		return () => window.removeEventListener("keydown", onKeyDown);
-	}, [cheatOpen]);
+	}, []);
 
 	return <CheatSheet open={cheatOpen} onClose={() => setCheatOpen(false)} />;
 }
@@ -203,15 +199,36 @@ export function KeyboardShortcuts() {
  *  Until the settings milestone ships an editor, this is how shortcuts
  *  stay discoverable. */
 function CheatSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+	return open ? <CheatSheetDialog onClose={onClose} /> : null;
+}
+
+function CheatSheetDialog({ onClose }: { onClose: () => void }) {
 	const backdropDismiss = useBackdropDismiss(onClose);
-	if (!open) return null;
+	// It takes focus on open and hands it back on close.
+	useFocusReturn(true);
+	const panelRef = useRef<HTMLDivElement>(null);
+	useEffect(() => panelRef.current?.focus(), []);
+	// The topmost layer: claim Esc in the window's capture phase, before any
+	// layer under it (Chains, a plan, a menu) sees it at the document.
+	useEffect(() => {
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key !== "Escape") return;
+			e.preventDefault();
+			e.stopPropagation();
+			onClose();
+		};
+		window.addEventListener("keydown", onKey, true);
+		return () => window.removeEventListener("keydown", onKey, true);
+	}, [onClose]);
 	const scopes = ["global", "chat", "graph"] as const;
 	const scopeLabels: Record<(typeof scopes)[number], string> = {
 		global: "Global",
 		chat: "Chat",
 		graph: "Graph view",
 	};
-	return (
+	// Portaled to the end of <body>, like the other dialogs, so it covers the
+	// update band and the offline strip.
+	return createPortal(
 		<div
 			data-testid="cheat-sheet"
 			data-lh-modal
@@ -219,7 +236,9 @@ function CheatSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
 			{...backdropDismiss}
 		>
 			<div
-				className="max-h-[80vh] w-full max-w-[min(36rem,calc(100vw-2*max(env(safe-area-inset-left,0px),env(safe-area-inset-right,0px))))] overflow-y-auto rounded-xl border bg-card p-5 shadow-2xl"
+				ref={panelRef}
+				tabIndex={-1}
+				className="max-h-[80vh] w-full max-w-[min(36rem,calc(100vw-2*max(env(safe-area-inset-left,0px),env(safe-area-inset-right,0px))))] overflow-y-auto rounded-xl border bg-card p-5 shadow-2xl outline-none"
 				onClick={(e) => e.stopPropagation()}
 			>
 				<div className="mb-4 flex items-baseline justify-between">
@@ -239,7 +258,7 @@ function CheatSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
 									<div key={a.id} className="flex items-center justify-between gap-4 text-sm">
 										<span className="text-muted-foreground">{a.label}</span>
 										<kbd className="rounded-md border border-border bg-background px-1.5 py-0.5 font-mono text-xs text-card-foreground">
-											{formatBinding(bindingForAction(a.id))}
+											{formatBinding(bindingForAction(a.id)) || "Not bound"}
 										</kbd>
 									</div>
 								))}
@@ -248,6 +267,7 @@ function CheatSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
 					);
 				})}
 			</div>
-		</div>
+		</div>,
+		document.body,
 	);
 }
