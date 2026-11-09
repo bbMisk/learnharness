@@ -20,7 +20,7 @@ import {
 	isRootFolder,
 	composeAddFolder,
 } from "../components/settings/agent-section.tsx";
-import { nextOverrides } from "../components/settings/keyboard-section.tsx";
+import { nextOverrides, refusalFor } from "../components/settings/keyboard-section.tsx";
 import { classifyKeys, keyStatusLine, type ProviderKeyInfo } from "../components/settings/keys-section.tsx";
 import type { AgentSettings, AuthKeyStatus, ModelsSettings } from "../src/core";
 import { slotsConfigured } from "../src/core";
@@ -426,5 +426,19 @@ describe("file-access folder entries", () => {
 		assert.deepEqual(agent.fileAccess?.folders, ["/tmp"]);
 		assert.equal(normalizeFolder("~/notes/.."), "~");
 		assert.equal(isRootFolder(normalizeFolder("/tmp/..")), true, "a spelling of the root is still the root");
+	});
+});
+
+describe("refusalFor", () => {
+	it("refuses the desktop menu's own chords", () => {
+		for (const chord of ["mod+h", "mod+alt+h", "mod+m", "mod+0", "mod+-", "mod+=", "mod+alt+i", "mod+shift+i"]) {
+			assert.match(refusalFor("cheat-sheet", chord) ?? "", /reserved/, chord);
+		}
+	});
+
+	it("accepts an F key with or without shift", () => {
+		assert.equal(refusalFor("cheat-sheet", "f5"), null);
+		assert.equal(refusalFor("cheat-sheet", "shift+f5"), null);
+		assert.match(refusalFor("cheat-sheet", "shift+s") ?? "", /needs/);
 	});
 });
