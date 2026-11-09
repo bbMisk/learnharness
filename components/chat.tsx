@@ -1355,7 +1355,7 @@ export function Chat({
 					}
 					onReserve={setDockReserve}
 					room={trackerRoom.dock}
-					dictationCancel={dictation.cancel}
+					dictationCancel={dictation.active ? dictation.cancel : undefined}
 					queuedSteers={visibleQueuedSteers(steerQueue, nativeMessages)}
 					checkEscRef={checkEscRef}
 					setupCta={

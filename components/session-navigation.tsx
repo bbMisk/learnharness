@@ -54,6 +54,12 @@ function topRow(scroller: HTMLElement): ReadingPosition | null {
 	return { fromEnd: rows.length - 1 - lo, offset: rows[lo]!.getBoundingClientRect().top - viewTop };
 }
 
+/** True while this page will return to a saved reading position (above the
+ * bottom), so a question arriving with it starts folded instead of covering it. */
+export function restoresReadingPosition(): boolean {
+	return typeof window !== "undefined" && !window.location.hash && readingPositions.has(window.location.pathname);
+}
+
 export function useReadingPosition(contextRef: RefObject<StickToBottomContext>): void {
 	useEffect(() => {
 		const key = window.location.pathname;
