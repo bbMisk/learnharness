@@ -773,6 +773,14 @@ export function ChainTableOverlay({
 	useEffect(() => {
 		if (!open || deleteOpen) return;
 		const onKeyDown = (e: KeyboardEvent) => {
+			// Tab cycles the table's own field (its search), never the page's
+			// composer hidden behind the overlay.
+			if (e.key === "Tab" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+				e.preventDefault();
+				e.stopPropagation();
+				document.querySelector<HTMLElement>('[data-testid="chain-table-overlay"] [data-testid="chain-table-search"]')?.focus();
+				return;
+			}
 			if (e.key === "Escape") {
 				// App Router delegates React events on document too: a child's
 				// stopPropagation cannot silence a sibling document listener.
