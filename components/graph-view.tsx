@@ -98,8 +98,25 @@ import {
 const NODE_COLOR_TOKEN = "--primary";
 
 /** Per-device graph camera persistence (zoom+pan view state). v1 in the
- *  key: the stored shape is the renderer's d3 transform {k, x, y}. */
+ *  key: the stored shape is the renderer's d3 transform {k, x, y}, plus
+ *  the canvas size {w, h} it was saved at (optional: older entries lack it). */
 const CAMERA_STORAGE_KEY = "lh.graph.camera.v1";
+
+/** The stored camera ({k, x, y} plus the canvas size it was saved at),
+ *  re-centred for the canvas's current size: the world point that was at
+ *  the centre stays at the centre. Null when absent or corrupt. */
+export function restoreCamera(stored: string | null, width: number, height: number): { k: number; x: number; y: number } | null {
+	if (!stored) return null;
+	try {
+		const p = JSON.parse(stored) as { k?: unknown; x?: unknown; y?: unknown; w?: unknown; h?: unknown };
+		const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+		if (!finite(p.k) || p.k <= 0 || !finite(p.x) || !finite(p.y)) return null;
+		const sized = finite(p.w) && finite(p.h) && width > 0 && height > 0;
+		return { k: p.k, x: p.x + (sized ? (width - (p.w as number)) / 2 : 0), y: p.y + (sized ? (height - (p.h as number)) / 2 : 0) };
+	} catch {
+		return null;
+	}
+}
 
 // ---- Render settings (the settings-panel controls) ------------------------
 //
@@ -1092,30 +1109,23 @@ export function GraphView({
 		// the server settings). Absent or corrupt → the renderer fits.
 		let initialCamera: { k: number; x: number; y: number } | null = null;
 		try {
-			const stored = localStorage.getItem(CAMERA_STORAGE_KEY);
-			if (stored) {
-				const parsed = JSON.parse(stored) as { k?: unknown; x?: unknown; y?: unknown };
-				if (
-					typeof parsed.k === "number" && Number.isFinite(parsed.k) && parsed.k > 0 &&
-					typeof parsed.x === "number" && Number.isFinite(parsed.x) &&
-					typeof parsed.y === "number" && Number.isFinite(parsed.y)
-				)
-					initialCamera = { k: parsed.k, x: parsed.x, y: parsed.y };
-			}
+			initialCamera = restoreCamera(localStorage.getItem(CAMERA_STORAGE_KEY), canvas.clientWidth, canvas.clientHeight);
 		} catch {
-			// Corrupt entry → treat as absent; the renderer fits.
+			// Storage blocked → treat as absent; the renderer fits.
 		}
 		// Debounced camera writes: a pan emits hundreds of transforms per
 		// second; one trailing write per quiet spell is plenty.
 		let cameraTimer: ReturnType<typeof setTimeout> | null = null;
-		let lastCamera: { k: number; x: number; y: number } | null = null;
+		let lastCamera: { k: number; x: number; y: number; w: number; h: number } | null = null;
 		const persistCamera = (t: { k: number; x: number; y: number }) => {
-			lastCamera = t;
+			// With the canvas size, so a reopen at another size re-centres it.
+			const camera = { k: t.k, x: t.x, y: t.y, w: canvas.clientWidth, h: canvas.clientHeight };
+			lastCamera = camera;
 			if (cameraTimer) clearTimeout(cameraTimer);
 			cameraTimer = setTimeout(() => {
 				cameraTimer = null;
 				try {
-					localStorage.setItem(CAMERA_STORAGE_KEY, JSON.stringify(t));
+					localStorage.setItem(CAMERA_STORAGE_KEY, JSON.stringify(camera));
 				} catch {
 					// Storage full/blocked: camera persistence is best-effort.
 				}
