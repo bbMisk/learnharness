@@ -86,6 +86,14 @@ export function QuestionTypeChip({
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState("");
 	const triggerRef = useRef<HTMLButtonElement>(null);
+	// Esc or a pick hands focus back to the chip, once it is enabled again after a save.
+	const refocus = useRef(false);
+	useEffect(() => {
+		if (open || saving || !refocus.current) return;
+		refocus.current = false;
+		const active = document.activeElement;
+		if (!active || active === document.body) triggerRef.current?.focus();
+	}, [open, saving]);
 	const effective = effectiveQuestionType(stored, cram, agentTools);
 
 	// The app-wide mechanic: read on mount and on every Agent save. Only the
@@ -129,6 +137,7 @@ export function QuestionTypeChip({
 			if (e.key !== "Escape" || e.defaultPrevented) return;
 			e.preventDefault();
 			e.stopPropagation();
+			refocus.current = true;
 			setOpen(false);
 		};
 		document.addEventListener("pointerdown", onPointerDown);
@@ -155,6 +164,7 @@ export function QuestionTypeChip({
 			if (!response.ok) throw new Error();
 			const saved = ((await response.json().catch(() => null)) as { settings?: ChatSettings } | null)?.settings;
 			apply(sanitizeQuestionType(saved?.questionType) ?? next);
+			refocus.current = true;
 			setOpen(false);
 		} catch {
 			setError("Couldn't switch. Try again.");

@@ -15,9 +15,10 @@ import { parseHTML } from "linkedom";
 
 const dom = parseHTML("<!doctype html><html><body></body></html>");
 let active: Element = dom.document.body;
-Object.defineProperty(dom.document, "activeElement", { get: () => active });
+// As in a browser: a removed element loses focus, a disabled one can't take it.
+Object.defineProperty(dom.document, "activeElement", { get: () => (active.isConnected ? active : dom.document.body) });
 Object.assign(dom.window, { innerWidth: 1280, innerHeight: 900 });
-dom.window.HTMLElement.prototype.focus = function () { active = this; };
+dom.window.HTMLElement.prototype.focus = function () { if (!(this as HTMLButtonElement).disabled) active = this; };
 dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({ top: 20, bottom: 44, left: 900, right: 1000, width: 100, height: 24, x: 900, y: 20, toJSON() {} });
 Object.assign(globalThis, {
 	window: dom.window,
@@ -220,6 +221,25 @@ it("a pick saves only { questionType } through the chat settings API, updates at
 	assert.equal(chatCalls().length, 6);
 	assert.equal(api.settings.questionType, "mixed");
 	assertSameNode(menu(), null);
+});
+
+it("Esc or a saved pick hands focus back to the chip", async () => {
+	fakeApi({ model: MODEL });
+	await mount(<Harness initial="mcq" />);
+	await settle();
+	await click(chip());
+	await settle();
+	assertSameNode(document.activeElement, menu(), "the menu takes focus");
+	await act(async () => { document.dispatchEvent(Object.assign(new dom.window.Event("keydown", { bubbles: true, cancelable: true }), { key: "Escape" })); });
+	assertSameNode(menu(), null);
+	assertSameNode(document.activeElement, chip(), "Esc: back to the chip");
+	await click(chip());
+	await settle();
+	option("mixed").focus();
+	await click(option("mixed"));
+	await settle();
+	assertSameNode(menu(), null);
+	assertSameNode(document.activeElement, chip(), "a pick: back to the chip, once the save re-enables it");
 });
 
 it("a failed save changes nothing and says so", async () => {
