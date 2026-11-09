@@ -119,6 +119,38 @@ it("⌥↵ on the walked row opens its menu; a failed rename shows an error", as
 	assert.ok(menu(), "⌥↵ opens it too");
 });
 
+it("closing the walked row's menu hands focus back to the search; ⌘⇧F restarts the walk", async () => {
+	const focused: Element[] = [];
+	const realFocus = dom.window.HTMLElement.prototype.focus;
+	dom.window.HTMLElement.prototype.focus = function (this: Element) {
+		focused.push(this);
+	};
+	try {
+		const search = document.querySelector('[data-testid="session-search"]')!;
+		assert.ok(menu(), "the previous test left the menu open");
+		await key(document as unknown as Element, "Escape");
+		await settle();
+		assert.equal(menu(), null);
+		assert.equal(focused.at(-1), search, "Esc returns focus to the search");
+		await key(search, "ArrowDown");
+		await key(search, "F10", { shiftKey: true });
+		focused.length = 0;
+		await act(async () => (document.querySelector('[data-testid="ctx-archive"]')!.nextElementSibling as HTMLElement).click());
+		await settle();
+		assert.equal(focused.at(-1), search, "Pin returns focus to the search");
+		await key(search, "ArrowDown"); // the walk now sits on the first row; the next ↓ would leave it
+		await key(search, "ArrowDown");
+		await act(async () => void window.dispatchEvent(new CustomEvent("lh:kbd-sessions-search")));
+		await settle();
+		await key(search, "ArrowDown");
+		const walked = document.querySelector('[data-testid="session-row-kbd"]');
+		const first = document.querySelector('[data-testid="unassigned-chat-list"] button');
+		assert.equal(walked, first, "a new ⌘⇧F walk starts at the first row");
+	} finally {
+		dom.window.HTMLElement.prototype.focus = realFocus;
+	}
+});
+
 it("the delete dialog focuses Delete, so Enter confirms", () => {
 	const html = renderToStaticMarkup(
 		<DeleteSessionBody chat={{ id: "c1", title: "T" }} traces={false} busy={false} failure={null} onTraces={() => {}} onClose={() => {}} onRun={() => {}} />,

@@ -546,10 +546,21 @@ function SessionsSidebar() {
 	const [renamingId, setRenamingId] = useState<string | null>(null);
 	const [deleting, setDeleting] = useState<ChatListItem | null>(null);
 	const [renameError, setRenameError] = useState("");
+	// Where focus goes back once the menu, its rename or its Delete dialog
+	// closes: the search when the walk opened the menu, else the row. Only
+	// when focus was dropped (a click elsewhere keeps its own target).
+	const ctxReturnRef = useRef<HTMLElement | null>(null);
+	const returnFocus = useCallback(() => {
+		requestAnimationFrame(() => {
+			const el = ctxReturnRef.current;
+			if (el?.isConnected && (!document.activeElement || document.activeElement === document.body)) el.focus();
+		});
+	}, []);
 
 	const openContext = (e: React.MouseEvent<HTMLButtonElement>, chat: ChatListItem) => {
 		e.preventDefault(); // suppress the native menu
 		ctxAnchorRef.current = e.currentTarget;
+		ctxReturnRef.current = e.currentTarget;
 		setCtxChatId(chat.id);
 	};
 
@@ -569,6 +580,7 @@ function SessionsSidebar() {
 			if (e.key === "Escape") {
 				e.stopPropagation();
 				setCtxChatId(null);
+				returnFocus();
 			}
 		};
 		document.addEventListener("pointerdown", onPointerDown);
@@ -577,7 +589,7 @@ function SessionsSidebar() {
 			document.removeEventListener("pointerdown", onPointerDown);
 			document.removeEventListener("keydown", onKeyDown);
 		};
-	}, [ctxChatId]);
+	}, [ctxChatId, returnFocus]);
 
 	// Inline rename: the row swaps to a text input;
 	// commit rides the SAME plumbing as the header rename — PUT the title,
@@ -621,6 +633,7 @@ function SessionsSidebar() {
 	useEffect(() => {
 		const onFocusSearch = () => {
 			if (!open) toggle();
+			setKbdIndex(null); // each ⌘⇧F walk starts at the first row
 			// A clipped (overflow-hidden) input still focuses — the sidebar's
 			// slide-in doesn't gate the keystroke.
 			requestAnimationFrame(() => searchRef.current?.focus());
@@ -652,7 +665,7 @@ function SessionsSidebar() {
 	}, [open, pathname, refresh]);
 
 	const renderChat = (chat: ChatListItem, index?: number) => renamingId === chat.id ? (
-		<RenameRow key={chat.id} chat={chat} showTime={showTime} onCommit={next => void commitRename(chat.id, next)} onCancel={() => setRenamingId(null)} />
+		<RenameRow key={chat.id} chat={chat} showTime={showTime} onCommit={next => { void commitRename(chat.id, next); returnFocus(); }} onCancel={() => { setRenamingId(null); returnFocus(); }} />
 	) : (
 		<SessionRow key={chat.id} chat={chat} showTime={showTime} active={pathname === `/chat/${chat.id}`} kbdSelected={index !== undefined && index === kbdIndex}
 			onArchive={() => updateChat(chat.id, {archived:!chat.archived})}
@@ -776,6 +789,7 @@ function SessionsSidebar() {
 									if (!target || !row) return;
 									e.preventDefault();
 									ctxAnchorRef.current = row;
+									ctxReturnRef.current = e.currentTarget;
 									setCtxChatId(target.id);
 									return;
 								}
@@ -913,6 +927,7 @@ function SessionsSidebar() {
 							onClick={() => {
 								const chatId = ctxChatId;
 								setCtxChatId(null);
+								returnFocus();
 								const a = document.createElement("a");
 								a.href = `/api/chats/${chatId}/markdown`;
 								a.download = ""; // the route's filename wins
@@ -938,10 +953,10 @@ function SessionsSidebar() {
 						</button>
 						<div className="my-0.5 border-t border-border/60" aria-hidden="true" />
 
-                        <button data-testid="ctx-archive" className="rounded-lg px-2.5 py-1.5 text-left hover:bg-accent" onClick={() => { const chat = listed?.find(c => c.id === ctxChatId); if (chat) void updateChat(chat.id, { archived: !chat.archived }); setCtxChatId(null); }}>{listed?.find(c => c.id === ctxChatId)?.archived ? "Restore chat" : "Archive chat"}</button>
-                        <button className="rounded-lg px-2.5 py-1.5 text-left hover:bg-accent" onClick={()=>{const chat=listed?.find(c=>c.id===ctxChatId);if(chat)void updateChat(chat.id,{pinned:!chat.pinned});setCtxChatId(null);}}>{listed?.find(c=>c.id===ctxChatId)?.pinned?'Unpin chat':'Pin chat'}</button>
+                        <button data-testid="ctx-archive" className="rounded-lg px-2.5 py-1.5 text-left hover:bg-accent" onClick={() => { const chat = listed?.find(c => c.id === ctxChatId); if (chat) void updateChat(chat.id, { archived: !chat.archived }); setCtxChatId(null); returnFocus(); }}>{listed?.find(c => c.id === ctxChatId)?.archived ? "Restore chat" : "Archive chat"}</button>
+                        <button className="rounded-lg px-2.5 py-1.5 text-left hover:bg-accent" onClick={()=>{const chat=listed?.find(c=>c.id===ctxChatId);if(chat)void updateChat(chat.id,{pinned:!chat.pinned});setCtxChatId(null);returnFocus();}}>{listed?.find(c=>c.id===ctxChatId)?.pinned?'Unpin chat':'Pin chat'}</button>
                         <div className="my-1 border-t border-border/60"/><span className="px-2.5 pt-1 text-[11px] text-muted-foreground">Move to project</span>
-                        {[{id:'',name:'No project'},...projects].map(project=><button key={project.id} className="truncate rounded-lg px-2.5 py-1.5 text-left hover:bg-accent" onClick={()=>{void updateChat(ctxChatId,{projectId:project.id||null});setCtxChatId(null);}}>{project.name}</button>)}
+                        {[{id:'',name:'No project'},...projects].map(project=><button key={project.id} className="truncate rounded-lg px-2.5 py-1.5 text-left hover:bg-accent" onClick={()=>{void updateChat(ctxChatId,{projectId:project.id||null});setCtxChatId(null);returnFocus();}}>{project.name}</button>)}
 						<CoverageMenuBlock chatId={ctxChatId} />
 					</MenuShell>
 				)}
@@ -950,8 +965,14 @@ function SessionsSidebar() {
 				    by the component itself, lives here for state locality. */}
 				<DeleteSessionDialog
 					chat={deleting}
-					onClose={() => setDeleting(null)}
-					onDeleted={onDeleted}
+					onClose={() => {
+						setDeleting(null);
+						returnFocus();
+					}}
+					onDeleted={(...args) => {
+						onDeleted(...args);
+						returnFocus();
+					}}
 				/>
 			</aside>
 		</>
