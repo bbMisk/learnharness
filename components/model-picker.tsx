@@ -9,6 +9,7 @@ import { composeSlotModel } from "@/components/settings/agent-section";
 import { MenuShell } from "@/components/menu-shell";
 import { Hint } from "@/components/ui/hint";
 import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-signal";
+import { readSettings } from "@/components/settings-read";
 import { useNewestWins } from "@/components/newest-wins";
 import { useOptionalServerEvent, useOptionalServerResync } from "@/components/server-events";
 import { ChatGPTSpeedIndicator } from "@/components/settings/chatgpt-connection";
@@ -78,8 +79,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 		// A failed session read keeps the read-only posture (same as a
 		// models-section failure).
 		if (chatId) void refreshSession();
-		fetch("/api/settings")
-			.then((r) => { if (!r.ok) throw new Error(`settings read failed: ${r.status}`); return r.json() as Promise<{ settings: { models?: ModelsSettings } | null }>; })
+		readSettings()
 			.then((body) => { if (revision === recordRevision.current) setModels(body.settings?.models ?? undefined); })
 			.catch(() => {
 				/* the record fetch failing leaves the control read-only

@@ -5,6 +5,7 @@ import { CircleHelpIcon } from "lucide-react";
 import { MenuShell } from "@/components/menu-shell";
 import { Hint } from "@/components/ui/hint";
 import { useSettingsSaved } from "@/components/settings-signal";
+import { readSettings } from "@/components/settings-read";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import { useNewestWins, type NewestApply } from "@/components/newest-wins";
 import {
@@ -16,7 +17,6 @@ import {
 	type EnabledTools,
 	type Phase3,
 	type QuestionType,
-	type UserSettings,
 } from "@/src/core";
 
 /** One applier per read or save of the lesson's stored question type:
@@ -96,8 +96,7 @@ export function QuestionTypeChip({
 	const agentRead = useRef(0);
 	const readAgentTools = useCallback(() => {
 		const read = ++agentRead.current;
-		fetch("/api/settings")
-			.then((r) => (r.ok ? (r.json() as Promise<{ settings?: UserSettings | null }>) : Promise.reject()))
+		readSettings()
 			.then((body) => {
 				if (read === agentRead.current) setAgentTools(body.settings?.agent?.tools);
 			})

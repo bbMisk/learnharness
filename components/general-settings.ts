@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { GeneralSettings, UserSettings } from "@/src/core";
+import type { GeneralSettings } from "@/src/core";
 import { onSettingsSaved } from "@/components/settings-signal";
+import { readSettings } from "@/components/settings-read";
 import { useOptionalServerEvent, useOptionalServerResync } from "@/components/server-events";
 
 /** The saved General settings, shared by every reader in the page: fetched on
@@ -20,8 +21,7 @@ const readers = new Set<() => void>();
 
 function refresh(): Promise<void> {
 	const read = ++generation;
-	loaded = fetch("/api/settings")
-		.then((r) => (r.ok ? (r.json() as Promise<{ settings?: UserSettings | null }>) : Promise.reject()))
+	loaded = readSettings()
 		.then((body) => {
 			if (read === generation) general = body.settings?.general ?? {};
 		})
