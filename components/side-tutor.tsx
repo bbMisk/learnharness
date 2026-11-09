@@ -7,6 +7,7 @@ import { Conversation, ConversationContent } from "@/components/ai-elements/conv
 import { ResizableSidePanel } from "@/components/resizable-side-panel";
 import { TopBar } from "@/components/top-bar";
 import { sessionFindHasForegroundLayer } from "@/components/session-find";
+import { captureFocus, focusComposer } from "@/components/focus-return";
 import { Button } from "@/components/ui/button";
 import { useFileDrop } from "@/components/file-drop";
 import { FileDropFeedback } from "@/components/file-drop-feedback";
@@ -26,17 +27,17 @@ import {
  * and focus return to wherever the learner was before opening. */
 export function useSideTutor() {
 	const [sideTutor, setSideTutor] = useState<{ selectedText: string } | null>(null);
-	const sideReturnFocus = useRef<HTMLElement | null>(null);
+	const sideReturnFocus = useRef<ReturnType<typeof captureFocus>>(null);
 	const closeSideTutor = useCallback(() => {
 		setSideTutor(null);
-		requestAnimationFrame(() => sideReturnFocus.current?.focus({ preventScroll: true }));
+		requestAnimationFrame(() => { if (!sideReturnFocus.current?.(true)) focusComposer(); });
 	}, []);
 	const toggleSideTutor = useCallback(() => {
 		if (sideTutor) {
 			closeSideTutor();
 			return;
 		}
-		sideReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+		sideReturnFocus.current = captureFocus();
 		setSideTutor({ selectedText: window.getSelection()?.toString().slice(0, 8000) ?? "" });
 	}, [sideTutor, closeSideTutor]);
 	useEffect(() => {

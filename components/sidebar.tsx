@@ -9,6 +9,7 @@ import Link from "next/link";
 import { flushSync } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
+import { captureFocus, focusComposer } from "@/components/focus-return";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode } from "@/src/core";
 import { ArchiveIcon, ArchiveRestoreIcon, CheckIcon, DumbbellIcon, LayersIcon, PinIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
@@ -676,8 +677,14 @@ function SessionsSidebar() {
 		[pathname, router],
 	);
 
+	// Esc out of a ⌘⇧F search hands focus back to where the shortcut found it.
+	const searchReturn = useRef<(() => void) | null>(null);
 	useEffect(() => {
 		const onFocusSearch = () => {
+			if (document.activeElement !== searchRef.current) {
+				const restore = captureFocus();
+				searchReturn.current = () => { if (!restore?.(true)) focusComposer(); };
+			}
 			// Commit the open now: an inert (closed) aside refuses focus.
 			if (!open) flushSync(toggle);
 			setKbdIndex(null); // each ⌘⇧F walk starts at the first row
@@ -844,7 +851,12 @@ function SessionsSidebar() {
 									if (query) {
 										setQuery("");
 										setKbdIndex(null);
-									} else e.currentTarget.blur();
+									} else {
+										// The phone drawer keeps its ladder: blur, then close.
+										const back = isPhone() ? null : searchReturn.current;
+										e.currentTarget.blur();
+										back?.();
+									}
 									return;
 								}
 								// The walked row's context menu (rename, pin, delete…):
@@ -882,6 +894,7 @@ function SessionsSidebar() {
 									e.currentTarget.blur();
 								}
 							}}
+							onBlur={() => { searchReturn.current = null; }}
 							placeholder="Search…"
 							aria-label="Search chats"
 							className="h-6 rounded-sm border-border bg-background pl-6 text-xs placeholder:text-muted-foreground/60"

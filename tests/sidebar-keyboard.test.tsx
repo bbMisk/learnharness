@@ -345,3 +345,27 @@ it("Esc in the search clears the query first, then leaves the search", async () 
 		dom.window.HTMLElement.prototype.blur = realBlur;
 	}
 });
+
+it("Esc out of a ⌘⇧F search hands focus back to the field it came from", async () => {
+	const field = document.createElement("input");
+	document.body.append(field);
+	let active: Element = field;
+	const proto = dom.window.HTMLElement.prototype;
+	const { focus: realFocus, blur: realBlur } = proto;
+	Object.defineProperty(document, "activeElement", { get: () => active, configurable: true });
+	proto.focus = function (this: Element) { active = this; };
+	proto.blur = function (this: Element) { if (active === this) active = document.body; };
+	try {
+		await act(async () => void window.dispatchEvent(new CustomEvent("lh:kbd-sessions-search")));
+		await settle();
+		const search = document.querySelector('[data-testid="session-search"]')!;
+		assert.ok(active === search, "⌘⇧F focused the search");
+		await key(search, "Escape");
+		assert.ok(active === field, "Esc went back to the field, not the body");
+	} finally {
+		proto.focus = realFocus;
+		proto.blur = realBlur;
+		delete (document as { activeElement?: unknown }).activeElement;
+		field.remove();
+	}
+});

@@ -6,6 +6,7 @@ import { kbdEventForAction, stepSessionMatch } from "@/src/core";
 import {
 	affectsSessionFind, sameSessionRange, sessionFindIndex, sessionFindRanges, sessionRangeIdentity, type SessionFindIndex, type SessionRangeIdentity,
 } from "@/components/session-find-dom";
+import { captureFocus, focusComposer } from "@/components/focus-return";
 import { scrollSessionTarget, type SessionScrollContext } from "@/components/session-navigation";
 
 export const SESSION_FIND_HIGHLIGHT = "lh-session-find";
@@ -71,7 +72,7 @@ export function SessionFind({ scopeRef, scrollContextRef }: {
 	const [result, setResult] = useState({ index: -1, count: 0 });
 	useEffect(injectFindStyles, []);
 	const inputRef = useRef<HTMLInputElement | null>(null);
-	const previousFocus = useRef<HTMLElement | null>(null);
+	const returnFocus = useRef<ReturnType<typeof captureFocus>>(null);
 	const rangesRef = useRef<Range[]>([]);
 	const indexRef = useRef(-1);
 	const identityRef = useRef<SessionRangeIdentity | null>(null);
@@ -84,13 +85,13 @@ export function SessionFind({ scopeRef, scrollContextRef }: {
 	const close = useCallback(() => {
 		clearSessionFindHighlights();
 		setOpen(false);
-		if (previousFocus.current?.isConnected) previousFocus.current.focus({ preventScroll: true });
+		if (!returnFocus.current?.(true)) focusComposer();
 	}, []);
 
 	useEffect(() => {
 		const onFind = () => {
 			if (sessionFindHasForegroundLayer(document)) return;
-			if (!open) previousFocus.current = document.activeElement as HTMLElement | null;
+			if (!open) returnFocus.current = captureFocus();
 			setOpen(true);
 			// A second Mod+F focuses/selects the retained query, not a second bar.
 			if (open) { inputRef.current?.focus({ preventScroll: true }); inputRef.current?.select(); }

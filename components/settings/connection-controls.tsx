@@ -2,6 +2,7 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
+import { captureFocus } from "@/components/focus-return";
 import { Button } from "@/components/ui/button";
 
 export function ConnectionRow({ label, action, actionVariant, disabled, onAction, children, testid, actionTestid, labelClassName }: { label: string; action: string; actionVariant?: "outline" | "ghost"; disabled: boolean; onAction: () => void; children?: React.ReactNode; testid?: string; actionTestid?: string; labelClassName?: string }) {
@@ -26,7 +27,7 @@ export function ConnectionDialog({ children, onClose, busy, label, testid, backd
 	busyRef.current = busy;
 	const backdropDismiss = useBackdropDismiss(() => { if (!busy) onClose(); });
 	useEffect(() => {
-		const previous = document.activeElement as HTMLElement | null;
+		const previous = captureFocus();
 		const focusable = () => [...(ref.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled])') ?? [])];
 		focusable()[0]?.focus();
 		const key = (event: KeyboardEvent) => {
@@ -39,7 +40,7 @@ export function ConnectionDialog({ children, onClose, busy, label, testid, backd
 			}
 		};
 		document.addEventListener("keydown", key, true);
-		return () => { document.removeEventListener("keydown", key, true); if (previous?.isConnected) previous.focus(); };
+		return () => { document.removeEventListener("keydown", key, true); previous?.(false); };
 	}, []);
 	return createPortal(<div className="fixed inset-0 z-[60] flex items-center justify-center bg-background/80" data-testid={backdropTestid} {...backdropDismiss}>
 		<div ref={ref} role="dialog" aria-modal="true" data-lh-modal aria-label={label} aria-busy={busy} data-testid={testid} onClick={(event) => event.stopPropagation()} className="settings-dialog-pop mx-4 max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-md border border-border bg-card p-5 shadow-xl">{children}</div>

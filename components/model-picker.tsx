@@ -7,6 +7,7 @@ import { prettyModel } from "@/components/usage-format";
 import { ModelMenuList, ThinkingMenuList } from "@/components/settings/model-menu";
 import { composeSlotModel } from "@/components/settings/agent-section";
 import { MenuShell } from "@/components/menu-shell";
+import { captureFocus, focusComposer } from "@/components/focus-return";
 import { Hint } from "@/components/ui/hint";
 import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-signal";
 import { readChatSettings, readSettings } from "@/components/settings-read";
@@ -149,6 +150,19 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 	// out via [data-lh-menu] (the settings sections' discipline; without
 	// it a row's pointerdown counts as outside and eats the pick —
 	// live-caught in the fix wave, broken since the MenuShell migration).
+	// A menu that closes with its focus (Esc, a pick) hands it back to where
+	// the pill click or ⌘K found it, caret included.
+	const returnFocus = useRef<ReturnType<typeof captureFocus>>(null);
+	const captureReturn = useCallback(() => {
+		if (!document.activeElement?.closest("[data-lh-menu]")) returnFocus.current = captureFocus();
+	}, []);
+	useEffect(() => {
+		if (open === null) return;
+		return () => {
+			const at = document.activeElement;
+			if ((!at || at === document.body) && !returnFocus.current?.(true)) focusComposer();
+		};
+	}, [open]);
 	useEffect(() => {
 		if (open === null) return;
 		const onPointerDown = (e: PointerEvent) => {
@@ -275,13 +289,14 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 	// tab-focus. Both work from any focus, including mid-typing.
 	useEffect(() => {
 		const onOpenPicker = () => {
+			captureReturn();
 			setOpen("model");
 			setError(null);
 			refresh(); // mid-session key changes widen the menu (cache fix)
 		};
 		window.addEventListener("lh:kbd-open-model-picker", onOpenPicker);
 		return () => window.removeEventListener("lh:kbd-open-model-picker", onOpenPicker);
-	}, [refresh]);
+	}, [refresh, captureReturn]);
 
 	useEffect(() => {
 		const onCycleThinking = () => {
@@ -315,6 +330,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 	// path above): the cached list shows instantly, the fresh federation
 	// swaps in when it lands.
 	const openMenu = (kind: "model" | "thinking") => {
+		captureReturn();
 		setOpen((o) => (o === kind ? null : kind));
 		setError(null);
 		if (kind === "model") refresh();
