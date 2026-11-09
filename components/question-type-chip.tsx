@@ -5,7 +5,7 @@ import { CircleHelpIcon } from "lucide-react";
 import { MenuShell } from "@/components/menu-shell";
 import { Hint } from "@/components/ui/hint";
 import { useSettingsSaved } from "@/components/settings-signal";
-import { readSettings } from "@/components/settings-read";
+import { readChatSettings, readSettings } from "@/components/settings-read";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import { useNewestWins, type NewestApply } from "@/components/newest-wins";
 import {
@@ -33,9 +33,7 @@ export type QuestionTypeApply = NewestApply<QuestionType | undefined>;
  *  while disconnected). */
 export function useLessonQuestionType(chatId: string, initial: QuestionType | undefined) {
 	const read = useCallback(async () => {
-		const r = await fetch(`/api/chats/${chatId}/settings`, { cache: "no-store" });
-		if (!r.ok) throw new Error(`settings read failed: ${r.status}`);
-		return sanitizeQuestionType(((await r.json()) as { settings?: ChatSettings }).settings?.questionType);
+		return sanitizeQuestionType((await readChatSettings(chatId)).settings?.questionType);
 	}, [chatId]);
 	// A failed read keeps the last confirmed value; the next event or
 	// reconnect retries (a save's reconcile retries on its own).

@@ -1,6 +1,6 @@
 "use client";
 
-import type { UserSettings } from "@/src/core";
+import type { ChatSettings, UserSettings } from "@/src/core";
 
 export type SettingsBody = { settings?: UserSettings | null };
 
@@ -20,5 +20,20 @@ export function readSettings(): Promise<SettingsBody> {
 	queueMicrotask(() => {
 		shared = null;
 	});
+	return read;
+}
+
+const sharedChat = new Map<string, Promise<{ settings?: ChatSettings }>>();
+
+/** GET /api/chats/:id/settings, shared the same way: the model pills and
+ *  the question-type chip mount together and each read it. */
+export function readChatSettings(chatId: string): Promise<{ settings?: ChatSettings }> {
+	const pending = sharedChat.get(chatId);
+	if (pending) return pending;
+	const read = fetch(`/api/chats/${chatId}/settings`, { cache: "no-store" }).then((r) =>
+		r.ok ? (r.json() as Promise<{ settings?: ChatSettings }>) : Promise.reject(new Error(`settings read failed: ${r.status}`)),
+	);
+	sharedChat.set(chatId, read);
+	queueMicrotask(() => sharedChat.delete(chatId));
 	return read;
 }

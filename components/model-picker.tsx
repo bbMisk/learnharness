@@ -9,7 +9,7 @@ import { composeSlotModel } from "@/components/settings/agent-section";
 import { MenuShell } from "@/components/menu-shell";
 import { Hint } from "@/components/ui/hint";
 import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-signal";
-import { readSettings } from "@/components/settings-read";
+import { readChatSettings, readSettings } from "@/components/settings-read";
 import { useNewestWins } from "@/components/newest-wins";
 import { useOptionalServerEvent, useOptionalServerResync } from "@/components/server-events";
 import { ChatGPTSpeedIndicator } from "@/components/settings/chatgpt-connection";
@@ -50,9 +50,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 	// other windows' writes: newest-wins (components/newest-wins.ts), with a
 	// reconcile read after every confirmed save.
 	const readSession = useCallback(async (): Promise<{ settings?: ChatSettings }> => {
-		const r = await fetch(`/api/chats/${chatId}/settings`);
-		if (!r.ok) throw new Error(`session read failed: ${r.status}`);
-		return { settings: ((await r.json()) as { settings?: ChatSettings }).settings };
+		return { settings: (await readChatSettings(chatId!)).settings };
 	}, [chatId]);
 	const { value: session, refresh: refreshSession, beginSave: beginSessionSave } =
 		useNewestWins<{ settings?: ChatSettings } | undefined>(undefined, readSession);
