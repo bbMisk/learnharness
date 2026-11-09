@@ -401,7 +401,7 @@ export function SessionRow({
 			{/* The dumbbell rides the FAR RIGHT, keeping titles flush with the
 			    teaching rows. */}
 			{(chat.kind ?? "teach") === "practice" && (
-				<DumbbellIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-label="Practice session" />
+				<DumbbellIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-label="Practice chat" />
 			)}
 		</button>
 		{onArchive && <Hint label={archiveLabel} side="right">

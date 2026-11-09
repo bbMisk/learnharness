@@ -180,7 +180,7 @@ export function SessionFind({ scopeRef, scrollContextRef }: {
 	return (
 		<div
 			role="search"
-			aria-label="Session Find"
+			aria-label="Find in chat"
 			data-testid="session-find"
 			className="lh-no-drag flex h-10 shrink-0 items-center gap-2 border-b border-border px-6 font-ui text-sm"
 			onKeyDown={(event) => {
@@ -199,8 +199,8 @@ export function SessionFind({ scopeRef, scrollContextRef }: {
 			<SearchIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
 			<input
 				ref={inputRef}
-				aria-label="Find in session"
-				placeholder="Find in session…"
+				aria-label="Find in chat"
+				placeholder="Find in chat…"
 				value={query}
 				onChange={(event) => setQuery(event.target.value)}
 				spellCheck={false}

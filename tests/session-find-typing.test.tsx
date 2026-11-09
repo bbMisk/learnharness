@@ -51,6 +51,7 @@ it("a keystroke reads no computed styles; a session change rebuilds the index", 
 		await act(async () => root.render(<SessionFind scopeRef={{ current: scope }} scrollContextRef={{ current: null }} />));
 		await act(async () => { dom.window.dispatchEvent(new dom.window.Event(kbdEventForAction("find"))); });
 		const input = dom.document.querySelector("input") as unknown as HTMLInputElement;
+		assert.equal(input.getAttribute("placeholder"), "Find in chat…");
 		const type = async (value: string) => {
 			Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input, value);
 			await act(async () => { input.dispatchEvent(new dom.window.Event("input", { bubbles: true })); });

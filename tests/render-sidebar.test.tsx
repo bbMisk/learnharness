@@ -147,12 +147,12 @@ describe("SessionRow practice badge (practice sessions, 2026-10-04)", () => {
 		const html = render(item({ kind: "practice", busy: true }));
 		assert.match(html, /Working…/);
 		assert.doesNotMatch(html, /Practicing…/);
-		assert.match(html, /aria-label="Practice session"/);
+		assert.match(html, /aria-label="Practice chat"/);
 	});
 
 	it("a teaching row carries neither", () => {
 		const html = render(item({}));
-		assert.doesNotMatch(html, /Practice session/);
+		assert.doesNotMatch(html, /Practice chat/);
 		assert.doesNotMatch(html, /Practicing…/);
 	});
 
