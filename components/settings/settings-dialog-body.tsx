@@ -67,10 +67,12 @@ export function SettingsDialog({
 	initialRow: string | null;
 }) {
 	const backdropDismiss = useBackdropDismiss(onClose);
-	// Closing hands focus back to whatever held it on open (the Settings button).
+	// Closing hands focus back to whatever held it on open (the Settings button),
+	// or to the page's composer when nothing did (the /settings deep link).
 	const [opener] = useState(() => document.activeElement as HTMLElement | null);
 	useEffect(() => () => {
 		if (opener && opener !== document.body && opener.isConnected && typeof opener.focus === "function") opener.focus();
+		else document.querySelector<HTMLElement>('[data-testid="composer"] [data-file-path-input], [data-file-path-default]')?.focus();
 	}, [opener]);
 	// Plain dim backdrop (no blur — nothing decorative); a genuine
 	// backdrop click closes, the dialog body stops propagation.

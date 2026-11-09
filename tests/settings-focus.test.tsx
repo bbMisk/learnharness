@@ -56,6 +56,18 @@ describe("Settings keyboard focus", () => {
 		opener.remove();
 	});
 
+	it("closing Settings with no opener (the /settings deep link) focuses the composer", async () => {
+		globalThis.fetch = (async () => Response.json({ settings: null })) as typeof fetch;
+		await render(<AppearanceProvider><SettingsDialog onClose={() => {}} initialSection="general" initialRow={null} /></AppearanceProvider>);
+		const composer = document.createElement("form");
+		composer.setAttribute("data-testid", "composer");
+		composer.innerHTML = '<div role="textbox" data-file-path-input=""></div>';
+		document.body.append(composer);
+		await act(async () => { root!.render(<AppearanceProvider>{null}</AppearanceProvider>); });
+		assert.ok(focused === composer.firstElementChild, "focus went to the composer");
+		composer.remove();
+	});
+
 	it("Enter commits a field without dropping its focus", async () => {
 		const commits: string[] = [];
 		await render(<CommitInput value="20" ariaLabel="limit" testid="input" onCommit={(v) => { commits.push(v); }} />);
