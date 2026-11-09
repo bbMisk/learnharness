@@ -110,3 +110,19 @@ test("Setup keeps the typed URL and model ids when it closes unconnected; Settin
 	await mount();
 	assert.equal((element("custom-baseurl-input") as HTMLInputElement).value, "http://fixture.invalid/v1");
 });
+test("Setup reopens on the Custom editor while it keeps typed values", async () => {
+	Object.assign(globalThis, { requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0), cancelAnimationFrame: (id: number) => clearTimeout(id) });
+	const { SetupDialog } = await import("../components/setup-dialog.tsx");
+	await mount(true);
+	await type("custom-baseurl-input", "ftp://kept");
+	await act(async () => root!.unmount()); host!.remove();
+	const get = globalThis.fetch;
+	globalThis.fetch = (async (input, init) => String(input).startsWith("/api/models")
+		? Response.json({ providers: [], models: [], slots: { strong: null, cheap: null, vision: null } })
+		: get(input, init)) as typeof fetch;
+	host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
+	await act(async () => root!.render(<SetupDialog open onClose={() => {}} onDone={() => assert.fail("unexpected save")} />));
+	await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+	assert.equal(element("setup-key-provider").textContent?.replace("▾", "").trim(), "Custom endpoint");
+	assert.equal((element("custom-baseurl-input") as HTMLInputElement).value, "ftp://kept");
+});
