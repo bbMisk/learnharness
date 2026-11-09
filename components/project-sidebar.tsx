@@ -35,6 +35,8 @@ export function ProjectSidebar({
 	// The list is capped at 40vh: when more rows sit below the fold, its
 	// bottom edge fades out, so a clipped list reads as scrollable.
 	const listRef = useRef<HTMLElement>(null);
+	const addRef = useRef<HTMLButtonElement>(null);
+	const created = useRef(false);
 	const [more, setMore] = useState(false);
 	useEffect(() => {
 		const el = listRef.current;
@@ -62,6 +64,7 @@ export function ProjectSidebar({
 			});
 			const body = await r.json();
 			if (!r.ok) throw new Error(body.error);
+			created.current = true;
 			setOpen(false);
 			setName("");
 			refresh();
@@ -78,8 +81,12 @@ export function ProjectSidebar({
 				<span className="uppercase tracking-widest text-muted-foreground/70">Projects</span>
 				<button
 					type="button"
+					ref={addRef}
 					aria-label="Add project"
-					onClick={() => setOpen(true)}
+					onClick={() => {
+						created.current = false;
+						setOpen(true);
+					}}
 					className="flex size-6 items-center justify-center rounded hover:bg-accent"
 				>
 					<PlusIcon className="size-3.5" />
@@ -114,6 +121,12 @@ export function ProjectSidebar({
 					<Dialog.Content
 						data-lh-modal
 						aria-describedby={undefined}
+						// No Dialog.Trigger: a dismissal hands focus back to the + button
+						// (a created project navigates away instead).
+						onCloseAutoFocus={(e) => {
+							e.preventDefault();
+							if (!created.current) addRef.current?.focus();
+						}}
 						className="fixed left-1/2 top-1/2 z-50 w-[min(90vw,420px)] -translate-x-1/2 -translate-y-1/2 space-y-4 rounded-2xl border bg-card p-6 shadow-xl"
 					>
 						<Dialog.Title className="text-sm font-semibold">New project</Dialog.Title>

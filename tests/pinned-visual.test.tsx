@@ -361,3 +361,132 @@ describe("an expanded demo is a modal", () => {
 		assert.equal(latest!.context.expanded, false, "shrunk");
 	});
 });
+
+describe("an Esc inside a pinned demo", () => {
+	// The demo's bridge posts {type:"demo-escape"}; the page replays it on the
+	// iframe, so the page's Esc layers (Find, the tutor, the drawer, the
+	// question) see it as their own, in every mode.
+	(globalThis as Record<string, unknown>).KeyboardEvent ??= class extends dom.window.Event {
+		key: string;
+		constructor(type: string, init: { key?: string; bubbles?: boolean; cancelable?: boolean } = {}) {
+			super(type, init);
+			this.key = init.key ?? "";
+		}
+	};
+	async function mount(areaWidth: number) {
+		const host = document.createElement("div");
+		document.body.appendChild(host);
+		root = createRoot(host);
+		const area = document.createElement("div");
+		(area as unknown as { getBoundingClientRect: () => object }).getBoundingClientRect = () => ({ left: 0, top: 0, width: areaWidth, height: 800 });
+		const view = projectView(record.slice(0, 5));
+		const pins: { latest: ReturnType<typeof usePinnedVisual> | null } = { latest: null };
+		function Harness() {
+			pins.latest = usePinnedVisual({ messages: view, tutorPin: { callId: "p1", jobId: "job_a" }, areaRef: { current: area }, bottomReserve: 0, getScroller: () => null });
+			return null;
+		}
+		await act(async () => root!.render(<Harness />));
+		// The pinned card's iframe (its window is the message's source).
+		const slot = document.createElement("div");
+		slot.setAttribute("data-testid", "pin-slot");
+		slot.setAttribute("data-pinned", "");
+		const iframe = document.createElement("iframe");
+		const demoWindow = {};
+		Object.defineProperty(iframe, "contentWindow", { value: demoWindow });
+		const panel = document.createElement("div");
+		panel.setAttribute("data-testid", "pin-panel");
+		panel.setAttribute("data-lh-modal", ""); // as while expanded
+		panel.appendChild(iframe);
+		slot.appendChild(panel);
+		host.appendChild(slot);
+		const fromDemo = (source: object = demoWindow) =>
+			act(async () => { window.dispatchEvent(Object.assign(new dom.window.Event("message"), { data: { type: "demo-escape" }, source })); });
+		return { pins, iframe, fromDemo, done: () => slot.remove() };
+	}
+	function heard() {
+		const seen: EventTarget[] = [];
+		const onKey = (e: Event) => { if ((e as KeyboardEvent).key === "Escape" && !e.defaultPrevented) seen.push(e.target!); };
+		window.addEventListener("keydown", onKey);
+		return { seen, stop: () => window.removeEventListener("keydown", onKey) };
+	}
+
+	it("expanded: the first shrinks it; after the shrink, the next still reaches the page", async () => {
+		const { pins, iframe, fromDemo, done } = await mount(1400);
+		const page = heard();
+		try {
+			await act(async () => pins.latest!.context.setExpanded(true));
+			await fromDemo();
+			assert.equal(pins.latest!.context.expanded, false, "shrunk");
+			assert.equal(page.seen.length, 0, "the shrink took it");
+			await fromDemo();
+			assert.equal(page.seen.length, 1, "the next is the page's");
+			assert.ok(page.seen[0] === iframe, "from the demo's iframe");
+		} finally { page.stop(); done(); }
+	});
+
+	it("in the drawer, it reaches the page's layers (which close the drawer); another window's message does nothing", async () => {
+		const { pins, fromDemo, done } = await mount(1000);
+		const page = heard();
+		try {
+			await act(async () => pins.latest!.toggleDrawer());
+			assert.deepEqual(pins.latest!.escState, { pinExpanded: false, drawer: "open" });
+			await fromDemo({});
+			assert.equal(page.seen.length, 0, "not from the pinned demo");
+			await fromDemo();
+			assert.equal(page.seen.length, 1);
+		} finally { page.stop(); done(); }
+	});
+});
+
+describe("the drawer over a tall check", () => {
+	it("keeps a usable height, and its tab hangs at the drawer's top, not mid-area over the check", async () => {
+		const host = document.createElement("div");
+		document.body.appendChild(host);
+		root = createRoot(host);
+		const area = document.createElement("div");
+		(area as unknown as { getBoundingClientRect: () => object }).getBoundingClientRect = () => ({ left: 0, top: 60, width: 1000, height: 740 });
+		const view = projectView(record.slice(0, 5));
+		let latest: ReturnType<typeof usePinnedVisual> | null = null;
+		function Harness() {
+			latest = usePinnedVisual({ messages: view, tutorPin: { callId: "p1", jobId: "job_a" }, areaRef: { current: area }, bottomReserve: 700, getScroller: () => null });
+			return <>{latest.drawerTab}</>;
+		}
+		await act(async () => root!.render(<Harness />));
+		assert.equal(latest!.escState.drawer, "closed");
+		assert.equal(latest!.context.frame?.maxHeight, 420, "not squeezed to a sliver above the check");
+		const tab = host.querySelector('[data-testid="pin-tab"]')!;
+		assert.match(tab.getAttribute("class") ?? "", /\btop-3\b/);
+		assert.doesNotMatch(tab.getAttribute("class") ?? "", /top-\[40%\]/);
+	});
+
+	it("closing it with focus inside the demo hands focus to the typing field", async () => {
+		const host = document.createElement("div");
+		document.body.appendChild(host);
+		root = createRoot(host);
+		const area = document.createElement("div");
+		(area as unknown as { getBoundingClientRect: () => object }).getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 800 });
+		const view = projectView(record.slice(0, 5));
+		let latest: ReturnType<typeof usePinnedVisual> | null = null;
+		function Harness() {
+			latest = usePinnedVisual({ messages: view, tutorPin: { callId: "p1", jobId: "job_a" }, areaRef: { current: area }, bottomReserve: 0, getScroller: () => null });
+			return <div data-testid="pin-slot" data-pinned=""><iframe /></div>;
+		}
+		await act(async () => root!.render(<><Harness /><div data-testid="composer"><textarea data-file-path-input="" /></div></>));
+		const composer = host.querySelector("textarea")!;
+		let focused: Element = host.querySelector("iframe")!;
+		Object.defineProperty(document, "activeElement", { configurable: true, get: () => focused });
+		const proto = dom.window.HTMLElement.prototype as unknown as { focus: (this: Element) => void };
+		const realFocus = proto.focus;
+		proto.focus = function () { focused = this; };
+		try {
+			await act(async () => latest!.toggleDrawer());
+			assert.equal(latest!.escState.drawer, "open");
+			await act(async () => latest!.toggleDrawer());
+			assert.equal(latest!.escState.drawer, "closed");
+			assert.ok(focused === composer, "the typing field");
+		} finally {
+			proto.focus = realFocus;
+			delete (document as unknown as { activeElement?: unknown }).activeElement;
+		}
+	});
+});

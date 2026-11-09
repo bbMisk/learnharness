@@ -91,7 +91,8 @@ export function InlineRename({
 				const capped = capName(event.currentTarget.value);
 				if (capped !== event.currentTarget.value) event.currentTarget.value = capped;
 			}}
-			disabled={saving}
+			// Not disabled: a disabled field blurs, and the blur would save again.
+			readOnly={saving}
 			onKeyDown={(event) => {
 				if (event.key === "Enter" && !isComposing(event)) {
 					event.preventDefault();

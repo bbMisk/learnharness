@@ -243,6 +243,20 @@ it("Move to project marks where the chat is now", async () => {
 	await key(document as unknown as Element, "Escape");
 });
 
+it("moving a chat to the project it is already in saves nothing", async () => {
+	const search = document.querySelector('[data-testid="session-search"]')!;
+	await act(async () => void window.dispatchEvent(new CustomEvent("lh:kbd-sessions-search")));
+	await settle();
+	await key(search, "ArrowDown");
+	await key(search, "F10", { shiftKey: true });
+	const before = puts.length;
+	const noProject = [...menu()!.querySelectorAll("button")].find((b) => b.textContent === "No project")!;
+	await act(async () => noProject.click());
+	await settle();
+	assertSameNode(menu(), null, "the menu closes");
+	assert.equal(puts.length, before, "no PUT");
+});
+
 it("a menu opened from the keyboard focuses its first item, so Enter acts", async () => {
 	const focused: Element[] = [];
 	const realFocus = dom.window.HTMLElement.prototype.focus;

@@ -96,6 +96,22 @@ it("a failed save keeps the field open with the typed name", async () => {
 	assert.equal(done, 1, "Escape still cancels");
 });
 
+it("saving locks the field without disabling it: a disabled field blurs, and the blur saved again", async () => {
+	let reject: (e: Error) => void = () => {};
+	let commits = 0;
+	const field = () => host!.querySelector("input") as HTMLInputElement;
+	await render(<InlineRename value="Quant" ariaLabel="Name" onCommit={() => { commits++; return new Promise((_, r) => { reject = r; }); }} onDone={() => {}} />);
+	await type(field(), "Geometry");
+	await key(field(), "Enter");
+	// linkedom keeps React's attribute spelling (readOnly).
+	const locked = () => field().hasAttribute("readOnly") || field().hasAttribute("readonly");
+	assert.equal(field().hasAttribute("disabled"), false, "not disabled while saving");
+	assert.equal(locked(), true, "locked while saving");
+	await act(async () => reject(new TypeError("Failed to fetch")));
+	assert.equal(locked(), false, "editable again");
+	assert.equal(commits, 1);
+});
+
 it("renameProject sends the expected name and reports the server's error", async () => {
 	const sent: unknown[] = [];
 	globalThis.fetch = (async (_url: string, init: RequestInit) => {
@@ -209,6 +225,32 @@ it("the New project dialog reopens empty after a rejected name is closed", async
 	await act(async () => add.click());
 	assert.equal(field()!.value, "", "the rejected name is gone");
 	assert.doesNotMatch(document.body.textContent ?? "", /already exists/);
+});
+
+it("closing the New project dialog hands focus back to the + button", async () => {
+	Object.assign(globalThis, { NodeFilter: dom.window.NodeFilter ?? { SHOW_ELEMENT: 1, FILTER_ACCEPT: 1, FILTER_SKIP: 3 } });
+	(globalThis as Record<string, unknown>).MutationObserver ??= class { observe() {} disconnect() {} takeRecords() { return []; } };
+	const proto = dom.window.HTMLElement.prototype as unknown as { focus: (this: Element) => void };
+	const realFocus = proto.focus;
+	let focused: Element | null = null;
+	proto.focus = function () { focused = this; };
+	try {
+		await render(
+			<AppRouterContext.Provider value={router as never}>
+				<PathnameContext.Provider value="/">
+					<ProjectSidebar projects={[]} chats={[]} refresh={() => {}} moveChat={() => {}} renderChat={() => null} showChats />
+				</PathnameContext.Provider>
+			</AppRouterContext.Provider>,
+		);
+		const add = host!.querySelector('[aria-label="Add project"]') as HTMLButtonElement;
+		await act(async () => add.click());
+		await act(async () => (document.querySelector('[aria-label="Close new project"]') as HTMLButtonElement).click());
+		await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+		assertSameNode(document.querySelector('input[aria-label="Project name"]'), null, "closed");
+		assert.ok(focused === add, "focus is on the + button");
+	} finally {
+		proto.focus = realFocus;
+	}
 });
 
 const family = "👨‍👩‍👧‍👦"; // 11 UTF-16 units; maxLength={200} kept 18 families and a lone 👨

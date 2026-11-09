@@ -15,6 +15,7 @@ import {
 } from "react";
 import { Maximize2Icon, Minimize2Icon, PinIcon, PinOffIcon } from "lucide-react";
 import { useResizableWidth } from "@/components/resizable-side-panel";
+import { focusComposer } from "@/components/focus-return";
 import { pinnedJobId, pinTargetOf, type LhViewMessage, type ManualPin, type PinTarget, type TutorPin } from "@/src/core";
 
 /**
@@ -43,6 +44,8 @@ export const DEMO_MIN_LAYOUT = 520;
 const GAP = 12;
 /** The panel's padding (p-3), subtracted from its client width. */
 const PANEL_PAD = 24;
+/** The drawer's least height: over a tall check it overlaps the check while open. */
+const DRAWER_MIN_H = 420;
 
 export type PinMode = "dock" | "drawer";
 
@@ -222,10 +225,14 @@ export function usePinnedVisual({
 			left: area.left + area.width - drawerWidth - GAP,
 			top: area.top + GAP,
 			width: drawerWidth,
-			maxHeight: Math.max(area.height - 2 * GAP - bottomReserve, 120),
+			maxHeight: Math.max(area.height - 2 * GAP - bottomReserve, Math.min(DRAWER_MIN_H, area.height - 2 * GAP)),
 		};
 	}
 	const hidden = shown && mode === "drawer" && !open && !showExpanded;
+	// A drawer closed by an Esc from inside its demo leaves no focus in the hidden card.
+	useEffect(() => {
+		if (hidden && document.activeElement?.closest('[data-testid="pin-slot"][data-pinned]')) focusComposer();
+	}, [hidden]);
 
 	// Keep the reading position when the dock opens, closes or resizes (the
 	// chat rewraps): the anchor is read during render, while the DOM still
@@ -274,8 +281,7 @@ export function usePinnedVisual({
 	const toggleDrawer = useCallback(() => setOpen((o) => !o), []);
 	const closeExpanded = useCallback(() => setExpanded(false), []);
 	// The expanded demo is a modal (data-lh-modal), so the global Esc chain
-	// is gated: it claims its own Esc at the document level. An Esc inside
-	// the demo arrives through its bridge.
+	// is gated: it claims its own Esc at the document level.
 	useEffect(() => {
 		if (!showExpanded) return;
 		const onKey = (e: KeyboardEvent) => {
@@ -284,18 +290,21 @@ export function usePinnedVisual({
 			e.stopPropagation();
 			setExpanded(false);
 		};
+		document.addEventListener("keydown", onKey);
+		return () => document.removeEventListener("keydown", onKey);
+	}, [showExpanded]);
+	// An Esc inside a pinned demo arrives through its bridge: replay it on the
+	// iframe, so it takes one layer as if pressed on the page, in every mode.
+	useEffect(() => {
+		if (!shown) return;
 		const onMessage = (e: MessageEvent) => {
 			if ((e.data as { type?: unknown } | null)?.type !== "demo-escape") return;
-			const frames = document.querySelectorAll<HTMLIFrameElement>('[data-testid="pin-panel"][data-lh-modal] iframe');
-			if ([...frames].some((frame) => frame.contentWindow === e.source)) setExpanded(false);
+			const frames = document.querySelectorAll<HTMLIFrameElement>('[data-testid="pin-slot"][data-pinned] iframe');
+			[...frames].find((frame) => frame.contentWindow === e.source)?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
 		};
-		document.addEventListener("keydown", onKey);
 		window.addEventListener("message", onMessage);
-		return () => {
-			document.removeEventListener("keydown", onKey);
-			window.removeEventListener("message", onMessage);
-		};
-	}, [showExpanded]);
+		return () => window.removeEventListener("message", onMessage);
+	}, [shown]);
 	const drawerTab = shown && mode === "drawer" && !showExpanded ? (
 		<DrawerTab title={target.title} open={open} right={open ? drawerWidth + GAP : 0} onToggle={toggleDrawer} />
 	) : null;
@@ -323,7 +332,7 @@ function DrawerTab({ title, open, right, onToggle }: { title: string; open: bool
 			aria-label={open ? `Hide the pinned ${title}` : `Show the pinned ${title}`}
 			title={open ? "Hide (Esc)" : "Show"}
 			onClick={onToggle}
-			className="absolute top-[40%] z-30 flex max-h-56 cursor-pointer items-center gap-1.5 rounded-l-lg border border-r-0 border-border/80 bg-card px-1 py-2.5 font-ui text-xs font-medium tracking-wide text-muted-foreground shadow-sm transition-colors [writing-mode:vertical-rl] hover:text-foreground"
+			className="absolute top-3 z-30 flex max-h-56 cursor-pointer items-center gap-1.5 rounded-l-lg border border-r-0 border-border/80 bg-card px-1 py-2.5 font-ui text-xs font-medium tracking-wide text-muted-foreground shadow-sm transition-colors [writing-mode:vertical-rl] hover:text-foreground"
 			style={{ right }}
 		>
 			<PinIcon className="size-3.5 shrink-0 rotate-90 text-primary" aria-hidden />

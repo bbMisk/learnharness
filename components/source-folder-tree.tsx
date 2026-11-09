@@ -6,6 +6,7 @@ import { canMoveFolder, folderIsEmpty, fuzzyScore, placementOf, folderEntryCheck
 import type { ChainSort } from "./chain-table";
 import { chainRow } from "./chain-navigation";
 import { isComposing } from "@/components/ime";
+import { actionError } from "@/components/inline-rename";
 
 export type OrganizationChange = (action: OrganizationAction) => Promise<string | void>;
 const DRAG_TYPE = "application/x-learnharness-source";
@@ -84,7 +85,7 @@ export function EditableSourceName({ name, onSave, onCancel, initiallyEditing = 
 		if (value === name && !initiallyEditing) { setEditing(false); return; }
 		submitting.current = true;
 		try { await onSave(value); setEditing(false); setFailure(""); }
-		catch (error) { byKey.current = false; setFailure(error instanceof Error ? error.message : String(error)); }
+		catch (error) { byKey.current = false; setFailure(actionError(error, "Could not save the name. Try again.")); }
 		finally { submitting.current = false; }
 	};
 	return <span className="min-w-0 flex-1">
