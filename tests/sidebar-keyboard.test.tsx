@@ -167,6 +167,30 @@ it("⌘B closing the sidebar makes it inert, so its search box lets go of focus"
 	assert.equal(aside.hasAttribute("inert"), false);
 });
 
+it("⌘⇧F from a closed sidebar focuses the search, even before React would render", async () => {
+	const focused: Element[] = [];
+	const realFocus = dom.window.HTMLElement.prototype.focus;
+	const realRaf = globalThis.requestAnimationFrame;
+	dom.window.HTMLElement.prototype.focus = function (this: Element) {
+		if (!this.closest("[inert]")) focused.push(this); // inert refuses focus
+	};
+	try {
+		await act(async () => void window.dispatchEvent(new CustomEvent("lh:kbd-toggle-sidebar")));
+		assert.equal(document.querySelector("aside")!.hasAttribute("inert"), true, "closed");
+		// The next frame lands before React commits the open (a default-priority render can).
+		globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+			globalThis.requestAnimationFrame = realRaf;
+			cb(0);
+			return 0;
+		}) as typeof requestAnimationFrame;
+		await act(async () => void window.dispatchEvent(new CustomEvent("lh:kbd-sessions-search")));
+		assert.ok(focused.at(-1) === document.querySelector('[data-testid="session-search"]'), "the search has focus");
+	} finally {
+		globalThis.requestAnimationFrame = realRaf;
+		dom.window.HTMLElement.prototype.focus = realFocus;
+	}
+});
+
 it("an empty filtered list names the filter instead of saying there are no chats", async () => {
 	const practice = document.querySelector('[data-testid="kind-filter-practice"]') as HTMLElement | null;
 	assert.ok(practice, "the Practice filter is shown");

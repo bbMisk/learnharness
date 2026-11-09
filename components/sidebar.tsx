@@ -6,6 +6,7 @@ import { ProjectSidebar } from "@/components/project-sidebar";
 import { GlobalFileDrop } from "@/components/global-file-drop";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { flushSync } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
@@ -664,7 +665,8 @@ function SessionsSidebar() {
 
 	useEffect(() => {
 		const onFocusSearch = () => {
-			if (!open) toggle();
+			// Commit the open now: an inert (closed) aside refuses focus.
+			if (!open) flushSync(toggle);
 			setKbdIndex(null); // each ⌘⇧F walk starts at the first row
 			// A clipped (overflow-hidden) input still focuses — the sidebar's
 			// slide-in doesn't gate the keystroke.
