@@ -36,3 +36,23 @@ it("a dispatch the jobs feed never shows settles to a quiet 'Status not kept for
 		mock.timers.reset();
 	}
 });
+
+it("an old card settles as soon as a freshly loaded jobs feed lacks its job", async () => {
+	mock.timers.enable({ apis: ["setTimeout"] });
+	const host = dom.document.createElement("div");
+	dom.document.body.append(host);
+	const root = createRoot(host as unknown as HTMLElement);
+	const part = { type: "tool-demo", state: "output-available", toolCallId: "call-old", output: "Dispatched." };
+	const render = (jobs: never[]) => act(async () => root.render(<JobsContext.Provider value={jobs}><DispatchCard part={part} /></JobsContext.Provider>));
+	try {
+		const before: never[] = [];
+		await render(before);
+		await render(before);
+		assert.match(host.textContent ?? "", /Dispatched…/, "same feed: still waiting");
+		await render([]); // the chat's jobs fetch landed
+		assert.ok(host.querySelector('[data-testid="dispatch-unknown"]'), "settled with no wait");
+	} finally {
+		await act(async () => root.unmount());
+		mock.timers.reset();
+	}
+});

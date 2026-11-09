@@ -122,7 +122,11 @@ function DispatchPendingCard({ label }: { label: string }) {
 		const timer = setTimeout(() => setUnknown(true), DISPATCH_UNKNOWN_MS);
 		return () => clearTimeout(timer);
 	}, []);
-	if (unknown) {
+	// A jobs feed fetched after this card mounted that still lacks the job
+	// settles it at once (an old card on a visit), without the wait.
+	const jobs = useContext(JobsContext);
+	const [mountFeed] = useState(jobs);
+	if (unknown || jobs !== mountFeed) {
 		return (
 			<div className="rounded-xl border bg-card p-4 text-card-foreground" data-testid="dispatch-unknown">
 				<div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
