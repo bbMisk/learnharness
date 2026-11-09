@@ -134,6 +134,29 @@ describe("keyboard rebind shares layout normalization with dispatch", () => {
 	});
 });
 
+describe("⌥ bindings saved by older builds", () => {
+	it("load in the recorder's physical-key spelling, and a dead key reads as not bound", async () => {
+		storage.set("lh:keymap", JSON.stringify({
+			"toggle-sidebar": "alt+÷", "new-session": "alt+¡", "toggle-dictation": "alt+ ",
+			"jump-graph": "mod+alt+≥", "find": "alt+shift+¿", "cheat-sheet": "alt+dead",
+			// Already in today's spelling: left alone.
+			"open-settings": "alt+§", "rename-session": "mod+ю", "open-model-picker": "alt+k",
+		}));
+		assert.deepEqual(loadOverrides(), {
+			"toggle-sidebar": "alt+/", "new-session": "alt+1", "toggle-dictation": "alt+ ",
+			"jump-graph": "mod+alt+.", "find": "alt+shift+/", "cheat-sheet": "",
+			"open-settings": "alt+§", "rename-session": "mod+ю", "open-model-picker": "alt+k",
+		});
+		assert.equal(actionForBinding(binding({ key: "÷", code: "Slash", altKey: true })), "toggle-sidebar");
+		assert.equal(actionForBinding(binding({ key: "¡", code: "Digit1", altKey: true })), "new-session");
+		assert.equal(actionForBinding(binding({ key: " ", code: "Space", altKey: true })), "toggle-dictation");
+		assert.equal(actionForBinding(binding({ key: "Dead", code: "KeyE", altKey: true })), undefined);
+		assert.equal(actionForBinding("?"), undefined, "the dead-key action doesn't fall back to its default");
+		const host = await mount();
+		assert.equal(host.querySelector('[data-testid="kbd-row-cheat-sheet"] kbd')?.textContent, "Not bound");
+	});
+});
+
 describe("rebind and reset keep focus on the row", () => {
 	it("the Rebind button stays the same element through a capture, and Reset hands focus to it", async () => {
 		const host = await mount();
