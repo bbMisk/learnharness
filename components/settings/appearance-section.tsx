@@ -27,6 +27,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
 	EXTRACTION_CHUNK_TOKENS_FLOOR,
+	EXTRACTION_CHUNK_TOKENS_MAX,
 	isDarkBackground,
 	isHexColor,
 	resolveSettings,
@@ -379,11 +380,10 @@ export function GraphSection({
 						}
 						const n = Number(v);
 						if (!Number.isFinite(n) || n <= 0) return "Enter a number of tokens, or leave it empty for the default.";
-						// Mirror the server's floor (cost protection), no ceiling — a
-						// big budget is the user's call.
+						// Mirror the server's floor (cost protection) and ceiling.
 						onSectionChange({
 							...graph,
-							extractionChunkTokens: Math.max(EXTRACTION_CHUNK_TOKENS_FLOOR, Math.round(n)),
+							extractionChunkTokens: Math.min(EXTRACTION_CHUNK_TOKENS_MAX, Math.max(EXTRACTION_CHUNK_TOKENS_FLOOR, Math.round(n))),
 						});
 					}}
 				/>

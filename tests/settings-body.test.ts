@@ -211,6 +211,9 @@ describe("parseGraphSettingsBody", () => {
 		const tiny = parseGraphSettingsBody({ extractionChunkTokens: 100 });
 		assert.equal(tiny.ok, false, "below-floor rejected");
 		assert.match(tiny.ok === false ? tiny.error : "", /at least 500/);
+		const huge = parseGraphSettingsBody({ extractionChunkTokens: 999_999_999_999 });
+		assert.equal(huge.ok, false, "above-ceiling rejected");
+		assert.match(huge.ok === false ? huge.error : "", /at most 2000000/);
 		// junk shapes: 400
 		assert.equal(parseGraphSettingsBody({ extractionChunkTokens: "4096" }).ok, false);
 		assert.equal(parseGraphSettingsBody({ extractionChunkTokens: NaN }).ok, false);

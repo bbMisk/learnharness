@@ -467,8 +467,8 @@ export interface GraphSettings {
 	 *  graph-carrying prompt overhead, so a budget below ~500 tokens would
 	 *  fire penny-batches that cost more per extracted token than the
 	 *  content is worth; the sanitizer clamps and the PUT rejects below it.
-	 *  NO CEILING on purpose: a large budget just delays extraction — the
-	 *  user's cost/thoroughness tradeoff, not a misconfiguration. */
+	 *  CEILING 2,000,000 (EXTRACTION_CHUNK_TOKENS_MAX): a large budget just
+	 *  delays extraction, but none above any model's context makes sense. */
 	extractionChunkTokens?: number;
 }
 
@@ -551,6 +551,8 @@ export const FACTORY_SETTINGS: FactorySettings = {
  *  — see its doc for the penny-batch rationale; the settings PUT names this
  *  in its rejection, the sanitizer clamps to it). */
 export const EXTRACTION_CHUNK_TOKENS_FLOOR = 500;
+/** The chunk budget's ceiling: no model's context is larger. */
+export const EXTRACTION_CHUNK_TOKENS_MAX = 2_000_000;
 
 // ─── Sanitizer ─────────────────────────────────────────────────────────────
 
@@ -847,7 +849,7 @@ function sanitizeGraph(raw: Record<string, unknown>): GraphSettings {
 	if (rendering !== undefined) out.rendering = rendering;
 	const rawTokens = raw.extractionChunkTokens;
 	if (typeof rawTokens === "number" && Number.isFinite(rawTokens) && rawTokens > 0) {
-		out.extractionChunkTokens = Math.max(EXTRACTION_CHUNK_TOKENS_FLOOR, Math.floor(rawTokens));
+		out.extractionChunkTokens = clamp(Math.floor(rawTokens), EXTRACTION_CHUNK_TOKENS_FLOOR, EXTRACTION_CHUNK_TOKENS_MAX);
 	}
 	return out;
 }
