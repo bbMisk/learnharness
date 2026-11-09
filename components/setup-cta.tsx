@@ -43,14 +43,23 @@ export function savedSlotsConfigured(slots: ModelCatalogResponse["slots"] | unde
 	return MODEL_SLOTS.every((slot) => !!slots?.[slot]?.model);
 }
 
+/** Pure: every saved slot's provider is connected. */
+export function savedSlotsConnected(catalog: Pick<ModelCatalogResponse, "providers" | "slots"> | undefined): boolean {
+	return !!catalog && savedSlotsConfigured(catalog.slots) && MODEL_SLOTS.every((slot) =>
+		catalog.providers.some((p) => p.id === catalog.slots?.[slot]?.model.provider && p.keyPresent));
+}
+
 /** Keep the last known completeness during connection invalidation, but
- * follow ordinary slot repairs as soon as their shared snapshot arrives. */
+ * follow ordinary slot repairs as soon as their shared snapshot arrives.
+ * With some provider connected, a slot on a provider without a key is not
+ * configured: the setup pill stays until every slot can run. */
 export function useModelSetup(initialConfigured: boolean) {
 	const { catalog } = useModelCatalog();
 	const [lastConfigured, setLastConfigured] = useState(initialConfigured);
-	const configured = catalog ? savedSlotsConfigured(catalog.slots) : lastConfigured;
+	const saved = catalog ? savedSlotsConfigured(catalog.slots) : lastConfigured;
 	useEffect(() => { if (catalog) setLastConfigured(savedSlotsConfigured(catalog.slots)); }, [catalog]);
-	return { catalog, configured, zeroKeys: catalog ? !catalog.providers.some((p) => p.keyPresent) : false };
+	const zeroKeys = catalog ? !catalog.providers.some((p) => p.keyPresent) : false;
+	return { catalog, configured: saved && (!catalog || zeroKeys || savedSlotsConnected(catalog)), zeroKeys };
 }
 
 /** A known unavailable route needs an explicit replacement, never an

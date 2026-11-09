@@ -156,7 +156,7 @@ test("cold saved disconnected pins still enter the provider stage, without any m
 	assert.deepEqual(stages, ["setup-stage-loading", "setup-stage-keys"]);
 });
 
-for (const count of [0, 1, 2]) test(`connecting with ${count} saved slots only requires the missing slots; stale identities/thinking survive`, async () => {
+for (const count of [0, 1, 2]) test(`connecting another provider with ${count} saved slots marks every unrunnable slot needed; stale identities/thinking stay shown`, async () => {
 	installFetch(); const before = catalog(false);
 	if (count < 1) before.slots.strong = null;
 	if (count < 2) before.slots.cheap = null;
@@ -168,16 +168,33 @@ for (const count of [0, 1, 2]) test(`connecting with ${count} saved slots only r
 	const connected = { ...before, models: [{ ...b, provider: "other" }], providers: [{ id: "other", envVar: "OTHER_KEY", keyPresent: true }] };
 	await act(async () => notifySettingsSaved("keys")); await answer(2, connected);
 	assert.ok(element("setup-stage-pickers")); assert.equal(document.querySelector('[data-testid="setup-stage-keys"]'), null); assert.equal(closed, 0);
+	if (count > 0) {
+		assert.equal(element("setup-trigger-strong").textContent, "model:free▾", "the stale pick stays shown");
+		assert.equal(element("setup-thinking-strong").textContent?.trim(), "xhigh▾");
+	}
+	for (const slot of ["strong", "cheap", "vision"] as const) assert.ok(element(`setup-needed-${slot}`), `${slot} can't run, so it is needed`);
+	assert.equal((element("setup-save") as HTMLButtonElement).disabled, true, "a provider without a key can't be saved");
 	for (const slot of ["strong", "cheap", "vision"] as const) {
-		if (before.slots[slot]) continue;
 		await click(`setup-trigger-${slot}`); await click("model-option-claude-opus-5-5");
 	}
-	if (count > 0) assert.equal(element("setup-thinking-strong").textContent?.trim(), "xhigh▾");
+	assert.equal(document.querySelector('[data-testid^="setup-needed-"]'), null);
 	await click("setup-save");
-	for (const slot of ["strong", "cheap", "vision"] as const) {
-		if (before.slots[slot]) assert.deepEqual(writes[0]?.[slot], before.slots[slot]);
-		else assert.equal(writes[0]?.[slot]?.model?.provider, "other");
-	}
+	for (const slot of ["strong", "cheap", "vision"] as const) assert.equal(writes[0]?.[slot]?.model?.provider, "other");
+});
+
+test("saved slots on a provider without a key keep the setup pill and are marked in Settings", async () => {
+	installFetch(); let state: ReturnType<typeof useModelSetup>;
+	function StateReader() { state = useModelSetup(true); return null; }
+	const body = catalog(false); body.models = [{ ...b, provider: "other" }]; body.providers = [{ id: "other", envVar: "OTHER_KEY", keyPresent: true }];
+	const models: ModelsSettings = { strong: { model: { provider: a.provider, id: a.id } } };
+	await render(<><StateReader /><AgentSection agent={undefined} models={models} graph={undefined} compaction={undefined} onSectionChange={() => {}} onModelsChange={() => {}} onCompactionChange={() => {}} /></>);
+	await answer(0, body);
+	assert.equal(state!.zeroKeys, false);
+	assert.equal(state!.configured, false, "the pill stays until every slot can run");
+	assert.ok(element("slot-disconnected-strong"));
+	await act(async () => notifySettingsSaved("keys")); await answer(1, catalog());
+	assert.equal(state!.configured, true);
+	assert.equal(document.querySelector('[data-testid="slot-disconnected-strong"]'), null);
 });
 
 test("a partial setup's model/thinking edits survive exclusive provider recovery, but reopening discards the abandoned draft", async () => {

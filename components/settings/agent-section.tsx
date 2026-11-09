@@ -618,11 +618,13 @@ export function AgentSection({
 					const chosen = coord ? catalog?.find((m) => m.id === coord.id && m.provider === coord.provider) : undefined;
 					const levels = chosen ? chosen.supportedLevels : THINKING_LEVELS;
 					const thisMenuOpen = openMenu?.target === slot ? openMenu.kind : null;
+					// A saved model whose provider has no key can't run.
+					const disconnected = !!coord && !!body && !body.providers.some((p) => p.id === coord.provider && p.keyPresent);
 					return (
 						<SettingsRow
 							key={slot}
 							label={SLOT_META[slot].label}
-							hint={SLOT_META[slot].roster}
+							hint={disconnected ? <>{SLOT_META[slot].roster} · <span data-testid={`slot-disconnected-${slot}`} className="text-red-500">provider not connected</span></> : SLOT_META[slot].roster}
 							testid={`slot-row-${slot}`}
 						>
 							{/* The anchor for the outside-click contract is the
