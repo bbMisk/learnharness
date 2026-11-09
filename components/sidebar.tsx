@@ -454,6 +454,8 @@ function SessionsSidebar() {
 	const modes = useVisibleModes();
 	const showPractice = modes.includes("practice");
 	const kindFilter: SessionKindFilter = showPractice ? storedKindFilter : "all";
+	// Empty lists name the filter, so filtered-out chats never read as none.
+	const kindWord = kindFilter === "teach" ? "teaching " : kindFilter === "practice" ? "practice " : "";
 	// Time spent: every row carries it; Settings → General shows it (off by default).
 	const showTime = useGeneralSettings()?.showLessonTime ?? false;
 	useEffect(() => {
@@ -857,7 +859,7 @@ function SessionsSidebar() {
 				</div>
 				)}
 
-				<ProjectSidebar projects={projects} chats={(listed ?? []).filter(chat => !chat.archived && (kindFilter === "all" || (chat.kind ?? "teach") === kindFilter))} refresh={refresh} moveChat={moveChat} renderChat={renderChat} showChats={!query.trim() && !showArchived} />
+				<ProjectSidebar projects={projects} chats={(listed ?? []).filter(chat => !chat.archived && (kindFilter === "all" || (chat.kind ?? "teach") === kindFilter))} refresh={refresh} moveChat={moveChat} renderChat={renderChat} showChats={!query.trim() && !showArchived} emptyText={`No ${kindWord}chats yet.`} />
 				<div {...chatDrop.handlers} data-testid="unassigned-chat-drop" className={cn("mx-3 mt-2 flex h-8 shrink-0 items-center rounded-md px-2 text-xs uppercase tracking-widest text-muted-foreground/70", chatDrop.over && "bg-accent text-muted-foreground ring-1 ring-primary/30")}>{chatDrop.over ? "Move chat out of project" : showArchived ? "Archived" : "Chats"}</div>
 				{moveStatus && <p role="status" className="px-4 py-1 text-xs text-muted-foreground">{moveStatus}</p>}
 				{updateError && <p role="alert" className="px-4 py-2 text-xs text-destructive">{updateError}</p>}
@@ -867,7 +869,7 @@ function SessionsSidebar() {
 						<div className="px-2 py-4 text-xs text-muted-foreground">Loading…</div>
 					) : shown.length === 0 ? (
 						<div className="px-2 py-4 text-xs text-muted-foreground">
-							{query.trim() ? "No sessions match." : showArchived ? "No archived chats." : "No chats yet."}
+							{query.trim() ? "No chats match." : showArchived ? `No archived ${kindWord}chats.` : `No ${kindWord}chats yet.`}
 						</div>
 					) : (
 						shown.map((chat, index) => renderChat(chat, index))

@@ -167,6 +167,18 @@ it("⌘B closing the sidebar makes it inert, so its search box lets go of focus"
 	assert.equal(aside.hasAttribute("inert"), false);
 });
 
+it("an empty filtered list names the filter instead of saying there are no chats", async () => {
+	const practice = document.querySelector('[data-testid="kind-filter-practice"]') as HTMLElement | null;
+	assert.ok(practice, "the Practice filter is shown");
+	await act(async () => practice.click());
+	const list = () => document.querySelector('[data-testid="unassigned-chat-list"]')!.textContent;
+	assert.equal(list(), "No practice chats yet.");
+	await act(async () => (document.querySelector('[data-testid="archive-view"]') as HTMLElement).click());
+	assert.equal(list(), "No archived practice chats.");
+	await act(async () => (document.querySelector('[data-testid="archive-view"]') as HTMLElement).click());
+	await act(async () => (document.querySelector('[data-testid="kind-filter-all"]') as HTMLElement).click());
+});
+
 it("the delete dialog focuses Delete, so Enter confirms", () => {
 	const html = renderToStaticMarkup(
 		<DeleteSessionBody chat={{ id: "c1", title: "T" }} traces={false} busy={false} failure={null} onTraces={() => {}} onClose={() => {}} onRun={() => {}} />,

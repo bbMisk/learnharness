@@ -12,6 +12,8 @@ type ProjectChats = {
 	moveChat: (id: string, projectId: string | null) => void;
 	renderChat: (chat: ChatListItem) => ReactNode;
 	showChats: boolean;
+	/** An expanded project with no chats under the current filter. */
+	emptyText?: string;
 };
 const useBrowserLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 export function ProjectSidebar({
@@ -21,6 +23,7 @@ export function ProjectSidebar({
 	moveChat,
 	renderChat,
 	showChats,
+	emptyText,
 }: { projects: ProjectSummary[]; refresh: () => void } & ProjectChats) {
 	const [open, setOpen] = useState(false),
 		[name, setName] = useState(""),
@@ -91,6 +94,7 @@ export function ProjectSidebar({
 					moveChat={moveChat}
 					renderChat={renderChat}
 					showChats={showChats}
+					emptyText={emptyText}
 				/>
 			))}
 			<Dialog.Root
@@ -157,6 +161,7 @@ function ProjectFolder({
 	moveChat,
 	renderChat,
 	showChats,
+	emptyText = "No chats yet.",
 }: { project: ProjectSummary; active: boolean; refresh: () => void } & ProjectChats) {
 	const [expanded, setExpanded] = useState(false);
 	// Right-click renames in place (owner, 2026-11-01).
@@ -267,7 +272,7 @@ function ProjectFolder({
 			{expanded && showChats && (
 				<div className="pl-5 pt-1">
 					{chats.map(renderChat)}
-					{!chats.length && <p className="px-3 py-2 text-xs text-muted-foreground">No chats yet.</p>}
+					{!chats.length && <p className="px-3 py-2 text-xs text-muted-foreground">{emptyText}</p>}
 				</div>
 			)}
 		</div>
