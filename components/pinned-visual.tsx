@@ -273,6 +273,19 @@ export function usePinnedVisual({
 
 	const toggleDrawer = useCallback(() => setOpen((o) => !o), []);
 	const closeExpanded = useCallback(() => setExpanded(false), []);
+	// The expanded demo is a modal (data-lh-modal), so the global Esc chain
+	// is gated: it claims its own Esc at the document level.
+	useEffect(() => {
+		if (!showExpanded) return;
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key !== "Escape" || e.defaultPrevented) return;
+			e.preventDefault();
+			e.stopPropagation();
+			setExpanded(false);
+		};
+		document.addEventListener("keydown", onKey);
+		return () => document.removeEventListener("keydown", onKey);
+	}, [showExpanded]);
 	const drawerTab = shown && mode === "drawer" && !showExpanded ? (
 		<DrawerTab title={target.title} open={open} right={open ? drawerWidth + GAP : 0} onToggle={toggleDrawer} />
 	) : null;
@@ -397,7 +410,7 @@ export function PinnableArtifact({ jobId, kind, children }: { jobId: string; kin
 			className="relative flow-root"
 			style={pinned ? { height: flowHeight ?? 56 } : undefined}
 		>
-			<div ref={panelRef} data-testid="pin-panel" className={pinned ? PANEL : undefined} style={panelStyle}>
+			<div ref={panelRef} data-testid="pin-panel" data-lh-modal={expanded ? "" : undefined} className={pinned ? PANEL : undefined} style={panelStyle}>
 				<div data-testid="pin-sizer" style={fit ? { width: fit.layout * fit.scale, height: contentHeight * fit.scale, overflow: "hidden" } : undefined}>
 					<div ref={contentRef} style={fit ? { width: fit.layout, transform: `scale(${fit.scale})`, transformOrigin: "0 0" } : undefined}>
 						<PinSlotContext.Provider value={slot}>{children}</PinSlotContext.Provider>

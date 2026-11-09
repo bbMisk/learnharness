@@ -30,7 +30,7 @@ const { projectView } = await import("../src/core/view.ts");
 const { createViewProjector } = await import("../src/core/view-incremental.ts");
 const { sessionMarkdown } = await import("../src/core/session-markdown.ts");
 const { pinVisualTool, resolvePinTarget, PIN_VISUAL_DESCRIPTION } = await import("../src/agent/tools/pin-visual.ts");
-const { PinnableArtifact, PinnedVisualContext, demoFit, pinMode, DEMO_MIN_SCALE } = await import("../components/pinned-visual.tsx");
+const { PinnableArtifact, PinnedVisualContext, demoFit, pinMode, DEMO_MIN_SCALE, usePinnedVisual } = await import("../components/pinned-visual.tsx");
 const { DemoOutputCard } = await import("../components/artifacts/demo-card.tsx");
 const { VisualOutputCard } = await import("../components/artifacts/visual-card.tsx");
 const { escAbortTarget } = await import("../components/chat.tsx");
@@ -312,5 +312,49 @@ describe("pinning restyles the card in place", () => {
 		await act(async () => root!.render(<PinnableArtifact jobId="job_a" kind="demo"><DemoOutputCard output={DEMO} /></PinnableArtifact>));
 		assert.equal(host.querySelector('[data-testid="pin-toggle"]'), null);
 		assert.ok(host.querySelector('[data-testid="demo-iframe"]'));
+	});
+});
+
+describe("an expanded demo is a modal", () => {
+	it("the expanded panel carries data-lh-modal; docked or in a drawer it does not", async () => {
+		const host = document.createElement("div");
+		document.body.appendChild(host);
+		root = createRoot(host);
+		const state = (expanded: boolean) => ({
+			pinnedId: "job_a", frame: FRAME, hidden: false, expanded, dragging: false, zIndex: expanded ? 40 : 15,
+			pin: () => {}, unpin: () => {}, setExpanded: () => {},
+		});
+		const render = (expanded: boolean) => act(async () => root!.render(
+			<PinnedVisualContext.Provider value={state(expanded)}>
+				<PinnableArtifact jobId="job_a" kind="demo"><DemoOutputCard output={DEMO} /></PinnableArtifact>
+			</PinnedVisualContext.Provider>,
+		));
+		await render(false);
+		const panel = () => host.querySelector('[data-testid="pin-panel"]')!;
+		assert.equal(panel().hasAttribute("data-lh-modal"), false);
+		await render(true);
+		assert.equal(panel().hasAttribute("data-lh-modal"), true);
+	});
+
+	it("its own Esc shrinks it (the global Esc chain is gated by the modal)", async () => {
+		const host = document.createElement("div");
+		document.body.appendChild(host);
+		root = createRoot(host);
+		const area = document.createElement("div");
+		(area as unknown as { getBoundingClientRect: () => object }).getBoundingClientRect = () => ({ left: 0, top: 0, width: 1400, height: 800 });
+		const areaRef = { current: area };
+		const view = projectView(record.slice(0, 5));
+		let latest: ReturnType<typeof usePinnedVisual> | null = null;
+		function Harness() {
+			latest = usePinnedVisual({ messages: view, tutorPin: { callId: "p1", jobId: "job_a" }, areaRef, bottomReserve: 0, getScroller: () => null });
+			return null;
+		}
+		await act(async () => root!.render(<Harness />));
+		await act(async () => latest!.context.setExpanded(true));
+		assert.equal(latest!.context.expanded, true);
+		const esc = Object.assign(new dom.window.Event("keydown", { bubbles: true, cancelable: true }), { key: "Escape" });
+		await act(async () => { document.dispatchEvent(esc); });
+		assert.equal(esc.defaultPrevented, true, "claimed");
+		assert.equal(latest!.context.expanded, false, "shrunk");
 	});
 });

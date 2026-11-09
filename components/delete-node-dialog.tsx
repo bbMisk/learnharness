@@ -51,6 +51,7 @@ export function DeleteNodeBody({
 		<div
 			role="dialog"
 			aria-modal="true"
+			data-lh-modal
 			aria-label="Delete node"
 			data-testid="delete-node-dialog"
 			onClick={(e) => e.stopPropagation()}

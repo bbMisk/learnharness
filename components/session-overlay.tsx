@@ -223,6 +223,7 @@ export function MermaidOverlay({
 			className="absolute inset-0 z-40 flex flex-col bg-background/80 p-4 backdrop-blur-sm"
 			role="dialog"
 			aria-modal="true"
+			data-lh-modal
 			aria-label="Diagram focus"
 		>
 			<div className="mb-2 flex items-center gap-2">

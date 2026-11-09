@@ -99,6 +99,12 @@ export function KeyboardShortcuts() {
 	useEffect(() => {
 		const onKeyDown = (e: KeyboardEvent) => {
 			if (e.defaultPrevented) return;
+			// The cheat sheet is a modal too: its own Esc closes it.
+			if (e.key === "Escape" && cheatOpen) {
+				setCheatOpen(false);
+				e.preventDefault();
+				return;
+			}
 			// An open modal owns the keyboard: Tab stays inside it and no
 			// global shortcut acts on the page behind it.
 			const modal = openModal();
@@ -124,12 +130,6 @@ export function KeyboardShortcuts() {
 			}
 
 			if (e.key === "Escape") {
-				// Our own overlay is the topmost layer.
-				if (cheatOpen) {
-					setCheatOpen(false);
-					e.preventDefault();
-					return;
-				}
 				// THE ONE-ESC LAW (owner, keyboard round 2026-10-06): one
 				// Esc, one action, on the topmost active layer. Field-level
 				// handlers claim at their element (focus in a field: the
@@ -210,6 +210,7 @@ function CheatSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
 	return (
 		<div
 			data-testid="cheat-sheet"
+			data-lh-modal
 			className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
 			{...backdropDismiss}
 		>

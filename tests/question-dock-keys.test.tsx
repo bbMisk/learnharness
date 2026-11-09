@@ -130,3 +130,37 @@ describe("the dismiss and delete confirms are modals", () => {
 		root = null;
 	});
 });
+
+describe("every overlay over the dock is a modal", () => {
+	// Each overlay mounted beside an open check: arrows, Space and Enter
+	// from the page change nothing behind it.
+	async function keysBehind(overlay: React.ReactElement, testid: string) {
+		const { host, submits } = await mount(true);
+		const layer = document.createElement("div");
+		document.body.append(layer);
+		hosts.push(layer);
+		const overlayRoot = createRoot(layer);
+		await act(async () => overlayRoot.render(overlay));
+		const el = document.querySelector<HTMLElement>(`[data-testid="${testid}"]`);
+		assert.ok(el?.hasAttribute("data-lh-modal"), `${testid} is marked modal`);
+		const before = host.innerHTML;
+		for (const key of ["ArrowRight", "ArrowDown", " ", "Enter"]) {
+			await act(async () => { press(document.body, { key }); });
+		}
+		assert.equal(host.innerHTML, before, `${testid}: the dock is unchanged`);
+		assert.equal(submits.length, 0, `${testid}: nothing submitted`);
+		await act(async () => overlayRoot.unmount());
+	}
+
+	it("the Diagram and figure focus", async () => {
+		const { MermaidOverlay } = await import("../components/session-overlay.tsx");
+		await keysBehind(<MermaidOverlay svg="<svg viewBox='0 0 10 10'/>" onClose={() => {}} />, "mermaid-overlay");
+	});
+
+	it("the delete node and delete sources confirms", async () => {
+		const { DeleteNodeDialog } = await import("../components/delete-node-dialog.tsx");
+		const { DeleteSourceDialog } = await import("../components/delete-source-dialog.tsx");
+		await keysBehind(<DeleteNodeDialog nodes={[{ id: "n1", name: "Energy" }]} onClose={() => {}} onDeleted={() => {}} />, "delete-node-dialog");
+		await keysBehind(<DeleteSourceDialog open sources={[]} folders={[{ id: "f1", name: "Old" } as never]} onDelete={async () => {}} onClose={() => {}} />, "delete-source-dialog");
+	});
+});

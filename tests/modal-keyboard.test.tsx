@@ -123,3 +123,34 @@ describe("an open modal owns the keyboard", () => {
 		}
 	});
 });
+
+describe("the shortcut cheat sheet is a modal", () => {
+	it("? opens it marked modal, global shortcuts stay out, and Esc still closes it", async () => {
+		await mount("");
+		await act(async () => { press({ key: "?", code: "Slash", shiftKey: true }); });
+		const sheet = document.querySelector<HTMLElement>('[data-testid="cheat-sheet"]');
+		assert.ok(sheet?.hasAttribute("data-lh-modal"));
+		const picked: string[] = [];
+		const onPicker = () => picked.push("picker");
+		window.addEventListener("lh:kbd-open-model-picker", onPicker);
+		try {
+			press({ key: "k", code: "KeyK", metaKey: true });
+			press({ key: "k", code: "KeyK", ctrlKey: true });
+			assert.deepEqual(picked, []);
+		} finally {
+			window.removeEventListener("lh:kbd-open-model-picker", onPicker);
+		}
+		const aborts: string[] = [];
+		const onAbort = () => aborts.push("abort");
+		window.addEventListener("lh:kbd-abort-turn", onAbort);
+		try {
+			let esc: Event | null = null;
+			await act(async () => { esc = press({ key: "Escape", code: "Escape" }); });
+			assert.equal(esc!.defaultPrevented, true);
+			assert.equal(document.querySelector('[data-testid="cheat-sheet"]'), null, "Esc closes it");
+			assert.deepEqual(aborts, [], "the Esc never reaches the abort chain");
+		} finally {
+			window.removeEventListener("lh:kbd-abort-turn", onAbort);
+		}
+	});
+});
