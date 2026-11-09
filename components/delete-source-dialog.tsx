@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "./backdrop-dismiss";
+import { actionError } from "@/components/inline-rename";
 import type { SourceEntry, SourceFolder } from "@/src/core";
 
 export function DeleteSourceBody({ sources, folders, deleteSessions, onDeleteSessions, busy, failure, onClose, onRun }: {
@@ -51,7 +52,7 @@ export function DeleteSourceDialog({ open, sources, folders, onDelete, onClose }
 		if (busy) return;
 		setBusy(true); setFailure("");
 		try { await onDelete(deleteSessions); onClose(); }
-		catch (error) { setFailure(error instanceof Error ? error.message : String(error)); }
+		catch (error) { setFailure(actionError(error, "Could not delete sources.")); }
 		finally { setBusy(false); }
 	};
 	return createPortal(<div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80" {...backdrop}>

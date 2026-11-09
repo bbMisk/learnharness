@@ -62,6 +62,7 @@ import { TopBar } from "@/components/top-bar";
 import { DeleteSourceDialog } from "@/components/delete-source-dialog";
 import { LatexGlyph } from "@/components/latex-glyph";
 import { isComposing } from "@/components/ime";
+import { actionError } from "@/components/inline-rename";
 
 /** The sortable columns. */
 export type ChainSortCol = "name" | "props" | "created";
@@ -725,7 +726,7 @@ export function ChainTableOverlay({
 			if (!response.ok) throw new Error("Could not read source organization.");
 			const body = await response.json() as SourceDirectory;
 			if (version === requestVersion.current) { setDirectory(body); setDirectoryPending(false); setDirectoryFailure(""); }
-		} catch (error) { if (version === requestVersion.current) setDirectoryFailure(error instanceof Error ? error.message : String(error)); }
+		} catch (error) { if (version === requestVersion.current) setDirectoryFailure(actionError(error, "Could not read source organization.")); }
 	}, []);
 	useEffect(() => {
 		if (open) void readDirectory();
@@ -758,7 +759,7 @@ export function ChainTableOverlay({
 				return typeof body.createdFolderId === "string" ? body.createdFolderId : undefined;
 			} catch (error) {
 				// A rename or new folder reports under its own row.
-				if (!["rename-source", "rename-folder", "create-folder"].includes(action.action)) setDirectoryFailure(error instanceof Error ? error.message : String(error));
+				if (!["rename-source", "rename-folder", "create-folder"].includes(action.action)) setDirectoryFailure(actionError(error, "Could not save source organization."));
 				throw error;
 			}
 		});
