@@ -787,6 +787,10 @@ function pinsPayload(drafts: Record<string, PinDraft>): Record<string, CustomMod
 /** testids must survive ids carrying slashes, colons, dots. */
 const pinTestid = (prefix: string, id: string) => `${prefix}-${id.replace(/[^a-z0-9-]/gi, "_")}`;
 
+/** Setup's typed URL and model ids, kept for the app session when setup closes
+ *  unconnected, as setup keeps its picks. A connect drops them. */
+let setupTyped: { baseUrl: string; manualModels: string } | null = null;
+
 /** The custom endpoint's connect editor: base URL + key → POST /api/custom-provider
  *  (validate + discover + register), and the per-model limits form → PATCH (pins,
  *  no probe, so it works with the local server switched off). Image capability is
@@ -844,10 +848,10 @@ function CustomEndpointEditor({
 			.finally(() => { if (!cancelled) setAuthLoading(false); });
 		return () => { cancelled = true; };
 	}, [authMode]);
-	const [baseUrl, setBaseUrl] = useState(baseUrl0);
+	const [baseUrl, setBaseUrl] = useState(() => (setup && setupTyped ? setupTyped.baseUrl : baseUrl0));
 	const [key, setKey] = useState("");
 	const [keyTouched, setKeyTouched] = useState(false);
-	const [manualModels, setManualModels] = useState(manualModels0.join(", "));
+	const [manualModels, setManualModels] = useState(() => (setup && setupTyped ? setupTyped.manualModels : manualModels0.join(", ")));
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [confirmDisconnect, setConfirmDisconnect] = useState(false);
@@ -906,6 +910,7 @@ function CustomEndpointEditor({
 			setBusy(false);
 			return;
 		}
+		if (setup) setupTyped = null;
 		await onSaved();
 		setBusy(false);
 	}
@@ -917,7 +922,10 @@ function CustomEndpointEditor({
 				<input
 					type="text"
 					value={baseUrl}
-					onChange={(e) => setBaseUrl(e.target.value)}
+					onChange={(e) => {
+						setBaseUrl(e.target.value);
+						if (setup) setupTyped = { baseUrl: e.target.value, manualModels };
+					}}
 					placeholder="Base URL, e.g. http://localhost:11434/v1"
 					aria-label="Custom endpoint base URL"
 					data-testid="custom-baseurl-input"
@@ -929,7 +937,10 @@ function CustomEndpointEditor({
 			<input
 				type="text"
 				value={manualModels}
-				onChange={(e) => setManualModels(e.target.value)}
+				onChange={(e) => {
+					setManualModels(e.target.value);
+					if (setup) setupTyped = { baseUrl, manualModels: e.target.value };
+				}}
 				placeholder="Model IDs, comma-separated — optional, needed when the endpoint has no /models list"
 				aria-label="Custom endpoint model IDs"
 				data-testid="custom-models-input"
@@ -960,9 +971,11 @@ function CustomEndpointEditor({
 				<button
 					type="button"
 					onClick={() => void save()}
-					disabled={busy || pinsBusy || !canConnect}
+					// aria-disabled while busy: a disabled button drops focus to <body>.
+					disabled={pinsBusy || !canConnect}
+					aria-disabled={busy}
 					data-testid="custom-save"
-					className="shrink-0 text-xs text-foreground underline-offset-2 hover:underline disabled:text-muted-foreground/40 disabled:no-underline"
+					className="shrink-0 text-xs text-foreground underline-offset-2 hover:underline disabled:text-muted-foreground/40 disabled:no-underline aria-disabled:text-muted-foreground/40 aria-disabled:no-underline"
 				>
 					{busy ? "Connecting…" : "Connect"}
 				</button>
