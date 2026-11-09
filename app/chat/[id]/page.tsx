@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { Chat } from "@/components/chat";
+import { ChatGate } from "@/components/chat-gate";
 import { clientMessage, resolveSettings, sanitizeQuestionType, slotsConfigured } from "@/src/core";
 import { compactionInFlight, getChat, isTurnRunning, readSettingsRecord, turnFailure } from "@/src/server";
 
@@ -20,6 +21,7 @@ export default async function ChatPage({
 	// server's 503 stays the truth; this only decides whether the pill rides.
 	const record = readSettingsRecord();
 	return (
+		<ChatGate key={chat.id} chatId={chat.id} title={chat.title}>
 		<Chat
 			key={chat.id}
 			chatId={chat.id}
@@ -44,5 +46,6 @@ export default async function ChatPage({
 			initiallyInFlight={isTurnRunning(chat.id)}
 			initiallyCompacting={compactionInFlight(chat.id)}
 		/>
+		</ChatGate>
 	);
 }
