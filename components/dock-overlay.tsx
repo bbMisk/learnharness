@@ -395,7 +395,10 @@ export function DockOverlay({
 		if (!pending || expanded) return;
 		const onKeyDown = (e: KeyboardEvent) => {
 			if (openModal() || !opensWaitingCheck(e, e.target as Element | null)) return;
+			// Claimed: the reopen lands in a microtask before the window-level
+			// Enter-submits runs, which would then submit the just-opened form.
 			e.preventDefault();
+			e.stopPropagation();
 			void finishDictation().then(() => {
 				expandAndRevealRef.current();
 			});
