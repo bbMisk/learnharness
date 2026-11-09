@@ -220,6 +220,28 @@ it("a short scroll-up (inside the dock's band) comes back with the question open
 	(window.location as { pathname: string }).pathname = "/chat/p";
 });
 
+it("a question left folded inside the dock's band comes back folded, keeping the spacer the position was measured with", async () => {
+	// Fold the question at /chat/band, then leave it 500px up, inside a 700px spacer.
+	await leaveScrolled("/chat/band", 2000, 700);
+	const first = createRoot(document.createElement("div"));
+	await act(async () => first.render(<Overlay onSubmit={() => {}} reveal={false} />));
+	await act(async () => first.unmount());
+	await leaveScrolled("/chat/band", 500, 700);
+	const reserves: number[] = [];
+	const back = await mount(
+		<StickToBottom>
+			<StickToBottom.Content>{() => null}</StickToBottom.Content>
+			<DockOverlay pending={pending as never} initialQuestionDraft={draft} onSaveQuestionDraft={() => {}} practice={null}
+				compactionRunning={false} onSubmitThinking={() => {}} teachingCheck={false} requiresReveal={false} showReadingThinking={false}
+				readingThinking="" readingThinkingRevision={0} onReadingThinking={() => {}} phase={"probe" as never} composer={null}
+				onSubmitAnswer={() => {}} footer={null} onReserve={(h) => reserves.push(h)} room="" queuedSteers={[]} />
+		</StickToBottom>,
+	);
+	assert.ok(back.querySelector('[data-testid="question-dock-bar"]'), "folded, as it was left");
+	assert.ok(reserves.length > 0 && reserves.every((h) => h >= 700), `the spacer keeps its 700px (${reserves})`);
+	(window.location as { pathname: string }).pathname = "/chat/p";
+});
+
 it("wheeling down at the bottom re-opens a folded question (no scroll event fires there)", async () => {
 	await leaveScrolled("/chat/wheel", 2000, 600);
 	const host = await mount(<Overlay onSubmit={() => {}} reveal={false} />);

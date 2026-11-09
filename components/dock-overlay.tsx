@@ -16,7 +16,7 @@ import { PracticeDock } from "@/components/practice-dock";
 import { MARGIN_MIN_W, dockFlank, measureDockFlank, type DockFlank } from "@/components/dock-flank";
 import { rememberRevealed, wasRevealed } from "@/components/revealed-questions";
 import { useHydrated } from "@/components/use-hydrated";
-import { restoresReadingPosition } from "@/components/session-navigation";
+import { rememberDockFolded, restoresReadingPosition, savedDockReserve } from "@/components/session-navigation";
 import { ReadingThinkingField } from "@/components/reading-thinking";
 import type { pendingQuestionOf, Phase3, QuestionAnswerData, QuestionFormDraft } from "@/src/core";
 
@@ -249,6 +249,11 @@ export function DockOverlay({
 	requiresRevealRef.current = requiresReveal;
 	const revealedRef = useRef(revealed);
 	revealedRef.current = revealed;
+	// Leaving the page: a folded question comes back folded.
+	useEffect(() => {
+		const path = window.location.pathname;
+		return () => rememberDockFolded(path, pendingRef.current && !expandedRef.current);
+	}, []);
 
 	const blockRef = useRef<HTMLDivElement>(null);
 	const viewportRef = useRef<HTMLDivElement>(null);
@@ -302,15 +307,17 @@ export function DockOverlay({
 	// practice problem owns the dock: shrinking flow space could pin a nearby
 	// learner back to the bottom. Composer mode may give space back.
 	const reserveRef = useRef(0);
+	// Restored folded: keep the spacer the saved position was measured with.
+	const [reserveFloor] = useState(() => (restoresReadingPosition() ? savedDockReserve() : 0));
 	const offer = useCallback((blockH: number) => {
-		const next = blockH + GRADIENT_H;
+		const next = Math.max(blockH + GRADIENT_H, pendingRef.current ? reserveFloor : 0);
 		if (next <= reserveRef.current + 0.5 && pendingRef.current) return;
 		// Stamp growth at the source, including child-only field resizes, so
 		// stick-to-bottom's catch-up is not mistaken for the learner leaving.
 		if (shouldStampGeometryMute(next, reserveRef.current, pendingRef.current)) geometryAtRef.current = Date.now();
 		reserveRef.current = next;
 		onReserve(next);
-	}, [onReserve]);
+	}, [onReserve, reserveFloor]);
 
 	// The overlay must not paint over the scroller's scrollbar: the scroller
 	// reserves symmetric gutters (scrollbar-gutter:
