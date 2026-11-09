@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Conversation, ConversationContent, ConversationEmptyState } from "@/components/ai-elements/conversation";
 import { Composer } from "@/components/composer";
 import { DictationBar, joinDictation, useDictation } from "@/components/dictation";
@@ -16,7 +16,7 @@ import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { SessionStarter } from "@/components/start-session";
 import { ModeSwitch } from "@/components/mode-switch";
 import { useSessionMode } from "@/components/session-modes";
-import type { GraphSnapshot, SessionMode } from "@/src/core";
+import { SESSION_MODES, type GraphSnapshot, type SessionMode } from "@/src/core";
 
 /** The draft's pick set (owner round 10): the SAME shape the home pick
  *  bar lifts — resolved nodes as the learner SAW them at pick time. */
@@ -242,13 +242,16 @@ export function NewSession({ initialConfigured,
 	projectId, mode: initialMode = "teach" }: { initialConfigured: boolean;
 	projectId?: string; mode?: SessionMode }) {
 	const router = useRouter();
-	const [mode, setMode, modes] = useSessionMode(initialMode);
-	// The switch writes ?mode=, so the sidebar's "+ Teaching" (a push to
-	// /chat/new) always changes the requested mode.
+	// The requested mode follows the live URL (back/forward, the sidebar doors).
+	const searchParams = useSearchParams();
+	const urlMode = searchParams?.get("mode");
+	const [mode, setMode, modes] = useSessionMode(!searchParams ? initialMode : SESSION_MODES.includes(urlMode as SessionMode) ? urlMode as SessionMode : "teach");
+	// The switch writes ?mode= at once (no navigation a later sidebar push
+	// could overtake), so "+ Teaching" (a push to /chat/new) always changes it.
 	const pickMode = (next: SessionMode) => {
 		setMode(next);
 		const query = new URLSearchParams({ ...(next !== "teach" ? { mode: next } : {}), ...(projectId ? { project: projectId } : {}) }).toString();
-		router.replace(query ? `/chat/new?${query}` : "/chat/new", { scroll: false });
+		window.history.replaceState(null, "", query ? `/chat/new?${query}` : "/chat/new");
 	};
 	const [text, setText] = useState("");
 	/* The draft MIRROR ("nothing gets lost" round, 2026-10-01): the shell's
