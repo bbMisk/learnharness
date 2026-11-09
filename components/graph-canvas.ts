@@ -774,15 +774,20 @@ export class GraphCanvasRenderer {
 
 	/** Live-sim physics controls: rebuilds the sim from the CURRENT node
 	 *  positions (same node objects — x/y and any drag pin fx/fy survive;
-	 *  velocities restart clean). */
-	setPhysicsTuning(input: Partial<PhysicsTuning>): void {
-		this.physicsTuning = sanitizePhysicsTuning(input);
+	 *  velocities restart clean). An unchanged tuning is a no-op, and
+	 *  `reheat: false` (the saved tuning applied on load) only rebuilds:
+	 *  re-annealing then would move and re-save the layout on every visit. */
+	setPhysicsTuning(input: Partial<PhysicsTuning>, reheat = true): void {
+		const next = sanitizePhysicsTuning(input);
+		const cur = this.physicsTuning;
+		if ((Object.keys(next) as (keyof PhysicsTuning)[]).every((k) => next[k] === cur[k])) return;
+		this.physicsTuning = next;
 		this.buildSim();
 		// Reheat: a tuning change re-anneals the layout from its current
 		// state, so mode toggles (off/vertical/radial) visibly RE-FORM the
 		// graph instead of waiting for the next drag. Mid-drag is safe —
 		// buildSim preserved the pinned node's fx/fy.
-		if (this.sim) {
+		if (this.sim && reheat) {
 			this.sim.alpha(1);
 			this.simActive = true;
 		}

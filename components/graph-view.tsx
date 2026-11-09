@@ -1232,8 +1232,10 @@ export function GraphView({
 
 	// Feed #5 — physics tuning: rebuilds the live sim in place (drag pins
 	// survive) and re-anneals. Same isEmpty dep as Feed #4 — see there.
+	// Only the user's own change re-anneals; the saved tuning arriving on
+	// load must not move (and re-save) the layout.
 	useEffect(() => {
-		rendererRef.current?.setPhysicsTuning(physicsTuning);
+		rendererRef.current?.setPhysicsTuning(physicsTuning, userTouched.current);
 	}, [physicsTuning, isEmpty]);
 
 	// Position the detail card: below the clicked node, flipped above near
