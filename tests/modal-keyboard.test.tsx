@@ -22,7 +22,8 @@ Object.assign(globalThis, {
 let focused: Element | null = null;
 dom.window.HTMLElement.prototype.focus = function (this: Element) { focused = this; };
 Object.defineProperty(dom.document, "activeElement", { get: () => focused, configurable: true });
-Object.assign(dom.window, { localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} } });
+let keymap: string | null = null;
+Object.assign(dom.window, { localStorage: { getItem: () => keymap, setItem: () => {}, removeItem: () => {} } });
 const { AppRouterContext } = await import("next/dist/shared/lib/app-router-context.shared-runtime.js");
 const { PathnameContext } = await import("next/dist/shared/lib/hooks-client-context.shared-runtime.js");
 const { createRoot } = await import("react-dom/client");
@@ -39,6 +40,7 @@ afterEach(async () => {
 	for (const host of hosts.splice(0)) host.remove();
 	pushes.length = 0;
 	focused = null;
+	keymap = null;
 });
 
 async function mount(modalHtml: string) {
@@ -142,6 +144,36 @@ describe("shortcuts from a text field", () => {
 			assertSameNode(document.querySelector('[data-testid="cheat-sheet"]'), null);
 		} finally {
 			window.removeEventListener("lh:kbd-rename-session", onRename);
+		}
+	});
+});
+
+describe("⌥ shortcuts from a text field", () => {
+	it("a bound ⌥ chord fires and doesn't type its glyph; an unbound one and ⌘ chords type as before", async () => {
+		keymap = JSON.stringify({ "toggle-sidebar": "alt+/" });
+		await mount("");
+		const composer = document.querySelector<HTMLElement>('[data-testid="composer"]')!;
+		const toggles: string[] = [];
+		const onToggle = () => toggles.push("toggle");
+		window.addEventListener("lh:kbd-toggle-sidebar", onToggle);
+		try {
+			const typed = (init: Record<string, unknown>) => {
+				const event = Object.assign(new dom.window.Event("keydown", { bubbles: true, cancelable: true }), {
+					ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...init,
+				});
+				composer.dispatchEvent(event);
+				return event;
+			};
+			let event!: Event;
+			await act(async () => { event = typed({ key: "÷", code: "Slash", altKey: true }); });
+			assert.deepEqual(toggles, ["toggle"]);
+			assert.equal(event.defaultPrevented, true, "the glyph stays out of the draft");
+			await act(async () => { event = typed({ key: "¡", code: "Digit1", altKey: true }); });
+			assert.equal(event.defaultPrevented, false, "an unbound ⌥ glyph still types");
+			await act(async () => { event = typed({ key: "k", code: "KeyK", metaKey: true }); });
+			assert.equal(event.defaultPrevented, false, "⌘ chords keep their old handling");
+		} finally {
+			window.removeEventListener("lh:kbd-toggle-sidebar", onToggle);
 		}
 	});
 });
