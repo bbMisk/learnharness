@@ -99,6 +99,10 @@ interface SegmentInfo {
 type PromptView = Record<"teacher" | "prober" | "practice", SegmentInfo[]>;
 type PromptRow = SegmentInfo & { usageHint?: string };
 
+/** Unsaved prompt-override drafts per path, kept for the app session:
+ *  Esc or closing Settings never throws typed text away. */
+const segmentDrafts: Record<string, string> = {};
+
 /** Compose: one tool toggled, the rest of the section carried verbatim.
  *  Pure — exported for tests. */
 export function composeTool(agent: AgentSettings | undefined, id: string, on: boolean): AgentSettings {
@@ -352,7 +356,7 @@ export function AgentSection({
 	const [engineKeys, setEngineKeys] = useState<Partial<Record<SearchEngineId, boolean>>>({});
 	const [prompts, setPrompts] = useState<PromptView | null>(null);
 	const [openSegment, setOpenSegment] = useState<string | null>(null);
-	const [segmentDraft, setSegmentDraft] = useState<Record<string, string>>({});
+	const [segmentDraft, setSegmentDraft] = useState<Record<string, string>>(() => ({ ...segmentDrafts }));
 	const [segmentStatus, setSegmentStatus] = useState<string | null>(null);
 	/** One open dropdown for the whole section: which slot (or the search
 	 *  row), which kind. */
@@ -534,7 +538,10 @@ export function AgentSection({
 							<p className="mb-1 text-xs uppercase tracking-widest text-muted-foreground/70">Override</p>
 							<textarea
 								value={segmentDraft[info.path] ?? info.overrideText ?? ""}
-								onChange={(e) => setSegmentDraft({ ...segmentDraft, [info.path]: e.target.value })}
+								onChange={(e) => {
+									segmentDrafts[info.path] = e.target.value;
+									setSegmentDraft({ ...segmentDraft, [info.path]: e.target.value });
+								}}
 								aria-label="Your version of the instructions"
 								placeholder="Add your own instructions…"
 								className="h-24 w-full resize-y rounded-sm border border-border bg-background p-2 font-ui text-xs text-foreground outline-none"
