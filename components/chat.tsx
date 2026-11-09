@@ -28,6 +28,7 @@ import { JobsContext, JobsFeedIdleContext } from "@/components/jobs-context";
 import { useServerDown, useServerEvent, useServerResync } from "@/components/server-events";
 import {
 	isProviderKeyRefusal,
+	capName,
 	cliContextWindowOf,
 	kbdEventForAction as kbdEventForChat,
 	type ChatInput,
@@ -1159,8 +1160,7 @@ export function Chat({
 							<input
 								ref={titleInputRef}
 								value={titleDraft}
-								maxLength={200}
-								onChange={(e) => setTitleDraft(e.target.value)}
+								onChange={(e) => setTitleDraft(capName(e.target.value))}
 								onKeyDown={(e) => {
 									if (e.key === "Enter") void commitRename(titleDraft);
 									// stopPropagation claims the Esc: closing rename

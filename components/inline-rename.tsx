@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { capName } from "@/src/core";
 
 /** Rename a project, guarding against an edit from another Mac (the route compares `expected`). */
 export async function renameProject(id: string, name: string, expected: string): Promise<void> {
@@ -62,7 +63,10 @@ export function InlineRename({
 			aria-label={ariaLabel}
 			data-lh-rename=""
 			defaultValue={value}
-			maxLength={200}
+			onChange={(event) => {
+				const capped = capName(event.currentTarget.value);
+				if (capped !== event.currentTarget.value) event.currentTarget.value = capped;
+			}}
 			disabled={saving}
 			onKeyDown={(event) => {
 				if (event.key === "Enter") {

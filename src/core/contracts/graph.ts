@@ -351,7 +351,12 @@ export function titleFromPrompt(prompt: string): string {
 	// One long word: no boundary exists under the cap — split it. This also
 	// lands correctly when the first word exactly fills the cap: cutting at the
 	// cap IS the boundary.
-	if (cut < 0) return `${graphemePrefix(oneLine, TITLE_MAX_CHARS, (s) => s.length)}…`;
+	// A first grapheme already over the cap leaves nothing to keep: "" lets
+	// the caller use its default title instead of a bare "…".
+	if (cut < 0) {
+		const head = graphemePrefix(oneLine, TITLE_MAX_CHARS, (s) => s.length);
+		return head ? `${head}…` : "";
+	}
 	return `${oneLine.slice(0, cut)}…`;
 }
 
@@ -370,6 +375,12 @@ function graphemePrefix(text: string, max: number, size: (segment: string) => nu
 
 /** The longest stored chat title or project name, in characters. */
 export const NAME_MAX_CHARS = 200;
+
+/** A name field's value cut to NAME_MAX_CHARS UTF-16 units on a grapheme
+ *  boundary. Inputs use it instead of maxLength, which splits an emoji family. */
+export function capName(text: string): string {
+	return text.length <= NAME_MAX_CHARS ? text : graphemePrefix(text, NAME_MAX_CHARS, (s) => s.length);
+}
 
 /** A stored chat title or project name: one line (control characters become
  *  spaces, bidi controls such as U+202E are dropped so a name can't reorder

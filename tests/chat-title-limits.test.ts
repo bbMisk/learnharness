@@ -11,6 +11,7 @@ const { chatStore } = await import("../src/store/chats.ts");
 const { projectStore } = await import("../src/store/projects.ts");
 const { cleanName, titleFromPrompt } = await import("../src/core/contracts/graph.ts");
 const chatRoute = await import("../app/api/chats/[id]/route.ts");
+const chatsRoute = await import("../app/api/chats/route.ts");
 const projectsRoute = await import("../app/api/projects/route.ts");
 const projectRoute = await import("../app/api/projects/[id]/route.ts");
 after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -64,4 +65,10 @@ it("the caps never cut an emoji family or an accented letter in half", () => {
 	assert.equal(cleanName("é".repeat(150)), "é".repeat(100), "a letter keeps its accent");
 	assert.equal(titleFromPrompt(family.repeat(10)), `${family.repeat(6)}…`, "the auto-title cuts between families");
 	assert.equal(titleFromPrompt(`a${"🧮".repeat(80)}`), `a${"🧮".repeat(35)}…`, "no lone surrogate at the cut");
+});
+
+it("a first message that is one over-long grapheme gets the default title, not a bare …", async () => {
+	const response = await chatsRoute.POST(new Request("http://test/api", { method: "POST", body: JSON.stringify({ title: `a${"\u0301".repeat(120)}` }) }));
+	const { id } = (await response.json()) as { id: string };
+	assert.equal(chatStore.getChat(id)!.title, "Untitled session");
 });
