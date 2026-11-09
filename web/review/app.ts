@@ -292,7 +292,8 @@ async function prepareOffline() {
 }
 
 element("mcq-retry").onclick = () => { if (current) void prepareQuestion(current); };
-element("skip").onclick = () => { if (!current) return; skipped.add(current.id); current = undefined; revealed = false; render(); };
+// The button stays put for the next card: let go of it, so ↓ and Space reach that card.
+element("skip").onclick = () => { if (!current) return; skipped.add(current.id); current = undefined; revealed = false; element("skip").blur(); render(); };
 element("mcq-continue").onclick = () => { if (current?.mcq && selectedIndex !== undefined) void rate(selectedIndex === current.mcq.correctIndex ? 3 : 1); };
 start.onclick = () => { started = true; askAgain(); notify(""); render(); scrollTo(0, 0); };
 reveal.onclick = () => { if (!current || saving) return; revealed = true; revealedAt = Date.now(); render(); };
