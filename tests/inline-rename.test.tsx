@@ -82,6 +82,19 @@ it("Enter saves a new name, Escape cancels, an unchanged name just closes", asyn
 	assert.equal(done, 3);
 });
 
+it("a failed save keeps the field open with the typed name", async () => {
+	let done = 0;
+	const field = () => host!.querySelector("input") as HTMLInputElement | null;
+	await render(<InlineRename value="Quant" ariaLabel="Name" onCommit={async () => Promise.reject(new Error("taken"))} onDone={() => done++} />);
+	await type(field()!, "Geometry");
+	await key(field()!, "Enter");
+	assert.equal(done, 0, "still open");
+	assert.equal(field()!.value, "Geometry");
+	assert.equal(field()!.disabled, false, "editable again");
+	await key(field()!, "Escape");
+	assert.equal(done, 1, "Escape still cancels");
+});
+
 it("renameProject sends the expected name and reports the server's error", async () => {
 	const sent: unknown[] = [];
 	globalThis.fetch = (async (_url: string, init: RequestInit) => {

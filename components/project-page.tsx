@@ -199,7 +199,10 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 											throw error;
 										}
 									}}
-									onDone={() => setRenaming(false)}
+									onDone={() => {
+										setRenaming(false);
+										setError("");
+									}}
 								/>
 							) : (
 								<h1 className="min-w-0 break-words font-prose text-3xl font-semibold tracking-tight">

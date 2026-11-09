@@ -16,7 +16,8 @@ export async function renameProject(id: string, name: string, expected: string):
 }
 
 /** An in-place name field (owner, 2026-11-01): Enter or leaving the field
- *  saves, Escape cancels; an unchanged or empty name just closes it. */
+ *  saves, Escape cancels; an unchanged or empty name just closes it. A
+ *  failed save keeps the field open with the typed name, to fix or cancel. */
 export function InlineRename({
 	value,
 	onCommit,
@@ -46,7 +47,11 @@ export function InlineRename({
 			try {
 				await onCommit(name);
 			} catch {
-				/* The caller reports the error; the old name stays. */
+				// The caller reports the error.
+				finished.current = false;
+				setSaving(false);
+				requestAnimationFrame(() => input.current?.focus());
+				return;
 			}
 		}
 		onDone();

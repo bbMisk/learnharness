@@ -107,12 +107,18 @@ it("⌥↵ on the walked row opens its menu; a failed rename shows an error", as
 	await act(async () => (document.querySelector('[data-testid="ctx-rename"]') as HTMLElement).click());
 	const input = document.querySelector('[data-testid="session-rename-input"]') as HTMLInputElement;
 	assert.equal(input.value, "Beta", "the menu belongs to the walked (second) row");
+	input.setAttribute("type", "text"); // linkedom reports no type, so React would skip onChange
 	Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input, "Offline rename");
 	await act(async () => input.dispatchEvent(new dom.window.Event("input", { bubbles: true })));
 	await act(async () => input.dispatchEvent(new dom.window.Event("focusout", { bubbles: true })));
 	await settle();
 	const alerts = [...document.querySelectorAll('[role="alert"]')].map((el) => el.textContent);
 	assert.ok(alerts.includes("Chat could not be renamed. Try again."), `alerts: ${JSON.stringify(alerts)}`);
+	const reopened = document.querySelector('[data-testid="session-rename-input"]') as HTMLInputElement;
+	assert.equal(reopened?.value, "Offline rename", "the failed rename keeps what was typed");
+	await key(reopened, "Escape");
+	assert.equal(document.querySelector('[data-testid="session-rename-input"]'), null, "Esc discards it");
+	assert.ok(![...document.querySelectorAll('[role="alert"]')].some((el) => /renamed/.test(el.textContent ?? "")), "and its error");
 
 	await key(search, "ArrowDown");
 	await key(search, "Enter", { altKey: true });

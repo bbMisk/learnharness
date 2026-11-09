@@ -229,7 +229,10 @@ function ProjectFolder({
 								throw error;
 							}
 						}}
-						onDone={() => setRenaming(false)}
+						onDone={() => {
+							setRenaming(false);
+							setRenameError("");
+						}}
 					/>
 				) : (
 					<button

@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useChatDrop } from "@/components/chat-drag";
 import type { ChatListItem, ProjectSummary } from "@/src/core";
 
 type ChatChanges = { pinned?: boolean; archived?: boolean; projectId?: string | null };
+const LINE_MS = 6000;
 
 /** Pin, archive and project moves for the sessions sidebar and project pages. Updates
  * run one at a time in request order; each success refreshes the list. `chats` comes
@@ -25,6 +26,16 @@ export function useChatOrganization({
 	const [updateError, setUpdateError] = useState<string | null>(null);
 	const [moveStatus, setMoveStatus] = useState("");
 	const updateQueue = useRef<Promise<unknown>>(Promise.resolve());
+	// The status and error lines are transient: they clear a few seconds after
+	// they last changed (a fix offline, a later success elsewhere, a drop).
+	useEffect(() => {
+		if (!updateError && !moveStatus) return;
+		const timer = setTimeout(() => {
+			setUpdateError(null);
+			setMoveStatus("");
+		}, LINE_MS);
+		return () => clearTimeout(timer);
+	}, [updateError, moveStatus]);
 	// Unsaved changes per chat, and the newest update's number per chat.
 	const [pending, setPending] = useState<Record<string, ChatChanges>>({});
 	const latest = useRef<Record<string, number>>({});

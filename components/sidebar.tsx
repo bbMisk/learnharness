@@ -392,8 +392,8 @@ export function SessionRow({
  *  title line becomes a text input — select-all on entry (the click means
  *  "replace", the header rename's rule), Enter/blur commits, Esc discards.
  *  The meta line stays so the row never changes height mid-edit. */
-export function RenameRow({ chat, onCommit, onCancel, showTime = false }: { chat: ChatListItem; onCommit: (next: string) => void; onCancel: () => void; showTime?: boolean }) {
-	const [draft, setDraft] = useState(chat.title);
+export function RenameRow({ chat, draft: initialDraft, onCommit, onCancel, showTime = false }: { chat: ChatListItem; draft?: string; onCommit: (next: string) => void; onCancel: () => void; showTime?: boolean }) {
+	const [draft, setDraft] = useState(initialDraft ?? chat.title);
 	const inputRef = useRef<HTMLInputElement | null>(null);
 	useEffect(() => {
 		const el = inputRef.current;
@@ -544,6 +544,8 @@ function SessionsSidebar() {
 	const [ctxChatId, setCtxChatId] = useState<string | null>(null);
 	const ctxAnchorRef = useRef<HTMLElement | null>(null);
 	const [renamingId, setRenamingId] = useState<string | null>(null);
+	// A failed rename reopens the row with what was typed.
+	const [renameDraft, setRenameDraft] = useState<string | null>(null);
 	const [deleting, setDeleting] = useState<ChatListItem | null>(null);
 	const [renameError, setRenameError] = useState("");
 	// Where focus goes back once the menu, its rename or its Delete dialog
@@ -612,6 +614,8 @@ function SessionsSidebar() {
 		} catch (err) {
 			console.error("rename failed:", err); // keep the old title
 			setRenameError("Chat could not be renamed. Try again.");
+			setRenameDraft(t);
+			setRenamingId(id);
 		}
 	}, []);
 
@@ -665,7 +669,7 @@ function SessionsSidebar() {
 	}, [open, pathname, refresh]);
 
 	const renderChat = (chat: ChatListItem, index?: number) => renamingId === chat.id ? (
-		<RenameRow key={chat.id} chat={chat} showTime={showTime} onCommit={next => { void commitRename(chat.id, next); returnFocus(); }} onCancel={() => { setRenamingId(null); returnFocus(); }} />
+		<RenameRow key={chat.id} chat={chat} draft={renameDraft ?? undefined} showTime={showTime} onCommit={next => { void commitRename(chat.id, next); returnFocus(); }} onCancel={() => { setRenamingId(null); setRenameError(""); returnFocus(); }} />
 	) : (
 		<SessionRow key={chat.id} chat={chat} showTime={showTime} active={pathname === `/chat/${chat.id}`} kbdSelected={index !== undefined && index === kbdIndex}
 			onArchive={() => updateChat(chat.id, {archived:!chat.archived})}
@@ -913,6 +917,7 @@ function SessionsSidebar() {
 							type="button"
 							data-testid="ctx-rename"
 							onClick={() => {
+								setRenameDraft(null);
 								setRenamingId(ctxChatId);
 								setCtxChatId(null);
 							}}

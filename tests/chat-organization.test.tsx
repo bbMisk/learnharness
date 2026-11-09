@@ -133,3 +133,22 @@ it("a failed archive puts the row back and reports it", async () => {
 	assert.equal(organize.view?.[0]?.archived, undefined);
 	assert.equal(organize.updateError, "Chat could not be updated. Try again.");
 });
+
+it("the error and status lines clear a few seconds after they last changed", async () => {
+	const fixture = await mount(false);
+	mock.timers.enable({ apis: ["setTimeout"] });
+	try {
+		await act(async () => organize.moveChat("chat_a", "project_p"));
+		await act(async () => {
+			fixture.respond();
+			for (let i = 0; i < 10; i++) await Promise.resolve();
+		});
+		assert.equal(organize.updateError, "Chat could not be updated. Try again.");
+		await act(async () => mock.timers.tick(5000));
+		assert.equal(organize.updateError, "Chat could not be updated. Try again.", "still there at 5 s");
+		await act(async () => mock.timers.tick(1500));
+		assert.equal(organize.updateError, null, "gone after 6 s");
+	} finally {
+		mock.timers.reset();
+	}
+});
