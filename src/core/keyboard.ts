@@ -176,6 +176,9 @@ function modifiedKey(e: KeyboardEvent, mod: boolean): string {
 	// Fork: macOS Option changes event.key (⌘⌥S can report "ß" or a dead
 	// key). Mod+Option letter chords use the physical letter code.
 	if (mod && e.altKey && /^Key[A-Z]$/.test(e.code)) return e.code.slice(3).toLowerCase();
+	// A dead key (⌥E, ⌥U, ⌥` on a US Mac; a layout's accent key) names no
+	// character, so it binds by its physical key: ⌥E is alt+e, never alt+dead.
+	if (e.key === "Dead") return deadKey(e.code);
 	const key = e.key.toLowerCase();
 	// Inspect the reported character: lowercasing can expand it (İ → i̇).
 	if (e.key.length !== 1 || e.key <= "\x7f" || !(e.metaKey || e.ctrlKey || e.altKey)) return key;
@@ -183,6 +186,18 @@ function modifiedKey(e: KeyboardEvent, mod: boolean): string {
 	if (e.code === "Space") return " "; // macOS ⌥Space reports a non-breaking space
 	const letter = /^Key([A-Z])$/.exec(e.code);
 	return letter?.[1] ? letter[1].toLowerCase() : key;
+}
+
+/** US positions of the punctuation codes a layout can make dead. */
+const CODE_CHAR: Record<string, string> = {
+	Backquote: "`", Minus: "-", Equal: "=", BracketLeft: "[", BracketRight: "]", Backslash: "\\",
+	Semicolon: ";", Quote: "'", Comma: ",", Period: ".", Slash: "/", Space: " ",
+};
+
+function deadKey(code: string): string {
+	const m = /^(?:Key|Digit)(\w)$/.exec(code);
+	if (m?.[1]) return m[1].toLowerCase();
+	return CODE_CHAR[code] ?? (code.toLowerCase() || "dead");
 }
 
 /** The window event name a registry action dispatches/answers on —
