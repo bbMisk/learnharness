@@ -384,19 +384,22 @@ export function labelAlpha(
 	return clamp01(1 - (ratio - labelZoom) / span);
 }
 
-/** The camera transform that frames `bbox` in a w×h viewport with padding. */
+/** The camera transform that frames `bbox` in a w×h viewport with padding,
+ *  inside the band left between `insets` (chrome covering the top/bottom). */
 export function fitTransform(
 	bbox: { minX: number; maxX: number; minY: number; maxY: number },
 	w: number,
 	h: number,
 	padding: number,
+	insets: { top: number; bottom: number } = { top: 0, bottom: 0 },
 ): { x: number; y: number; k: number } {
 	const bw = Math.max(bbox.maxX - bbox.minX, 1e-6);
 	const bh = Math.max(bbox.maxY - bbox.minY, 1e-6);
-	const k = Math.min((w - 2 * padding) / bw, (h - 2 * padding) / bh);
+	const band = h - insets.top - insets.bottom;
+	const k = Math.min((w - 2 * padding) / bw, (band - 2 * padding) / bh);
 	const cx = (bbox.minX + bbox.maxX) / 2;
 	const cy = (bbox.minY + bbox.maxY) / 2;
-	return { x: w / 2 - cx * k, y: h / 2 - cy * k, k };
+	return { x: w / 2 - cx * k, y: insets.top + band / 2 - cy * k, k };
 }
 
 /** The wheel's next zoom: out stops at half the fit view (or where the
@@ -850,25 +853,42 @@ export class GraphCanvasRenderer {
 		const visible = this.visible;
 		if (!visible || visible.size === 0 || !this.data || this.viewW <= 0 || this.viewH <= 0) return;
 		const { x: tx, y: ty, k } = this.transform;
+		const insets = this.coverInsets();
 		const box = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
 		for (const n of this.data.nodes) {
 			if (!visible.has(n.id)) continue;
 			const sx = n.x * k + tx;
 			const sy = n.y * k + ty;
-			if (sx >= 0 && sx <= this.viewW && sy >= 0 && sy <= this.viewH) return; // one is in view
+			if (sx >= 0 && sx <= this.viewW && sy >= insets.top && sy <= this.viewH - insets.bottom) return; // one is in view
 			box.minX = Math.min(box.minX, n.x);
 			box.maxX = Math.max(box.maxX, n.x);
 			box.minY = Math.min(box.minY, n.y);
 			box.maxY = Math.max(box.maxY, n.y);
 		}
 		if (!Number.isFinite(box.minX)) return;
-		const nk = Math.min(fitTransform(box, this.viewW, this.viewH, 40).k, k);
+		const nk = Math.min(fitTransform(box, this.viewW, this.viewH, 40, insets).k, k);
 		const cx = (box.minX + box.maxX) / 2;
 		const cy = (box.minY + box.maxY) / 2;
+		const midY = insets.top + (this.viewH - insets.top - insets.bottom) / 2;
 		select(this.canvas).call(
 			this.zoomBehavior.transform,
-			zoomIdentity.translate(this.viewW / 2 - cx * nk, this.viewH / 2 - cy * nk).scale(nk),
+			zoomIdentity.translate(this.viewW / 2 - cx * nk, midY - cy * nk).scale(nk),
 		);
+	}
+
+	/** How far page chrome marked data-graph-cover (the top controls, the
+	 *  composer) covers the canvas from the top and the bottom. Ignored when
+	 *  it would leave less than half the canvas. */
+	private coverInsets(): { top: number; bottom: number } {
+		const box = this.canvas.getBoundingClientRect();
+		let top = 0, bottom = 0;
+		for (const el of document.querySelectorAll("[data-graph-cover]")) {
+			const r = el.getBoundingClientRect();
+			if (r.width === 0 || r.height === 0 || r.right <= box.left || r.left >= box.right) continue;
+			if (r.top + r.bottom < box.top + box.bottom) top = Math.max(top, r.bottom - box.top);
+			else bottom = Math.max(bottom, box.bottom - r.top);
+		}
+		return top + bottom > box.height / 2 ? { top: 0, bottom: 0 } : { top, bottom };
 	}
 
 	/** Frame the whole graph (padding included). Keeps the camera on later
@@ -879,8 +899,8 @@ export class GraphCanvasRenderer {
 		const w = this.canvas.clientWidth;
 		const h = this.canvas.clientHeight;
 		if (w < 10 || h < 10) return; // layout not ready yet; the ResizeObserver retries
-		const t = fitTransform(this.worldBBox, w, h, 40);
-		this.kFit = t.k;
+		const t = fitTransform(this.worldBBox, w, h, 40, this.coverInsets());
+		this.kFit = fitTransform(this.worldBBox, w, h, 40).k; // the label gate's 1×, chrome-free
 		this.hasFit = true;
 		select(this.canvas).call(
 			this.zoomBehavior.transform,

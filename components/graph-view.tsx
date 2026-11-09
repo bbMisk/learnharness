@@ -1360,7 +1360,7 @@ export function GraphView({
 			    against the full-bleed parent). The row wraps when the GRAPH
 			    AREA (not the viewport) is too narrow for one row, which would
 			    otherwise run left over the sidebar's close toggle. */}
-			<div className="lh-no-drag lh-wco-floating absolute right-2 top-2 z-10 flex max-w-[calc(100%-5.5rem)] flex-col items-end gap-2">
+			<div data-graph-cover className="lh-no-drag lh-wco-floating absolute right-2 top-2 z-10 flex max-w-[calc(100%-5.5rem)] flex-col items-end gap-2">
 			{/* z-20: the row paints above the cost number below it — otherwise
 			    the later-in-DOM cost control layers over the open dropdowns.
 			    The row is a stacking context, so its open dropdowns cover the

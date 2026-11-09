@@ -129,6 +129,15 @@ describe("fitTransform", () => {
 		assert.ok(Math.abs(0 * t.k + t.x - 250) < 1e-9);
 	});
 
+	test("frames the band between the covering chrome (top controls, composer)", () => {
+		// 500x300 with 20px covered on top and 80px at the bottom: the
+		// band is 200 tall -> k = min(420/100, 120/50) = 2.4, centered at y 120.
+		const t = fitTransform({ minX: -50, maxX: 50, minY: -25, maxY: 25 }, 500, 300, 40, { top: 20, bottom: 80 });
+		assert.ok(Math.abs(t.k - 2.4) < 1e-9, `k=${t.k}`);
+		assert.ok(Math.abs(t.x - 250) < 1e-9, `x=${t.x}`);
+		assert.ok(Math.abs(t.y - 120) < 1e-9, `y=${t.y}`);
+	});
+
 	test("never returns a non-positive scale for degenerate bboxes", () => {
 		const t = fitTransform({ minX: 5, maxX: 5, minY: 5, maxY: 5 }, 100, 100, 10);
 		assert.ok(t.k > 0 && Number.isFinite(t.k));
