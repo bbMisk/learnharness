@@ -164,3 +164,20 @@ describe("every overlay over the dock is a modal", () => {
 		await keysBehind(<DeleteSourceDialog open sources={[]} folders={[{ id: "f1", name: "Old" } as never]} onDelete={async () => {}} onClose={() => {}} />, "delete-source-dialog");
 	});
 });
+
+describe("cancelling the Dismiss confirm", () => {
+	it("hands focus back to the field it came from", async () => {
+		const { AbortTurnDialog } = await import("../components/abort-turn-dialog.tsx");
+		const host = document.createElement("div");
+		const field = document.createElement("div");
+		document.body.append(field, host);
+		hosts.push(field, host);
+		field.focus();
+		root = createRoot(host);
+		const render = (mode: "question" | null) => act(async () => root!.render(<AbortTurnDialog mode={mode} onClose={() => {}} onConfirm={() => {}} />));
+		await render("question");
+		assert.notEqual(focused, field, "the confirm took focus");
+		await render(null);
+		assert.equal(focused, field);
+	});
+});

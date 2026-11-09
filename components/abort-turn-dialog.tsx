@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
 
@@ -61,6 +61,16 @@ export function AbortTurnBody({
 	busy?: boolean;
 }) {
 	const backdropDismiss = useBackdropDismiss(onClose);
+	// Focus lands on the action so Enter confirms; closing hands it back to
+	// where it was (the check's field), read before the confirm takes it.
+	const [opener] = useState(() => (typeof document === "undefined" ? null : document.activeElement));
+	const confirmRef = useRef<HTMLButtonElement>(null);
+	useEffect(() => {
+		confirmRef.current?.focus();
+		return () => {
+			if (opener instanceof HTMLElement && opener !== document.body && opener.isConnected) opener.focus({ preventScroll: true });
+		};
+	}, [opener]);
 	const copy = COPY[mode];
 	return (
 		<div
@@ -96,8 +106,7 @@ export function AbortTurnBody({
 					<button
 						type="button"
 						data-testid="abort-turn-confirm"
-						// Focus lands here so Enter confirms; Esc cancels.
-						autoFocus
+						ref={confirmRef}
 						onClick={onConfirm}
 						// Destructive red — the app's established destructive pair.
 						className="rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-xs text-destructive transition-colors hover:bg-destructive/20"
