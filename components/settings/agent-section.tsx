@@ -370,6 +370,12 @@ export function AgentSection({
 	/** The live search state (/api/search) — the row's reason line. */
 	const [folderInput, setFolderInput] = useState("");
 	const [folderError, setFolderError] = useState<string | null>(null);
+	// Folder adds run one at a time, each on top of the last one's result:
+	// the props only catch up once its PUT lands.
+	const latestAgent = useRef(agent);
+	useEffect(() => { latestAgent.current = agent; }, [agent]);
+	const folderAdds = useRef(Promise.resolve());
+	const folderText = useRef("");
 	const [search, setSearch] = useState<{ available: boolean; engine: string | null; reason: string } | null>(null);
 	/** Which search engines have a key (/api/keys) — the no-keys-anywhere
 	 *  state grays the row; per-engine marks ride the menu rows. */
@@ -844,26 +850,37 @@ export function AgentSection({
 					</SettingsRow>
 				))}
 				{(() => {
+					const effective = (base: AgentSettings | undefined) => fileAccessError ? { ...base, fileAccess: { restricted: true, folders: base?.fileAccess?.folders ?? [] } } : base;
 					const folders = agent?.fileAccess?.folders ?? [];
 					const restricted = Boolean(fileAccessError) || agent?.fileAccess?.restricted === true;
-					const effectiveAgent = fileAccessError ? { ...agent, fileAccess: { restricted: true, folders } } : agent;
-					const addFolder = async () => {
-						const next = normalizeFolder(folderInput);
-						if (!isFolderEntry(next)) { setFolderError("Enter an absolute path or ~/folder."); return; }
-						if (isRootFolder(next)) { setFolderError("Choose a specific folder, not the whole disk."); return; }
-						if (climbsAboveHome(next)) { setFolderError("For a folder outside ~, type its full path."); return; }
-						if (folders.map(normalizeFolder).includes(next)) { setFolderError("That folder is already listed."); return; }
+					const effectiveAgent = effective(agent);
+					const addFolderNow = async (next: string) => {
+						// A notice or clear is for the text it checked, not newer typing.
+						const current = () => normalizeFolder(folderText.current) === next;
+						const notice = (text: string | null) => { if (current()) setFolderError(text); };
+						const base = effective(latestAgent.current);
+						const listed = base?.fileAccess?.folders ?? [];
+						if (!isFolderEntry(next)) { notice("Enter an absolute path or ~/folder."); return; }
+						if (isRootFolder(next)) { notice("Choose a specific folder, not the whole disk."); return; }
+						if (climbsAboveHome(next)) { notice("For a folder outside ~, type its full path."); return; }
+						if (listed.map(normalizeFolder).includes(next)) { notice("That folder is already listed."); return; }
 						// The server knows the disk: it refuses the app's data folder
 						// and symlinked duplicates, and warns about a missing folder.
 						const check = (await fetch("/api/settings/file-access", {
 							method: "POST",
 							headers: { "content-type": "application/json" },
-							body: JSON.stringify({ folder: next, folders }),
+							body: JSON.stringify({ folder: next, folders: listed }),
 						}).then((r) => (r.ok ? r.json() : {})).catch(() => ({}))) as { error?: string; warning?: string };
-						if (check.error) { setFolderError(check.error); return; }
-						onSectionChange(composeAddFolder(effectiveAgent, next));
-						setFolderInput("");
-						setFolderError(check.warning ?? null);
+						if (check.error) { notice(check.error); return; }
+						const composed = composeAddFolder(effective(latestAgent.current), next);
+						latestAgent.current = composed;
+						onSectionChange(composed);
+						notice(check.warning ?? null);
+						if (current()) { folderText.current = ""; setFolderInput(""); }
+					};
+					const addFolder = () => {
+						const next = normalizeFolder(folderInput);
+						folderAdds.current = folderAdds.current.then(() => addFolderNow(next));
 					};
 					return (
 						<div data-testid="file-access-row" className="flex flex-col gap-2">
@@ -879,10 +896,10 @@ export function AgentSection({
 							{fileAccessError && <p role="alert" data-testid="file-access-config-error" className="text-xs text-red-500">{fileAccessError}</p>}
 							<div className="flex gap-2 pl-3">
 								<input value={folderInput} aria-label="Allowed folder path" data-testid="file-access-add" placeholder="Absolute path or ~/folder"
-									onChange={(event) => { setFolderInput(event.target.value); setFolderError(null); }}
-									onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void addFolder(); } }}
+									onChange={(event) => { folderText.current = event.target.value; setFolderInput(event.target.value); setFolderError(null); }}
+									onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addFolder(); } }}
 									className="min-w-0 flex-1 rounded-sm border border-border bg-background px-2 py-1 font-ui text-xs" />
-								<button type="button" data-testid="file-access-add-button" disabled={!folderInput.trim()} onClick={() => void addFolder()} className="rounded-sm border border-border px-2 text-xs disabled:opacity-40">Add folder</button>
+								<button type="button" data-testid="file-access-add-button" disabled={!folderInput.trim()} onClick={addFolder} className="rounded-sm border border-border px-2 text-xs disabled:opacity-40">Add folder</button>
 							</div>
 							{folderError && <p role="alert" data-testid="file-access-input-error" className="pl-3 text-xs text-red-500">{folderError}</p>}
 							{folders.map((folder) => (
