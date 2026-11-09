@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
+import { useFocusReturn } from "@/components/focus-return";
 
 /**
  * The ESC-abort guard (owner, 2026-10-02): the global Esc → abort chain
@@ -63,14 +64,11 @@ export function AbortTurnBody({
 	const backdropDismiss = useBackdropDismiss(onClose);
 	// Focus lands on the action so Enter confirms; closing hands it back to
 	// where it was (the check's field), read before the confirm takes it.
-	const [opener] = useState(() => (typeof document === "undefined" ? null : document.activeElement));
+	useFocusReturn(true);
 	const confirmRef = useRef<HTMLButtonElement>(null);
 	useEffect(() => {
 		confirmRef.current?.focus();
-		return () => {
-			if (opener instanceof HTMLElement && opener !== document.body && opener.isConnected) opener.focus({ preventScroll: true });
-		};
-	}, [opener]);
+	}, []);
 	const copy = COPY[mode];
 	return (
 		<div
