@@ -6,9 +6,10 @@ import { it } from "node:test";
 import { parseHTML } from "linkedom";
 
 const dom = parseHTML("<html><body></body></html>");
+Object.assign(dom.document, { oninput: null }); // native input events, not React's legacy polyfill
 Object.assign(globalThis, {
 	window: dom.window, document: dom.document, Element: dom.window.Element, HTMLElement: dom.window.HTMLElement,
-	Node: dom.window.Node, Event: dom.window.Event, CustomEvent: dom.window.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true,
+	HTMLInputElement: dom.window.HTMLInputElement, Node: dom.window.Node, Event: dom.window.Event, CustomEvent: dom.window.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true,
 	fetch: async () => Response.json({ organization: { version: 1, folders: [], placements: {} }, sources: [] }),
 });
 let focused: Element | undefined;
@@ -64,4 +65,24 @@ it("Tab inside the open table stays in it: it goes to the table's search, never 
 	await act(async () => root.unmount());
 	assert.ok(tab.defaultPrevented && !reachedWindow, "the global field cycle never hears it");
 	assert.ok(onSearch, "focus lands on the table's search");
+});
+
+it("Esc in the table's search clears the query first, then closes the table", async () => {
+	const host = document.createElement("div");
+	document.body.append(host);
+	const root = createRoot(host);
+	await act(async () => root.render(<ServerEventsProvider connect={quiet}><Harness /></ServerEventsProvider>));
+	await act(async () => setOpen(true));
+	const search = document.querySelector('[data-testid="chain-table-search"]') as HTMLInputElement;
+	search.setAttribute("type", "text"); // linkedom reports no type, so React would skip onChange
+	Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(search, "normal");
+	await act(async () => search.dispatchEvent(new dom.window.Event("input", { bubbles: true })));
+	const esc = async () => act(async () => search.dispatchEvent(Object.assign(new dom.window.Event("keydown", { bubbles: true, cancelable: true }), { key: "Escape" })));
+	await esc();
+	const afterFirst = { open: !!document.querySelector('[data-testid="chain-table-overlay"]'), query: (document.querySelector('[data-testid="chain-table-search"]') as HTMLInputElement | null)?.value };
+	await esc();
+	const closed = !document.querySelector('[data-testid="chain-table-overlay"]');
+	await act(async () => root.unmount());
+	assert.deepEqual(afterFirst, { open: true, query: "" }, "the first Esc only clears");
+	assert.ok(closed, "the second Esc closes");
 });
