@@ -32,7 +32,7 @@ export default function UpdateBanner() {
 		<div
 			data-testid="update-banner"
 			data-status={ready.status}
-			className="fixed right-[calc(1rem+env(safe-area-inset-right,0px))] bottom-[calc(1rem+env(safe-area-inset-bottom,0px))] z-50 flex items-center gap-3 rounded-lg border border-border bg-popover px-4 py-3 shadow-lg"
+			className="fixed right-[calc(1rem+env(safe-area-inset-right,0px))] bottom-[calc(1rem+var(--lh-safe-bottom))] z-50 flex items-center gap-3 rounded-lg border border-border bg-popover px-4 py-3 shadow-lg"
 		>
 			{ready.status === "downloaded" && (
 				<>

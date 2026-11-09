@@ -72,6 +72,7 @@ describe("update banner (Wave C)", () => {
 		flushSync(() => pushed?.({ status: "downloaded", version: "0.3.1", revision: 1 }));
 		assert.ok(host.innerHTML.includes("0.3.1"), "the version renders");
 		assert.ok(host.innerHTML.includes("Restart"), "the restart affordance renders");
+		assert.match(host.querySelector<HTMLElement>("[data-testid='update-banner']")!.className, /bottom-\[calc\(1rem\+var\(--lh-safe-bottom\)\)\]/, "clears the bottom offline strip");
 
 		const button = host.querySelector<HTMLButtonElement>("[data-testid='update-banner'] button");
 		assert.ok(button, "restart button exists");
