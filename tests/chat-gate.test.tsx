@@ -138,15 +138,22 @@ it("Restore is optimistic: the note and the sidebar row change before the PUT la
 	const sent: unknown[] = [];
 	const listen = (e: Event) => sent.push((e as CustomEvent).detail);
 	window.addEventListener("lh:chat-archived", listen);
+	const focused: Element[] = [];
+	const realFocus = dom.window.HTMLElement.prototype.focus;
+	dom.window.HTMLElement.prototype.focus = function (this: Element) {
+		focused.push(this);
+	};
 	try {
 		await act(async () => (host.querySelector('[data-testid="chat-archived"] button') as HTMLElement).click());
 		assert.ok(!host.querySelector('[data-testid="chat-archived"]'), "the note goes at once");
 		assert.deepEqual(sent, [{ id: "chat_x", archived: false }]);
 		await act(async () => answer(new Response("{}", { status: 500 })));
 		assert.ok(host.querySelector('[data-testid="chat-archived"]'), "a failed restore brings the note back");
+		assert.ok(focused.at(-1) === host.querySelector('[data-testid="chat-archived"] button'), "with focus back on Restore");
 		assert.deepEqual(sent.at(-1), { id: "chat_x", archived: true });
 	} finally {
 		window.removeEventListener("lh:chat-archived", listen);
+		dom.window.HTMLElement.prototype.focus = realFocus;
 	}
 });
 

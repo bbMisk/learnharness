@@ -24,6 +24,7 @@ export function ChatGate({ chatId, title, archived: initiallyArchived = false, c
 	const [shownTitle, setShownTitle] = useState(title);
 	const [archived, setArchived] = useState(initiallyArchived);
 	const [restoring, setRestoring] = useState(false);
+	const refocusRestore = useRef(false); // a failed Restore remounts the button: focus goes back to it
 	const known = useRef(title);
 	const latest = useRef(0);
 	const check = useCallback(async () => {
@@ -79,6 +80,7 @@ export function ChatGate({ chatId, title, archived: initiallyArchived = false, c
 		const show = (value: boolean) => {
 			setArchived(value);
 			window.dispatchEvent(new CustomEvent("lh:chat-archived", { detail: { id: chatId, archived: value } }));
+			refocusRestore.current = value;
 		};
 		setRestoring(true);
 		show(false);
@@ -105,7 +107,18 @@ export function ChatGate({ chatId, title, archived: initiallyArchived = false, c
 					className="flex h-7 shrink-0 items-center justify-center gap-2 border-b border-border bg-card px-4 text-xs text-muted-foreground"
 				>
 					This chat is archived.
-					<button type="button" disabled={restoring} onClick={() => void restore()} className="text-foreground underline-offset-2 hover:underline disabled:opacity-40">
+					<button
+						type="button"
+						ref={(el) => {
+							if (el && refocusRestore.current) {
+								refocusRestore.current = false;
+								el.focus();
+							}
+						}}
+						disabled={restoring}
+						onClick={() => void restore()}
+						className="text-foreground underline-offset-2 hover:underline disabled:opacity-40"
+					>
 						Restore
 					</button>
 				</p>
