@@ -34,7 +34,7 @@ import { AgentSection } from "./agent-section.tsx";
 import type { ModelsSettings } from "@/src/core";
 import { MENU_CLOSE_EVENT, MENU_OPEN_EVENT } from "@/components/menu-shell";
 import { notifySettingsSaved } from "@/components/settings-signal";
-import { useOptionalServerEvent } from "@/components/server-events";
+import { useOptionalServerEvent, useOptionalServerResync } from "@/components/server-events";
 import { KeysSection } from "./keys-section.tsx";
 import { Hint } from "@/components/ui/hint";
 import { AppearanceSection, GraphSection } from "./appearance-section.tsx";
@@ -152,6 +152,8 @@ export function SettingsDialogBody({
 	// state is a non-200 or a network throw only.
 	const [loads, setLoads] = useState(0);
 	useOptionalServerEvent("settings-changed", () => setLoads((n) => n + 1));
+	// A load that failed while the server was down retries once it is back.
+	useOptionalServerResync(() => { if (record === null) setLoads((n) => n + 1); });
 	useEffect(() => {
 		let alive = true;
 		fetch("/api/settings")
