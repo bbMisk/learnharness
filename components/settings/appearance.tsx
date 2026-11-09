@@ -22,6 +22,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { FACTORY_SETTINGS, type AppearanceSettings } from "@/src/core";
 import { useOptionalServerEvent } from "@/components/server-events";
+import { readSettings } from "@/components/settings-read";
 
 /** The resolved, fully-concrete appearance view (delta + factory merged). */
 export function resolveAppearance(delta: AppearanceSettings | undefined) {
@@ -159,9 +160,8 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
 	useOptionalServerEvent("settings-changed", (p) => { if (p.section === "appearance") setLoads((n) => n + 1); });
 	useEffect(() => {
 		let alive = true;
-		fetch("/api/settings")
-			.then((r) => r.json())
-			.then((body: { settings?: Record<string, unknown> }) => {
+		readSettings()
+			.then((body: { settings?: Record<string, unknown> | null }) => {
 				if (!alive) return;
 				// The record arrives sanitized server-side; the appearance
 				// slice is unknown-shaped here, so it goes through the same

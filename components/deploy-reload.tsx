@@ -6,12 +6,21 @@ import { useServerResync } from "@/components/server-events";
 
 const BUILD = process.env.LH_BUILD;
 
+let sharedHealth: Promise<{ build?: string }> | null = null;
+/** The row and the pill resync together: one request per synchronous run. */
+function readHealth(): Promise<{ build?: string }> {
+	if (sharedHealth) return sharedHealth;
+	const read = fetch("/api/health", { cache: "no-store" }).then((response) => response.json() as Promise<{ build?: string }>);
+	sharedHealth = read;
+	queueMicrotask(() => { sharedHealth = null; });
+	return read;
+}
+
 /** After a deploy the events channel reconnects to a server with a new build. */
 function useDeployStale(build: string | undefined): boolean {
 	const [stale, setStale] = useState(false);
 	useServerResync(() => {
-		void fetch("/api/health", { cache: "no-store" })
-			.then((response) => response.json() as Promise<{ build?: string }>)
+		void readHealth()
 			.then(({ build: served }) => {
 				if (build && served && served !== build) setStale(true);
 			})

@@ -9,10 +9,19 @@ type Reply<T> = { value: T; browserAction?: string; error?: string };
 const PATH = "/api/subscriptions";
 const headers = { "Content-Type": "application/json", "x-learnharness-subscriptions": "1" };
 
-async function status() {
-	const response = await fetch(PATH, { headers, cache: "no-store" });
-	if (!response.ok) throw new Error("Subscription status is unavailable.");
-	return response.json() as Promise<{ chatgpt: ChatGPTStatus; native: NativeSubscriptionStatus[] }>;
+let sharedStatus: Promise<{ chatgpt: ChatGPTStatus; native: NativeSubscriptionStatus[] }> | null = null;
+/** The ChatGPT and native bridges read together (mount, resync): reads
+ *  started in one synchronous run share one request. */
+function status() {
+	if (sharedStatus) return sharedStatus;
+	const read = (async () => {
+		const response = await fetch(PATH, { headers, cache: "no-store" });
+		if (!response.ok) throw new Error("Subscription status is unavailable.");
+		return response.json() as Promise<{ chatgpt: ChatGPTStatus; native: NativeSubscriptionStatus[] }>;
+	})();
+	sharedStatus = read;
+	queueMicrotask(() => { sharedStatus = null; });
+	return read;
 }
 async function control<T>(providerId: string, op: string, fields: Record<string, unknown> = {}): Promise<Reply<T>> {
 	const response = await fetch(PATH, { method: "POST", headers, body: JSON.stringify({ providerId, op, ...fields }) });

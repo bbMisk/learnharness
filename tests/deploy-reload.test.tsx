@@ -112,3 +112,27 @@ it("a hidden pill keeps watching, so it shows at once when unhidden (sidebar clo
 	await act(async () => root!.render(view(false)));
 	assert.ok(document.querySelector('[data-testid="deploy-reload"]'), "no reconnect needed");
 });
+
+it("the sidebar row and the pill check the build with one request per reconnect", async () => {
+	let gets = 0;
+	let open: () => void = () => {};
+	const channel = () => ({ close() {}, onOpen(cb: () => void) { open = cb; }, onEvent() {} });
+	const mount = document.createElement("div");
+	document.body.append(mount);
+	root = createRoot(mount);
+	await act(async () =>
+		root!.render(
+			<ServerEventsProvider connect={channel}>
+				<DeployReload build="build-a" variant="row" />
+				<DeployReload build="build-a" />
+			</ServerEventsProvider>,
+		),
+	);
+	globalThis.fetch = (async () => { gets++; return Response.json({ build: "build-b" }); }) as typeof fetch;
+	await act(async () => {
+		open();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+	assert.equal(gets, 1);
+	assert.equal(document.querySelectorAll('[data-testid="deploy-reload"]').length, 2, "both still show the update");
+});
