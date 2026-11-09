@@ -231,7 +231,7 @@ export function formatBinding(binding: string): string {
 	const parts = binding.split("+");
 	let key = parts.pop()!; // last part is always the key
 	// …except the "+" key: "mod+shift++" splits to [mod, shift, "", ""].
-	if (key === "") { parts.pop(); key = "+"; }
+	if (key === "" && parts.length) { parts.pop(); key = "+"; }
 	const glyphs: string[] = [];
 	for (const part of parts) {
 		if (part === "mod") glyphs.push(MOD_GLYPH);
