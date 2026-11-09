@@ -61,6 +61,7 @@ import { useServerEvent, useServerResync } from "./server-events";
 import { TopBar } from "@/components/top-bar";
 import { DeleteSourceDialog } from "@/components/delete-source-dialog";
 import { LatexGlyph } from "@/components/latex-glyph";
+import { isComposing } from "@/components/ime";
 
 /** The sortable columns. */
 export type ChainSortCol = "name" | "props" | "created";
@@ -312,7 +313,7 @@ export function ChainTableBody({
 						onChange={(e) => onQuery(e.target.value)}
 						// Esc clears the search first; the table's own Esc closes it after.
 						onKeyDown={(e) => {
-							if (e.key === "Escape" && query) {
+							if (e.key === "Escape" && query && !isComposing(e)) {
 								e.preventDefault();
 								onQuery("");
 							}
@@ -791,7 +792,7 @@ export function ChainTableOverlay({
 			if (e.key === "Escape") {
 				// App Router delegates React events on document too: a child's
 				// stopPropagation cannot silence a sibling document listener.
-				if (e.defaultPrevented || (e.target instanceof Element && e.target.closest('[data-testid="source-name-input"]'))) return;
+				if (e.defaultPrevented || isComposing(e) || (e.target instanceof Element && e.target.closest('[data-testid="source-name-input"]'))) return;
 				// Claim at the document level — the window chain (dictation →
 				// abort) must not also act. One Esc, one action.
 				e.preventDefault();

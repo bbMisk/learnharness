@@ -1,6 +1,7 @@
 import React, { act, Suspense } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
+import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, it } from "node:test";
 import { parseHTML } from "linkedom";
 
@@ -24,6 +25,8 @@ const proto = dom.window.HTMLElement.prototype as unknown as Record<string, unkn
 proto.getAnimations = () => [];
 proto.animate = () => ({ cancel() {} });
 proto.scrollIntoView = () => {};
+// The folded form is visibility: hidden (Tailwind's invisible).
+proto.checkVisibility = function (this: Element) { return !this.closest(".invisible"); };
 proto.getBoundingClientRect = () => ({ x: 0, y: 0, width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0 });
 // linkedom has no focus model.
 let focused: Element | null = null;
@@ -144,6 +147,16 @@ it("clicking Open moves focus into the check; Esc folds it and drops focus out o
 	await act(async () => escRef.current!());
 	assert.ok(host.querySelector('[data-testid="question-dock-bar"]'), "folded back to its bar");
 	assert.ok(document.activeElement === document.body, "the hidden field no longer holds focus");
+});
+
+it("Esc folding the check hands focus to the visible typing field, not <body>", async () => {
+	const escRef: React.RefObject<(() => void) | null> = { current: null };
+	const host = await mount(<Overlay onSubmit={() => {}} checkEscRef={escRef} id="q-fold-focus"><div data-testid="composer"><textarea data-file-path-input="" /></div></Overlay>);
+	await act(async () => { (host.querySelector('[data-testid="teach-check-reveal"]') as HTMLElement).click(); });
+	(host.querySelector('[data-testid="question-dock"] [data-file-path-input]') as HTMLElement).focus();
+	await act(async () => escRef.current!());
+	await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+	assertSameNode(focused, host.querySelector('[data-testid="composer"] textarea'), "the composer");
 });
 
 function SavePosition({ el }: { el: HTMLElement }) {

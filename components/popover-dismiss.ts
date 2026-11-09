@@ -1,4 +1,5 @@
 import { useEffect, type RefObject } from "react";
+import { isComposing } from "@/components/ime";
 
 /**
  * Close-on-dismissal for floating panels (graph chrome, 2026-09-17):
@@ -20,7 +21,7 @@ export function usePopoverDismiss(
 			if (rootRef.current && !rootRef.current.contains(e.target as Node)) close();
 		};
 		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape" && !e.defaultPrevented) {
+			if (e.key === "Escape" && !e.defaultPrevented && !isComposing(e)) {
 				// Claim the Esc (keyboard wave A): the window-level dismiss
 				// chain must not ALSO stop dictation / abort a turn under
 				// this popover. Popovers are the chain's topmost layer.

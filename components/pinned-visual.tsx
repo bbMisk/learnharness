@@ -274,7 +274,8 @@ export function usePinnedVisual({
 	const toggleDrawer = useCallback(() => setOpen((o) => !o), []);
 	const closeExpanded = useCallback(() => setExpanded(false), []);
 	// The expanded demo is a modal (data-lh-modal), so the global Esc chain
-	// is gated: it claims its own Esc at the document level.
+	// is gated: it claims its own Esc at the document level. An Esc inside
+	// the demo arrives through its bridge.
 	useEffect(() => {
 		if (!showExpanded) return;
 		const onKey = (e: KeyboardEvent) => {
@@ -283,8 +284,17 @@ export function usePinnedVisual({
 			e.stopPropagation();
 			setExpanded(false);
 		};
+		const onMessage = (e: MessageEvent) => {
+			if ((e.data as { type?: unknown } | null)?.type !== "demo-escape") return;
+			const frames = document.querySelectorAll<HTMLIFrameElement>('[data-testid="pin-panel"][data-lh-modal] iframe');
+			if ([...frames].some((frame) => frame.contentWindow === e.source)) setExpanded(false);
+		};
 		document.addEventListener("keydown", onKey);
-		return () => document.removeEventListener("keydown", onKey);
+		window.addEventListener("message", onMessage);
+		return () => {
+			document.removeEventListener("keydown", onKey);
+			window.removeEventListener("message", onMessage);
+		};
 	}, [showExpanded]);
 	const drawerTab = shown && mode === "drawer" && !showExpanded ? (
 		<DrawerTab title={target.title} open={open} right={open ? drawerWidth + GAP : 0} onToggle={toggleDrawer} />

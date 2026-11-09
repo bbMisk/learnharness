@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useStickToBottomContext } from "use-stick-to-bottom";
 import { opensWaitingCheck } from "@/components/waiting-check-key";
 import { openModal } from "@/components/open-modal";
+import { focusComposer } from "@/components/focus-return";
 import { Hint } from "@/components/ui/hint";
 import { useSessionOverlay } from "@/components/session-overlay";
 import { ConversationScrollButton } from "@/components/ai-elements/conversation";
@@ -443,9 +444,13 @@ export function DockOverlay({
 	useEffect(() => {
 		if (!checkEscRef || !checkCollapsible) return;
 		checkEscRef.current = () => {
-			// Focus left in the hidden form would keep its Enter-to-submit.
+			// Focus left in the hidden form would keep its Enter-to-submit:
+			// it moves to the visible typing field, if any, once the check folds.
 			const active = document.activeElement;
-			if (active instanceof HTMLElement && shellRef.current?.contains(active)) active.blur();
+			if (active instanceof HTMLElement && shellRef.current?.contains(active)) {
+				active.blur();
+				requestAnimationFrame(() => { if (document.activeElement === document.body) focusComposer(); });
+			}
 			holdFoldRef.current = true;
 			setExpanded(false);
 		};

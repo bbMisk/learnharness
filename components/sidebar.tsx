@@ -207,20 +207,21 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 		return () => media.removeEventListener("change", onChange);
 	}, []);
 
-	// Esc closes the open phone drawer, unless a field, menu or dialog
-	// above it owns the key.
+	// Esc closes the open phone drawer, unless a field in it, a menu or a
+	// dialog above it owns the key. The drawer covers the page, so it hears
+	// Esc first (capture), before Find or a field behind its backdrop.
 	useEffect(() => {
 		if (!open) return;
 		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key !== "Escape" || e.defaultPrevented || !isPhone()) return;
+			if (e.key !== "Escape" || e.defaultPrevented || isComposing(e) || !isPhone()) return;
 			if (document.querySelector("[data-lh-modal], [data-lh-menu]")) return;
-			if (e.target instanceof Element && e.target.closest("input, textarea, [contenteditable='true']")) return;
+			if (e.target instanceof Element && e.target.closest("input, textarea, [contenteditable='true']")?.closest("[data-lh-sidebar]")) return;
 			e.preventDefault();
 			e.stopPropagation();
 			toggle();
 		};
-		document.addEventListener("keydown", onKeyDown);
-		return () => document.removeEventListener("keydown", onKeyDown);
+		document.addEventListener("keydown", onKeyDown, true);
+		return () => document.removeEventListener("keydown", onKeyDown, true);
 	}, [open, toggle]);
 
 	// ⌘B: the global shortcut dispatches kbdEventForAction("toggle-sidebar")
@@ -453,7 +454,7 @@ export function RenameRow({ chat, draft: initialDraft, onCommit, onCancel, showT
 					onBlur={() => onCommit(draft, byEnter.current)}
 					onKeyDown={(e) => {
 						if (e.key === "Enter" && !isComposing(e)) { byEnter.current = true; e.currentTarget.blur(); }
-						if (e.key === "Escape") {
+						if (e.key === "Escape" && !isComposing(e)) {
 							e.preventDefault(); // claimed: Find / the side tutor stay open
 							e.stopPropagation(); // discard, not also the sidebar/chat chains
 							onCancel();
@@ -753,6 +754,7 @@ function SessionsSidebar() {
 		<DeployReload variant="floating" hidden={open} />
 		{open && <div aria-hidden="true" className="fixed inset-0 z-50 bg-black/40 md:hidden" onClick={toggle} />}
 		<aside
+			data-lh-sidebar=""
 			className={cn("sidebar-motion shrink-0 overflow-hidden duration-200 max-md:fixed max-md:top-[var(--lh-safe-top)] max-md:bottom-[var(--lh-safe-bottom)] max-md:left-0 max-md:z-50", open ? "w-72" : "w-0")}
 			aria-hidden={!open}
 			// Closed: nothing inside takes focus, and a focused search box lets go.
@@ -853,7 +855,7 @@ function SessionsSidebar() {
 							// leaves the search (blur); it claims the key so the
 							// window Esc chain (dictation / abort) doesn't also fire.
 							onKeyDown={(e) => {
-								if (e.key === "Escape") {
+								if (e.key === "Escape" && !isComposing(e)) {
 									e.preventDefault(); // claimed: Find / the side tutor stay open
 									e.stopPropagation();
 									if (query) {

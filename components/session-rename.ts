@@ -69,7 +69,7 @@ export function useSessionRename(chatId: string, title: string) {
 					reopenQuietly.current = false;
 					const onKey = (e: KeyboardEvent) => {
 						if (e.key !== "Enter" && e.key !== "Escape") return;
-						if (e.key === "Enter" && isComposing(e)) return; // the IME's confirm, not a commit
+						if (isComposing(e)) return; // the IME's confirm or cancel, not a commit
 						closedByKey.current = true;
 						// The focus moves before Enter's default: keep it from typing a newline there.
 						if (e.key === "Enter") e.preventDefault();

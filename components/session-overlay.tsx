@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import { MaximizeIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fitGraphView, fitZoomFor, zoomedGraphView, type Viewport } from "@/components/pan-zoom";
+import { isComposing } from "@/components/ime";
 import { renderMermaid } from "@/components/mermaid-render";
 import { MermaidError } from "@/components/mermaid-error";
 import { Hint } from "@/components/ui/hint";
@@ -119,7 +120,7 @@ export function MermaidOverlay({
 	// (dictation → abort) never fires under a surfaced layer.
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape" && !e.defaultPrevented) {
+			if (e.key === "Escape" && !e.defaultPrevented && !isComposing(e)) {
 				e.preventDefault();
 				e.stopPropagation();
 				onClose();

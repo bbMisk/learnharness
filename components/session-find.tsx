@@ -7,6 +7,7 @@ import {
 	affectsSessionFind, sameSessionRange, sessionFindIndex, sessionFindRanges, sessionRangeIdentity, type SessionFindIndex, type SessionRangeIdentity,
 } from "@/components/session-find-dom";
 import { captureFocus, focusComposer } from "@/components/focus-return";
+import { isComposing } from "@/components/ime";
 import { scrollSessionTarget, type SessionScrollContext } from "@/components/session-navigation";
 
 export const SESSION_FIND_HIGHLIGHT = "lh-session-find";
@@ -105,7 +106,7 @@ export function SessionFind({ scopeRef, scrollContextRef }: {
 		inputRef.current?.focus({ preventScroll: true });
 		inputRef.current?.select();
 		const onEscape = (event: KeyboardEvent) => {
-			if (event.key !== "Escape" || event.defaultPrevented || sessionFindHasForegroundLayer(document)) return;
+			if (event.key !== "Escape" || event.defaultPrevented || isComposing(event) || sessionFindHasForegroundLayer(document)) return;
 			event.preventDefault();
 			event.stopPropagation();
 			close();
@@ -190,7 +191,7 @@ export function SessionFind({ scopeRef, scrollContextRef }: {
 					if ((event.target as HTMLElement).tagName !== "INPUT" || event.nativeEvent.isComposing) return;
 					event.preventDefault();
 					step(event.shiftKey ? -1 : 1);
-				} else if (event.key === "Escape") {
+				} else if (event.key === "Escape" && !isComposing(event)) {
 					event.preventDefault();
 					event.stopPropagation();
 					close();

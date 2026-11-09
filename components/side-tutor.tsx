@@ -8,6 +8,7 @@ import { ResizableSidePanel } from "@/components/resizable-side-panel";
 import { TopBar } from "@/components/top-bar";
 import { sessionFindHasForegroundLayer } from "@/components/session-find";
 import { captureFocus, focusComposer } from "@/components/focus-return";
+import { isComposing } from "@/components/ime";
 import { Button } from "@/components/ui/button";
 import { useFileDrop } from "@/components/file-drop";
 import { FileDropFeedback } from "@/components/file-drop-feedback";
@@ -93,7 +94,7 @@ export function SideTutor({ chatId, selectedText, onClose }: { chatId: string; s
 	}, []);
 	useEffect(() => {
 		const close = (e: KeyboardEvent) => {
-			if (e.key !== "Escape" || e.defaultPrevented || sessionFindHasForegroundLayer(document)) return;
+			if (e.key !== "Escape" || e.defaultPrevented || isComposing(e) || sessionFindHasForegroundLayer(document)) return;
 			e.preventDefault();
 			e.stopPropagation();
 			onClose();
@@ -176,7 +177,7 @@ export function SideTutor({ chatId, selectedText, onClose }: { chatId: string; s
 				className="flex h-full min-h-0 min-w-0 flex-col border-l border-border bg-background"
 				onKeyDown={(e) => {
 					if (e.key === "Escape" && sessionFindHasForegroundLayer(document)) return;
-					if (e.key === "Escape") {
+					if (e.key === "Escape" && !isComposing(e)) {
 						e.preventDefault();
 						e.stopPropagation();
 						onClose();

@@ -12,6 +12,7 @@ import { layout as dagreLayout } from "dagre-d3-es/src/dagre/index.js";
 // d3's curveBasis (the exact recipe dagre-d3's own renderer uses).
 import { curveBasis, line } from "d3-shape";
 import { fitGraphView, fitZoomFor, zoomedGraphView, type Viewport } from "@/components/pan-zoom";
+import { isComposing } from "@/components/ime";
 import type { PlanBlockData, PlanNodeStatus, PlanTree } from "@/src/core";
 import { derivedNodeStatus, derivePlanStatuses } from "@/src/core";
 import { Hint } from "@/components/ui/hint";
@@ -693,7 +694,7 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
 			if (document.querySelector('[data-testid="settings-dialog"]')) return;
-			if (e.key === "Escape" && !e.defaultPrevented) {
+			if (e.key === "Escape" && !e.defaultPrevented && !isComposing(e)) {
 				e.preventDefault();
 				e.stopPropagation();
 				onClose();

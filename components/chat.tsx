@@ -1166,7 +1166,7 @@ export function Chat({
 									if (e.key === "Enter" && !isComposing(e)) void commitRename(titleDraft);
 									// stopPropagation claims the Esc: closing rename
 									// must not also abort a turn.
-									else if (e.key === "Escape") {
+									else if (e.key === "Escape" && !isComposing(e)) {
 										e.preventDefault();
 										e.stopPropagation();
 										setRenaming(false);

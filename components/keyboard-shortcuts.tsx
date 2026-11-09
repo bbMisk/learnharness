@@ -27,6 +27,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
 import { useFocusReturn } from "@/components/focus-return";
+import { isComposing } from "@/components/ime";
 import { usePathname, useRouter } from "next/navigation";
 import {
 	actionForBinding,
@@ -126,6 +127,7 @@ export function KeyboardShortcuts() {
 			}
 
 			if (e.key === "Escape") {
+				if (isComposing(e)) return; // it cancels the input method's composition, nothing else
 				// THE ONE-ESC LAW (owner, keyboard round 2026-10-06): one
 				// Esc, one action, on the topmost active layer. Field-level
 				// handlers claim at their element (focus in a field: the
