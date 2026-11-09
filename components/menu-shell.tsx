@@ -68,7 +68,8 @@ export function computeMenuPlacement(
 ): MenuPlacement {
 	// An anchor left off-screen by a resize or rotation places from the edge it left by.
 	const clampY = (y: number) => Math.min(Math.max(y, safe.top), viewport.height - safe.bottom);
-	rect = { ...rect, top: clampY(rect.top), bottom: clampY(rect.bottom) };
+	// Copy fields explicitly: a DOMRect keeps them as prototype getters, which spread drops.
+	rect = { left: rect.left, right: rect.right, top: clampY(rect.top), bottom: clampY(rect.bottom) };
 	const availDown = viewport.height - safe.bottom - EDGE - (rect.bottom + GAP);
 	const availUp = rect.top - GAP - EDGE - safe.top;
 	// contentHeight ≤ 0 (nothing measured yet) keeps the preferred side —

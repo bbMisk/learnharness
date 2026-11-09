@@ -141,3 +141,23 @@ it("an anchor resized or rotated off-screen places the menu inside the viewport"
 	// A visible anchor is placed as before.
 	assert.deepEqual(computeMenuPlacement(rect(770, 800), viewport(800), 300, "down", "right").style.bottom, 800 - 770 + 4);
 });
+
+describe("computeMenuPlacement — real DOMRect anchors", () => {
+	// A DOMRect keeps left/right/top/bottom as prototype getters, so `{ ...rect }` drops
+	// them. This class mirrors that shape; a plain-object rect would hide the bug.
+	class GetterRect {
+		#l: number; #t: number; #r: number; #b: number;
+		constructor(l: number, t: number, r: number, b: number) { this.#l = l; this.#t = t; this.#r = r; this.#b = b; }
+		get left() { return this.#l; } get top() { return this.#t; } get right() { return this.#r; } get bottom() { return this.#b; }
+	}
+	it("keeps the menu beside its anchor horizontally", () => {
+		const viewport = { width: 1440, height: 900 };
+		for (const align of ["left", "right"] as const) {
+			const p = computeMenuPlacement(new GetterRect(877, 700, 997, 730), viewport, 200, "up", align);
+			const style = p.style as Record<string, unknown>;
+			const edge = align === "left" ? style.left : style.right;
+			assert.equal(typeof edge, "number", align);
+			assert.ok(align === "left" ? edge === 877 : edge === viewport.width - 997, `${align} edge follows the anchor, got ${String(edge)}`);
+		}
+	});
+});
