@@ -53,7 +53,8 @@ it("the notice follows the events channel: shown when it drops, gone when it reo
 	assert.equal(notice(), null);
 	await act(async () => error());
 	assert.match(notice()?.textContent ?? "", /Can.t reach the server/);
-	assert.doesNotMatch(notice()?.className ?? "", /top-/, "kept off the transcript's top edge");
+	assert.ok(document.documentElement.classList.contains("lh-offline"), "the app moves down to make room");
 	await act(async () => open());
 	assert.equal(notice(), null);
+	assert.ok(!document.documentElement.classList.contains("lh-offline"));
 });
