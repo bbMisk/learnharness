@@ -642,6 +642,13 @@ body {
 	--lh-safe-top: env(safe-area-inset-top, 0px);
 	--lh-safe-bottom: calc(env(safe-area-inset-bottom, 0px) + 1.75rem);
 }
+/* The update band (components/update-banner.tsx, h-11), above the strip. */
+:root.lh-update-band {
+	--lh-safe-bottom: calc(env(safe-area-inset-bottom, 0px) + 2.75rem);
+}
+:root.lh-update-band.lh-offline.lh-electron {
+	--lh-safe-bottom: calc(env(safe-area-inset-bottom, 0px) + 4.5rem);
+}
 .lh-electron .lh-offline-strip {
 	top: auto;
 	bottom: env(safe-area-inset-bottom, 0px);

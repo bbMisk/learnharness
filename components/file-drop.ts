@@ -43,6 +43,8 @@ export async function uploadFile(file: File, send: typeof fetch = fetch, timeout
 		return result.path;
 	} catch (error) {
 		if (signal.aborted) throw new Error(`${file.name || "The pasted file"} took too long to add, so it was cancelled. Try again.`);
+		// fetch rejects with a TypeError ("Failed to fetch") when the server can't be reached.
+		if (error instanceof TypeError) throw new Error("Couldn't upload — check your connection.");
 		throw error;
 	}
 }

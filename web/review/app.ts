@@ -20,6 +20,7 @@ let started = false, revealed = false, saving = false, cacheReady = false, conne
 let syncTask: Promise<void> | undefined;
 let selectedIndex: number | undefined, optionOrder: number[] = [];
 let questionKey = "", preparingQuestion = false, questionError = "", questionBlocked = false; // blocked: no usable model (503)
+const QUESTION_OFFLINE = "Reconnect to prepare choices.";
 /** Cards skipped this visit (choices could not be prepared): not rated, just passed over. */
 const skipped = new Set<string>();
 let shownAt = 0, revealedAt = 0, foregroundMs = 0, foregroundStart: number | null = null;
@@ -123,7 +124,7 @@ function render() {
     element("skip").hidden = !fallback;
     element("skip").textContent = revealed ? "Next card" : "Skip";
     element<HTMLButtonElement>("mcq-continue").disabled = saving;
-    if (mcq && !current.mcq && questionKey !== current.id + current.revision) void prepareQuestion(current);
+    if (mcq && !current.mcq && !questionBlocked && questionKey !== current.id + current.revision) void prepareQuestion(current);
     const nextDrawn = `${currentToken}:${revealed}:${selectedIndex}:${!!current.mcq}:${preparingQuestion}:${questionError}:${saving}`;
 	if (drawn !== nextDrawn) {
 		drawn = nextDrawn;
@@ -202,7 +203,7 @@ async function prepareQuestion(card: ReviewSnapshot["cards"][number]) {
         cardsKey = "";
         if (current?.id === card.id && current.revision === card.revision) current = {...current, mcq:body.question};
         signal();
-    } catch (error) { questionError = error instanceof Error ? error.message : "Reconnect to prepare choices."; }
+    } catch (error) { questionError = error instanceof Error && !(error instanceof TypeError) ? error.message : QUESTION_OFFLINE; }
     finally { preparingQuestion = false; render(); }
 }
 
@@ -223,7 +224,9 @@ function sync(): Promise<void> {
 				assertReviewSnapshot(body);
 				state = await reconcileReviewSnapshot(database!, body, body.serverAt - (began + Date.now()) / 2);
 				if (!batch.every(attempt => isReceipted(attempt, state!.snapshot!.receipts))) throw new Error("The host did not acknowledge every review. They remain saved here.");
-				connected = true; notify(""); signal(); render();
+				connected = true; notify(""); signal();
+				if (questionError === QUESTION_OFFLINE) questionKey = ""; // back online: ask for the card's choices again
+				render();
 				if (body.engineId !== REVIEW_ENGINE.engineId) element("update").hidden = false;
 				if (!state.pending.length) break;
 			}

@@ -72,7 +72,9 @@ describe("update banner (Wave C)", () => {
 		flushSync(() => pushed?.({ status: "downloaded", version: "0.3.1", revision: 1 }));
 		assert.ok(host.innerHTML.includes("0.3.1"), "the version renders");
 		assert.ok(host.innerHTML.includes("Restart"), "the restart affordance renders");
-		assert.match(host.querySelector<HTMLElement>("[data-testid='update-banner']")!.className, /bottom-\[calc\(1rem\+var\(--lh-safe-bottom\)\)\]/, "clears the bottom offline strip");
+		// Its own band: the bottom inset grows by its height, so it covers no control.
+		assert.match(host.querySelector<HTMLElement>("[data-testid='update-banner']")!.className, /bottom-\[calc\(var\(--lh-safe-bottom\)-2\.75rem\)\] .*h-11/);
+		assert.ok(document.documentElement.classList.contains("lh-update-band"), "the layout keeps the band clear");
 
 		const button = host.querySelector<HTMLButtonElement>("[data-testid='update-banner'] button");
 		assert.ok(button, "restart button exists");
@@ -131,6 +133,7 @@ describe("update banner (Wave C)", () => {
 		m.push({ status: "move-to-applications", version: "0.4.1", revision: 3 });
 		flushSync(() => m.host.querySelector<HTMLButtonElement>("[aria-label='Dismiss update notification']")!.click());
 		assert.equal(m.host.innerHTML, "", "dismissed");
+		assert.ok(!document.documentElement.classList.contains("lh-update-band"), "the layout takes the space back");
 		m.push({ status: "move-to-applications", version: "0.4.2", revision: 4 });
 		assert.ok(m.host.innerHTML.includes("Move LearnHarness"), "a newer version shows again");
 		m.done();
