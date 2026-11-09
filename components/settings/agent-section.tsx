@@ -120,7 +120,8 @@ export function composeFileRestriction(agent: AgentSettings | undefined, restric
 
 /** The folder as typed, trimmed and without trailing separators, so
  *  "/tmp/" and "/tmp" are one entry, and with "." / ".." resolved in a
- *  POSIX or ~ path, so "/tmp/../tmp" is "/tmp". A root stays as it is. */
+ *  POSIX or ~ path, so "/tmp/../tmp" is "/tmp". A root stays as it is, and
+ *  a ".." above ~ stays unresolved (see climbsAboveHome). */
 export function normalizeFolder(folder: string): string {
 	const trimmed = folder.trim();
 	const stripped = trimmed.replace(/[\\/]+$/, "");
@@ -130,10 +131,18 @@ export function normalizeFolder(folder: string): string {
 	const parts: string[] = [];
 	for (const part of stripped.slice(posix.length).split("/")) {
 		if (part === "" || part === ".") continue;
-		if (part === "..") parts.pop();
-		else parts.push(part);
+		if (part === "..") {
+			if (!parts.length && posix === "~/") return stripped;
+			parts.pop();
+		} else parts.push(part);
 	}
 	return parts.length ? posix + parts.join("/") : posix === "/" ? "/" : "~";
+}
+
+/** A normalized "~/.." path names a folder above home, which the editor
+ *  can't resolve without knowing where home is. */
+export function climbsAboveHome(folder: string): boolean {
+	return /^~\/(.*\/)?\.\.(\/|$)/.test(folder);
 }
 
 /** A whole-disk root: listing it would allow everything. */
@@ -147,7 +156,7 @@ export function composeAddFolder(agent: AgentSettings | undefined, folder: strin
 	const next = normalizeFolder(folder);
 	const folders = agent?.fileAccess?.folders ?? [];
 	const restricted = agent?.fileAccess?.restricted ?? false;
-	if (!isFolderEntry(next) || isRootFolder(next) || folders.map(normalizeFolder).includes(next)) return { ...agent, fileAccess: { restricted, folders } };
+	if (!isFolderEntry(next) || isRootFolder(next) || climbsAboveHome(next) || folders.map(normalizeFolder).includes(next)) return { ...agent, fileAccess: { restricted, folders } };
 	return { ...agent, fileAccess: { restricted, folders: [...folders, next] } };
 }
 
@@ -841,6 +850,7 @@ export function AgentSection({
 						const next = normalizeFolder(folderInput);
 						if (!isFolderEntry(next)) { setFolderError("Enter an absolute path or ~/folder."); return; }
 						if (isRootFolder(next)) { setFolderError("Choose a specific folder, not the whole disk."); return; }
+						if (climbsAboveHome(next)) { setFolderError("For a folder outside ~, type its full path."); return; }
 						if (folders.map(normalizeFolder).includes(next)) { setFolderError("That folder is already listed."); return; }
 						onSectionChange(composeAddFolder(effectiveAgent, next));
 						setFolderInput("");

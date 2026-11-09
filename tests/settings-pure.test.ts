@@ -19,6 +19,7 @@ import {
 	normalizeFolder,
 	isRootFolder,
 	composeAddFolder,
+	climbsAboveHome,
 } from "../components/settings/agent-section.tsx";
 import { nextOverrides, refusalFor } from "../components/settings/keyboard-section.tsx";
 import { classifyKeys, keyStatusLine, type ProviderKeyInfo } from "../components/settings/keys-section.tsx";
@@ -426,6 +427,15 @@ describe("file-access folder entries", () => {
 		assert.deepEqual(agent.fileAccess?.folders, ["/tmp"]);
 		assert.equal(normalizeFolder("~/notes/.."), "~");
 		assert.equal(isRootFolder(normalizeFolder("/tmp/..")), true, "a spelling of the root is still the root");
+	});
+
+	it("a ~ path climbing above home is not stored as ~", () => {
+		for (const folder of ["~/..", "~/../..", "~/a/../../b"]) {
+			assert.equal(climbsAboveHome(normalizeFolder(folder)), true, folder);
+			assert.deepEqual(composeAddFolder({ fileAccess: { restricted: true, folders: ["~"] } }, folder).fileAccess?.folders, ["~"], folder);
+		}
+		assert.equal(climbsAboveHome(normalizeFolder("~/a/..")), false);
+		assert.equal(climbsAboveHome(normalizeFolder("~/..notes")), false);
 	});
 });
 
