@@ -286,6 +286,7 @@ describe("pinning restyles the card in place", () => {
 		assert.match(style, /width:\s*536px/);
 		assert.match(style, /max-height:\s*700px/);
 		assert.ok(demoSlot!.querySelector('[data-testid="pin-placeholder"]'), "the row keeps a placeholder");
+		assert.match(demoSlot!.querySelector('[data-testid="pin-placeholder"]')!.textContent ?? "", /Pinned beside the chat/);
 		assert.match(demoSlot!.getAttribute("style") ?? "", /height:/, "of a fixed height");
 		assert.ok(host.querySelector('[data-testid="pin-expand"]'), "a pinned demo can expand");
 		const figurePanel = host.querySelectorAll('[data-testid="pin-panel"]')[1] as HTMLElement;
@@ -294,6 +295,7 @@ describe("pinning restyles the card in place", () => {
 		await render("job_a", { hidden: true });
 		assert.equal(host.querySelector('[data-testid="demo-iframe"]'), iframe, "a collapsed drawer hides, never unmounts");
 		assert.match(panel.getAttribute("style") ?? "", /visibility:\s*hidden/);
+		assert.match(demoSlot!.querySelector('[data-testid="pin-placeholder"]')!.textContent ?? "", /Pinned in the side drawer/, "a closed drawer isn't beside the chat");
 
 		await render("job_f");
 		assert.equal(host.querySelector('[data-testid="demo-iframe"]'), iframe, "unpinned: back in its row, same element");

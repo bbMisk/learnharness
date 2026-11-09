@@ -423,7 +423,7 @@ export function PinnableArtifact({ jobId, kind, children }: { jobId: string; kin
 					className="absolute inset-0 flex items-center justify-center gap-2 rounded-xl border border-dashed border-border/80 font-ui text-xs text-muted-foreground"
 				>
 					<PinIcon className="size-3.5" aria-hidden />
-					Pinned beside the chat
+					{pins?.hidden ? "Pinned in the side drawer" : "Pinned beside the chat"}
 					<button type="button" onClick={unpin} className="cursor-pointer rounded-md px-1.5 py-0.5 text-foreground underline-offset-2 hover:underline">
 						Unpin
 					</button>
