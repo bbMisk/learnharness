@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, type RefObject } from "react";
 import { useStickToBottomContext, type StickToBottomContext } from "use-stick-to-bottom";
 import { messageAnchorId, messageIdFromHash } from "@/src/core";
 
@@ -23,6 +23,85 @@ export function scrollSessionTarget(target: Range | HTMLElement, scope: HTMLElem
 	}
 }
 
+/** Reading positions for this window, by page: coming back to a chat returns
+ * to where you were reading, not its bottom. A position is the transcript
+ * row at the top of the view, counted from the end (older history fills in
+ * above, and the dock's spacer below changes height), and its offset. */
+interface ReadingPosition { fromEnd: number; offset: number }
+const readingPositions = new Map<string, ReadingPosition>();
+/** Closer to the bottom than this counts as following the bottom. */
+const AT_BOTTOM_PX = 80;
+/** Long enough for a big chat's history to fill in; any input ends it sooner. */
+const RESTORE_MS = 4_000;
+const INPUTS = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+
+function transcriptRows(scroller: HTMLElement): HTMLCollection | null {
+	return scroller.querySelector("[data-session-find-root]")?.children ?? null;
+}
+
+/** The first row still showing at the top of the view (rows run top-down). */
+function topRow(scroller: HTMLElement): ReadingPosition | null {
+	const rows = transcriptRows(scroller);
+	if (!rows?.length) return null;
+	const viewTop = scroller.getBoundingClientRect().top;
+	let lo = 0;
+	let hi = rows.length - 1;
+	while (lo < hi) {
+		const mid = (lo + hi) >> 1;
+		if (rows[mid]!.getBoundingClientRect().bottom > viewTop) hi = mid;
+		else lo = mid + 1;
+	}
+	return { fromEnd: rows.length - 1 - lo, offset: rows[lo]!.getBoundingClientRect().top - viewTop };
+}
+
+export function useReadingPosition(contextRef: RefObject<StickToBottomContext>): void {
+	useEffect(() => {
+		const key = window.location.pathname;
+		const saved = window.location.hash ? undefined : readingPositions.get(key);
+		let restoring = saved !== undefined;
+		let scroller: HTMLElement | null = null;
+		let position: ReadingPosition | null = null;
+		const started = Date.now();
+		const stopRestoring = () => { restoring = false; };
+		const measure = () => {
+			if (restoring || !scroller) return;
+			const fromBottom = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
+			position = fromBottom > AT_BOTTOM_PX ? topRow(scroller) : null;
+		};
+		for (const type of INPUTS) window.addEventListener(type, stopRestoring, { capture: true, passive: true });
+		// The scroller's ref lands after this effect (see the note below).
+		const id = window.setInterval(() => {
+			if (!scroller) {
+				scroller = contextRef.current.scrollRef.current;
+				if (!scroller) return;
+				scroller.addEventListener("scroll", measure, { passive: true });
+			}
+			if (restoring && Date.now() - started < RESTORE_MS) {
+				const rows = transcriptRows(scroller);
+				const row = rows && rows.length > saved!.fromEnd ? rows[rows.length - 1 - saved!.fromEnd]! : null;
+				const delta = row ? row.getBoundingClientRect().top - scroller.getBoundingClientRect().top - saved!.offset : 0;
+				if (Math.abs(delta) > 1) {
+					contextRef.current.stopScroll();
+					scroller.scrollTop += delta;
+				}
+				return;
+			}
+			restoring = false;
+			window.clearInterval(id);
+			measure();
+		}, 64);
+		return () => {
+			window.clearInterval(id);
+			for (const type of INPUTS) window.removeEventListener(type, stopRestoring, { capture: true });
+			scroller?.removeEventListener("scroll", measure);
+			// Left mid-restore: the saved position still stands.
+			if (restoring) return;
+			if (position) readingPositions.set(key, position);
+			else readingPositions.delete(key);
+		};
+	}, [contextRef]);
+}
+
 /** React owns message markup; this controller adds no messages or content.
  * Arrival on a full load is the browser's own hash scroll; this watcher owns
  * SPA arrivals (graph links) and later hash changes. The mount path polls on
@@ -42,6 +121,7 @@ export function SessionMessageNavigation() {
 	// logging shifting the timing).
 	const contextRef = useRef(context);
 	contextRef.current = context;
+	useReadingPosition(contextRef);
 	const lastJump = useRef<{ hash: string; target: HTMLElement } | null>(null);
 	const flash = useRef<{ target: HTMLElement; timer: number } | null>(null);
 	const clearFlash = useCallback(() => {
