@@ -71,22 +71,22 @@ function topRow(scroller: HTMLElement): ReadingPosition | null {
 	return { fromEnd: rows.length - 1 - lo, offset: rows[lo]!.getBoundingClientRect().top - viewTop, clearOfDock: fromBottom > dock, dock };
 }
 
-function savedPosition(): ReadingPosition | undefined {
-	return typeof window === "undefined" || window.location.hash ? undefined : readingPositions.get(window.location.pathname);
+function savedPosition(path: string): ReadingPosition | undefined {
+	return typeof window === "undefined" || window.location.hash ? undefined : readingPositions.get(path);
 }
 
 /** True while this page will return to a saved reading position (above the
  * bottom) that the question shouldn't cover: it was folded when the learner
  * left, or the position is clear of the dock. The question then starts folded. */
-export function restoresReadingPosition(): boolean {
-	const saved = savedPosition();
-	return !!saved && (saved.clearOfDock || foldedOnLeave.has(window.location.pathname));
+export function restoresReadingPosition(path: string): boolean {
+	const saved = savedPosition(path);
+	return !!saved && (saved.clearOfDock || foldedOnLeave.has(path));
 }
 
 /** The dock spacer's height at the saved position: a question starting
  * folded keeps it, so the position can't clamp to the bottom. */
-export function savedDockReserve(): number {
-	return savedPosition()?.dock ?? 0;
+export function savedDockReserve(path: string): number {
+	return savedPosition(path)?.dock ?? 0;
 }
 
 export function useReadingPosition(contextRef: RefObject<StickToBottomContext>): void {

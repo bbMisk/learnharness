@@ -38,6 +38,7 @@ const { DockOverlay } = await import("../components/dock-overlay.tsx");
 const { rememberRevealed } = await import("../components/revealed-questions.ts");
 const { useHydrated } = await import("../components/use-hydrated.ts");
 const { useReadingPosition } = await import("../components/session-navigation.tsx");
+const { PathnameContext } = await import("next/dist/shared/lib/hooks-client-context.shared-runtime");
 
 const pending = {
 	key: "q1", toolCallId: "q1", tool: "quiz",
@@ -228,17 +229,32 @@ it("a question left folded inside the dock's band comes back folded, keeping the
 	await act(async () => first.unmount());
 	await leaveScrolled("/chat/band", 500, 700);
 	const reserves: number[] = [];
+	// A sidebar click renders the page before the URL changes: the router's path counts.
+	(window.location as { pathname: string }).pathname = "/chat/previous";
 	const back = await mount(
-		<StickToBottom>
-			<StickToBottom.Content>{() => null}</StickToBottom.Content>
-			<DockOverlay pending={pending as never} initialQuestionDraft={draft} onSaveQuestionDraft={() => {}} practice={null}
-				compactionRunning={false} onSubmitThinking={() => {}} teachingCheck={false} requiresReveal={false} showReadingThinking={false}
-				readingThinking="" readingThinkingRevision={0} onReadingThinking={() => {}} phase={"probe" as never} composer={null}
-				onSubmitAnswer={() => {}} footer={null} onReserve={(h) => reserves.push(h)} room="" queuedSteers={[]} />
-		</StickToBottom>,
+		<PathnameContext.Provider value="/chat/band">
+			<StickToBottom>
+				<StickToBottom.Content>{() => null}</StickToBottom.Content>
+				<DockOverlay pending={pending as never} initialQuestionDraft={draft} onSaveQuestionDraft={() => {}} practice={null}
+					compactionRunning={false} onSubmitThinking={() => {}} teachingCheck={false} requiresReveal={false} showReadingThinking={false}
+					readingThinking="" readingThinkingRevision={0} onReadingThinking={() => {}} phase={"probe" as never} composer={null}
+					onSubmitAnswer={() => {}} footer={null} onReserve={(h) => reserves.push(h)} room="" queuedSteers={[]} />
+			</StickToBottom>
+		</PathnameContext.Provider>,
 	);
 	assert.ok(back.querySelector('[data-testid="question-dock-bar"]'), "folded, as it was left");
 	assert.ok(reserves.length > 0 && reserves.every((h) => h >= 700), `the spacer keeps its 700px (${reserves})`);
+	// The page opens at the bottom before the restore lands: that doesn't open it.
+	const el = scrollerOf(back, 9000, 800);
+	await settle();
+	el.scrollTop = 8200;
+	await act(async () => { el.dispatchEvent(new dom.window.Event("scroll")); });
+	assert.ok(back.querySelector('[data-testid="question-dock-bar"]'), "still folded at the pre-restore bottom");
+	el.scrollTop = 7700;
+	await act(async () => { el.dispatchEvent(new dom.window.Event("scroll")); });
+	el.scrollTop = 8200;
+	await act(async () => { el.dispatchEvent(new dom.window.Event("scroll")); });
+	assert.ok(!back.querySelector('[data-testid="question-dock-bar"]'), "reaching the bottom from the passage opens it");
 	(window.location as { pathname: string }).pathname = "/chat/p";
 });
 
