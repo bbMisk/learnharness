@@ -207,7 +207,8 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 	return (
 		<SidebarContext.Provider value={{ open: open && !narrow, toggle }}>
 			{/* transitions gated on mount: no slide-in flash on page load */}
-			<div className={cn("flex lh-h-screen", phase === 2 && "[&_.sidebar-motion]:transition-[width,margin,opacity]")}>{children}</div>
+			{/* transition-none until then: duration-200 alone would transition "all" */}
+			<div className={cn("flex lh-h-screen", phase === 2 ? "[&_.sidebar-motion]:transition-[width,margin,opacity]" : "[&_.sidebar-motion]:transition-none")}>{children}</div>
 		</SidebarContext.Provider>
 	);
 }

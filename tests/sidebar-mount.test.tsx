@@ -37,6 +37,8 @@ const { createRoot } = await import("react-dom/client");
 const { SidebarProvider, SidebarToggle } = await import("../components/sidebar.tsx");
 
 const TRANSITIONS = "[&_.sidebar-motion]:transition-[width,margin,opacity]";
+// duration-200 alone transitions every property: off needs transition-none.
+const NO_TRANSITIONS = "[&_.sidebar-motion]:transition-none";
 
 async function mount() {
 	const host = document.createElement("div");
@@ -51,7 +53,7 @@ async function mount() {
 			layouts.push({
 				// The toggle slot collapses (w-0) while the sidebar is open.
 				sidebarOpen: wrapper.querySelector(".sidebar-motion")!.className.includes("w-0"),
-				transitions: wrapper.className.includes(TRANSITIONS),
+				transitions: !wrapper.className.includes(NO_TRANSITIONS),
 			});
 			return 0;
 		},
