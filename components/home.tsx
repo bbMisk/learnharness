@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { CornerDownLeftIcon } from "lucide-react";
@@ -15,6 +15,7 @@ import { StatsBar } from "@/components/stats-bar";
 import { FileDropFeedback } from "@/components/file-drop-feedback";
 import { AttachButton } from "@/components/attach-button";
 import { useFileDrop } from "@/components/file-drop";
+import { clearDraft, readDraft, writeDraft } from "@/components/draft-store";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { PathInput } from "@/components/path-input";
 import { SessionStarter } from "@/components/start-session";
@@ -23,6 +24,7 @@ import { useSessionMode } from "@/components/session-modes";
 import type { TurnUsage } from "@/src/core";
 
 // Server-rendered and preloaded when graph rendering is on; never fetched when it is off.
+const HOME_DRAFT_KEY = "new:home";
 const GraphView = dynamic(() => import("@/components/graph-view").then((m) => m.GraphView));
 
 /**
@@ -48,9 +50,18 @@ export function Home({
 	 * dictation flush lands via setState, invisible to a closure that
 	 * waited through `await finish()`. Kept current at every write. */
 	const topicRef = useRef("");
+	// The unsent topic autosaves like the chat composer's draft.
+	useLayoutEffect(() => {
+		const saved = readDraft<string>(HOME_DRAFT_KEY);
+		if (saved && !topicRef.current) {
+			topicRef.current = saved;
+			setTopic(saved);
+		}
+	}, []);
 	const fileDrop = useFileDrop(topic, (next) => {
 		topicRef.current = next;
 		setTopic(next);
+		writeDraft(HOME_DRAFT_KEY, next);
 	}, {hideImagePaths:true,priority:10,label:"the new chat"});
 	// First-run gate (model-slots wave, owner 2026-09-20): chats cannot
 	// start until the user has picked all three slots — no defaults for
@@ -68,6 +79,7 @@ export function Home({
 			const v = joinDictation(topicRef.current, t);
 			topicRef.current = v;
 			setTopic(v);
+			writeDraft(HOME_DRAFT_KEY, v);
 		},
 	});
 	const [busy, setBusy] = useState(false);
@@ -161,6 +173,7 @@ export function Home({
 				...(mode === "cram" ? { style: "cram" } : {}),
 				...(practiceProps.length > 0 ? { graphContext: { propositions: practiceProps } } : {}),
 			}, fetch, JSON.stringify(catalog?.slots.strong));
+			clearDraft(HOME_DRAFT_KEY);
 			router.push(target);
 		} catch {
 			startingRef.current = false;
