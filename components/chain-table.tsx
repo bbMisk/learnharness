@@ -40,7 +40,7 @@
  * clear).
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
 	ChevronDownIcon,
 	ChevronRightIcon,
@@ -787,6 +787,16 @@ export function ChainTableOverlay({
 		document.addEventListener("keydown", onKeyDown);
 		return () => document.removeEventListener("keydown", onKeyDown);
 	}, [open, deleteOpen, onClose]);
+
+	// Closing hands focus back to whatever opened the table. A layout
+	// effect: it captures the opener before the table's own mount focus.
+	useLayoutEffect(() => {
+		if (!open) return;
+		const opener = document.activeElement;
+		return () => {
+			if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+		};
+	}, [open]);
 
 	if (!open) return null;
 
