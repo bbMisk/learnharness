@@ -292,3 +292,47 @@ it("a long unbroken project name wraps in the heading, empty state and delete di
 	assert.match(code.className, /\bwrap-anywhere\b/);
 	await act(async () => ([...document.querySelectorAll("button")].find((b) => b.textContent === "Cancel") as HTMLElement).click());
 });
+
+it("this tab's project delete goes home without flashing the deleted page, and Esc can't close it mid-delete", async () => {
+	const pushed: string[] = [];
+	const events = new Map<string, (data: string) => void>();
+	let finishDelete: (response: Response) => void = () => {};
+	let deleted = false;
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		const url = String(input);
+		if (init?.method === "DELETE")
+			return new Promise<Response>((resolve) => {
+				finishDelete = resolve;
+			});
+		if (url === "/api/chats") return Response.json({ chats: [] });
+		return deleted ? new Response("{}", { status: 404 }) : Response.json(project);
+	}) as typeof fetch;
+	const channel = () => ({ close() {}, onOpen() {}, onEvent: (name: string, cb: (data: string) => void) => void events.set(name, cb) });
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	await act(async () =>
+		root.render(
+			<AppRouterContext.Provider value={{ ...router, push: (url: string) => void pushed.push(url) } as never}>
+			<ServerEventsProvider connect={channel}>
+				<ProjectPage initial={project} />
+			</ServerEventsProvider>
+			</AppRouterContext.Provider>,
+		),
+	);
+	const tick = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+	await tick();
+	await act(async () => ([...host.querySelectorAll("button")].find((b) => b.textContent === "Delete project") as HTMLElement).click());
+	await act(async () => (document.querySelector('[data-testid="delete-project-confirm"]') as HTMLElement).click());
+	const esc = Object.assign(new dom.window.Event("keydown", { bubbles: true, cancelable: true }), { key: "Escape" });
+	await act(async () => void document.dispatchEvent(esc));
+	assert.ok(document.querySelector('[data-testid="delete-project-dialog"]'), "Esc is ignored while deleting");
+	// The server's chats-changed push lands before the DELETE answer.
+	deleted = true;
+	await act(async () => events.get("chats-changed")!("{}"));
+	await tick();
+	assert.doesNotMatch(host.textContent ?? "", /This project was deleted\.|Could not load project details\./);
+	await act(async () => finishDelete(new Response("{}", { status: 200 })));
+	await tick();
+	assert.deepEqual(pushed, ["/"]);
+});

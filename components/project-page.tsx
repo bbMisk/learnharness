@@ -38,6 +38,7 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 	const [projectError, setProjectError] = useState("");
 	const adopt = (next: ProjectView) => setProject((prev) => (next.updatedAt >= prev.updatedAt ? next : prev));
 	const chatsRequest = useRef(0);
+	const deletingHere = useRef(false); // this tab's own delete: go home, not the deleted page
 	const refresh = async () => {
 		const request = ++chatsRequest.current; // only the latest list request may update the view
 		await Promise.all([
@@ -53,7 +54,7 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 				}),
 			fetch("/api/projects/" + initial.id)
 				.then((r) => {
-					if (r.status === 404) onGone(); // deleted: the record never comes back
+					if (r.status === 404 && !deletingHere.current) onGone(); // deleted: the record never comes back
 					return r.ok ? r.json() : Promise.reject(new Error(r.statusText));
 				})
 				.then((next) => {
@@ -61,7 +62,7 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 					if (request === chatsRequest.current) setProjectError("");
 				})
 				.catch(() => {
-					if (request === chatsRequest.current) setProjectError("Could not load project details.");
+					if (request === chatsRequest.current && !deletingHere.current) setProjectError("Could not load project details.");
 				}),
 		]);
 	};
@@ -143,11 +144,13 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 	const deleteProject = async () => {
 		setError("");
 		setDeleting(true);
+		deletingHere.current = true;
 		try {
 			const response = await fetch("/api/projects/" + initial.id, { method: "DELETE" });
 			if (!response.ok) throw new Error();
 			router.push("/");
 		} catch {
+			deletingHere.current = false;
 			setConfirmDelete(false);
 			setError("Could not delete the project. Try again.");
 		} finally {

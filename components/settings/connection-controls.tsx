@@ -21,15 +21,16 @@ export function ConnectionFooter({ leading, children, testid }: { leading?: Reac
 }
 
 export function ConnectionDialog({ children, onClose, busy, label, testid, backdropTestid }: { children: React.ReactNode; onClose: () => void; busy: boolean; label: string; testid: string; backdropTestid: string }) {
-	const ref = useRef<HTMLDivElement>(null), closeRef = useRef(onClose);
+	const ref = useRef<HTMLDivElement>(null), closeRef = useRef(onClose), busyRef = useRef(busy);
 	closeRef.current = onClose;
+	busyRef.current = busy;
 	const backdropDismiss = useBackdropDismiss(() => { if (!busy) onClose(); });
 	useEffect(() => {
 		const previous = document.activeElement as HTMLElement | null;
 		const focusable = () => [...(ref.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled])') ?? [])];
 		focusable()[0]?.focus();
 		const key = (event: KeyboardEvent) => {
-			if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); closeRef.current(); }
+			if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); if (!busyRef.current) closeRef.current(); }
 			else if (event.key === "Tab") {
 				const items = focusable(), first = items[0], last = items.at(-1);
 				if (!first) { event.preventDefault(); return; }
