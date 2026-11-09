@@ -34,6 +34,7 @@ const stored = (id: string): AuthKeyStatus => ({
 } as unknown as AuthKeyStatus);
 let keys: AuthKeyStatus[] = [];
 let customBase = "";
+let customHold: Promise<void> = Promise.resolve();
 let root: Root | null = null;
 const byTest = (id: string) => document.querySelector<HTMLElement>(`[data-testid="${id}"]`);
 const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
@@ -56,10 +57,11 @@ async function mount(initial: string[]) {
 	keys = initial.map(stored);
 	globalThis.fetch = (async (url: string, init?: RequestInit) => {
 		const id = url.split("/").pop()!;
+		if (init?.method === "DELETE" && url === "/api/custom-provider") { customBase = ""; return Response.json({ ok: true }); }
 		if (init?.method === "DELETE") { keys = keys.filter((key) => key.id !== id); return Response.json({ ok: true }); }
 		if (init?.method === "PUT") { keys = [...keys.filter((key) => key.id !== id), stored(id)]; return Response.json({ ok: true }); }
 		if (url === "/api/keys") return Response.json({ keys, providers: [{ id: "openai", envVar: "OPENAI_API_KEY", label: "OpenAI" }] });
-		if (url === "/api/custom-provider") return Response.json({ baseUrl: customBase, authMode: "keyless", models: [] });
+		if (url === "/api/custom-provider") { await customHold; return Response.json({ baseUrl: customBase, authMode: "keyless", models: [] }); }
 		return Response.json({});
 	}) as typeof fetch;
 	root = createRoot(document.getElementById("root")!);
@@ -138,4 +140,21 @@ test("Esc in a configured custom endpoint's editor returns focus to its row", as
 	await escape();
 	assert.ok(byTest("custom-endpoint-editor") === null);
 	assert.ok(document.activeElement === byTest("custom-endpoint-row-btn"));
+});
+
+test("disconnecting the custom endpoint focuses + Add a provider and frees Esc", async () => {
+	customBase = "http://localhost:11434/v1";
+	await mount([]);
+	await click(byTest("custom-endpoint-row-btn"));
+	await click(byTest("custom-delete"));
+	// The endpoint's status re-reads after the key list, in a later render (as in the browser).
+	let release = () => {};
+	customHold = new Promise((resolve) => { release = resolve; });
+	await click(byTest("custom-delete"));
+	await act(async () => { release(); await settle(); });
+	customHold = Promise.resolve();
+	assert.ok(byTest("custom-endpoint-row") === null, "the row is gone");
+	assert.ok(byTest("custom-endpoint-editor") === null, "the editor is gone");
+	assert.ok(document.activeElement === byTest("add-provider"), "focus is on + Add a provider");
+	assert.equal((await escape()).defaultPrevented, false, "the next Esc is left to the dialog");
 });

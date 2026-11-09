@@ -122,3 +122,22 @@ it("a menu without room on its side sits against the safe edge instead of shrink
 	assert.equal(roomy.style.right, 400);
 });
 
+
+it("an anchor resized or rotated off-screen places the menu inside the viewport", () => {
+	// Desktop: the last sidebar row at y 648–704, the window shrunk to 480 tall.
+	const below = computeMenuPlacement(rect(648, 704), viewport(480), 335, "down", "right");
+	assert.equal(below.side, "up");
+	assert.equal(below.style.bottom, 4, "the menu's bottom sits GAP above the viewport's bottom");
+	assert.equal(below.maxHeight, 0.6 * 480);
+	// Phone: a drawer row at y 516 after rotating to 844×390, with a home indicator.
+	const rotated = computeMenuPlacement({ top: 516, bottom: 560, left: 20, right: 280 }, { width: 844, height: 390 }, 234, "down", "right", { top: 0, bottom: 21 });
+	assert.equal(rotated.side, "up");
+	assert.equal(rotated.style.bottom, 21 + 4, "above the home indicator");
+	assert.ok(390 - (rotated.style.bottom as number) - rotated.maxHeight >= 0, "the top edge is on-screen");
+	// Scrolled above the top: the menu opens down from the top edge.
+	const above = computeMenuPlacement(rect(-120, -80), viewport(800), 300, "up", "right");
+	assert.equal(above.side, "down");
+	assert.equal(above.style.top, 4);
+	// A visible anchor is placed as before.
+	assert.deepEqual(computeMenuPlacement(rect(770, 800), viewport(800), 300, "down", "right").style.bottom, 800 - 770 + 4);
+});

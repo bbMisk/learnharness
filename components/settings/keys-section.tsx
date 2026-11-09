@@ -500,8 +500,9 @@ export function KeysSection({
 	async function disconnectCustom(revision: string): Promise<string | null> {
 		const res = await fetch("/api/custom-provider", { method: "DELETE", headers: { "content-type": "application/json", "if-match": revision }, body: JSON.stringify({}) }).catch(() => null);
 		if (!res?.ok) return res ? ((await res.json().catch(() => ({}))).error ?? "Disconnect failed.") : "Disconnect failed. Check your connection.";
-		setAddingCustom(false);
 		await reload();
+		// Fold after the row has left, so the editor hands focus to "+ Add a provider".
+		setAddingCustom(false);
 		notifySettingsSaved("keys");
 		return null;
 	}

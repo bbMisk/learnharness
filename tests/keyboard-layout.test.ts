@@ -64,6 +64,26 @@ describe("eventBinding — non-Latin layouts", () => {
 		assert.equal(eventBinding(press({ key: "q", code: "KeyA", altKey: true })), "alt+q", "ASCII still follows key, not position");
 	});
 
+	it("a dead key binds by its physical key, whatever the modifiers (macOS ⌥E, ⌥U, ⌥`)", () => {
+		assert.equal(eventBinding(press({ key: "Dead", code: "KeyE", altKey: true })), "alt+e");
+		assert.equal(eventBinding(press({ key: "Dead", code: "KeyU", altKey: true })), "alt+u");
+		assert.equal(eventBinding(press({ key: "Dead", code: "KeyN", altKey: true })), "alt+n");
+		assert.equal(eventBinding(press({ key: "Dead", code: "Backquote", altKey: true })), "alt+`");
+		assert.equal(eventBinding(press({ key: "Dead", code: "KeyE", metaKey: true, altKey: true })), "mod+alt+e");
+		assert.equal(eventBinding(press({ key: "Dead", code: "Quote", ctrlKey: true, shiftKey: true })), "mod+shift+'");
+		assert.equal(eventBinding(press({ key: "Dead", code: "Digit6", altKey: true })), "alt+6");
+		assert.equal(eventBinding(press({ key: "Dead", code: "IntlBackslash", altKey: true })), "alt+intlbackslash");
+		assert.equal(eventBinding(press({ key: "Dead", code: "", altKey: true })), "alt+dead");
+		assert.equal(eventBinding(press({ key: "Dead", code: "BracketLeft" })), "[", "a bare accent key is a bare key");
+	});
+
+	it("an ⌥E binding fires on ⌥E only, not on the other dead keys (⌥U starting ü)", () => {
+		const altE = eventBinding(press({ key: "Dead", code: "KeyE", altKey: true }));
+		for (const code of ["KeyU", "KeyI", "KeyN", "Backquote"]) {
+			assert.notEqual(eventBinding(press({ key: "Dead", code, altKey: true })), altE, code);
+		}
+	});
+
 	it("tests the reported character before Unicode lowercasing can expand it", () => {
 		assert.equal(eventBinding(press({ key: "İ", code: "KeyI", ctrlKey: true, shiftKey: true })), "mod+shift+i");
 		assert.equal(eventBinding(press({ key: "İ", code: "KeyI" })), "i\u0307", "bare typing keeps existing case normalization");
@@ -73,7 +93,6 @@ describe("eventBinding — non-Latin layouts", () => {
 		assert.equal(eventBinding(press({ key: "é", code: "Digit2", ctrlKey: true })), "mod+é");
 		assert.equal(eventBinding(press({ key: "ж", code: "Semicolon", ctrlKey: true })), "mod+ж");
 		assert.equal(eventBinding(press({ key: "λ", code: "", ctrlKey: true })), "mod+λ");
-		assert.equal(eventBinding(press({ key: "Dead", code: "KeyN", altKey: true })), "alt+dead");
 		assert.equal(eventBinding(press({ key: "ArrowLeft", code: "ArrowLeft", ctrlKey: true })), "mod+arrowleft");
 		assert.equal(eventBinding(press({ key: "?", code: "Slash", ctrlKey: true, shiftKey: true })), "mod+shift+?");
 	});

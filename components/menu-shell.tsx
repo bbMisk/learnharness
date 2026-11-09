@@ -66,6 +66,9 @@ export function computeMenuPlacement(
 	 *  bar and home indicator are not usable room. 0 on desktop/Electron. */
 	safe: { top: number; bottom: number; left?: number; right?: number } = { top: 0, bottom: 0 },
 ): MenuPlacement {
+	// An anchor left off-screen by a resize or rotation places from the edge it left by.
+	const clampY = (y: number) => Math.min(Math.max(y, safe.top), viewport.height - safe.bottom);
+	rect = { ...rect, top: clampY(rect.top), bottom: clampY(rect.bottom) };
 	const availDown = viewport.height - safe.bottom - EDGE - (rect.bottom + GAP);
 	const availUp = rect.top - GAP - EDGE - safe.top;
 	// contentHeight ≤ 0 (nothing measured yet) keeps the preferred side —
