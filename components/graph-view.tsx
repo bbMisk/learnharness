@@ -302,6 +302,7 @@ function GraphSettingsControl({
 			>
 				<button
 				type="button"
+				aria-label="Graph display settings"
 				aria-expanded={open}
 				onClick={() => setOpen((o) => !o)}
 				className={`flex size-9 items-center justify-center rounded-xl border bg-card/85 shadow-lg backdrop-blur transition-colors hover:bg-accent ${
