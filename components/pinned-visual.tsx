@@ -300,18 +300,17 @@ export function usePinnedVisual({
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
 	}, [showExpanded]);
-	// An Esc inside a pinned demo arrives through its bridge: replay it on the
-	// iframe, so it takes one layer as if pressed on the page, in every mode.
+	// An Esc inside a demo, pinned or not, arrives through its bridge: replay
+	// it on the iframe, so it takes one layer as if pressed on the page, in every mode.
 	useEffect(() => {
-		if (!shown) return;
 		const onMessage = (e: MessageEvent) => {
 			if ((e.data as { type?: unknown } | null)?.type !== "demo-escape") return;
-			const frames = document.querySelectorAll<HTMLIFrameElement>('[data-testid="pin-slot"][data-pinned] iframe');
+			const frames = document.querySelectorAll<HTMLIFrameElement>("iframe");
 			[...frames].find((frame) => frame.contentWindow === e.source)?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
 		};
 		window.addEventListener("message", onMessage);
 		return () => window.removeEventListener("message", onMessage);
-	}, [shown]);
+	}, []);
 	const drawerTab = shown && mode === "drawer" && !showExpanded ? (
 		<DrawerTab title={target.title} open={open} right={open ? drawerWidth + GAP : 0} onToggle={toggleDrawer} />
 	) : null;

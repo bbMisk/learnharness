@@ -436,6 +436,30 @@ describe("an Esc inside a pinned demo", () => {
 			assert.equal(page.seen.length, 1);
 		} finally { page.stop(); done(); }
 	});
+
+	it("from an unpinned demo in the transcript, too", async () => {
+		const host = document.createElement("div");
+		document.body.appendChild(host);
+		root = createRoot(host);
+		const area = document.createElement("div");
+		(area as unknown as { getBoundingClientRect: () => object }).getBoundingClientRect = () => ({ left: 0, top: 0, width: 1400, height: 800 });
+		const view = projectView(record.slice(0, 5));
+		function Harness() {
+			usePinnedVisual({ messages: view, tutorPin: null, areaRef: { current: area }, bottomReserve: 0, getScroller: () => null });
+			return null;
+		}
+		await act(async () => root!.render(<Harness />));
+		const iframe = document.createElement("iframe");
+		const demoWindow = {};
+		Object.defineProperty(iframe, "contentWindow", { value: demoWindow });
+		host.appendChild(iframe);
+		const page = heard();
+		try {
+			await act(async () => { window.dispatchEvent(Object.assign(new dom.window.Event("message"), { data: { type: "demo-escape" }, source: demoWindow })); });
+			assert.equal(page.seen.length, 1);
+			assert.ok(page.seen[0] === iframe, "from the demo's iframe");
+		} finally { page.stop(); }
+	});
 });
 
 describe("the drawer over a tall check", () => {
