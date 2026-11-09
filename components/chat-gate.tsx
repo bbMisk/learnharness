@@ -65,17 +65,24 @@ export function ChatGate({ chatId, title, archived: initiallyArchived = false, c
 	}, [gone, shownTitle]);
 	useServerEvent("chats-changed", () => void check());
 	useServerResync(() => void check());
+	// Optimistic, like the sidebar's archive toggle: the note and the
+	// sidebar row (lh:chat-archived) change at once; a failure puts both back.
 	const restore = async () => {
+		const show = (value: boolean) => {
+			setArchived(value);
+			window.dispatchEvent(new CustomEvent("lh:chat-archived", { detail: { id: chatId, archived: value } }));
+		};
 		setRestoring(true);
+		show(false);
 		try {
 			const response = await fetch(`/api/chats/${chatId}`, {
 				method: "PUT",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ archived: false }),
 			});
-			if (response.ok) setArchived(false);
+			if (!response.ok) show(true);
 		} catch {
-			// Offline: the note stays; Restore can be pressed again.
+			show(true); // offline: the note comes back; Restore can be pressed again
 		} finally {
 			setRestoring(false);
 		}

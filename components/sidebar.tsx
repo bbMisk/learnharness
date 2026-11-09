@@ -542,7 +542,16 @@ function SessionsSidebar() {
 			setChats((prev) => (prev ? prev.map((c) => (c.id === id ? { ...c, title } : c)) : prev));
 		};
 		window.addEventListener("lh:chat-renamed", onRenamed);
-		return () => window.removeEventListener("lh:chat-renamed", onRenamed);
+		// The open chat's Restore note: same instant patch.
+		const onArchived = (e: Event) => {
+			const { id, archived } = (e as CustomEvent<{ id: string; archived: boolean }>).detail;
+			setChats((prev) => (prev ? prev.map((c) => (c.id === id ? { ...c, archived } : c)) : prev));
+		};
+		window.addEventListener("lh:chat-archived", onArchived);
+		return () => {
+			window.removeEventListener("lh:chat-renamed", onRenamed);
+			window.removeEventListener("lh:chat-archived", onArchived);
+		};
 	}, []);
 
 	/* Push-driven, no polling: list truth arrives as events —

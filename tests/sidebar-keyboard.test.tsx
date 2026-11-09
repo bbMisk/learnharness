@@ -242,6 +242,15 @@ it("a menu opened from the keyboard focuses its first item, so Enter acts", asyn
 	}
 });
 
+it("lh:chat-archived (the open chat's Restore) patches the row at once", async () => {
+	const titles = () => [...document.querySelectorAll('[data-testid="unassigned-chat-list"] button')].map((b) => b.textContent);
+	assert.ok(titles().some((t) => t?.includes("Alpha")));
+	await act(async () => void window.dispatchEvent(new CustomEvent("lh:chat-archived", { detail: { id: "chat_a", archived: true } })));
+	assert.ok(!titles().some((t) => t?.includes("Alpha")), "archived: out of the active list");
+	await act(async () => void window.dispatchEvent(new CustomEvent("lh:chat-archived", { detail: { id: "chat_a", archived: false } })));
+	assert.ok(titles().some((t) => t?.includes("Alpha")), "restored: back");
+});
+
 it("the delete dialog focuses Delete, so Enter confirms", () => {
 	const html = renderToStaticMarkup(
 		<DeleteSessionBody chat={{ id: "c1", title: "T" }} traces={false} busy={false} failure={null} onTraces={() => {}} onClose={() => {}} onRun={() => {}} />,

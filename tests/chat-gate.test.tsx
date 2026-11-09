@@ -125,6 +125,26 @@ it("an archived open chat says so; the window title follows the chat's", async (
 	assert.equal(document.title, "LearnHarness", "leaving the chat restores the app title");
 });
 
+it("Restore is optimistic: the note and the sidebar row change before the PUT lands", async () => {
+	await mount(() => new Response(JSON.stringify({ title: "Old title", archived: true }), { status: 200 }));
+	assert.ok(host.querySelector('[data-testid="chat-archived"]'));
+	let answer: (response: Response) => void = () => {};
+	globalThis.fetch = (() => new Promise<Response>((resolve) => (answer = resolve))) as typeof fetch;
+	const sent: unknown[] = [];
+	const listen = (e: Event) => sent.push((e as CustomEvent).detail);
+	window.addEventListener("lh:chat-archived", listen);
+	try {
+		await act(async () => (host.querySelector('[data-testid="chat-archived"] button') as HTMLElement).click());
+		assert.ok(!host.querySelector('[data-testid="chat-archived"]'), "the note goes at once");
+		assert.deepEqual(sent, [{ id: "chat_x", archived: false }]);
+		await act(async () => answer(new Response("{}", { status: 500 })));
+		assert.ok(host.querySelector('[data-testid="chat-archived"]'), "a failed restore brings the note back");
+		assert.deepEqual(sent.at(-1), { id: "chat_x", archived: true });
+	} finally {
+		window.removeEventListener("lh:chat-archived", listen);
+	}
+});
+
 it("a deleted open chat gives the window back the app title", async () => {
 	let status = 200;
 	document.title = "Doomed chat";
