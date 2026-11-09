@@ -327,6 +327,10 @@ it("this tab's project delete goes home without flashing the deleted page, and E
 	const esc = Object.assign(new dom.window.Event("keydown", { bubbles: true, cancelable: true }), { key: "Escape" });
 	await act(async () => void document.dispatchEvent(esc));
 	assert.ok(document.querySelector('[data-testid="delete-project-dialog"]'), "Esc is ignored while deleting");
+	const confirm = document.querySelector('[data-testid="delete-project-confirm"]')!;
+	assert.equal(confirm.textContent, "Deleting…");
+	// A disabled button would drop focus to <body>.
+	assert.ok(!confirm.hasAttribute("disabled") && confirm.getAttribute("aria-disabled") === "true", "Delete stays focusable while busy");
 	// The server's chats-changed push lands before the DELETE answer.
 	deleted = true;
 	await act(async () => events.get("chats-changed")!("{}"));

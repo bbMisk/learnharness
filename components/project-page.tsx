@@ -142,6 +142,7 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 	const [confirmDelete, setConfirmDelete] = useState(false);
 	const [deleting, setDeleting] = useState(false);
 	const deleteProject = async () => {
+		if (deleting) return;
 		setError("");
 		setDeleting(true);
 		deletingHere.current = true;
@@ -205,7 +206,8 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 						<button type="button" onClick={() => setConfirmDelete(false)} disabled={deleting} className="rounded-sm px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40">
 							Cancel
 						</button>
-						<button type="button" data-testid="delete-project-confirm" onClick={() => void deleteProject()} disabled={deleting} className="rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-xs text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-40">
+						{/* aria-disabled, not disabled: a disabled button drops focus to <body>. */}
+						<button type="button" data-testid="delete-project-confirm" onClick={() => void deleteProject()} aria-disabled={deleting} className="rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-xs text-destructive transition-colors hover:bg-destructive/20 aria-disabled:opacity-40">
 							{deleting ? "Deleting…" : "Delete"}
 						</button>
 					</div>

@@ -80,12 +80,12 @@ export function DeleteSessionDialog({
 				// the earlier-registered global window listener.
 				e.preventDefault();
 				e.stopPropagation();
-				onClose();
+				if (!busy) onClose(); // a delete in flight stays open, so its failure shows
 			}
 		};
 		document.addEventListener("keydown", onKeyDown);
 		return () => document.removeEventListener("keydown", onKeyDown);
-	}, [chat, onClose]);
+	}, [chat, onClose, busy]);
 
 	const run = async () => {
 		if (!chat || busy) return;
@@ -232,10 +232,12 @@ export function DeleteSessionBody({
 					type="button"
 					data-testid="delete-confirm"
 					// Focus lands here so Enter confirms (Tab is off app-wide); Esc cancels.
+					// aria-disabled, not disabled, while busy: a disabled button drops
+					// focus to <body>, and Enter must retry after a failure.
 					autoFocus
 					onClick={onRun}
-					disabled={busy}
-					className="rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-xs text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-40"
+					aria-disabled={busy}
+					className="rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-xs text-destructive transition-colors hover:bg-destructive/20 aria-disabled:opacity-40"
 				>
 					{busy ? "Deleting…" : "Delete"}
 				</button>
