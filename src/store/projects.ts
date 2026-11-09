@@ -7,11 +7,14 @@ import { cleanName } from "../core/contracts.ts";
 import { emit } from "../core/events.ts";
 import { writeFileAtomic } from "./write-file.ts";
 export function createProjectStore(root: string) {
+	const validId = (id: string) => /^project_[a-zA-Z0-9_-]+$/.test(id);
 	const file = (id: string) => {
-		if (!/^project_[a-zA-Z0-9_-]+$/.test(id)) throw new Error("Invalid project id.");
+		if (!validId(id)) throw new Error("Invalid project id.");
 		return path.join(root, id + ".json");
 	};
 	const get = (id: string): ProjectRecord | null => {
+		// A malformed id (a bad link) is simply not found.
+		if (!validId(id)) return null;
 		try {
 			const record = JSON.parse(fs.readFileSync(file(id), "utf8"));
 			return record.id === id && Array.isArray(record.fileIds) ? record : null;

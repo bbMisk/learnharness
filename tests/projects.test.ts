@@ -106,3 +106,15 @@ it('keeps projects editable and chats usable when a shared upload disappears', a
  assert.deepEqual(projectStore.get(p.id)!.fileIds, [available.id]);
  assert.doesNotMatch(await projectInstructions(p.id), /unavailable/);
 });
+
+it('a malformed project id is a quiet 404, with no error logged', async () => {
+ const errors: unknown[][] = [];
+ const original = console.error;
+ console.error = (...args: unknown[]) => { errors.push(args); };
+ try {
+  const res = await project.GET(new Request('http://test/api'), {params:Promise.resolve({id:'BADID'})});
+  assert.equal(res.status, 404);
+  assert.equal(projectStore.get('../etc/passwd'), null);
+ } finally { console.error = original; }
+ assert.deepEqual(errors, []);
+});

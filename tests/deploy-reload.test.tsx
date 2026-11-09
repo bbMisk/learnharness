@@ -74,7 +74,7 @@ it("offers a reload after a deploy and never reloads by itself", async () => {
 
 it("sits bottom-left: a pill by default, a row for the sidebar above Settings", async () => {
 	const floating = await reconnect("build-b");
-	assert.match((floating.pill() as HTMLElement).className, /fixed bottom-\[calc\(1rem\+env\(safe-area-inset-bottom,0px\)\)\] left-\[calc\(1rem\+env\(safe-area-inset-left,0px\)\)\]/, "16px from the corner plus any safe-area inset");
+	assert.match((floating.pill() as HTMLElement).className, /fixed bottom-\[calc\(1rem\+var\(--lh-safe-bottom\)\)\] left-\[calc\(1rem\+env\(safe-area-inset-left,0px\)\)\]/, "16px from the corner plus the safe area and any bottom offline strip");
 	await act(async () => root?.unmount());
 	document.body.innerHTML = "";
 	const row = await reconnect("build-b", "", "row");

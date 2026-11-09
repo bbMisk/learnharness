@@ -132,7 +132,7 @@ export function GlobalFileDrop() {
 				</div>
 			)}
 			{error && (
-				<div role="alert" className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom,0px))] right-[calc(1.25rem+env(safe-area-inset-right,0px))] z-[210] rounded-xl border bg-card p-4 text-sm">
+				<div role="alert" className="fixed bottom-[calc(1.25rem+var(--lh-safe-bottom))] right-[calc(1.25rem+env(safe-area-inset-right,0px))] z-[210] rounded-xl border bg-card p-4 text-sm">
 					{error}
 					<button className="ml-4" onClick={() => setError("")} aria-label="Dismiss file drop message">
 						×
