@@ -1,6 +1,6 @@
 import { NewSession } from "@/components/new-session";
 import { readSettingsRecord } from "@/src/server";
-import { slotsConfigured } from "@/src/core";
+import { SESSION_MODES, slotsConfigured, type SessionMode } from "@/src/core";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +25,7 @@ export default async function NewSessionPage({
 		<NewSession
 			projectId={project}
 			initialConfigured={slotsConfigured(readSettingsRecord()?.models)}
-			mode={mode === "practice" ? "practice" : "teach"}
+			mode={SESSION_MODES.includes(mode as SessionMode) ? mode as SessionMode : "teach"}
 		/>
 	);
 }

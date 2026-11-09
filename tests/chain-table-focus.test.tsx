@@ -47,3 +47,21 @@ it("focus returns to the opener after the table closes", async () => {
 	await act(async () => root.unmount());
 	assert.ok(restored, "focus back on the opener");
 });
+
+it("Tab inside the open table stays in it: it goes to the table's search, never the page behind", async () => {
+	const host = document.createElement("div");
+	document.body.append(host);
+	const root = createRoot(host);
+	await act(async () => root.render(<ServerEventsProvider connect={quiet}><Harness /></ServerEventsProvider>));
+	await act(async () => setOpen(true));
+	let reachedWindow = false;
+	const onWindow = (e: Event) => { if ((e as KeyboardEvent).key === "Tab") reachedWindow = true; };
+	window.addEventListener("keydown", onWindow);
+	const tab = Object.assign(new dom.window.Event("keydown", { bubbles: true, cancelable: true }), { key: "Tab" });
+	await act(async () => document.querySelector<HTMLElement>('[data-testid="chain-table-overlay"]')!.dispatchEvent(tab));
+	window.removeEventListener("keydown", onWindow);
+	const onSearch = focused === document.querySelector('[data-testid="chain-table-search"]');
+	await act(async () => root.unmount());
+	assert.ok(tab.defaultPrevented && !reachedWindow, "the global field cycle never hears it");
+	assert.ok(onSearch, "focus lands on the table's search");
+});

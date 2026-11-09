@@ -108,7 +108,10 @@ function render() {
 	element("review").hidden = !current;
 	element("done").hidden = !!current;
 	if (!current) {
-		element("next-due").textContent = Number.isFinite(queue.nextDueAt) ? `Your next card is due in ${intervalLabel(queue.nextDueAt)}. You can choose another project or come back then.` : queue.newRemaining === 0 && active ? "You’ve reached today’s 20-new-card target for the selected projects. New cards become available at 4am New York time." : "No cards are ready for these projects. Choose another project, or sync to download newly prepared material.";
+		// Skips are unrated: a queue left only with skipped cards is not "caught up".
+		const skippedRest = queue.queue.some(card => skipped.has(card.id));
+		element("done-title").textContent = skippedRest ? "You skipped the rest." : "You’re caught up.";
+		element("next-due").textContent = skippedRest ? "Skipped cards aren’t reviewed. Choose projects to go through them again." : Number.isFinite(queue.nextDueAt) ? `Your next card is due in ${intervalLabel(queue.nextDueAt)}. You can choose another project or come back then.` : queue.newRemaining === 0 && active ? "You’ve reached today’s 20-new-card target for the selected projects. New cards become available at 4am New York time." : "No cards are ready for these projects. Choose another project, or sync to download newly prepared material.";
 		return;
 	}
 	const mcq = reviewMode(current.schedule) === "mcq";
@@ -127,7 +130,7 @@ function render() {
 		const projectNames = new Map(state?.snapshot?.projects?.map(project => [project.id,project.name]));
 		const names = cardProjectIds(current).map(id => projectNames.get(id) ?? (id === UNASSIGNED_REVIEW_PROJECT ? "Unassigned" : "Project"));
 		element("card-topic").textContent = `${names.join(" · ")} · ${current.deckName}`;
-		element("card-state").textContent = mcq ? `Multiple choice · ${Math.min(current.schedule.mcqStreak ?? 0, 3)}/3` : "Active recall";
+		element("card-state").textContent = fallback ? "Preview · not rated" : mcq ? `Multiple choice · ${Math.min(current.schedule.mcqStreak ?? 0, 3)}/3` : "Active recall";
 		renderReviewText(element("front"), mcq ? current.mcq?.prompt ?? current.front : current.front);
         const options = element("mcq-options"); options.replaceChildren();
         element("mcq-status").textContent = mcq && !current.mcq ? preparingQuestion ? "Preparing choices…" : questionError || "Reconnect to prepare this card’s choices for offline review." : "";
@@ -295,9 +298,13 @@ element("backup").onclick = async () => {
 };
 document.addEventListener("keydown", event => {
 	if (!started || !current || saving || (event.target instanceof HTMLElement && event.target.closest("button,select,input,textarea,dialog"))) return;
-	if (reviewMode(current.schedule) === "mcq") return;
-	if (event.code === "Space" && !revealed) { event.preventDefault(); reveal.click(); }
-	if (revealed && ["1", "2", "3", "4"].includes(event.key)) { event.preventDefault(); void rate(Number(event.key) as ReviewRating); }
+	const mcq = reviewMode(current.schedule) === "mcq", fallback = mcq && !current.mcq && !preparingQuestion;
+	if (mcq && !fallback) return;
+	// Space or ↓ (the button's hint) shows the answer; on a card without choices it then moves on.
+	const advance = event.code === "Space" || event.key === "ArrowDown";
+	if (advance && !revealed) { event.preventDefault(); reveal.click(); }
+	else if (advance && fallback) { event.preventDefault(); element("skip").click(); }
+	else if (!mcq && revealed && ["1", "2", "3", "4"].includes(event.key)) { event.preventDefault(); void rate(Number(event.key) as ReviewRating); }
 });
 document.addEventListener("visibilitychange", () => {
 	if (document.hidden) { foregroundMs = foregroundTime(); foregroundStart = null; }

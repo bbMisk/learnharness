@@ -17,6 +17,7 @@ import {
 	isImpNodeId,
 	boxBlurRound,
 	clampWheelZoom,
+	zoomOutFloor,
 	fitTransform,
 	labelAlpha,
 	pickNearest,
@@ -110,6 +111,10 @@ describe("clampWheelZoom", () => {
 		assert.equal(clampWheelZoom(0.1, 0.2, 0.58), 0.2);
 	});
 	it("caps zoom in at 40×", () => assert.equal(clampWheelZoom(30, 80, 0.58), 40));
+	it("touch pinch shares the floor (d3's scaleExtent per gesture)", () => {
+		assert.equal(zoomOutFloor(0.6, 0.58), 0.29);
+		assert.equal(zoomOutFloor(0.1, 0.58), 0.1);
+	});
 });
 
 describe("fitTransform", () => {
@@ -122,6 +127,15 @@ describe("fitTransform", () => {
 		assert.ok(Math.abs(t.y - 150) < 1e-9, `y=${t.y}`);
 		// World center maps to viewport center:
 		assert.ok(Math.abs(0 * t.k + t.x - 250) < 1e-9);
+	});
+
+	test("frames the band between the covering chrome (top controls, composer)", () => {
+		// 500x300 with 20px covered on top and 80px at the bottom: the
+		// band is 200 tall -> k = min(420/100, 120/50) = 2.4, centered at y 120.
+		const t = fitTransform({ minX: -50, maxX: 50, minY: -25, maxY: 25 }, 500, 300, 40, { top: 20, bottom: 80 });
+		assert.ok(Math.abs(t.k - 2.4) < 1e-9, `k=${t.k}`);
+		assert.ok(Math.abs(t.x - 250) < 1e-9, `x=${t.x}`);
+		assert.ok(Math.abs(t.y - 120) < 1e-9, `y=${t.y}`);
 	});
 
 	test("never returns a non-positive scale for degenerate bboxes", () => {

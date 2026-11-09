@@ -240,9 +240,16 @@ export function DraftShell({
 
 export function NewSession({ initialConfigured,
 	projectId, mode: initialMode = "teach" }: { initialConfigured: boolean;
-	projectId?: string; mode?: "teach" | "practice" }) {
+	projectId?: string; mode?: SessionMode }) {
 	const router = useRouter();
 	const [mode, setMode, modes] = useSessionMode(initialMode);
+	// The switch writes ?mode=, so the sidebar's "+ Teaching" (a push to
+	// /chat/new) always changes the requested mode.
+	const pickMode = (next: SessionMode) => {
+		setMode(next);
+		const query = new URLSearchParams({ ...(next !== "teach" ? { mode: next } : {}), ...(projectId ? { project: projectId } : {}) }).toString();
+		router.replace(query ? `/chat/new?${query}` : "/chat/new", { scroll: false });
+	};
 	const [text, setText] = useState("");
 	/* The draft MIRROR ("nothing gets lost" round, 2026-10-01): the shell's
 	 * finish-first send calls THIS send after the dictation flush — which
@@ -339,7 +346,7 @@ export function NewSession({ initialConfigured,
 				onChange={applyText}
 				onSend={send}
 				mode={mode}
-				modeSwitch={<ModeSwitch mode={mode} modes={modes} onChange={setMode} testidPrefix="draft-mode" />}
+				modeSwitch={<ModeSwitch mode={mode} modes={modes} onChange={pickMode} testidPrefix="draft-mode" />}
 				picks={picks}
 				onOpenPicker={openPicker}
 				onClearPicks={() => applyPicks([])}

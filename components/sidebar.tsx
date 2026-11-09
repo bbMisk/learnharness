@@ -189,10 +189,36 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 			return;
 		}
 		setOpen((v) => {
-			localStorage.setItem(STORAGE_KEY, v ? "0" : "1");
+			// The phone drawer's opens and closes are not the preference.
+			if (!isPhone()) localStorage.setItem(STORAGE_KEY, v ? "0" : "1");
 			return !v;
 		});
 	}, [narrow, open]);
+
+	// Leaving phone width restores the stored preference.
+	useEffect(() => {
+		const media = window.matchMedia?.(PHONE_QUERY);
+		if (!media) return;
+		const onChange = () => { if (!media.matches) setOpen(localStorage.getItem(STORAGE_KEY) !== "0"); };
+		media.addEventListener("change", onChange);
+		return () => media.removeEventListener("change", onChange);
+	}, []);
+
+	// Esc closes the open phone drawer, unless a field, menu or dialog
+	// above it owns the key.
+	useEffect(() => {
+		if (!open) return;
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key !== "Escape" || e.defaultPrevented || !isPhone()) return;
+			if (document.querySelector("[data-lh-modal], [data-lh-menu]")) return;
+			if (e.target instanceof Element && e.target.closest("input, textarea, [contenteditable='true']")) return;
+			e.preventDefault();
+			e.stopPropagation();
+			toggle();
+		};
+		document.addEventListener("keydown", onKeyDown);
+		return () => document.removeEventListener("keydown", onKeyDown);
+	}, [open, toggle]);
 
 	// ⌘B: the global shortcut dispatches kbdEventForAction("toggle-sidebar")
 	// and the context listens on exactly that name — derive both from the

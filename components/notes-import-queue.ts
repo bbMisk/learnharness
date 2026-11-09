@@ -5,13 +5,12 @@ export const notesPath = (file: File): string => file.webkitRelativePath || file
 /** Folder imports silently exclude dot-prefixed files and directories below
  * the chosen root. The root is segment 0 and stays importable even when hidden. */
 const hiddenInFolder = (file: File): boolean => file.webkitRelativePath.split("/").slice(1).some((part) => part.startsWith("."));
-/** The fix in words for a missing model, never the machine code. A missing
+/** The fix in words for a missing model, never the machine code: provider
+ *  setup first (with none connected, Agent has nothing to pick). A missing
  *  key's own error already names the key and where to add it. */
 function setupHint(r: NotesImportResult): string {
 	if (r.code !== "models_not_configured" || !r.missing?.length) return "";
-	const slots = r.missing.map((slot) => slot[0]!.toUpperCase() + slot.slice(1));
-	const named = slots.length === 1 ? `a ${slots[0]} model` : `the ${slots.slice(0, -1).join(", ")} and ${slots.at(-1)} models`;
-	return `\nChoose ${named} in Settings → Agent.`;
+	return "\nConnect your AI account in Settings → Providers, then pick your models in Settings → Agent.";
 }
 export interface ImportQueueSnapshot {
 	importing: boolean;
