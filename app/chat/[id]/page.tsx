@@ -1,10 +1,20 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { cache } from "react";
 import { Chat } from "@/components/chat";
 import { ChatGate } from "@/components/chat-gate";
 import { clientMessage, resolveSettings, sanitizeQuestionType, slotsConfigured } from "@/src/core";
 import { compactionInFlight, getChat, isTurnRunning, readSettingsRecord, turnFailure } from "@/src/server";
 
 export const dynamic = "force-dynamic";
+
+// One record read per request, shared by the title and the page.
+const readChat = cache(getChat);
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+	const chat = readChat((await params).id);
+	return chat ? { title: chat.title } : {};
+}
 
 export default async function ChatPage({
 	params,
@@ -14,7 +24,7 @@ export default async function ChatPage({
 	searchParams: Promise<{ prompt?: string }>;
 }) {
 	const [{ id }, { prompt }] = await Promise.all([params, searchParams]);
-	const chat = getChat(id);
+	const chat = readChat(id);
 	if (!chat) notFound();
 	// The persistent setup CTA's seed (BYOK, owner 2026-09-22): slotsConfigured
 	// over the settings record, server-read — the same gate home/new read. The
