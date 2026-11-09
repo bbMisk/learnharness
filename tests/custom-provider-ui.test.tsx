@@ -2,12 +2,18 @@ import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
-import { createRoot, type Root } from "react-dom/client";
+import type { Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
-import { KeysSection, CustomEndpointSetup } from "../components/settings/keys-section.tsx";
 
 const dom = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { window: dom.window, document: dom.document, Element: dom.window.Element, HTMLElement: dom.window.HTMLElement, HTMLInputElement: dom.window.HTMLInputElement, CustomEvent: dom.window.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true });
+// linkedom has no input `type` property; React only tracks typing into text-like inputs.
+Object.defineProperty(dom.window.HTMLInputElement.prototype, "type", { configurable: true, get(this: Element) { return this.getAttribute("type") ?? "text"; } });
+// React listens for input events only when the document advertises oninput,
+// and it checks once at load, so react-dom loads after the DOM.
+Object.assign(dom.document, { oninput: null });
+const { createRoot } = await import("react-dom/client");
+const { KeysSection, CustomEndpointSetup } = await import("../components/settings/keys-section.tsx");
 const originalFetch = globalThis.fetch;
 let root: Root | undefined;
 let host: HTMLElement | undefined;
@@ -48,4 +54,19 @@ test("model controls use approved effort labels, right-align Save limits, and gr
 	const help = element("custom-help"); assert.equal(element("custom-budget-help").parentElement, help); assert.equal(element("custom-reasoning-help").parentElement, help);
 	const children = Array.from(element("custom-endpoint-editor").children); assert.ok(children.indexOf(help) > children.indexOf(element("custom-pins")));
 	assert.match(help.textContent ?? "", /do not resize backend context/); assert.match(help.textContent ?? "", /Off may not disable/);
+});
+test("clearing the typed API key keeps API key authentication", async () => {
+	await mount();
+	await selectMode("apiKey");
+	const input = element("custom-key-input");
+	for (const value of ["x", ""]) {
+		Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input, value);
+		await act(async () => input.dispatchEvent(new dom.window.Event("input", { bubbles: true })));
+	}
+	assert.ok(element("custom-key-input"), "the key field stays: auth did not flip to Keyless");
+});
+test("Disconnect arms on the first click and only the second click disconnects", async () => {
+	await mount();
+	await click("custom-delete"); // the GET-only fetch stub fails on a DELETE
+	assert.equal(element("custom-delete").textContent, "Confirm disconnect");
 });

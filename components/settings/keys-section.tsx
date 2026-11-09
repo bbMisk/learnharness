@@ -796,6 +796,7 @@ function CustomEndpointEditor({
 	const [manualModels, setManualModels] = useState(manualModels0.join(", "));
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 	// The limits form: edited drafts over the stored pins, plus the last saved
 	// payload as the dirty baseline (the server's echo is what gets stored).
 	const [drafts, setDrafts] = useState<Record<string, PinDraft>>(() => draftsFor(models, overrides));
@@ -895,7 +896,6 @@ function CustomEndpointEditor({
 					onChange={(e) => {
 						setKey(e.target.value);
 						setKeyTouched(true);
-						if (!e.target.value.trim()) setAuthMode("keyless");
 					}}
 					placeholder={keyPresent ? "Leave blank to keep effective key" : "API key"}
 					aria-label="Custom endpoint API key"
@@ -921,18 +921,21 @@ function CustomEndpointEditor({
 				>
 					Cancel
 				</button>
-				{/* Disconnect rides beside Connect, exactly the stored-key rows' Delete:
-				    quiet text, one click, no confirm — and only once there IS an
-				    endpoint (a fresh add has nothing to delete). */}
+				{/* Disconnect rides beside Connect, like the stored-key rows' Delete:
+				    the first click arms it, the second disconnects — and only once
+				    there IS an endpoint (a fresh add has nothing to delete). */}
 				{onDelete && baseUrl0.trim() && (
 					<button
 						type="button"
-						onClick={async () => { setBusy(true); const err = await onDelete(revision); if (err) setError(err); setBusy(false); }}
+						onClick={async () => {
+							if (!confirmDisconnect) { setConfirmDisconnect(true); return; }
+							setBusy(true); const err = await onDelete(revision); if (err) setError(err); setBusy(false);
+						}}
 						disabled={busy || pinsBusy}
 						data-testid="custom-delete"
-						className="shrink-0 text-xs text-muted-foreground/70 underline-offset-2 hover:text-red-500 hover:underline"
+						className={`shrink-0 text-xs underline-offset-2 hover:text-red-500 hover:underline ${confirmDisconnect ? "text-red-500" : "text-muted-foreground/70"}`}
 					>
-						Disconnect
+						{confirmDisconnect ? "Confirm disconnect" : "Disconnect"}
 					</button>
 				)}
 			</div>
