@@ -11,8 +11,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 	if (only === "coverage") return jsonResponse(req, { coverage: sessionCoverage(chat) });
 	// The open chat view's cram chip re-reads the style another window set.
 	if (only === "style") return jsonResponse(req, { style: chat.style ?? null });
-	// The open chat view checks its record still exists and follows renames.
-	if (only === "title") return jsonResponse(req, { title: chat.title });
+	// The open chat view checks its record still exists and follows renames and archiving.
+	if (only === "title") return jsonResponse(req, { title: chat.title, archived: chat.archived === true });
 	// turnInFlight lets a returning client re-attach to a running turn
 	// (chat-handler write-ahead + registry — see src/server/turn-liveness.ts).
 	// coverage (extraction-UX redesign, 2026-09-24): the chat view's ring

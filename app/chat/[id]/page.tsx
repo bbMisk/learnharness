@@ -21,7 +21,7 @@ export default async function ChatPage({
 	// server's 503 stays the truth; this only decides whether the pill rides.
 	const record = readSettingsRecord();
 	return (
-		<ChatGate key={chat.id} chatId={chat.id} title={chat.title}>
+		<ChatGate key={chat.id} chatId={chat.id} title={chat.title} archived={chat.archived === true}>
 		<Chat
 			key={chat.id}
 			chatId={chat.id}

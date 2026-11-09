@@ -8,9 +8,13 @@ import { useServerEvent, useServerResync } from "@/components/server-events";
  *  Back can restore a cached page), on chats-changed and on reconnect. A 404
  *  (deleted here or in another window) swaps the chat for the not-found
  *  page; a new title (renamed in another window) goes out as lh:chat-renamed,
- *  which the header and sidebar already follow. Only the newest read counts. */
-export function ChatGate({ chatId, title, children }: { chatId: string; title: string; children: ReactNode }) {
+ *  which the header and sidebar already follow. Only the newest read counts.
+ *  The window title follows the chat's, and an archived chat says so. */
+export function ChatGate({ chatId, title, archived: initiallyArchived = false, children }: { chatId: string; title: string; archived?: boolean; children: ReactNode }) {
 	const [gone, setGone] = useState(false);
+	const [shownTitle, setShownTitle] = useState(title);
+	const [archived, setArchived] = useState(initiallyArchived);
+	const [restoring, setRestoring] = useState(false);
 	const known = useRef(title);
 	const latest = useRef(0);
 	const check = useCallback(async () => {
@@ -24,9 +28,13 @@ export function ChatGate({ chatId, title, children }: { chatId: string; title: s
 				return setGone(true);
 			}
 			if (!response.ok) return;
-			const next = ((await response.json()) as { title?: unknown }).title;
-			if (read !== latest.current || typeof next !== "string" || next === known.current) return;
+			const body = (await response.json()) as { title?: unknown; archived?: unknown };
+			if (read !== latest.current) return;
+			setArchived(body.archived === true);
+			const next = body.title;
+			if (typeof next !== "string" || next === known.current) return;
 			known.current = next;
+			setShownTitle(next);
 			window.dispatchEvent(new CustomEvent("lh:chat-renamed", { detail: { id: chatId, title: next } }));
 		} catch {
 			// Offline: keep the view; the reconnect re-reads.
@@ -38,12 +46,54 @@ export function ChatGate({ chatId, title, children }: { chatId: string; title: s
 	useEffect(() => {
 		const onRenamed = (e: Event) => {
 			const { id, title } = (e as CustomEvent<{ id: string; title: string }>).detail;
-			if (id === chatId) known.current = title;
+			if (id !== chatId) return;
+			known.current = title;
+			setShownTitle(title);
 		};
 		window.addEventListener("lh:chat-renamed", onRenamed);
 		return () => window.removeEventListener("lh:chat-renamed", onRenamed);
 	}, [chatId]);
+	useEffect(() => {
+		if (gone) return;
+		const previous = document.title;
+		document.title = shownTitle;
+		return () => {
+			document.title = previous;
+		};
+	}, [gone, shownTitle]);
 	useServerEvent("chats-changed", () => void check());
 	useServerResync(() => void check());
-	return gone ? <NotFoundView /> : children;
+	const restore = async () => {
+		setRestoring(true);
+		try {
+			const response = await fetch(`/api/chats/${chatId}`, {
+				method: "PUT",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ archived: false }),
+			});
+			if (response.ok) setArchived(false);
+		} catch {
+			// Offline: the note stays; Restore can be pressed again.
+		} finally {
+			setRestoring(false);
+		}
+	};
+	if (gone) return <NotFoundView />;
+	return (
+		<>
+			{children}
+			{archived && (
+				<p
+					role="status"
+					data-testid="chat-archived"
+					className="absolute left-1/2 top-[4.25rem] z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground shadow-sm"
+				>
+					This chat is archived.
+					<button type="button" disabled={restoring} onClick={() => void restore()} className="text-foreground underline-offset-2 hover:underline disabled:opacity-40">
+						Restore
+					</button>
+				</p>
+			)}
+		</>
+	);
 }
