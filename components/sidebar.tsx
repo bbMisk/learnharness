@@ -388,6 +388,7 @@ export function SessionRow({
 			draggable
 			onDragStart={event => startChatDrag(event, chat.id)}
 			data-testid={kbdSelected ? "session-row-kbd" : "session-row"}
+			data-chat-id={chat.id}
 			className={cn(
 				"relative flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left",
 				onArchive && "pr-10",
@@ -600,14 +601,16 @@ function SessionsSidebar() {
 	// Where focus goes back once the menu, its rename or its Delete dialog
 	// closes: the search when the walk opened the menu, else the row. Only
 	// when focus was dropped (a click elsewhere keeps its own target). A row
-	// the rename or an archive unmounted falls back to the typing field.
+	// the rename or an archive unmounted falls back to the typing field, and
+	// a renamed one (`rowId`) to its new row on a page without one.
 	const ctxReturnRef = useRef<HTMLElement | null>(null);
-	const returnFocus = useCallback(() => {
+	const returnFocus = useCallback((rowId?: string) => {
 		requestAnimationFrame(() => {
 			if (document.activeElement && document.activeElement !== document.body) return;
 			const el = ctxReturnRef.current;
 			if (el?.isConnected) el.focus();
 			else if (!isPhone()) focusComposer(); // a phone would raise its keyboard behind the drawer
+			if (rowId && document.activeElement === document.body) [...document.querySelectorAll<HTMLElement>("[data-chat-id]")].find((row) => row.getAttribute("data-chat-id") === rowId)?.focus();
 		});
 	}, []);
 
@@ -747,7 +750,7 @@ function SessionsSidebar() {
 	}, [open, pathname, refresh]);
 
 	const renderChat = (chat: ChatListItem, index?: number) => renamingId === chat.id ? (
-		<RenameRow key={chat.id} chat={chat} draft={renameDraft ?? undefined} takeFocus={!renameQuiet} showTime={showTime} onCommit={(next, byKey) => { void commitRename(chat.id, next, byKey, chat.title); if (byKey) returnFocus(); }} onCancel={() => { setRenamingId(null); setRenameError(""); returnFocus(); }} />
+		<RenameRow key={chat.id} chat={chat} draft={renameDraft ?? undefined} takeFocus={!renameQuiet} showTime={showTime} onCommit={(next, byKey) => { void commitRename(chat.id, next, byKey, chat.title); if (byKey) returnFocus(chat.id); }} onCancel={() => { setRenamingId(null); setRenameError(""); returnFocus(chat.id); }} />
 	) : (
 		<SessionRow key={chat.id} chat={chat} showTime={showTime} active={pathname === `/chat/${chat.id}`} kbdSelected={index !== undefined && index === kbdIndex}
 			onArchive={() => updateChat(chat.id, {archived:!chat.archived})}

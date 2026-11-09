@@ -134,6 +134,21 @@ it("Esc or Enter in a chat rename hands focus to the typing field, not <body>", 
 	assertSameNode(focused, composer(), "Enter: the composer");
 });
 
+it("on a page with no typing field, Esc or Enter in a chat rename hands focus to the renamed row", async () => {
+	const field = composer();
+	field.removeAttribute("data-file-path-input"); // a project page or Flashcards: no typing field
+	try {
+		await key(await startRename("Alpha"), "Escape");
+		await settle();
+		assertSameNode(focused, row("Alpha"), "Esc: the row");
+		await enter(await startRename("Alpha"));
+		await settle();
+		assertSameNode(focused, row("Alpha"), "Enter: the row");
+	} finally {
+		field.setAttribute("data-file-path-input", "");
+	}
+});
+
 it("an unchanged name just closes the row: no save, no error", async () => {
 	await enter(await startRename("Alpha"));
 	await settle();
