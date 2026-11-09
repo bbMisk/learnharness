@@ -162,28 +162,27 @@ export function KeyboardSection() {
 											<kbd className="rounded-sm border border-border bg-muted px-1.5 py-0.5 font-ui text-xs">
 												{rebinding === def.id ? "Press keys…" : formatBinding(effective) || "Not bound"}
 											</kbd>
-											{def.displayOnly ? null : rebinding === def.id ? (
-												<button
-													type="button"
-													onClick={() => setRebinding(null)}
-													className="text-xs text-muted-foreground/70 underline-offset-2 hover:text-foreground hover:underline"
-												>
-													Cancel
-												</button>
-											) : (
+											{def.displayOnly ? null : (
 												<>
+													{/* One button for Rebind and Cancel, so focus stays on it. */}
 													<button
 														type="button"
-														onClick={() => setRebinding(def.id)}
+														onClick={() => setRebinding(rebinding === def.id ? null : def.id)}
 														data-testid={`kbd-rebind-${def.id}`}
-														className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+														className={`text-xs underline-offset-2 hover:text-foreground hover:underline ${rebinding === def.id ? "text-muted-foreground/70" : "text-muted-foreground"}`}
 													>
-														Rebind
+														{rebinding === def.id ? "Cancel" : "Rebind"}
 													</button>
-													{overridden(def.id) && (
+													{rebinding !== def.id && overridden(def.id) && (
 														<button
 															type="button"
-															onClick={() => resetOne(def.id)}
+															onClick={(event) => {
+																// Reset leaves with the override: focus moves to Rebind.
+																const rebind = event.currentTarget.previousElementSibling as HTMLElement | null;
+																const hadFocus = document.activeElement === event.currentTarget;
+																resetOne(def.id);
+																if (hadFocus) rebind?.focus();
+															}}
 															data-testid={`kbd-reset-${def.id}`}
 															className="text-xs text-muted-foreground/70 underline-offset-2 hover:text-foreground hover:underline"
 														>
