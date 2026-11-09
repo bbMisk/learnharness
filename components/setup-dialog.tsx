@@ -45,7 +45,7 @@ import { type ModelCatalogEntry, type ModelSlotName, type ModelsSettings, COMPAC
 import { prettyModel } from "@/components/usage-format";
 import { ModelMenuList } from "@/components/settings/model-menu";
 import { MenuShell } from "@/components/menu-shell";
-import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-signal";
+import { notifySettingsSaved, onSettingsSaved, useSettingsSaved } from "@/components/settings-signal";
 import { useModelCatalog } from "@/components/model-catalog";
 import { savedSlotsConnected } from "@/components/setup-cta";
 import { Hint } from "@/components/ui/hint";
@@ -259,13 +259,22 @@ const keptPicks = {
 	levels: {} as Partial<Record<ModelSlotName, ThinkingLevel>>,
 };
 
-export function SetupDialog(props: SetupDialogProps) {
-	useSettingsSaved((section) => {
+// Subscribed for the app session once the dialog first mounts: the lazy
+// wrapper unmounts this module's components while setup is closed.
+let keptPicksWatched = false;
+function watchKeptPicks() {
+	if (keptPicksWatched) return;
+	keptPicksWatched = true;
+	onSettingsSaved((section) => {
 		if (section !== "models") return;
 		keptPicks.edited.clear();
 		keptPicks.picked = {};
 		keptPicks.levels = {};
 	});
+}
+
+export function SetupDialog(props: SetupDialogProps) {
+	useEffect(watchKeptPicks, []);
 	// Mount-time cache seeding avoids a key-screen first frame.
 	return props.open ? <OpenSetupDialog {...props} /> : null;
 }
