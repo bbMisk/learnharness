@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { actionForBinding, eventBinding, KEYBOARD_ACTIONS } from "../src/core/keyboard.ts";
+import { actionForBinding, eventBinding, formatBinding, KEYBOARD_ACTIONS } from "../src/core/keyboard.ts";
 
 /**
  * Non-Latin keyboard layouts: with Ctrl/Cmd held, a Cyrillic (or Greek,
@@ -64,6 +64,15 @@ describe("eventBinding — non-Latin layouts", () => {
 		assert.equal(eventBinding(press({ key: "q", code: "KeyA", altKey: true })), "alt+q", "ASCII still follows key, not position");
 	});
 
+	it("an ⌥ glyph names its physical key, as the dead-key path does (⌥/ is ⌥/, not ⌥÷)", () => {
+		assert.equal(eventBinding(press({ key: "÷", code: "Slash", altKey: true })), "alt+/");
+		assert.equal(eventBinding(press({ key: "≥", code: "Period", altKey: true })), "alt+.");
+		assert.equal(eventBinding(press({ key: "¡", code: "Digit1", altKey: true })), "alt+1");
+		assert.equal(eventBinding(press({ key: "§", code: "IntlBackslash", altKey: true })), "alt+§");
+		assert.equal(formatBinding(eventBinding(press({ key: "÷", code: "Slash", altKey: true }))), formatBinding(eventBinding(press({ key: "Dead", code: "Slash", altKey: true }))));
+		assert.equal(formatBinding("alt+ろ").endsWith("ろ"), true);
+	});
+
 	it("a dead key binds by its physical key, whatever the modifiers (macOS ⌥E, ⌥U, ⌥`)", () => {
 		assert.equal(eventBinding(press({ key: "Dead", code: "KeyE", altKey: true })), "alt+e");
 		assert.equal(eventBinding(press({ key: "Dead", code: "KeyU", altKey: true })), "alt+u");
@@ -72,7 +81,8 @@ describe("eventBinding — non-Latin layouts", () => {
 		assert.equal(eventBinding(press({ key: "Dead", code: "KeyE", metaKey: true, altKey: true })), "mod+alt+e");
 		assert.equal(eventBinding(press({ key: "Dead", code: "Quote", ctrlKey: true, shiftKey: true })), "mod+shift+'");
 		assert.equal(eventBinding(press({ key: "Dead", code: "Digit6", altKey: true })), "alt+6");
-		assert.equal(eventBinding(press({ key: "Dead", code: "IntlBackslash", altKey: true })), "alt+intlbackslash");
+		assert.equal(eventBinding(press({ key: "Dead", code: "IntlBackslash", altKey: true })), "alt+§");
+		assert.equal(eventBinding(press({ key: "Dead", code: "IntlRo", altKey: true })), "alt+ろ");
 		assert.equal(eventBinding(press({ key: "Dead", code: "", altKey: true })), "alt+dead");
 		assert.equal(eventBinding(press({ key: "Dead", code: "BracketLeft" })), "[", "a bare accent key is a bare key");
 	});
