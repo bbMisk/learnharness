@@ -644,3 +644,28 @@ it("squeezed above a tall dock to a strip it would scroll in, the card hides; wi
 		delete (proto as unknown as Record<string, unknown>).scrollHeight;
 	}
 });
+
+it("PROGRESS never claims a card that isn't there: a cramped card reports it, and a shown-on-request card runs over the check", async () => {
+	const proto = dom.window.HTMLElement.prototype;
+	const box = { client: 26, scroll: 466 };
+	const isCard = (el: Element) => el.getAttribute("data-testid") === "lesson-tracker";
+	Object.defineProperty(proto, "clientHeight", { configurable: true, get(this: Element) { return isCard(this) ? box.client : 0; } });
+	Object.defineProperty(proto, "scrollHeight", { configurable: true, get(this: Element) { return isCard(this) ? box.scroll : 0; } });
+	try {
+		const reports: boolean[] = [];
+		const host = await mount(<LessonTrackerCard tracking={deriveLessonTracking(record)} bottomReserve={700} onCramped={(c) => reports.push(c)} />);
+		assert.equal(reports.at(-1), true, "a 26 px strip: reported hidden");
+		await act(async () => root!.render(<LessonTrackerCard tracking={deriveLessonTracking(record)} bottomReserve={700} overlap onCramped={(c) => reports.push(c)} />));
+		assert.match(host.querySelector('[data-testid="lesson-tracker"]')!.getAttribute("style") ?? "", /--lh-card-reserve:\s*min\(724px, 50%\)/, "over a tall check: at least half the area");
+		await act(async () => root!.unmount());
+		root = null;
+		assert.equal(reports.at(-1), false, "unmounted: no longer hidden");
+	} finally {
+		delete (proto as unknown as Record<string, unknown>).clientHeight;
+		delete (proto as unknown as Record<string, unknown>).scrollHeight;
+	}
+	const chat = fs.readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
+	// The card's reserve: the check's live (folded) height, and none over a docked pin's column.
+	assert.match(chat, /bottomReserve=\{pinned\.docked \? 0 : dockBlockH \?\? Math\.max\(0, dockReserve - GRADIENT_H\)\} overlap=\{progressOverCheck\} onCramped=\{setTrackerCramped\}/);
+	assert.match(chat, /<LessonTrackerChip shown=\{trackerShown && !trackerCramped\} onToggle=\{toggleTrackerChip\} \/>/);
+});

@@ -832,6 +832,12 @@ export function Chat({
 	const [planInCard, setPlanInCard] = useState(false);
 	const planDiagram = hasPlan && !(pinned.docked && !progressOverPin) ? <PlanMarginalia messages={messages} /> : undefined;
 	const toggleTracker = pinned.docked ? () => setProgressOverPin((v) => !v) : drawerOpen ? pinned.toggleDrawer : tutorOpen ? () => setProgressOverTutor((v) => !v) : trackerCard.toggle;
+	// The chip shows what's on screen: a card with no room above the check is
+	// off, and a click (any show) lets it run over the check.
+	const [trackerCramped, setTrackerCramped] = useState(false);
+	const [progressOverCheck, setProgressOverCheck] = useState(false);
+	useEffect(() => { if (!trackerShown) setProgressOverCheck(false); }, [trackerShown]);
+	const toggleTrackerChip = trackerShown && (!trackerCramped || progressOverCheck) ? toggleTracker : () => { setProgressOverCheck(true); if (!trackerShown) toggleTracker(); };
 	// While the card shows on a session area wide enough for both, the
 	// transcript column keeps clear of it.
 	const trackerRoom = lessonTrackerRoom(hasTracking && (tutorOpen ? progressOverTutor : trackerCard.shown) && !pinned.docked);
@@ -1235,7 +1241,7 @@ export function Chat({
 						</button>
 </Hint>
 					)}
-					{hasTracking && <LessonTrackerChip shown={trackerShown} onToggle={toggleTracker} />}
+					{hasTracking && <LessonTrackerChip shown={trackerShown && !trackerCramped} onToggle={toggleTrackerChip} />}
 					{kind !== "practice" && <CramToggle chatId={chatId} on={cram} beginSave={beginCramSave} />}
 					{/* The lesson's question type: the teacher's tools, so never for
 					    practice and not while the prober runs. */}
@@ -1442,7 +1448,7 @@ export function Chat({
 				{pinned.dockColumn}
 				{/* The tracking card: top-right over the transcript, below the
 				    session-scoped focuses (z-40) and clear of the dock. */}
-				{hasTracking && trackerShown && <LessonTrackerCard tracking={tracking} plan={planProgress} bottomReserve={Math.max(0, dockReserve - GRADIENT_H)} onPracticeWeakSpots={configured && !zeroKeys ? practiceWeakSpots : undefined} planView={pending ? planDiagram : undefined} onPlanViewPlaced={setPlanInCard} besideTab={pinned.drawerTab !== null} />}
+				{hasTracking && trackerShown && <LessonTrackerCard tracking={tracking} plan={planProgress} bottomReserve={pinned.docked ? 0 : dockBlockH ?? Math.max(0, dockReserve - GRADIENT_H)} overlap={progressOverCheck} onCramped={setTrackerCramped} onPracticeWeakSpots={configured && !zeroKeys ? practiceWeakSpots : undefined} planView={pending ? planDiagram : undefined} onPlanViewPlaced={setPlanInCard} besideTab={pinned.drawerTab !== null} />}
 				{pinned.drawerTab}
 
 				{/* The session-scoped focuses: absolute inset-0 siblings of the

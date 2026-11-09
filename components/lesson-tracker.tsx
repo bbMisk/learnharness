@@ -312,10 +312,14 @@ function PracticeWeakSpotsButton({ onStart }: { onStart: () => Promise<void> }) 
  * above the dock (`bottomReserve`: the dock's height, without its fade). A
  * longer card scrolls.
  */
-export function LessonTrackerCard({ tracking, plan = null, bottomReserve, onPracticeWeakSpots, planView, onPlanViewPlaced, besideTab = false }: {
+export function LessonTrackerCard({ tracking, plan = null, bottomReserve, overlap = false, onCramped, onPracticeWeakSpots, planView, onPlanViewPlaced, besideTab = false }: {
 	tracking: LessonTracking;
 	plan?: PlanProgress | null;
 	bottomReserve: number;
+	/** Shown on request: the card may run over the dock, down to half the area. */
+	overlap?: boolean;
+	/** Whether the card is hidden for lack of room (false again on unmount). */
+	onCramped?: (cramped: boolean) => void;
 	/** Starts a practice session on the weak spots and opens it; absent = no button. */
 	onPracticeWeakSpots?: (spots: string[]) => Promise<void>;
 	/** A plan diagram to show under the Plan section if there is room. */
@@ -367,13 +371,15 @@ export function LessonTrackerCard({ tracking, plan = null, bottomReserve, onPrac
 		ro?.observe(aside);
 		return () => ro?.disconnect();
 	}, []);
+	useIsoLayoutEffect(() => { onCramped?.(cramped); }, [cramped, onCramped]);
+	useIsoLayoutEffect(() => () => { onCramped?.(false); }, [onCramped]);
 	return (
 		<aside
 			ref={asideRef}
 			data-testid="lesson-tracker"
 			aria-label="Lesson progress"
 			className={`absolute ${cramped ? "invisible " : ""}${besideTab ? "right-11 w-56" : "right-3 w-64"} top-3 z-20 flex max-h-[calc(100%-var(--lh-card-reserve))] max-w-[calc(100%-1.5rem)] flex-col gap-4 overflow-y-auto rounded-xl border border-border/80 bg-card/95 px-3.5 py-3 font-ui text-xs text-foreground shadow-sm backdrop-blur-sm @min-[60rem]/session:max-h-[calc(100%-1.5rem)]`}
-			style={{ "--lh-card-reserve": `${bottomReserve + 24}px` } as CSSProperties}
+			style={{ "--lh-card-reserve": overlap ? `min(${bottomReserve + 24}px, 50%)` : `${bottomReserve + 24}px` } as CSSProperties}
 		>
 			{plan && (
 				<section data-testid="lesson-tracker-plan">
