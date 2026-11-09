@@ -135,6 +135,8 @@ export async function customProviderMutation(request: Request): Promise<Response
 		if (before.etag !== now.etag || JSON.stringify(before.auth) !== JSON.stringify(now.auth)) return stale();
 		const discovered = found.ok ? found.models : !changedTarget ? before.cp?.models ?? [] : [];
 		const models = mergeManualModels(discovered, manualModels);
+		// An endpoint with nothing to run is not a connection.
+		if (!models.length) return failure("No models found at this endpoint. If it has no /models list, add model IDs manually.", 502);
 		if (models.length > 10_000) return failure("Model list exceeds 10000 entries");
 		const overrides = sanitizeCustomModelOverrides(!changedTarget ? before.cp?.overrides : undefined, models.map((m) => m.id));
 		const id = randomBytes(16).toString("hex");

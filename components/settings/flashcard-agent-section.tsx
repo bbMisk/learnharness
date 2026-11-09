@@ -14,11 +14,15 @@ interface AgentStatus {
 	model: string | null;
 	projects?: Array<{ id: string; name: string; preparedToday: number; startedToday: number }>;
 }
+/** The unsaved curation guidance, kept for the app session so closing
+ *  Settings (Esc included) never throws typed text away. */
+let guidanceDraft: string | null = null;
+
 export function FlashcardAgentSection({ agent, onChange }: { agent: AgentSettings | undefined; onChange: (next: AgentSettings) => void }) {
 	const [status, setStatus] = useState<AgentStatus | null>(null);
 	const [error, setError] = useState("");
 	const [statusError, setStatusError] = useState("");
-	const [instructions, setInstructions] = useState(agent?.flashcards?.instructions ?? "");
+	const [instructions, setInstructions] = useState(guidanceDraft ?? agent?.flashcards?.instructions ?? "");
 	const [requesting, setRequesting] = useState(false);
 	const refresh = () => {
 		void fetch("/api/flashcard-agent")
@@ -31,7 +35,7 @@ export function FlashcardAgentSection({ agent, onChange }: { agent: AgentSetting
 	};
 	const { feed } = useActivity();
 	useEffect(refresh, [feed]);
-	useEffect(() => setInstructions(agent?.flashcards?.instructions ?? ""), [agent?.flashcards?.instructions]);
+	useEffect(() => setInstructions(guidanceDraft ?? agent?.flashcards?.instructions ?? ""), [agent?.flashcards?.instructions]);
 	const settings = agent?.flashcards;
 	const change = (next: NonNullable<AgentSettings["flashcards"]>) => onChange({ ...agent, flashcards: { ...settings, ...next } });
 	const action = async (method: "POST" | "DELETE") => {
@@ -68,7 +72,8 @@ export function FlashcardAgentSection({ agent, onChange }: { agent: AgentSetting
 					testid="input-flashcard-agent-limit"
 					onCommit={(value) => {
 						const n = Number(value);
-						if (Number.isInteger(n) && n >= 1 && n <= 100) change({ dailyLimit: n });
+						if (value === "" || !Number.isInteger(n) || n < 1 || n > 100) return "Enter a whole number from 1 to 100.";
+						change({ dailyLimit: n });
 					}}
 				/>
 			</SettingsRow>
@@ -86,14 +91,21 @@ export function FlashcardAgentSection({ agent, onChange }: { agent: AgentSetting
 					rows={3}
 					maxLength={8000}
 					value={instructions}
-					onChange={(event) => setInstructions(event.target.value)}
+					onChange={(event) => {
+						const value = event.target.value;
+						guidanceDraft = value === (settings?.instructions ?? "") ? null : value;
+						setInstructions(value);
+					}}
 					placeholder="For example: prioritize definitions, physical intuition, and mistakes I made."
 					className="lh-input w-full resize-y rounded-lg border bg-background p-3 text-sm"
 				/>
 				<button
 					type="button"
 					disabled={instructions === (settings?.instructions ?? "")}
-					onClick={() => change({ instructions })}
+					onClick={() => {
+						guidanceDraft = null;
+						change({ instructions });
+					}}
 					className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50"
 				>
 					Save guidance

@@ -184,6 +184,8 @@ function KeyTableRow({
 	const [value, setValue] = useState("");
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
+	// Delete takes two clicks: the first arms it, the second deletes.
+	const [confirmDelete, setConfirmDelete] = useState(false);
 
 	async function save() {
 		if (!value.trim() || busy) return;
@@ -228,7 +230,7 @@ function KeyTableRow({
 					</button>
 					<button
 						type="button"
-						onClick={onCancel}
+						onClick={() => { setConfirmDelete(false); onCancel(); }}
 						disabled={busy}
 						data-testid={`${testid}-cancel`}
 						className="shrink-0 text-xs text-muted-foreground/70 underline-offset-2 hover:text-foreground hover:underline"
@@ -238,12 +240,12 @@ function KeyTableRow({
 					{status.present && status.source === "file" && onDelete && (
 						<button
 							type="button"
-							onClick={() => void onDelete()}
+							onClick={() => (confirmDelete ? void onDelete() : setConfirmDelete(true))}
 							disabled={busy}
 							data-testid={`${testid}-delete`}
-							className="shrink-0 text-xs text-muted-foreground/70 underline-offset-2 hover:text-red-500 hover:underline"
+							className={`shrink-0 text-xs underline-offset-2 hover:text-red-500 hover:underline ${confirmDelete ? "text-red-500" : "text-muted-foreground/70"}`}
 						>
-							Delete
+							{confirmDelete ? "Confirm delete" : "Delete"}
 						</button>
 					)}
 				</div>
@@ -536,7 +538,7 @@ export function KeysSection({
 					/>
 				)}
 				{adding && (
-					<div className="-mx-1 flex items-center gap-2 rounded-sm px-1 py-1.5" data-testid={`key-${adding.id}-editor`}>
+					<div className="-mx-1 flex flex-wrap items-center gap-2 rounded-sm px-1 py-1.5" data-testid={`key-${adding.id}-editor`}>
 						<span className="shrink-0 font-prose text-(length:--lh-prose-size) text-foreground">{adding.label}</span>
 						<AddProviderEditor provider={adding} onSave={(v) => void saveNewProvider(adding, v)} onCancel={() => setAdding(null)} error={addError} />
 					</div>

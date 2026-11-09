@@ -305,6 +305,13 @@ describe("settings parsing and UI", () => {
 		assert.deepEqual(empty.graphTools, one.graphTools);
 		assert.deepEqual(composeFileRestriction(on, false).fileAccess, { restricted: false, folders: ["~/Study"] });
 	});
+	it("the folder editor folds trailing slashes into one entry and refuses a whole-disk root", () => {
+		const one = composeAddFolder(undefined, "/tmp/");
+		assert.deepEqual(one.fileAccess?.folders, ["/tmp"]);
+		assert.deepEqual(composeAddFolder(one, "/tmp").fileAccess?.folders, ["/tmp"]);
+		for (const root of ["/", "//", "C:\\"]) assert.deepEqual(composeAddFolder(one, root).fileAccess?.folders, ["/tmp"], root);
+		assert.deepEqual(composeAddFolder(one, "~").fileAccess?.folders, ["/tmp", "~"], "home is a folder, not the disk");
+	});
 	it("SSR makes OFF, empty ON, editable folders and fail-closed errors explicit", () => {
 		const render = (agent?: Parameters<typeof AgentSection>[0]["agent"], fileAccessError?: string) => renderToStaticMarkup(React.createElement(AgentSection, { agent, fileAccessError, models: undefined, graph: undefined, compaction: undefined, onSectionChange: () => {}, onModelsChange: () => {}, onCompactionChange: () => {} }));
 		const off = render();

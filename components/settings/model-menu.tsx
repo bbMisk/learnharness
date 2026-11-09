@@ -40,6 +40,7 @@ export function ModelMenuList({
 	onPick,
 	footer,
 	vision,
+	minContext,
 }: {
 	/** The full catalog — undefined while it loads. */
 	models: ModelCatalogEntry[] | undefined;
@@ -58,6 +59,9 @@ export function ModelMenuList({
 	 *  custom-endpoint model, whose capability the endpoint may not report.
 	 *  Image-capable ones float to the top. */
 	vision?: boolean;
+	/** Models with a smaller known context sink below the rest, so the
+	 *  first row (the one Enter picks) is never a tiny-context model. */
+	minContext?: number;
 }) {
 	const visionItems = vision
 		? models?.filter((m) => m.input.includes("image") || m.provider === CUSTOM_PROVIDER.id)
@@ -69,7 +73,7 @@ export function ModelMenuList({
 				itemKey={(m) => `${m.provider}/${m.id}`}
 				searchTerms={(m) => [m.provider, m.id, m.name]}
 				compare={(a, b) => a.id.localeCompare(b.id)}
-				prioritize={vision ? (m) => m.input.includes("image") : undefined}
+				prioritize={vision ? (m) => m.input.includes("image") : minContext ? (m) => (m.contextWindow ?? minContext) >= minContext : undefined}
 				isSelected={(m) => m.id === effectiveId && m.provider === (effectiveProvider ?? m.provider)}
 				onPick={onPick}
 				searchTestid="model-search"

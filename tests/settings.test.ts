@@ -53,6 +53,13 @@ describe("isHexColor", () => {
 });
 
 describe("sanitizeUserSettings", () => {
+	it("drops a stored light background on the dark theme and caps compaction", () => {
+		const out = sanitizeUserSettings({ version: 1, appearance: { background: "#ffffff" }, compaction: { thresholdTokens: 1e23 } });
+		assert.equal(out?.appearance?.background, null);
+		assert.equal(out?.compaction?.thresholdTokens, 2_000_000);
+		assert.equal(sanitizeUserSettings({ version: 1, appearance: { background: "#202830" } })?.appearance?.background, "#202830");
+	});
+
 	it("round-trips a fully valid record field-for-field", () => {
 		const record = {
 			version: 1,

@@ -27,6 +27,8 @@
 import { useEffect, useRef, useState } from "react";
 import {
 	EXTRACTION_CHUNK_TOKENS_FLOOR,
+	isDarkBackground,
+	isHexColor,
 	resolveSettings,
 	type AppearanceSettings,
 	type GraphSettings,
@@ -40,6 +42,8 @@ import { bindSettingsMenuDismiss, CommitInput, SettingsMenuTrigger, SettingsRow,
 /** The factory reading family — the DEFAULT row's identity (unset =
  *  this). Exported for tests. */
 export const DEFAULT_READING_FONT = "Source Sans 3";
+
+const HEX_HINT = "Use a hex color like #1a2b3c.";
 
 /** The dev-browser fallback list (queryLocalFonts is absent there):
  *  the app's own knowns plus a handful of ubiquitous macOS families,
@@ -163,7 +167,7 @@ export function AppearanceSection({
 			</SettingsRow>
 			<SettingsRow
 				label="Background"
-				hint={`Empty = ${resolved.background ?? "#141414"}`}
+				hint="Empty = #141414"
 				testid="row-background"
 			>
 				<CommitInput
@@ -171,7 +175,12 @@ export function AppearanceSection({
 					placeholder="#141414"
 					ariaLabel="background hex"
 					testid="input-background"
-					onCommit={(v) => onSectionChange({ ...appearance, background: v === "" ? null : v })}
+					onCommit={(v) => {
+						if (v !== "" && !isHexColor(v)) return HEX_HINT;
+						// The theme is dark-only: a light background would hide the text.
+						if (v !== "" && !isDarkBackground(v)) return "Pick a darker color: the text is light.";
+						onSectionChange({ ...appearance, background: v === "" ? null : v });
+					}}
 				/>
 			</SettingsRow>
 			<SettingsRow
@@ -286,7 +295,10 @@ export function AppearanceSection({
 					placeholder="same as text"
 					ariaLabel="bold color"
 					testid="input-bold-color"
-					onCommit={(v) => onSectionChange({ ...appearance, mdRendering: { ...md, boldColor: v === "" ? null : v } })}
+					onCommit={(v) => {
+						if (v !== "" && !isHexColor(v)) return HEX_HINT;
+						onSectionChange({ ...appearance, mdRendering: { ...md, boldColor: v === "" ? null : v } });
+					}}
 				/>
 			</SettingsRow>
 			<SettingsRow label="Italic color" hint="Empty = same as text" testid="row-italic-color">
@@ -295,7 +307,10 @@ export function AppearanceSection({
 					placeholder="same as text"
 					ariaLabel="italic color"
 					testid="input-italic-color"
-					onCommit={(v) => onSectionChange({ ...appearance, mdRendering: { ...md, italicColor: v === "" ? null : v } })}
+					onCommit={(v) => {
+						if (v !== "" && !isHexColor(v)) return HEX_HINT;
+						onSectionChange({ ...appearance, mdRendering: { ...md, italicColor: v === "" ? null : v } });
+					}}
 				/>
 			</SettingsRow>
 		</>
@@ -363,7 +378,7 @@ export function GraphSection({
 							return;
 						}
 						const n = Number(v);
-						if (!Number.isFinite(n) || n <= 0) return; // bad input: no write
+						if (!Number.isFinite(n) || n <= 0) return "Enter a number of tokens, or leave it empty for the default.";
 						// Mirror the server's floor (cost protection), no ceiling — a
 						// big budget is the user's call.
 						onSectionChange({

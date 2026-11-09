@@ -8,7 +8,7 @@
  * together) and the control itself locks — the row owns the dim.
  */
 
-import { useState, type ComponentPropsWithRef, type ReactNode, type RefObject } from "react";
+import { useRef, useState, type ComponentPropsWithRef, type ReactNode, type RefObject } from "react";
 import { cn } from "@/lib/utils";
 
 /** The settings dropdown dismissal, bound while a menu is open; returns
@@ -248,7 +248,9 @@ export function CommitInput({
 	 *  snaps to the stored truth (a typed "-5" shows the stored 12). */
 	value: string;
 	placeholder?: string;
-	onCommit: (next: string) => void;
+	/** Returns a message when the value is refused; it shows under the
+	 *  field until the next commit. */
+	onCommit: (next: string) => string | void;
 	ariaLabel: string;
 	testid?: string;
 	type?: "text" | "number";
@@ -257,7 +259,11 @@ export function CommitInput({
 	// again — commit-on-blur/Enter, the field honest about what landed.
 	const [draft, setDraft] = useState(value);
 	const [editing, setEditing] = useState(false);
-	return (
+	// Esc's blur runs with this render's closure (editing still true), so the
+	// cancel rides a ref the blur handler checks.
+	const cancelled = useRef(false);
+	const [error, setError] = useState<string | null>(null);
+	const input = (
 		<input
 			type={type}
 			value={editing ? draft : value}
@@ -265,23 +271,45 @@ export function CommitInput({
 			aria-label={ariaLabel}
 			data-testid={testid}
 			onChange={(e) => {
+				cancelled.current = false;
 				setEditing(true);
 				setDraft(e.target.value);
 			}}
 			onBlur={() => {
 				if (!editing) return;
 				setEditing(false);
+				if (cancelled.current) {
+					cancelled.current = false;
+					return;
+				}
 				const next = draft.trim();
-				if (next !== value) onCommit(next);
+				setError(next !== value ? onCommit(next) || null : null);
 			}}
 			onKeyDown={(e) => {
 				if (e.key === "Enter") e.currentTarget.blur();
 				if (e.key === "Escape") {
+					// An edit in progress: Esc reverts it and is this field's one
+					// action — the dialog behind stays open. React listens at the
+					// document root, so stop the dialog's document listener too.
+					if (editing) {
+						e.stopPropagation();
+						e.nativeEvent.stopImmediatePropagation();
+						cancelled.current = true;
+					}
 					setEditing(false);
 					e.currentTarget.blur();
 				}
 			}}
 			className="h-7 w-40 rounded-sm border border-border bg-background px-2 font-ui text-xs text-foreground outline-none placeholder:text-muted-foreground/60"
 		/>
+	);
+	if (!error) return input;
+	return (
+		<span className="flex flex-col items-end gap-1">
+			{input}
+			<span role="alert" data-testid={testid ? `${testid}-error` : undefined} className="max-w-60 text-right text-xs text-red-500">
+				{error}
+			</span>
+		</span>
 	);
 }

@@ -564,6 +564,19 @@ export function isHexColor(value: string): boolean {
 	return /^#[0-9a-fA-F]{3}$/.test(value) || /^#[0-9a-fA-F]{6}$/.test(value);
 }
 
+/** The dark theme has light text, so its background must stay dark to keep
+ *  text readable: relative luminance at most 0.06 (about #474747). */
+export const BACKGROUND_MAX_LUMINANCE = 0.06;
+export function isDarkBackground(hex: string): boolean {
+	if (!isHexColor(hex)) return false;
+	const digits = hex.length === 4 ? hex.slice(1).split("").map((c) => c + c) : [hex.slice(1, 3), hex.slice(3, 5), hex.slice(5, 7)];
+	const [r = 0, g = 0, b = 0] = digits.map((d) => {
+		const c = parseInt(d, 16) / 255;
+		return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+	});
+	return 0.2126 * r + 0.7152 * g + 0.0722 * b <= BACKGROUND_MAX_LUMINANCE;
+}
+
 /** Coerce an arbitrary hex-or-null field: null and valid hex pass through,
  *  anything else becomes null (the factory/per-mode default). */
 function sanitizeHexOrNull(value: unknown): string | null {
@@ -800,7 +813,12 @@ function sanitizeMdRendering(raw: unknown): MdRenderingSettings {
 function sanitizeAppearance(raw: Record<string, unknown>): AppearanceSettings {
 	const out: AppearanceSettings = {};
 	if (raw.mode === "dark" || raw.mode === "light") out.mode = raw.mode;
-	if (raw.background !== undefined) out.background = sanitizeHexOrNull(raw.background);
+	if (raw.background !== undefined) {
+		const background = sanitizeHexOrNull(raw.background);
+		// A light background on the dark theme (stored before the guard)
+		// falls back to the default.
+		out.background = background !== null && out.mode !== "light" && !isDarkBackground(background) ? null : background;
+	}
 	if (raw.fontFamily !== undefined) {
 		out.fontFamily = typeof raw.fontFamily === "string" && raw.fontFamily.trim() ? raw.fontFamily : null;
 	}
@@ -838,12 +856,15 @@ function sanitizeGraph(raw: Record<string, unknown>): GraphSettings {
  *  COMPACTION_THRESHOLD_FLOOR, anything else drops (the factory default
  *  resolves at read time). Exported for the PUT parser's rejection. */
 export const COMPACTION_THRESHOLD_FLOOR = 32_000;
+/** No model's context is larger; the effective trigger is
+ *  min(threshold, contextWindow − 16k) anyway. */
+export const COMPACTION_THRESHOLD_MAX = 2_000_000;
 
 function sanitizeCompaction(raw: Record<string, unknown>): CompactionSettings {
 	const out: CompactionSettings = {};
 	const rawTokens = raw.thresholdTokens;
 	if (typeof rawTokens === "number" && Number.isFinite(rawTokens) && rawTokens > 0) {
-		out.thresholdTokens = Math.max(COMPACTION_THRESHOLD_FLOOR, Math.floor(rawTokens));
+		out.thresholdTokens = Math.min(COMPACTION_THRESHOLD_MAX, Math.max(COMPACTION_THRESHOLD_FLOOR, Math.floor(rawTokens)));
 	}
 	return out;
 }
@@ -891,9 +912,9 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	}
 	if (r.graph !== null && typeof r.graph === "object" && !Array.isArray(r.graph)) {
 		out.graph = sanitizeGraph(r.graph as Record<string, unknown>);
-		if (r.compaction !== undefined && r.compaction !== null && typeof r.compaction === "object") {
-			out.compaction = sanitizeCompaction(r.compaction as Record<string, unknown>);
-		}
+	}
+	if (r.compaction !== undefined && r.compaction !== null && typeof r.compaction === "object") {
+		out.compaction = sanitizeCompaction(r.compaction as Record<string, unknown>);
 	}
 	// Unknown top-level keys ride along untouched (forward-compat), except
 	// the retired `chat` default-settings section (models are per-session

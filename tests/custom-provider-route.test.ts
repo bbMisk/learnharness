@@ -114,6 +114,16 @@ describe("POST /api/custom-provider — typed ids and a failed probe", () => {
 		assert.match(body.error, /add model IDs manually/);
 	});
 
+	it("an endpoint that lists zero models is refused, not connected", async () => {
+		seed({ version: 1 });
+		answerWith(200, "OK", { data: [] });
+
+		const res = await post({ baseUrl: BASE });
+		assert.equal(res.status, 502);
+		assert.match(((await res.json()) as { error: string }).error, /No models found/);
+		assert.equal(stored().customProvider, undefined, "nothing is saved");
+	});
+
 	it("a working probe merges the typed ids and keeps discovered metadata", async () => {
 		seed(CONNECTED);
 		answerWith(200, "OK", { data: [{ id: "disc-1", context_length: 65536 }] });

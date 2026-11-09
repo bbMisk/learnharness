@@ -51,6 +51,7 @@ import { useModelCatalog } from "@/components/model-catalog";
 import { Hint } from "@/components/ui/hint";
 import {
 	COMPACTION_THRESHOLD_FLOOR,
+	COMPACTION_THRESHOLD_MAX,
 	MODEL_SLOTS,
 	SEARCH_ENGINES,
 	resolveSettings,
@@ -113,13 +114,26 @@ export function composeFileRestriction(agent: AgentSettings | undefined, restric
 	return { ...agent, fileAccess: { restricted, folders: agent?.fileAccess?.folders ?? [] } };
 }
 
-/** Compose: add one allowed folder (trimmed; duplicates and invalid entries
- *  are no-ops). Pure — exported for tests. */
+/** The folder as typed, trimmed and without trailing separators, so
+ *  "/tmp/" and "/tmp" are one entry. A root stays as it is. */
+export function normalizeFolder(folder: string): string {
+	const trimmed = folder.trim();
+	const stripped = trimmed.replace(/[\\/]+$/, "");
+	return stripped && !/^[A-Za-z]:$/.test(stripped) ? stripped : trimmed;
+}
+
+/** A whole-disk root: listing it would allow everything. */
+export function isRootFolder(folder: string): boolean {
+	return /^([\\/]+|[A-Za-z]:[\\/]+)$/.test(folder.trim());
+}
+
+/** Compose: add one allowed folder (normalized; duplicates, roots and
+ *  invalid entries are no-ops). Pure — exported for tests. */
 export function composeAddFolder(agent: AgentSettings | undefined, folder: string): AgentSettings {
-	const next = folder.trim();
+	const next = normalizeFolder(folder);
 	const folders = agent?.fileAccess?.folders ?? [];
 	const restricted = agent?.fileAccess?.restricted ?? false;
-	if (!isFolderEntry(next) || folders.includes(next)) return { ...agent, fileAccess: { restricted, folders } };
+	if (!isFolderEntry(next) || isRootFolder(next) || folders.map(normalizeFolder).includes(next)) return { ...agent, fileAccess: { restricted, folders } };
 	return { ...agent, fileAccess: { restricted, folders: [...folders, next] } };
 }
 
@@ -473,7 +487,8 @@ export function AgentSection({
 		// The Save affordance: clickable only when the draft differs from
 		// what's on disk; an unchanged editor shows a grayed, inert Save.
 		const draft = segmentDraft[info.path] ?? info.overrideText ?? "";
-		const dirty = draft !== (info.overrideText ?? "");
+		// Blank text never saves: it would blank the segment out of the prompt.
+		const dirty = draft !== (info.overrideText ?? "") && draft.trim() !== "";
 		return (
 			<div key={info.path} data-testid={`prompt-segment-${info.path}`}>
 				<SettingsRow
@@ -681,7 +696,7 @@ export function AgentSection({
 											}}
 											footer={
 												catalog && catalog.length === 0
-													? "No models — add a provider key in Keys"
+													? "No models — add a provider key in Providers"
 													: "Runs every agent of this tier"
 											}
 										/>
@@ -792,9 +807,11 @@ export function AgentSection({
 					const restricted = Boolean(fileAccessError) || agent?.fileAccess?.restricted === true;
 					const effectiveAgent = fileAccessError ? { ...agent, fileAccess: { restricted: true, folders } } : agent;
 					const addFolder = () => {
-						const next = folderInput.trim();
+						const next = normalizeFolder(folderInput);
 						if (!isFolderEntry(next)) { setFolderError("Enter an absolute path or ~/folder."); return; }
-						if (!folders.includes(next)) onSectionChange(composeAddFolder(effectiveAgent, next));
+						if (isRootFolder(next)) { setFolderError("Choose a specific folder, not the whole disk."); return; }
+						if (folders.map(normalizeFolder).includes(next)) { setFolderError("That folder is already listed."); return; }
+						onSectionChange(composeAddFolder(effectiveAgent, next));
 						setFolderInput("");
 						setFolderError(null);
 					};
@@ -899,13 +916,12 @@ export function AgentSection({
 								return;
 							}
 							const n = Number(v);
-							if (!Number.isFinite(n) || n <= 0) return; // bad input: no write
-							// Mirror the server floor (anti-churn: each compaction
-							// keeps a ~20k-token tail); no ceiling — the effective
-							// trigger is min(threshold, contextWindow − 16k) anyway.
+							if (!Number.isFinite(n) || n <= 0) return "Enter a number of tokens, or leave it empty for the default.";
+							// Mirror the server's floor (anti-churn: each compaction
+							// keeps a ~20k-token tail) and ceiling.
 							onCompactionChange({
 								...compaction,
-								thresholdTokens: Math.max(COMPACTION_THRESHOLD_FLOOR, Math.round(n)),
+								thresholdTokens: Math.min(COMPACTION_THRESHOLD_MAX, Math.max(COMPACTION_THRESHOLD_FLOOR, Math.round(n))),
 							});
 						}}
 					/>

@@ -50,6 +50,10 @@ export async function PUT(request: Request, ctx: { params: Promise<{ segment: st
 	if (!body || typeof body.text !== "string") {
 		return Response.json({ error: "body must be {text: string}" }, { status: 400 });
 	}
+	// Blank text would silently drop the segment from the prompt.
+	if (!body.text.trim()) {
+		return Response.json({ error: "Your version can't be empty. Delete it to use the original." }, { status: 400 });
+	}
 	if (!new Set(allSegmentPaths()).has(path)) {
 		return Response.json(
 			{ error: `"${path}" is not a current source segment`, supported: allSegmentPaths() },

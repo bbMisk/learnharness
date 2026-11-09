@@ -11,9 +11,8 @@
  * actions (a surface owns those keys — the question dock's row machine)
  * are listed for reading but never rebindable.
  *
- * Thin: no conflict detection — if a new binding collides with another
- * action's, the first match in registry order wins; the cheat sheet shows
- * both. Detection belongs to the designed wave.
+ * A binding another action already uses is refused with a message naming
+ * that action (see conflictFor).
  */
 
 import { useEffect, useState } from "react";
@@ -47,10 +46,21 @@ export function nextOverrides(
 	return next;
 }
 
+/** The other action already bound to `binding`, if any (pure — exported
+ *  for tests). */
+export function conflictFor(
+	overrides: Partial<Record<KeyAction, string>>,
+	id: KeyAction,
+	binding: string,
+) {
+	return KEYBOARD_ACTIONS.find((a) => a.id !== id && (overrides[a.id] ?? a.binding) === binding);
+}
+
 export function KeyboardSection() {
 	const [overrides, setOverrides] = useState<Partial<Record<KeyAction, string>>>({});
 	const [rebinding, setRebinding] = useState<KeyAction | null>(null);
 	const [nonce, setNonce] = useState(0);
+	const [conflict, setConflict] = useState<{ id: KeyAction; text: string } | null>(null);
 
 	// localStorage is read post-mount (SSR-safe); `nonce` re-reads after writes.
 	useEffect(() => {
@@ -73,9 +83,15 @@ export function KeyboardSection() {
 			if (e.key === "Control" || e.key === "Meta" || e.key === "Alt" || e.key === "Shift") return;
 			const binding = eventBinding(e);
 			if (!binding) return;
-			const next = nextOverrides(loadOverrides(), rebinding, binding);
-			saveOverrides(next);
+			const current = loadOverrides();
+			const taken = conflictFor(current, rebinding, binding);
 			setRebinding(null);
+			if (taken) {
+				setConflict({ id: rebinding, text: `${formatBinding(binding)} is already used by ${taken.label}` });
+				return;
+			}
+			setConflict(null);
+			saveOverrides(nextOverrides(current, rebinding, binding));
 			setNonce((n) => n + 1);
 		};
 		window.addEventListener("keydown", onKey, true);
@@ -109,7 +125,7 @@ export function KeyboardSection() {
 									<SettingsRow
 										key={def.id}
 										label={def.label}
-										hint={def.displayOnly ? "Fixed — part of this screen" : undefined}
+										hint={conflict?.id === def.id ? <span role="alert" className="text-red-500">{conflict.text}</span> : def.displayOnly ? "Fixed — part of this screen" : undefined}
 										testid={`kbd-row-${def.id}`}
 									>
 										<span className="flex items-center gap-2">

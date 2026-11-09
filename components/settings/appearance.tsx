@@ -21,6 +21,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { FACTORY_SETTINGS, type AppearanceSettings } from "@/src/core";
+import { useOptionalServerEvent } from "@/components/server-events";
 
 /** The resolved, fully-concrete appearance view (delta + factory merged). */
 export function resolveAppearance(delta: AppearanceSettings | undefined) {
@@ -151,8 +152,11 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
 		}
 	}, [key, vars]);
 
-	// One fetch per app load: the record (sanitized server-side) carries the
+	// One fetch per app load, again whenever appearance is saved (here or in
+	// another window): the record (sanitized server-side) carries the
 	// delta; resolution happens here against the compiled factory.
+	const [loads, setLoads] = useState(0);
+	useOptionalServerEvent("settings-changed", (p) => { if (p.section === "appearance") setLoads((n) => n + 1); });
 	useEffect(() => {
 		let alive = true;
 		fetch("/api/settings")
@@ -171,7 +175,7 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
 		return () => {
 			alive = false;
 		};
-	}, []);
+	}, [loads]);
 
 	const onAppearanceChange = useCallback((next: AppearanceSettings | undefined) => {
 		setDelta(next);
