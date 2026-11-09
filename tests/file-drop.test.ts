@@ -120,3 +120,8 @@ it("cancels an upload that stalls, such as an iPad clipboard paste, with a clear
 	assert.equal(uploadTimeoutMs(0), 20_000);
 	assert.equal(uploadTimeoutMs(5 * 1_048_576), 25_000);
 });
+
+it("an upload that can't reach the server says so in plain words", async () => {
+	const file = new File(["hi"], "notes.txt", { type: "text/plain" });
+	await assert.rejects(uploadFile(file, async () => { throw new TypeError("Failed to fetch"); }), /^Error: Couldn't upload — check your connection\.$/);
+});
