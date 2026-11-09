@@ -96,6 +96,22 @@ it("a failed save keeps the field open with the typed name", async () => {
 	assert.equal(done, 1, "Escape still cancels");
 });
 
+it("saving locks the field without disabling it: a disabled field blurs, and the blur saved again", async () => {
+	let reject: (e: Error) => void = () => {};
+	let commits = 0;
+	const field = () => host!.querySelector("input") as HTMLInputElement;
+	await render(<InlineRename value="Quant" ariaLabel="Name" onCommit={() => { commits++; return new Promise((_, r) => { reject = r; }); }} onDone={() => {}} />);
+	await type(field(), "Geometry");
+	await key(field(), "Enter");
+	// linkedom keeps React's attribute spelling (readOnly).
+	const locked = () => field().hasAttribute("readOnly") || field().hasAttribute("readonly");
+	assert.equal(field().hasAttribute("disabled"), false, "not disabled while saving");
+	assert.equal(locked(), true, "locked while saving");
+	await act(async () => reject(new TypeError("Failed to fetch")));
+	assert.equal(locked(), false, "editable again");
+	assert.equal(commits, 1);
+});
+
 it("renameProject sends the expected name and reports the server's error", async () => {
 	const sent: unknown[] = [];
 	globalThis.fetch = (async (_url: string, init: RequestInit) => {
