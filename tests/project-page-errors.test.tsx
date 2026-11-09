@@ -340,3 +340,12 @@ it("this tab's project delete goes home without flashing the deleted page, and E
 	await tick();
 	assert.deepEqual(pushed, ["/"]);
 });
+
+it("the header's New chat and Delete project go icon-only on phones, so the header fits", async () => {
+	await mount(200);
+	const header = host.querySelector("header")!;
+	for (const label of ["New chat", "Delete project"]) {
+		const control = [...header.querySelectorAll("a, button")].find((el) => el.textContent === label)!;
+		assert.match(control.querySelector("span")!.className, /\bmax-sm:sr-only\b/, label);
+	}
+});

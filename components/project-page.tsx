@@ -188,13 +188,14 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 					{project.name}
 				</button>
 				<span className="flex-1" />
+				{/* Icon-only on phones, so the header fits and the name keeps its room. */}
 				<Link href={"/chat/new?project=" + project.id} className={buttonClass + " shrink-0"}>
 					<PlusIcon className="size-3.5" />
-					New chat
+					<span className="max-sm:sr-only">New chat</span>
 				</Link>
 				<button type="button" onClick={() => setConfirmDelete(true)} className={buttonClass + " shrink-0 text-muted-foreground hover:text-destructive"}>
 					<Trash2Icon className="size-3.5" />
-					Delete project
+					<span className="max-sm:sr-only">Delete project</span>
 				</button>
 			</TopBar>
 			{confirmDelete && (
