@@ -136,36 +136,37 @@ describe("openEventsChannel (the production source)", () => {
 		});
 		const hub = createNotifyHub();
 		const disconnect = wireSource(openEventsChannel(), hub);
-		const fail = (es: FakeES) => {
-			es.readyState = FakeES.CLOSED;
-			es.onerror?.();
+		const es = (i: number) => FakeES.all[i]!;
+		const fail = (source: FakeES) => {
+			source.readyState = FakeES.CLOSED;
+			source.onerror?.();
 		};
-		fail(FakeES.all[0]);
+		fail(es(0));
 		assert.equal(hub.isDown(), true);
 		t.mock.timers.tick(999);
 		assert.equal(FakeES.all.length, 1);
 		t.mock.timers.tick(1);
 		assert.equal(FakeES.all.length, 2, "reopened after 1 s");
-		assert.ok(FakeES.all[1].names.includes("chats-changed"), "named listeners carry over");
-		fail(FakeES.all[1]);
+		assert.ok(es(1).names.includes("chats-changed"), "named listeners carry over");
+		fail(es(1));
 		t.mock.timers.tick(1999);
 		assert.equal(FakeES.all.length, 2);
 		t.mock.timers.tick(1);
 		assert.equal(FakeES.all.length, 3, "then after 2 s");
 		let resyncs = 0;
 		hub.onResync(() => resyncs++);
-		FakeES.all[2].onopen?.();
+		es(2).onopen?.();
 		assert.equal(hub.isDown(), false);
 		assert.equal(resyncs, 1);
 		// A network drop (still CONNECTING) is EventSource's own retry.
-		FakeES.all[2].readyState = 0;
-		FakeES.all[2].onerror?.();
+		es(2).readyState = 0;
+		es(2).onerror?.();
 		t.mock.timers.tick(20_000);
 		assert.equal(FakeES.all.length, 3);
-		fail(FakeES.all[2]);
+		fail(es(2));
 		disconnect();
 		t.mock.timers.tick(20_000);
 		assert.equal(FakeES.all.length, 3, "no reopen after close");
-		assert.equal(FakeES.all[2].closed, true);
+		assert.equal(es(2).closed, true);
 	});
 });
