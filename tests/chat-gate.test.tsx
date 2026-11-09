@@ -71,6 +71,7 @@ it("a chat whose record 404s on mount (browser Back after delete) shows the not-
 	assert.deepEqual(urls, ["/api/chats/chat_x?only=title"]);
 	assert.doesNotMatch(host.textContent ?? "", /live chat/);
 	assert.match(host.textContent ?? "", /Go home/);
+	assert.match(host.textContent ?? "", /This chat was deleted\./);
 });
 
 it("a delete in another tab (chats-changed, then 404) swaps the open chat out", async () => {

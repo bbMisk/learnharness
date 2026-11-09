@@ -18,7 +18,7 @@ import { NotFoundView } from "@/components/not-found-view";
  *  after a delete) swaps for the not-found page, as ChatGate does for chats. */
 export function ProjectPage({ initial }: { initial: ProjectView }) {
 	const [gone, setGone] = useState(false);
-	return gone ? <NotFoundView /> : <ProjectBody initial={initial} onGone={() => setGone(true)} />;
+	return gone ? <NotFoundView message="This project was deleted." /> : <ProjectBody initial={initial} onGone={() => setGone(true)} />;
 }
 function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => void }) {
 	type Field = "name" | "instructions";

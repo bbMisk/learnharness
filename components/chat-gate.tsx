@@ -78,7 +78,7 @@ export function ChatGate({ chatId, title, archived: initiallyArchived = false, c
 			setRestoring(false);
 		}
 	};
-	if (gone) return <NotFoundView />;
+	if (gone) return <NotFoundView message="This chat was deleted." />;
 	return (
 		<>
 			{children}
