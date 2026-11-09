@@ -280,3 +280,15 @@ it("Delete project asks in the app's own dialog, not the native confirm()", asyn
 		router.push = realPush;
 	}
 });
+
+it("a long unbroken project name wraps in the heading, empty state and delete dialog", async () => {
+	await mount(200);
+	const h1 = host.querySelector("h1")!;
+	const empty = [...host.querySelectorAll("h2")].find((h) => /Start a conversation/.test(h.textContent ?? ""))!;
+	assert.match(h1.className, /\bwrap-anywhere\b/);
+	assert.match(empty.className, /\bwrap-anywhere\b/);
+	await act(async () => ([...host.querySelectorAll("button")].find((b) => b.textContent === "Delete project") as HTMLElement).click());
+	const code = document.querySelector('[data-testid="delete-project-dialog"] code')!;
+	assert.match(code.className, /\bwrap-anywhere\b/);
+	await act(async () => ([...document.querySelectorAll("button")].find((b) => b.textContent === "Cancel") as HTMLElement).click());
+});

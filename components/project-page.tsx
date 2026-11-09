@@ -184,11 +184,11 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 					{project.name}
 				</button>
 				<span className="flex-1" />
-				<Link href={"/chat/new?project=" + project.id} className={buttonClass}>
+				<Link href={"/chat/new?project=" + project.id} className={buttonClass + " shrink-0"}>
 					<PlusIcon className="size-3.5" />
 					New chat
 				</Link>
-				<button type="button" onClick={() => setConfirmDelete(true)} className={buttonClass + " text-muted-foreground hover:text-destructive"}>
+				<button type="button" onClick={() => setConfirmDelete(true)} className={buttonClass + " shrink-0 text-muted-foreground hover:text-destructive"}>
 					<Trash2Icon className="size-3.5" />
 					Delete project
 				</button>
@@ -196,7 +196,7 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 			{confirmDelete && (
 				<ConnectionDialog label="Delete project" testid="delete-project-dialog" backdropTestid="delete-project-backdrop" busy={deleting} onClose={() => setConfirmDelete(false)}>
 					<h2 className="text-sm font-semibold text-destructive">Delete project?</h2>
-					<code className="mt-1.5 block font-mono text-sm text-foreground">{project.name}</code>
+					<code className="mt-1.5 block font-mono text-sm text-foreground wrap-anywhere">{project.name}</code>
 					<p className="mt-2 text-sm text-muted-foreground">Its chats move to Chats. Its files stay in your library.</p>
 					<div className="mt-4 flex justify-end gap-2">
 						<button type="button" onClick={() => setConfirmDelete(false)} disabled={deleting} className="rounded-sm px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40">
@@ -233,7 +233,7 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 									}}
 								/>
 							) : (
-								<h1 className="min-w-0 break-words font-prose text-3xl font-semibold tracking-tight">
+								<h1 className="min-w-0 wrap-anywhere font-prose text-3xl font-semibold tracking-tight">
 									{/* Click the name to rename the project (owner, 2026-11-01). */}
 									<button type="button" onClick={() => setRenaming(true)} title="Rename project" className="text-left">
 										{project.name}
@@ -317,7 +317,7 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 							{chats?.length === 0 && (
 								<div className="py-12 text-center">
 									<MessageSquareIcon className="mx-auto mb-4 size-6 text-muted-foreground" />
-									<h2 className="font-prose text-xl">Start a conversation in {project.name}</h2>
+									<h2 className="font-prose text-xl wrap-anywhere">Start a conversation in {project.name}</h2>
 									<p className="mt-2 font-prose text-base text-muted-foreground">
 										Every chat here can use this project’s files and instructions.
 									</p>

@@ -263,6 +263,13 @@ it("the delete dialog focuses Delete, so Enter confirms", () => {
 	assert.match(html, /<button[^>]*data-testid="delete-confirm"[^>]*autofocus=""/);
 });
 
+it("a long chat title wraps inside the delete dialog", () => {
+	const html = renderToStaticMarkup(
+		<DeleteSessionBody chat={{ id: "c1", title: "x".repeat(73) }} traces={false} busy={false} failure={null} onTraces={() => {}} onClose={() => {}} onRun={() => {}} />,
+	);
+	assert.match(html, /data-testid="session-name-code" class="[^"]*\bwrap-anywhere\b/);
+});
+
 it("a double click on a row's archive icon archives only that row", async () => {
 	puts.length = 0;
 	const archive = () => document.querySelector('[data-testid="unassigned-chat-list"] [aria-label="Archive chat"]') as HTMLElement;
