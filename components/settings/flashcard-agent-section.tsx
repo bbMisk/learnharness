@@ -18,7 +18,8 @@ interface AgentStatus {
  *  Settings (Esc included) never throws typed text away. */
 let guidanceDraft: string | null = null;
 
-export function FlashcardAgentSection({ agent, onChange }: { agent: AgentSettings | undefined; onChange: (next: AgentSettings) => void }) {
+/** `onChange` queues a save composed on the latest saved settings, and resolves whether it landed. */
+export function FlashcardAgentSection({ agent, onChange }: { agent: AgentSettings | undefined; onChange: (compose: (base: AgentSettings | undefined) => AgentSettings) => void | Promise<boolean> }) {
 	const [status, setStatus] = useState<AgentStatus | null>(null);
 	const [error, setError] = useState("");
 	const [statusError, setStatusError] = useState("");
@@ -37,7 +38,7 @@ export function FlashcardAgentSection({ agent, onChange }: { agent: AgentSetting
 	useEffect(refresh, [feed]);
 	useEffect(() => setInstructions(guidanceDraft ?? agent?.flashcards?.instructions ?? ""), [agent?.flashcards?.instructions]);
 	const settings = agent?.flashcards;
-	const change = (next: NonNullable<AgentSettings["flashcards"]>) => onChange({ ...agent, flashcards: { ...settings, ...next } });
+	const change = (next: NonNullable<AgentSettings["flashcards"]>) => Promise.resolve(onChange((base) => ({ ...base, flashcards: { ...base?.flashcards, ...next } })));
 	const action = async (method: "POST" | "DELETE") => {
 		setRequesting(true);
 		setError("");
@@ -103,8 +104,11 @@ export function FlashcardAgentSection({ agent, onChange }: { agent: AgentSetting
 					type="button"
 					disabled={instructions === (settings?.instructions ?? "")}
 					onClick={() => {
-						guidanceDraft = null;
-						change({ instructions });
+						const sent = instructions;
+						// The draft goes only once the save lands: a failed save keeps it.
+						void change({ instructions: sent }).then((saved) => {
+							if (saved !== false && guidanceDraft === sent) guidanceDraft = null;
+						});
 					}}
 					className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50"
 				>
