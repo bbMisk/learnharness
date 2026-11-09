@@ -14,6 +14,7 @@ import { QuestionDock } from "@/components/question-dock";
 import { PracticeDock } from "@/components/practice-dock";
 import { MARGIN_MIN_W, dockFlank, measureDockFlank, type DockFlank } from "@/components/dock-flank";
 import { rememberRevealed, wasRevealed } from "@/components/revealed-questions";
+import { useHydrated } from "@/components/use-hydrated";
 import { ReadingThinkingField } from "@/components/reading-thinking";
 import type { pendingQuestionOf, Phase3, QuestionAnswerData, QuestionFormDraft } from "@/src/core";
 
@@ -166,13 +167,24 @@ export function DockOverlay({
 	// Teach-phase mount (session reload with a pending check): the dock starts
 	// as the collapsed invitation too — the check must not pop open on reload —
 	// unless the learner already opened it (switched chats and came back).
-	const openedBefore = wasRevealed(pending?.key ?? null);
+	// Session storage is read only after hydration, so the first render
+	// matches the server's; an opened check then opens in the next render.
+	const hydrated = useHydrated();
+	const openedBefore = hydrated && wasRevealed(pending?.key ?? null);
 	const [expanded, setExpanded] = useState(!requiresReveal || openedBefore);
 	const [readingUploading, setReadingUploading] = useState(false);
 	// Reveal state: false until the learner opens the invitation. While false,
 	// the scroll machine must not auto-expand at the bottom (the learner reads
 	// the teaching first). Once revealed, the normal fold rules apply.
 	const [revealed, setRevealed] = useState(openedBefore);
+	const hydratedRef = useRef(hydrated);
+	if (hydrated !== hydratedRef.current) {
+		hydratedRef.current = hydrated;
+		if (openedBefore) {
+			setExpanded(true);
+			setRevealed(true);
+		}
+	}
 	const revealPending = requiresReveal && !revealed;
 
 	const pendingId = pending?.key ?? null;
@@ -540,7 +552,7 @@ export function DockOverlay({
 								/>
 							) : practice ? (
 								<PracticeDock
-									key={practice.toolCallId}
+									key={hydrated ? practice.toolCallId : `${practice.toolCallId}:server`}
 									problemCallId={practice.toolCallId}
 									input={practice.input as { statement: string }}
 									expanded={expanded}

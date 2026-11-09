@@ -9,6 +9,7 @@ import { useEnterSubmits } from "@/components/enter-submits";
 import { PathInput } from "@/components/path-input";
 import { useThinkingFocus } from "@/components/thinking-focus";
 import { MalformedQuestion } from "@/components/malformed-question";
+import { useHydrated } from "@/components/use-hydrated";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
 import {
@@ -114,6 +115,9 @@ export function QuestionDock({
 	compactionRunning = false,
 	attachmentsUploading = false,
 }: QuestionDockProps) {
+	// The draft comes from browser storage: the form remounts with it once
+	// hydration is done, so the first render matches the server's.
+	const hydrated = useHydrated();
 	// The probe-phase names map onto their teach twins for every dock concern
 	// (parse dispatch, labels, kinds): "probe" is quiz-shaped, "recall" is
 	// explain-shaped. Old records keep the teach names.
@@ -151,15 +155,15 @@ export function QuestionDock({
 			<div className={expanded ? "dock-variant" : "invisible h-0 overflow-hidden"}>
 				<QuestionDockForm
 					onReveal={onExpand}
-					key={toolCallId}
+					key={hydrated ? toolCallId : `${toolCallId}:server`}
 					toolName={toolName}
 					toolCallId={toolCallId}
 					input={parsed}
 					phase={phase}
 					active={expanded}
 					onSubmit={onSubmit}
-					initialDraft={initialDraft}
-					onSaveDraft={onSaveDraft}
+					initialDraft={hydrated ? initialDraft : undefined}
+					onSaveDraft={hydrated ? onSaveDraft : undefined}
 					onEscape={onEscape}
 					dictationClaim={dictationClaim}
 					compactionRunning={compactionRunning}

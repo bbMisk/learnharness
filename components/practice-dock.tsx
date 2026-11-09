@@ -13,6 +13,7 @@ import { useEnterSubmits } from "@/components/enter-submits";
 import { PathInput } from "@/components/path-input";
 import { cn } from "@/lib/utils";
 import { clearDraft, readDraft, writeDraft } from "@/components/draft-store";
+import { useHydrated } from "@/components/use-hydrated";
 
 /**
  * The practice dock (practice sessions, owner design 2026-10-04): an
@@ -57,7 +58,10 @@ export interface PracticeDockProps {
 export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmit, onEscape, compactionRunning = false }: PracticeDockProps) {
 	// Autosaved per problem (components/draft-store.ts): survives reloads.
 	const draftKey = `p:${problemCallId}`;
-	const [thinking, setThinking] = useState(() => readDraft<string>(draftKey) ?? "");
+	// After hydration only (the dock remounts then), so the first render
+	// matches the server's.
+	const hydrated = useHydrated();
+	const [thinking, setThinking] = useState(() => (hydrated ? readDraft<string>(draftKey) : undefined) ?? "");
 	// Ref MIRRORS the field ("nothing gets lost", the question-dock
 	// discipline): a submit resuming after `await finishDictation()` reads
 	// the tail, never a stale closure.
