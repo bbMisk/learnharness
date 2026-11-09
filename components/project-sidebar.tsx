@@ -93,7 +93,17 @@ export function ProjectSidebar({
 					showChats={showChats}
 				/>
 			))}
-			<Dialog.Root open={open} onOpenChange={setOpen}>
+			<Dialog.Root
+				open={open}
+				onOpenChange={(next) => {
+					setOpen(next);
+					// Every open starts clean: no rejected name or old error.
+					if (!next) {
+						setName("");
+						setError("");
+					}
+				}}
+			>
 				<Dialog.Portal>
 					<Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
 					<Dialog.Content

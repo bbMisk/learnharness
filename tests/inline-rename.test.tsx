@@ -165,3 +165,32 @@ it("right-clicking a project in the sidebar renames it in place", async () => {
 	assert.deepEqual(puts, [{ name: "Quant Methods", expected: { name: "Quant" } }]);
 	assert.equal(refreshed, 1);
 });
+
+it("the New project dialog reopens empty after a rejected name is closed", async () => {
+	// Radix's dialog watches the DOM; linkedom has no MutationObserver.
+	Object.assign(globalThis, { NodeFilter: dom.window.NodeFilter ?? { SHOW_ELEMENT: 1, FILTER_ACCEPT: 1, FILTER_SKIP: 3 } });
+	(globalThis as Record<string, unknown>).MutationObserver ??= class { observe() {} disconnect() {} takeRecords() { return []; } };
+	globalThis.fetch = (async () => Response.json({ error: "A project with that name already exists." }, { status: 400 })) as typeof fetch;
+	await render(
+		<AppRouterContext.Provider value={router as never}>
+			<PathnameContext.Provider value="/">
+				<ProjectSidebar projects={[]} chats={[]} refresh={() => {}} moveChat={() => {}} renderChat={() => null} showChats />
+			</PathnameContext.Provider>
+		</AppRouterContext.Provider>,
+	);
+	const add = host!.querySelector('[aria-label="Add project"]') as HTMLButtonElement;
+	const field = () => document.querySelector('input[aria-label="Project name"]') as HTMLInputElement | null;
+	await act(async () => add.click());
+	field()!.setAttribute("type", "text"); // linkedom reports no type, so React would skip onChange
+	await type(field()!, "geometry");
+	await act(async () => {
+		field()!.closest("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+	assert.match(document.body.textContent ?? "", /already exists/);
+	await act(async () => (document.querySelector('[aria-label="Close new project"]') as HTMLButtonElement).click());
+	assert.equal(field(), null, "closed");
+	await act(async () => add.click());
+	assert.equal(field()!.value, "", "the rejected name is gone");
+	assert.doesNotMatch(document.body.textContent ?? "", /already exists/);
+});
