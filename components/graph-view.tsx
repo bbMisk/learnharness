@@ -1272,7 +1272,7 @@ export function GraphView({
 	}, [selected]);
 
 	return (
-		<div className="relative h-full w-full">
+		<div className="@container/graph relative h-full w-full">
 			{isEmpty ? (
 				// The empty graph keeps the first action clear without zero-valued statistics.
 				<div className="flex h-full w-full items-center justify-center px-4">
@@ -1357,14 +1357,15 @@ export function GraphView({
 			    Header band: the controls sit IN the header's visual row — top-2
 			    aligns with the sidebar toggle's band (header py-2, toggle h-9).
 			    The width cap lives HERE on the absolute element (100% resolves
-			    against the full-bleed parent) — the row NEVER wraps; in narrow
-			    windows the search is the flexible element and shrinks. */}
+			    against the full-bleed parent). The row wraps when the GRAPH
+			    AREA (not the viewport) is too narrow for one row, which would
+			    otherwise run left over the sidebar's close toggle. */}
 			<div className="lh-no-drag lh-wco-floating absolute right-2 top-2 z-10 flex max-w-[calc(100%-5.5rem)] flex-col items-end gap-2">
 			{/* z-20: the row paints above the cost number below it — otherwise
 			    the later-in-DOM cost control layers over the open dropdowns.
 			    The row is a stacking context, so its open dropdowns cover the
 			    number; clicks land on the panel. */}
-			<div className="relative z-20 flex min-w-0 items-start gap-2 max-md:flex-wrap max-md:justify-end">
+			<div className="relative z-20 flex min-w-0 items-start gap-2 @max-[37rem]/graph:flex-wrap @max-[37rem]/graph:justify-end">
 				{/* The actions row: Import Notes always — the empty graph's
 				    entry point; search + settings only when nodes exist. */}
 				<GraphChromeRow
