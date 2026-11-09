@@ -621,3 +621,26 @@ it("plan diagram: exactly one destination — the card while it has room, else t
 		delete (globalThis as Record<string, unknown>).ResizeObserver;
 	}
 });
+
+it("squeezed above a tall dock to a strip it would scroll in, the card hides; with room it shows", async () => {
+	const proto = dom.window.HTMLElement.prototype;
+	const box = { client: 26, scroll: 466 };
+	const isCard = (el: Element) => el.getAttribute("data-testid") === "lesson-tracker";
+	Object.defineProperty(proto, "clientHeight", { configurable: true, get(this: Element) { return isCard(this) ? box.client : 0; } });
+	Object.defineProperty(proto, "scrollHeight", { configurable: true, get(this: Element) { return isCard(this) ? box.scroll : 0; } });
+	try {
+		let host = await mount(<LessonTrackerCard tracking={deriveLessonTracking(record)} bottomReserve={700} />);
+		assert.match(host.querySelector('[data-testid="lesson-tracker"]')!.getAttribute("class")!, /\binvisible\b/, "a 26 px strip: hidden");
+		await act(async () => root!.unmount());
+		box.client = 466;
+		host = await mount(<LessonTrackerCard tracking={deriveLessonTracking(record)} bottomReserve={200} />);
+		assert.doesNotMatch(host.querySelector('[data-testid="lesson-tracker"]')!.getAttribute("class")!, /\binvisible\b/, "room: shown");
+		await act(async () => root!.unmount());
+		box.client = box.scroll = 60;
+		host = await mount(<LessonTrackerCard tracking={deriveLessonTracking(record)} bottomReserve={700} />);
+		assert.doesNotMatch(host.querySelector('[data-testid="lesson-tracker"]')!.getAttribute("class")!, /\binvisible\b/, "a short card that fits: shown");
+	} finally {
+		delete (proto as unknown as Record<string, unknown>).clientHeight;
+		delete (proto as unknown as Record<string, unknown>).scrollHeight;
+	}
+});

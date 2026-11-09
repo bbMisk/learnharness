@@ -102,6 +102,8 @@ export const PLAN_VIEW_MIN_H = 140;
 export const PLAN_VIEW_MAX_H = 224;
 /** The card's flex gap (gap-4) above the diagram. */
 const SECTION_GAP = 16;
+/** Below this height an overflowing card (squeezed above a tall dock) hides rather than show a strip. */
+const MIN_CARD_H = 120;
 
 export function planViewHeight(areaWidth: number, cardMaxHeight: number, contentHeight: number): number | null {
 	if (areaWidth < PLAN_VIEW_MIN_AREA || !Number.isFinite(cardMaxHeight)) return null;
@@ -355,12 +357,22 @@ export function LessonTrackerCard({ tracking, plan = null, bottomReserve, onPrac
 			onPlanViewPlaced?.(false);
 		};
 	}, [offersView, onPlanViewPlaced]);
+	const [cramped, setCramped] = useState(false);
+	useIsoLayoutEffect(() => {
+		const aside = asideRef.current;
+		if (!aside) return;
+		const measure = () => setCramped(aside.clientHeight < MIN_CARD_H && aside.scrollHeight > aside.clientHeight);
+		measure();
+		const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+		ro?.observe(aside);
+		return () => ro?.disconnect();
+	}, []);
 	return (
 		<aside
 			ref={asideRef}
 			data-testid="lesson-tracker"
 			aria-label="Lesson progress"
-			className={`absolute ${besideTab ? "right-11 w-56" : "right-3 w-64"} top-3 z-20 flex max-h-[calc(100%-var(--lh-card-reserve))] max-w-[calc(100%-1.5rem)] flex-col gap-4 overflow-y-auto rounded-xl border border-border/80 bg-card/95 px-3.5 py-3 font-ui text-xs text-foreground shadow-sm backdrop-blur-sm @min-[60rem]/session:max-h-[calc(100%-1.5rem)]`}
+			className={`absolute ${cramped ? "invisible " : ""}${besideTab ? "right-11 w-56" : "right-3 w-64"} top-3 z-20 flex max-h-[calc(100%-var(--lh-card-reserve))] max-w-[calc(100%-1.5rem)] flex-col gap-4 overflow-y-auto rounded-xl border border-border/80 bg-card/95 px-3.5 py-3 font-ui text-xs text-foreground shadow-sm backdrop-blur-sm @min-[60rem]/session:max-h-[calc(100%-1.5rem)]`}
 			style={{ "--lh-card-reserve": `${bottomReserve + 24}px` } as CSSProperties}
 		>
 			{plan && (
