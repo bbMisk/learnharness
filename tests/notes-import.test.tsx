@@ -74,14 +74,15 @@ for (const outcome of ["completed", "failed", "partial", "aborted", "busy"] as c
 	assert.doesNotMatch(html, /<button|<section|<ul|border|bg-card|rounded|shadow|Retry|Dismiss|Import complete/);
 	if (outcome === "completed") { assert.equal(html, ""); assert.deepEqual(current.errors, []); }
 	else {
-		assert.deepEqual(current.errors, [`${file.name}: ${result.error}\nprovider_key_missing — openai — OPENAI_API_KEY — cheap, strong`]);
+		assert.deepEqual(current.errors, [`${file.name}: ${result.error}`], "the key error already says what to do; no machine code");
 		assert.match(html, /&lt;script&gt;notes.md: &lt;img&gt;synthetic failure/); assert.match(html, /role="alert"/); assert.doesNotMatch(html, /<script>|<img>/);
 	}
 });
-for (const details of [{ code: "models_not_configured", missing: ["cheap", "strong", "vision"] }, { code: "provider_key_missing", provider: "openai", slots: ["cheap"] }, { code: "provider_key_missing" }, {}]) it(`configuration details survive (${JSON.stringify(details)})`, async () => {
+for (const details of [{ code: "models_not_configured", missing: ["cheap"] }, { code: "models_not_configured", missing: ["cheap", "strong", "vision"] }, { code: "provider_key_missing", provider: "openai", slots: ["cheap"] }, { code: "provider_key_missing" }, {}]) it(`configuration problems read as the fix, not the code (${JSON.stringify(details)})`, async () => {
 	globalThis.fetch = async () => Response.json({ results: [{ requestIndex: 0, filePath: "same.md", ok: false, outcome: "failed", error: "Existing raw error", ...details }] });
 	await mount(); await submit([files[0]!]);
-	const suffix = details.code === "models_not_configured" ? "\nmodels_not_configured — cheap, strong, vision" : details.provider ? "\nprovider_key_missing — openai — cheap" : details.code ? "\nprovider_key_missing" : "";
+	const suffix = details.code !== "models_not_configured" ? ""
+		: details.missing?.length === 1 ? "\nChoose a Cheap model in Settings → Agent." : "\nChoose the Cheap, Strong and Vision models in Settings → Agent.";
 	assert.deepEqual(current.errors, [`same.md: Existing raw error${suffix}`]);
 });
 

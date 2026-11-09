@@ -5,6 +5,14 @@ export const notesPath = (file: File): string => file.webkitRelativePath || file
 /** Folder imports silently exclude dot-prefixed files and directories below
  * the chosen root. The root is segment 0 and stays importable even when hidden. */
 const hiddenInFolder = (file: File): boolean => file.webkitRelativePath.split("/").slice(1).some((part) => part.startsWith("."));
+/** The fix in words for a missing model, never the machine code. A missing
+ *  key's own error already names the key and where to add it. */
+function setupHint(r: NotesImportResult): string {
+	if (r.code !== "models_not_configured" || !r.missing?.length) return "";
+	const slots = r.missing.map((slot) => slot[0]!.toUpperCase() + slot.slice(1));
+	const named = slots.length === 1 ? `a ${slots[0]} model` : `the ${slots.slice(0, -1).join(", ")} and ${slots.at(-1)} models`;
+	return `\nChoose ${named} in Settings → Agent.`;
+}
 export interface ImportQueueSnapshot {
 	importing: boolean;
 	errors: string[];
@@ -38,10 +46,8 @@ export function createNotesImportQueue(post: (files: readonly File[]) => Promise
 				try {
 					const [r] = await send(file);
 					if (!r) throw new Error("Invalid import response. Check the graph before retrying.");
-					if (!r.ok) {
-						const details = [r.provider, r.missing?.join(", "), r.slots?.join(", ")].filter(Boolean);
-						failures.set(index, `${r.filePath}: ${r.error}${r.code ? `\n${[r.code, ...details].join(" — ")}` : ""}`);
-					} else if (r.notice) notices.set(index, `${r.filePath}: ${r.notice}`);
+					if (!r.ok) failures.set(index, `${r.filePath}: ${r.error}${setupHint(r)}`);
+					else if (r.notice) notices.set(index, `${r.filePath}: ${r.notice}`);
 				} catch (error) {
 					// Never retry an ambiguous response: the merge may have committed.
 					failures.set(index, `${notesPath(file)}: ${error instanceof Error ? error.message : String(error)}`);
