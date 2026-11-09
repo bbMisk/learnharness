@@ -63,6 +63,12 @@ export function sessionFindHasForegroundLayer(doc: Document): boolean {
 	});
 }
 
+/** Whether focus is in `panel`, or nowhere: an Esc from there may hand it back. */
+export function focusIn(panel: Element | null | undefined): boolean {
+	const active = document.activeElement;
+	return !active || active === document.body || !!panel?.contains(active);
+}
+
 /** Find and the side tutor while open, oldest first: an Esc from outside both closes the newest. */
 const escLayers: object[] = [];
 /** Keeps this layer on that stack while `open`; the call says whether it is the newest. */

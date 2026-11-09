@@ -6,7 +6,7 @@ import { MessageResponse } from "@/components/ai-elements/message";
 import { Conversation, ConversationContent } from "@/components/ai-elements/conversation";
 import { ResizableSidePanel } from "@/components/resizable-side-panel";
 import { TopBar } from "@/components/top-bar";
-import { sessionFindHasForegroundLayer, useNewestEscLayer } from "@/components/session-find";
+import { focusIn, sessionFindHasForegroundLayer, useNewestEscLayer } from "@/components/session-find";
 import { captureFocus, focusComposer } from "@/components/focus-return";
 import { isComposing } from "@/components/ime";
 import { Button } from "@/components/ui/button";
@@ -72,6 +72,13 @@ export function SideTutor({ chatId, selectedText, onClose }: { chatId: string; s
 	const input = useRef<HTMLTextAreaElement>(null);
 	const request = useRef<AbortController | null>(null);
 	const sendLock = useRef(false);
+	// The box is disabled while a reply streams, so focus can only go back once it's enabled again.
+	const refocus = useRef(false);
+	useEffect(() => {
+		if (busy || !refocus.current) return;
+		refocus.current = false;
+		if (focusIn(input.current?.closest("aside"))) input.current?.focus();
+	}, [busy]);
 	useEffect(() => {
 		const abort = new AbortController();
 		setSnapshot(undefined);
@@ -164,8 +171,8 @@ export function SideTutor({ chatId, selectedText, onClose }: { chatId: string; s
 			setError(abort.signal.aborted ? "Side response stopped." : e instanceof Error ? e.message : "The side tutor could not finish.");
 		} finally {
 			sendLock.current = false;
+			refocus.current = true;
 			setBusy(false);
-			input.current?.focus();
 		}
 	}
 

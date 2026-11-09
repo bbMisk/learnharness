@@ -40,7 +40,8 @@ dom.window.HTMLElement.prototype.focus = function (this: HTMLElement) {
 dom.window.HTMLElement.prototype.blur = function (this: HTMLElement) {
 	if (focused === this) focused = null;
 };
-Object.defineProperty(dom.document, "activeElement", { get: () => (focused?.isConnected ? focused : dom.document.body), configurable: true });
+// As in Chrome, a field that turns disabled loses focus.
+Object.defineProperty(dom.document, "activeElement", { get: () => (focused?.isConnected && !(focused as HTMLButtonElement).disabled ? focused : dom.document.body), configurable: true });
 
 // linkedom has no capture phase: run the document's capture keydown listeners
 // first, and let their stopPropagation skip its bubble-phase ones, as a browser does.
@@ -328,4 +329,37 @@ it("Find and the side tutor both open: an Esc from outside both closes the one o
 	assert.ok(findOpen() && !tutorOpen(), "the tutor, the newest, closed");
 	await act(async () => { document.dispatchEvent(key("Escape")); });
 	assert.ok(!findOpen());
+});
+
+it("after a side-tutor reply, success or failure, its box has focus again for the follow-up", async () => {
+	const { SideTutor } = await import("../components/side-tutor.tsx");
+	const snapshot = { context: "c", truncated: false, model: { provider: "openai", id: "m" } };
+	// The streamed reply's markdown measures text ranges and selections; linkedom has neither.
+	const { createRange } = document;
+	const getSelection = dom.window.getSelection;
+	Object.assign(document, { createRange: () => ({ setStart() {}, setEnd() {}, selectNodeContents() {}, getClientRects: () => [], getBoundingClientRect: () => ({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }) }) });
+	Object.assign(dom.window, { getSelection: () => ({ toString: () => "", rangeCount: 0, removeAllRanges() {}, addRange() {} }) });
+	const replies = [
+		() => new Response(`${JSON.stringify({ type: "delta", text: "A limit point is…" })}\n${JSON.stringify({ type: "done" })}\n`),
+		() => Response.json({ error: "The lesson's model connection is unavailable." }, { status: 503 }),
+	];
+	try {
+		for (const reply of replies) {
+			globalThis.fetch = (async (_url: string, init?: RequestInit) => (init?.method === "POST" ? reply() : Response.json(snapshot))) as unknown as typeof fetch;
+			mountHost();
+			await act(async () => { root!.render(<SideTutor chatId="c1" selectedText="what is a limit point" onClose={() => {}} />); });
+			await frame();
+			const box = document.querySelector<HTMLTextAreaElement>('[data-testid="side-tutor"] textarea')!;
+			assertSameNode(document.activeElement, box);
+			await act(async () => { box.dispatchEvent(key("Enter")); });
+			for (let i = 0; i < 100 && box.disabled; i++) await frame();
+			assert.ok(!box.disabled, "the reply settled");
+			assertSameNode(document.activeElement, box, "focus is back in the box");
+			await act(async () => { root!.unmount(); });
+			root = null;
+		}
+	} finally {
+		Object.assign(dom.window, { getSelection });
+		Object.assign(document, { createRange });
+	}
 });
