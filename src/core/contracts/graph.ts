@@ -351,8 +351,21 @@ export function titleFromPrompt(prompt: string): string {
 	// One long word: no boundary exists under the cap — split it. This also
 	// lands correctly when the first word exactly fills the cap: cutting at the
 	// cap IS the boundary.
-	if (cut < 0) cut = TITLE_MAX_CHARS;
+	if (cut < 0) return `${graphemePrefix(oneLine, TITLE_MAX_CHARS, (s) => s.length)}…`;
 	return `${oneLine.slice(0, cut)}…`;
+}
+
+/** The longest run of whole grapheme clusters (an emoji family, a letter with
+ *  its accents) from the start of `text` whose total `size` is at most `max`. */
+function graphemePrefix(text: string, max: number, size: (segment: string) => number): string {
+	let out = "";
+	let used = 0;
+	for (const { segment } of new Intl.Segmenter().segment(text)) {
+		used += size(segment);
+		if (used > max) break;
+		out += segment;
+	}
+	return out;
 }
 
 /** The longest stored chat title or project name, in characters. */
@@ -363,8 +376,6 @@ export const NAME_MAX_CHARS = 200;
  *  the text around it), trimmed, at most NAME_MAX_CHARS characters. Empty
  *  means "use the caller's fallback". */
 export function cleanName(name: string): string {
-	return Array.from(name.replace(/[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu, "").replace(/[\p{Cc}\u2028\u2029]+/gu, " ").trim())
-		.slice(0, NAME_MAX_CHARS)
-		.join("")
-		.trim();
+	const oneLine = name.replace(/[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu, "").replace(/[\p{Cc}\u2028\u2029]+/gu, " ").trim();
+	return graphemePrefix(oneLine, NAME_MAX_CHARS, (segment) => Array.from(segment).length).trim();
 }

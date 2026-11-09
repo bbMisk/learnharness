@@ -9,6 +9,7 @@ process.env.LH_DATA_DIR = root;
 process.env.LH_AUTH_FILE = path.join(root, "auth.json");
 const { chatStore } = await import("../src/store/chats.ts");
 const { projectStore } = await import("../src/store/projects.ts");
+const { cleanName, titleFromPrompt } = await import("../src/core/contracts/graph.ts");
 const chatRoute = await import("../app/api/chats/[id]/route.ts");
 const projectsRoute = await import("../app/api/projects/route.ts");
 const projectRoute = await import("../app/api/projects/[id]/route.ts");
@@ -53,4 +54,14 @@ it("an over-long project name says it is too long, on create and rename", async 
 	);
 	assert.equal(put.status, 400);
 	assert.match(((await put.json()) as { error: string }).error, /at most 200 characters/);
+});
+
+it("the caps never cut an emoji family or an accented letter in half", () => {
+	const family = "👨‍👩‍👧‍👦"; // 7 code points, 11 UTF-16 units
+	const chat = chatStore.createChat("title");
+	const renamed = chatStore.renameChat(chat.id, family.repeat(60)).title;
+	assert.equal(renamed, family.repeat(28), "28 whole families (196 code points) fit under 200");
+	assert.equal(cleanName("é".repeat(150)), "é".repeat(100), "a letter keeps its accent");
+	assert.equal(titleFromPrompt(family.repeat(10)), `${family.repeat(6)}…`, "the auto-title cuts between families");
+	assert.equal(titleFromPrompt(`a${"🧮".repeat(80)}`), `a${"🧮".repeat(35)}…`, "no lone surrogate at the cut");
 });
