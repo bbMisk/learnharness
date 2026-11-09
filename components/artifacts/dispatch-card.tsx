@@ -20,7 +20,7 @@ import { jobDisplay, jobElapsedMs } from "@/src/core";
  * toolCallId:
  *
  *   job unknown → "dispatched" pulse (the jobs feed hasn't seen it yet),
- *                 settling to "status unavailable" if it never appears
+ *                 settling to a quiet "status not kept" if it never appears
  *   running     → live activity card (activity line + elapsed)
  *   done/error  → expandable delivered / failed summary — the artifact
  *                 itself arrives in the steer message right below, so the
@@ -129,7 +129,7 @@ function DispatchPendingCard({ label }: { label: string }) {
 					<MinusIcon className="size-3.5" aria-hidden />
 					{label}
 				</div>
-				<div className="mt-1 text-sm text-muted-foreground">Status unavailable</div>
+				<div className="mt-1 text-sm text-muted-foreground">Status not kept for older jobs</div>
 			</div>
 		);
 	}

@@ -18,7 +18,7 @@ const { createRoot } = await import("react-dom/client");
 const { DispatchCard, DISPATCH_UNKNOWN_MS } = await import("../components/artifacts/dispatch-card.tsx");
 const { JobsContext } = await import("../components/jobs-context.ts");
 
-it("a dispatch the jobs feed never shows settles to 'Status unavailable'", async () => {
+it("a dispatch the jobs feed never shows settles to a quiet 'Status not kept for older jobs'", async () => {
 	mock.timers.enable({ apis: ["setTimeout"] });
 	const host = dom.document.createElement("div");
 	dom.document.body.append(host);
@@ -29,7 +29,7 @@ it("a dispatch the jobs feed never shows settles to 'Status unavailable'", async
 		assert.match(host.textContent ?? "", /Dispatched…/, "fresh: the pulse while the feed catches up");
 		await act(async () => mock.timers.tick(DISPATCH_UNKNOWN_MS));
 		assert.ok(host.querySelector('[data-testid="dispatch-unknown"]'), "settled card");
-		assert.match(host.textContent ?? "", /Status unavailable/);
+		assert.match(host.textContent ?? "", /Status not kept for older jobs/);
 		assert.ok(!host.querySelector('[role="status"]') && !/Dispatched…/.test(host.textContent ?? ""), "no spinner");
 	} finally {
 		await act(async () => root.unmount());
