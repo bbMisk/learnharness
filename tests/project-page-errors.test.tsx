@@ -239,15 +239,17 @@ it("shows a failed project details refresh and clears it on the next success", a
 });
 
 it("a deleted project (404, e.g. Back after a delete) shows the not-found page", async () => {
+	document.title = "Fixture";
 	const text = await mount(200, 404);
 	assert.match(text, /Go home/);
+	assert.equal(document.title, "LearnHarness", "the not-found page drops the project's title");
 	assert.doesNotMatch(text, /Delete project|Could not load project details/);
 });
 
 it("the window title names the open project", async () => {
-	document.title = "Learning Harness";
+	document.title = "Fixture"; // the server sets the project's own title
 	await mount(200);
 	assert.equal(document.title, "Fixture");
 	await act(async () => root.unmount());
-	assert.equal(document.title, "Learning Harness");
+	assert.equal(document.title, "LearnHarness", "leaving restores the app title");
 });

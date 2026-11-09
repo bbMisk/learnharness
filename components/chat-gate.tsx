@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { NotFoundView } from "@/components/not-found-view";
 import { useServerEvent, useServerResync } from "@/components/server-events";
+import { APP_TITLE } from "@/lib/utils";
 
 /** Keeps an open chat honest about its record: re-read on mount (browser
  *  Back can restore a cached page), on chats-changed and on reconnect. A 404
@@ -53,12 +54,13 @@ export function ChatGate({ chatId, title, archived: initiallyArchived = false, c
 		window.addEventListener("lh:chat-renamed", onRenamed);
 		return () => window.removeEventListener("lh:chat-renamed", onRenamed);
 	}, [chatId]);
+	// Leaving (or the chat going away) puts back the app title, never the
+	// title found on mount: the server already set that to this chat's.
 	useEffect(() => {
 		if (gone) return;
-		const previous = document.title;
 		document.title = shownTitle;
 		return () => {
-			document.title = previous;
+			document.title = APP_TITLE;
 		};
 	}, [gone, shownTitle]);
 	useServerEvent("chats-changed", () => void check());

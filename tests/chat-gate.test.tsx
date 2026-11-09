@@ -110,7 +110,7 @@ it("a rename in another tab goes out as lh:chat-renamed, once", async () => {
 
 it("an archived open chat says so; the window title follows the chat's", async () => {
 	let body = { title: "Old title", archived: false };
-	document.title = "Learning Harness";
+	document.title = "Old title"; // the server sets the chat's own title
 	const { event } = await mount(() => new Response(JSON.stringify(body), { status: 200 }));
 	assert.equal(document.title, "Old title");
 	assert.equal(host.querySelector('[data-testid="chat-archived"]'), null);
@@ -122,7 +122,16 @@ it("an archived open chat says so; the window title follows the chat's", async (
 	await event("chats-changed");
 	assert.equal(host.querySelector('[data-testid="chat-archived"]'), null, "restored elsewhere: the note goes");
 	await act(async () => root.unmount());
-	assert.equal(document.title, "Learning Harness", "leaving the chat restores the app title");
+	assert.equal(document.title, "LearnHarness", "leaving the chat restores the app title");
+});
+
+it("a deleted open chat gives the window back the app title", async () => {
+	let status = 200;
+	document.title = "Doomed chat";
+	const { event } = await mount(() => new Response(JSON.stringify({ title: "Old title" }), { status }));
+	status = 404;
+	await event("chats-changed");
+	assert.equal(document.title, "LearnHarness");
 });
 
 it("the app's not-found page links home", () => {

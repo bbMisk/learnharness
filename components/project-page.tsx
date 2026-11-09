@@ -14,6 +14,7 @@ import { useServerEvent, useServerResync } from "@/components/server-events";
 import type { ChatListItem, ProjectView } from "@/src/core";
 import { InlineRename } from "@/components/inline-rename";
 import { NotFoundView } from "@/components/not-found-view";
+import { APP_TITLE } from "@/lib/utils";
 /** A project deleted here or in another window (or restored by browser Back
  *  after a delete) swaps for the not-found page, as ChatGate does for chats. */
 export function ProjectPage({ initial }: { initial: ProjectView }) {
@@ -74,10 +75,9 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 		void refresh();
 	}, [initial.id]);
 	useEffect(() => {
-		const previous = document.title;
 		document.title = project.name;
 		return () => {
-			document.title = previous;
+			document.title = APP_TITLE; // not the mount-time title: the server set it to this project's
 		};
 	}, [project.name]);
 	useServerEvent("chats-changed", refresh);
