@@ -62,7 +62,7 @@ export function trapTab(e: KeyboardEvent, modal: HTMLElement): void {
 	if (items.length === 0) return;
 	const i = items.indexOf(active as HTMLElement);
 	const next = e.shiftKey ? (i <= 0 ? items.length - 1 : i - 1) : (i + 1) % items.length;
-	items[next].focus();
+	items[next]?.focus();
 }
 
 export function KeyboardShortcuts() {
