@@ -11,7 +11,8 @@ const localStorage = {
 	setItem: (k: string, v: string) => void mem.set(k, v),
 	removeItem: (k: string) => void mem.delete(k),
 };
-(globalThis as Record<string, unknown>).window = { localStorage };
+const pageListeners = new Map<string, () => void>();
+(globalThis as Record<string, unknown>).window = { localStorage, addEventListener: (type: string, listener: () => void) => void pageListeners.set(type, listener) };
 const { clearDraft, clearDrafts, readDraft, writeDraft } = await import("../components/draft-store.ts");
 const { SessionModel } = await import("../components/session-core.ts");
 const pause = () => new Promise((resolve) => setTimeout(resolve, 5));
@@ -55,4 +56,12 @@ it("a question draft typed in one window comes back after a reload, selection in
 	assert.deepEqual([...draft.form!.selection.selected], [2]);
 	assert.equal(draft.form!.confidenceIndex, 3);
 	assert.equal(draft.readingThinking, "notes while reading");
+});
+
+it("leaving the page saves the text typed inside the pause", () => {
+	writeDraft("c:chat_3", "typed just before reload");
+	assert.equal(readDraft("c:chat_3"), undefined, "still inside the pause");
+	pageListeners.get("pagehide")?.();
+	assert.equal(readDraft("c:chat_3"), "typed just before reload");
+	clearDraft("c:chat_3");
 });

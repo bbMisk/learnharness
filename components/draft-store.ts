@@ -24,26 +24,39 @@ export function readDraft<T>(key: string): T | undefined {
 	}
 }
 
+const unsaved = new Map<string, unknown>();
+
+function save(key: string, value: unknown): void {
+	timers.delete(key);
+	unsaved.delete(key);
+	try {
+		if (value === undefined || value === "") storage()?.removeItem(PREFIX + key);
+		else storage()?.setItem(PREFIX + key, JSON.stringify(value));
+	} catch {
+		/* Full or blocked storage: the draft stays in this page only. */
+	}
+}
+
 /** Saves after a pause; an empty string or undefined removes the draft. */
 export function writeDraft(key: string, value: unknown, delayMs = 300): void {
 	clearTimeout(timers.get(key));
-	timers.set(
-		key,
-		setTimeout(() => {
-			timers.delete(key);
-			try {
-				if (value === undefined || value === "") storage()?.removeItem(PREFIX + key);
-				else storage()?.setItem(PREFIX + key, JSON.stringify(value));
-			} catch {
-				/* Full or blocked storage: the draft stays in this page only. */
-			}
-		}, delayMs),
-	);
+	unsaved.set(key, value);
+	timers.set(key, setTimeout(() => save(key, value), delayMs));
 }
+
+// A reload or quit inside the pause would lose the last keystrokes.
+if (typeof window !== "undefined")
+	window.addEventListener?.("pagehide", () => {
+		for (const [key, value] of unsaved) {
+			clearTimeout(timers.get(key));
+			save(key, value);
+		}
+	});
 
 export function clearDraft(key: string): void {
 	clearTimeout(timers.get(key));
 	timers.delete(key);
+	unsaved.delete(key);
 	try {
 		storage()?.removeItem(PREFIX + key);
 	} catch {
