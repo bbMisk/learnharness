@@ -12,13 +12,15 @@
  * are listed for reading but never rebindable.
  *
  * A binding another action already uses is refused with a message naming
- * that action (see conflictFor).
+ * that action (see conflictFor); system/editing chords and bare keys are
+ * refused too (see refusalFor).
  */
 
 import { useEffect, useState } from "react";
 import {
 	KEYBOARD_ACTIONS,
 	eventBinding,
+	IS_MAC,
 	formatBinding,
 	loadOverrides,
 	saveOverrides,
@@ -56,11 +58,25 @@ export function conflictFor(
 	return KEYBOARD_ACTIONS.find((a) => a.id !== id && (overrides[a.id] ?? a.binding) === binding);
 }
 
+/** Copy, paste, undo, select all, close window, quit and reload. */
+const RESERVED = new Set(["mod+c", "mod+v", "mod+x", "mod+z", "mod+shift+z", "mod+y", "mod+a", "mod+w", "mod+q", "mod+r"]);
+
+/** Why `binding` can't be a shortcut for `id`, if it can't (pure — exported
+ *  for tests): a reserved system/editing chord, or a bare key that would
+ *  fire while typing or editing. F-keys and the action's own default pass. */
+export function refusalFor(id: KeyAction, binding: string): string | null {
+	if (RESERVED.has(binding)) return `${formatBinding(binding)} is reserved for the system or editing`;
+	const own = KEYBOARD_ACTIONS.find((a) => a.id === id)?.binding;
+	if (binding === own || /^(mod|alt)\+/.test(binding) || /^f([1-9]|1[0-2])$/.test(binding)) return null;
+	return `${formatBinding(binding)} needs ${IS_MAC ? "⌘ or ⌥" : "Ctrl or Alt"} (or use an F key)`;
+}
+
 export function KeyboardSection() {
 	const [overrides, setOverrides] = useState<Partial<Record<KeyAction, string>>>({});
 	const [rebinding, setRebinding] = useState<KeyAction | null>(null);
 	const [nonce, setNonce] = useState(0);
 	const [conflict, setConflict] = useState<{ id: KeyAction; text: string } | null>(null);
+	const [confirmReset, setConfirmReset] = useState(false);
 
 	// localStorage is read post-mount (SSR-safe); `nonce` re-reads after writes.
 	useEffect(() => {
@@ -85,9 +101,10 @@ export function KeyboardSection() {
 			if (!binding) return;
 			const current = loadOverrides();
 			const taken = conflictFor(current, rebinding, binding);
+			const refused = taken ? `${formatBinding(binding)} is already used by ${taken.label}` : refusalFor(rebinding, binding);
 			setRebinding(null);
-			if (taken) {
-				setConflict({ id: rebinding, text: `${formatBinding(binding)} is already used by ${taken.label}` });
+			if (refused) {
+				setConflict({ id: rebinding, text: refused });
 				return;
 			}
 			setConflict(null);
@@ -103,7 +120,13 @@ export function KeyboardSection() {
 		setNonce((n) => n + 1);
 	}
 
+	// Reset all takes two clicks: the first arms it, the second resets.
 	function resetAll() {
+		if (!confirmReset) {
+			setConfirmReset(true);
+			return;
+		}
+		setConfirmReset(false);
 		saveOverrides({});
 		setNonce((n) => n + 1);
 	}
@@ -175,10 +198,11 @@ export function KeyboardSection() {
 				<button
 					type="button"
 					onClick={resetAll}
+					onBlur={() => setConfirmReset(false)}
 					data-testid="kbd-reset-all"
-					className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+					className={`text-xs underline-offset-2 hover:underline ${confirmReset ? "text-red-500" : "text-muted-foreground hover:text-foreground"}`}
 				>
-					Reset all to defaults
+					{confirmReset ? "Confirm reset all" : "Reset all to defaults"}
 				</button>
 			</div>
 		</>
