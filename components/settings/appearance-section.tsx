@@ -29,6 +29,7 @@ import {
 	EXTRACTION_CHUNK_TOKENS_FLOOR,
 	EXTRACTION_CHUNK_TOKENS_MAX,
 	isDarkBackground,
+	isReadableInk,
 	isHexColor,
 	resolveSettings,
 	type AppearanceSettings,
@@ -45,6 +46,7 @@ import { bindSettingsMenuDismiss, CommitInput, SettingsMenuTrigger, SettingsRow,
 export const DEFAULT_READING_FONT = "Source Sans 3";
 
 const HEX_HINT = "Use a hex color like #1a2b3c.";
+const INK_HINT = "Pick a lighter color: this one is hard to read on the background.";
 
 /** The dev-browser fallback list (queryLocalFonts is absent there):
  *  the app's own knowns plus a handful of ubiquitous macOS families,
@@ -180,6 +182,7 @@ export function AppearanceSection({
 						if (v !== "" && !isHexColor(v)) return HEX_HINT;
 						// The theme is dark-only: a light background would hide the text.
 						if (v !== "" && !isDarkBackground(v)) return "Pick a darker color: the text is light.";
+						if ([md?.boldColor, md?.italicColor].some((ink) => ink && !isReadableInk(ink, v || null))) return "Pick another color: your bold or italic color would be hard to read on it.";
 						onSectionChange({ ...appearance, background: v === "" ? null : v });
 					}}
 				/>
@@ -298,6 +301,7 @@ export function AppearanceSection({
 					testid="input-bold-color"
 					onCommit={(v) => {
 						if (v !== "" && !isHexColor(v)) return HEX_HINT;
+						if (v !== "" && !isReadableInk(v, appearance?.background ?? null)) return INK_HINT;
 						onSectionChange({ ...appearance, mdRendering: { ...md, boldColor: v === "" ? null : v } });
 					}}
 				/>
@@ -310,6 +314,7 @@ export function AppearanceSection({
 					testid="input-italic-color"
 					onCommit={(v) => {
 						if (v !== "" && !isHexColor(v)) return HEX_HINT;
+						if (v !== "" && !isReadableInk(v, appearance?.background ?? null)) return INK_HINT;
 						onSectionChange({ ...appearance, mdRendering: { ...md, italicColor: v === "" ? null : v } });
 					}}
 				/>

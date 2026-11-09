@@ -58,16 +58,22 @@ export function conflictFor(
 	return KEYBOARD_ACTIONS.find((a) => a.id !== id && (overrides[a.id] ?? a.binding) === binding);
 }
 
-/** Copy, paste, undo, select all, close window, quit and reload. */
-const RESERVED = new Set(["mod+c", "mod+v", "mod+x", "mod+z", "mod+shift+z", "mod+y", "mod+a", "mod+w", "mod+q", "mod+r"]);
+/** Copy, paste, undo, select all, close window, quit and reload, plus the
+ *  desktop app's menu chords (electron/main.cjs): hide, hide others,
+ *  minimize, zoom, and the developer tools. */
+const RESERVED = new Set([
+	"mod+c", "mod+v", "mod+x", "mod+z", "mod+shift+z", "mod+y", "mod+a", "mod+w", "mod+q", "mod+r",
+	"mod+h", "mod+alt+h", "mod+m", "mod+0", "mod+-", "mod+=", "mod+alt+i", "mod+shift+i",
+]);
 
 /** Why `binding` can't be a shortcut for `id`, if it can't (pure — exported
  *  for tests): a reserved system/editing chord, or a bare key that would
- *  fire while typing or editing. F-keys and the action's own default pass. */
+ *  fire while typing or editing. F-keys (with or without ⇧) and the action's
+ *  own default pass. */
 export function refusalFor(id: KeyAction, binding: string): string | null {
 	if (RESERVED.has(binding)) return `${formatBinding(binding)} is reserved for the system or editing`;
 	const own = KEYBOARD_ACTIONS.find((a) => a.id === id)?.binding;
-	if (binding === own || /^(mod|alt)\+/.test(binding) || /^f([1-9]|1[0-2])$/.test(binding)) return null;
+	if (binding === own || /^(mod|alt)\+/.test(binding) || /^(shift\+)?f([1-9]|1[0-2])$/.test(binding)) return null;
 	return `${formatBinding(binding)} needs ${IS_MAC ? "⌘ or ⌥" : "Ctrl or Alt"} (or use an F key)`;
 }
 

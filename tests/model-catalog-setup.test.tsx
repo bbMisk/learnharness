@@ -197,7 +197,7 @@ test("saved slots on a provider without a key keep the setup pill and are marked
 	assert.equal(document.querySelector('[data-testid="slot-disconnected-strong"]'), null);
 });
 
-test("a partial setup's model/thinking edits survive exclusive provider recovery, but reopening discards the abandoned draft", async () => {
+test("a partial setup's model/thinking edits survive exclusive provider recovery and reopening", async () => {
 	installFetch(); const before = catalog(); before.slots.cheap = null; before.slots.vision = null;
 	await warm(before); await render(<><Reader />{setup()}</>); await answer(1, before);
 	await click("setup-trigger-strong"); await click("model-option-claude-opus-5-5");
@@ -208,8 +208,8 @@ test("a partial setup's model/thinking edits survive exclusive provider recovery
 	assert.equal(element("setup-trigger-strong").textContent, "claude-opus-5-5▾");
 	assert.equal(element("setup-thinking-strong").textContent?.trim(), "medium▾");
 	await render(<Reader />); await render(<><Reader />{setup()}</>);
-	assert.equal(element("setup-trigger-strong").textContent, "model:free▾");
-	assert.equal(element("setup-thinking-strong").textContent?.trim(), "low▾"); await answer(4, before);
+	assert.equal(element("setup-trigger-strong").textContent, "claude-opus-5-5▾");
+	assert.equal(element("setup-thinking-strong").textContent?.trim(), "medium▾"); await answer(4, before);
 });
 
 test("Agent opens with cached thinking metadata; refresh and disconnect never clear saved levels", async () => {

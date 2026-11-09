@@ -11,7 +11,7 @@
 
 import path from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { isDarkBackground, isHexColor, QUESTION_TYPES, sanitizeQuestionType, type ChatSettings } from "../core";
+import { isDarkBackground, isHexColor, isReadableInk, QUESTION_TYPES, sanitizeQuestionType, type ChatSettings } from "../core";
 import type {
 	AgentSettings,
 	AppearanceSettings,
@@ -362,6 +362,11 @@ export function parseAppearanceSettingsBody(body: unknown): SettingsBodyResult<A
 			const parsed = parseHexOrNull(md.italicColor, "Italic color");
 			if (parsed.error) return { ok: false, error: parsed.error };
 			rendering.italicColor = parsed.color ?? null;
+		}
+		for (const [field, ink] of [["Bold color", rendering.boldColor], ["Italic color", rendering.italicColor]] as const) {
+			if (ink && !isReadableInk(ink, settings.background ?? null)) {
+				return { ok: false, error: `${field} must be light enough to read on the background` };
+			}
 		}
 		if (Object.keys(rendering).length) settings.mdRendering = rendering;
 	}

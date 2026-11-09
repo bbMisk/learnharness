@@ -162,16 +162,28 @@ describe("parseAppearanceSettingsBody", () => {
 		assert.ok(parseAppearanceSettingsBody({ background: "#202830" }).ok);
 		// Light mode is not built yet: the app still renders light text.
 		assert.equal(parseAppearanceSettingsBody({ background: "#ffffff", mode: "light" }).ok, false);
-		// The limit is text contrast (4.5:1 against #e6e6e6), not a darkness cap.
-		for (const readable of ["#2f4f4f", "#006400", "#474747", "#556b2f", "#8b008b", "#003366", "#000"]) {
+		// The limit is text contrast for every tier (3:1 against the muted
+		// #8d8d8d), not a darkness cap.
+		for (const readable of ["#424242", "#3a3a3a", "#003366", "#202830", "#000"]) {
 			assert.ok(parseAppearanceSettingsBody({ background: readable }).ok, readable);
 		}
-		for (const unreadable of ["#808080", "#6e6e6e", "#ff0000"]) {
+		for (const unreadable of ["#474747", "#666666", "#2f4f4f", "#808080", "#ff0000"]) {
 			assert.equal(parseAppearanceSettingsBody({ background: unreadable }).ok, false, unreadable);
 		}
 		const bad = parseAppearanceSettingsBody({ mdRendering: { boldColor: "red" } });
 		assert.ok(!bad.ok);
 		if (!bad.ok) assert.equal(bad.error, "Bold color must be a hex color like #1a2b3c");
+	});
+
+	it("refuses a bold or italic color too dark to read on the background", () => {
+		const dark = parseAppearanceSettingsBody({ mdRendering: { boldColor: "#1c1c1c" } });
+		assert.equal(dark.ok, false);
+		if (!dark.ok) assert.equal(dark.error, "Bold color must be light enough to read on the background");
+		assert.equal(parseAppearanceSettingsBody({ mdRendering: { italicColor: "#555555" } }).ok, false);
+		assert.ok(parseAppearanceSettingsBody({ mdRendering: { boldColor: "#ff8800", italicColor: "#e6e6e6" } }).ok);
+		// Checked against the background in the same section write.
+		assert.ok(parseAppearanceSettingsBody({ mdRendering: { italicColor: "#8d8d8d" } }).ok);
+		assert.equal(parseAppearanceSettingsBody({ background: "#3a3a3a", mdRendering: { italicColor: "#8d8d8d" } }).ok, false);
 	});
 
 	it("rejects non-object bodies and non-object mdRendering", () => {

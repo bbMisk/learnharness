@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { PATHS } from "../../config.ts";
-import type { FileAccessPolicy } from "../agent/tools/file-access.ts";
+import { isWithin, realSourcePath, type FileAccessPolicy } from "../agent/tools/file-access.ts";
 import { readFileAccessSettings } from "../store/settings.ts";
 
 export function expandFolder(folder: string, home: string = os.homedir()): string {
@@ -40,3 +40,24 @@ export function fileAccessConfigurationError(): string | null {
 	const result = readFileAccessSettings();
 	return result.ok ? null : result.error;
 }
+
+/** The Settings editor's check before it lists a new folder: the app's own
+ *  data folder and a second spelling of a listed folder (a symlink such as
+ *  /private/tmp for /tmp) are refused; a folder that doesn't exist yet is
+ *  listed with a warning, since it may appear later. */
+export function checkNewFolder(
+	folder: string,
+	listed: readonly string[],
+	dataDir: string = PATHS.data,
+	home: string = os.homedir(),
+): { error?: string; warning?: string } {
+	const real = (entry: string) => { try { return realSourcePath(expandFolder(entry, home)); } catch { return null; } };
+	const target = real(folder);
+	if (target === null) return {};
+	const data = real(path.resolve(dataDir));
+	if (data !== null && isWithin(target, data)) return { error: "That is LearnHarness's own data folder." };
+	if (listed.some((entry) => real(entry) === target)) return { error: "That folder is already listed." };
+	if (!fs.existsSync(target)) return { warning: "Added, but that folder doesn't exist yet." };
+	return {};
+}
+

@@ -120,7 +120,8 @@ export function composeFileRestriction(agent: AgentSettings | undefined, restric
 
 /** The folder as typed, trimmed and without trailing separators, so
  *  "/tmp/" and "/tmp" are one entry, and with "." / ".." resolved in a
- *  POSIX or ~ path, so "/tmp/../tmp" is "/tmp". A root stays as it is. */
+ *  POSIX or ~ path, so "/tmp/../tmp" is "/tmp". A root stays as it is, and
+ *  a ".." above ~ stays unresolved (see climbsAboveHome). */
 export function normalizeFolder(folder: string): string {
 	const trimmed = folder.trim();
 	const stripped = trimmed.replace(/[\\/]+$/, "");
@@ -130,10 +131,18 @@ export function normalizeFolder(folder: string): string {
 	const parts: string[] = [];
 	for (const part of stripped.slice(posix.length).split("/")) {
 		if (part === "" || part === ".") continue;
-		if (part === "..") parts.pop();
-		else parts.push(part);
+		if (part === "..") {
+			if (!parts.length && posix === "~/") return stripped;
+			parts.pop();
+		} else parts.push(part);
 	}
 	return parts.length ? posix + parts.join("/") : posix === "/" ? "/" : "~";
+}
+
+/** A normalized "~/.." path names a folder above home, which the editor
+ *  can't resolve without knowing where home is. */
+export function climbsAboveHome(folder: string): boolean {
+	return /^~\/(.*\/)?\.\.(\/|$)/.test(folder);
 }
 
 /** A whole-disk root: listing it would allow everything. */
@@ -147,7 +156,7 @@ export function composeAddFolder(agent: AgentSettings | undefined, folder: strin
 	const next = normalizeFolder(folder);
 	const folders = agent?.fileAccess?.folders ?? [];
 	const restricted = agent?.fileAccess?.restricted ?? false;
-	if (!isFolderEntry(next) || isRootFolder(next) || folders.map(normalizeFolder).includes(next)) return { ...agent, fileAccess: { restricted, folders } };
+	if (!isFolderEntry(next) || isRootFolder(next) || climbsAboveHome(next) || folders.map(normalizeFolder).includes(next)) return { ...agent, fileAccess: { restricted, folders } };
 	return { ...agent, fileAccess: { restricted, folders: [...folders, next] } };
 }
 
@@ -386,12 +395,22 @@ export function AgentSection({
 	 *  re-read it or the toggle keeps painting its pre-write state until
 	 *  a remount. Keeps the last-good view on a failed re-read (the
 	 *  initial mount fetch below owns the loading/null state). */
-	const readPrompts = useCallback(() => {
-		fetch("/api/settings/prompts")
-			.then((r) => r.json())
-			.then((body: PromptView) => setPrompts(body))
-			.catch(() => {});
-	}, []);
+	const readPrompts = useCallback(() => fetch("/api/settings/prompts")
+		.then((r) => r.json())
+		.then((body: PromptView) => setPrompts(body))
+		.catch(() => {}), []);
+
+	/** Saved or deleted: the box shows the file again. A save keeps any
+	 *  text typed since it was sent. */
+	const dropDraft = (path: string, unlessChangedFrom?: string) => {
+		if (unlessChangedFrom !== undefined && segmentDrafts[path] !== undefined && segmentDrafts[path] !== unlessChangedFrom) return;
+		delete segmentDrafts[path];
+		setSegmentDraft((prev) => {
+			const next = { ...prev };
+			delete next[path];
+			return next;
+		});
+	};
 
 	useSettingsSaved((section) => {
 		// The prompt switches write through the agent section, and this view
@@ -441,7 +460,8 @@ export function AgentSection({
 			setSegmentStatus(`Save failed: ${(await res.json().catch(() => ({}))).error ?? res.status}`);
 			return;
 		}
-		readPrompts();
+		await readPrompts();
+		dropDraft(path, text);
 		setSegmentStatus("Saved");
 		// Auto-on: writing an override and putting it to work are ONE action
 		// (a save with the switch off would change nothing). The file exists
@@ -467,7 +487,8 @@ export function AgentSection({
 		if (agent?.prompts?.[path] === true) {
 			onSectionChange(composePromptSwitch(agent, path, false));
 		}
-		readPrompts();
+		dropDraft(path);
+		await readPrompts();
 		setSegmentStatus("Deleted");
 	}
 
@@ -825,14 +846,23 @@ export function AgentSection({
 					const folders = agent?.fileAccess?.folders ?? [];
 					const restricted = Boolean(fileAccessError) || agent?.fileAccess?.restricted === true;
 					const effectiveAgent = fileAccessError ? { ...agent, fileAccess: { restricted: true, folders } } : agent;
-					const addFolder = () => {
+					const addFolder = async () => {
 						const next = normalizeFolder(folderInput);
 						if (!isFolderEntry(next)) { setFolderError("Enter an absolute path or ~/folder."); return; }
 						if (isRootFolder(next)) { setFolderError("Choose a specific folder, not the whole disk."); return; }
+						if (climbsAboveHome(next)) { setFolderError("For a folder outside ~, type its full path."); return; }
 						if (folders.map(normalizeFolder).includes(next)) { setFolderError("That folder is already listed."); return; }
+						// The server knows the disk: it refuses the app's data folder
+						// and symlinked duplicates, and warns about a missing folder.
+						const check = (await fetch("/api/settings/file-access", {
+							method: "POST",
+							headers: { "content-type": "application/json" },
+							body: JSON.stringify({ folder: next, folders }),
+						}).then((r) => (r.ok ? r.json() : {})).catch(() => ({}))) as { error?: string; warning?: string };
+						if (check.error) { setFolderError(check.error); return; }
 						onSectionChange(composeAddFolder(effectiveAgent, next));
 						setFolderInput("");
-						setFolderError(null);
+						setFolderError(check.warning ?? null);
 					};
 					return (
 						<div data-testid="file-access-row" className="flex flex-col gap-2">
@@ -849,9 +879,9 @@ export function AgentSection({
 							<div className="flex gap-2 pl-3">
 								<input value={folderInput} aria-label="Allowed folder path" data-testid="file-access-add" placeholder="Absolute path or ~/folder"
 									onChange={(event) => { setFolderInput(event.target.value); setFolderError(null); }}
-									onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addFolder(); } }}
+									onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void addFolder(); } }}
 									className="min-w-0 flex-1 rounded-sm border border-border bg-background px-2 py-1 font-ui text-xs" />
-								<button type="button" data-testid="file-access-add-button" disabled={!folderInput.trim()} onClick={addFolder} className="rounded-sm border border-border px-2 text-xs disabled:opacity-40">Add folder</button>
+								<button type="button" data-testid="file-access-add-button" disabled={!folderInput.trim()} onClick={() => void addFolder()} className="rounded-sm border border-border px-2 text-xs disabled:opacity-40">Add folder</button>
 							</div>
 							{folderError && <p role="alert" data-testid="file-access-input-error" className="pl-3 text-xs text-red-500">{folderError}</p>}
 							{folders.map((folder) => (
