@@ -25,7 +25,7 @@ import { useRouter } from "next/navigation";
 import { DictationBar, joinDictation, useDictation } from "@/components/dictation";
 import { useFieldCycle } from "@/components/field-cycle";
 import { JobsContext } from "@/components/jobs-context";
-import { useServerEvent, useServerResync } from "@/components/server-events";
+import { useServerDown, useServerEvent, useServerResync } from "@/components/server-events";
 import {
 	isProviderKeyRefusal,
 	cliContextWindowOf,
@@ -457,6 +457,8 @@ export function Chat({
 	// Saved slot completeness is live, but the session's selected route
 	// comes from its own ordinary model control, never today's Strong pin.
 	const { catalog, configured, zeroKeys } = useModelSetup(initialConfigured);
+	// While the server is unreachable the offline notice says so; setup can't load.
+	const serverDown = useServerDown();
 	const catalogRef = useRef(catalog);
 	catalogRef.current = catalog;
 	const [selectedModel, setSelectedModel] = useState<string | undefined>();
@@ -1054,7 +1056,7 @@ export function Chat({
 		const t = textRef.current.trim();
 		if (!t) return;
 		if (zeroKeys) {
-			setSetupOpen(true);
+			if (!serverDown) setSetupOpen(true);
 			return;
 		}
 		if (selectedModelUnavailable(catalog, selectedModel)) {
@@ -1076,7 +1078,7 @@ export function Chat({
 	const acceptPlan = () => {
 		if (busy || pending || compacting) return;
 		if (zeroKeys) {
-			setSetupOpen(true);
+			if (!serverDown) setSetupOpen(true);
 			return;
 		}
 		if (selectedModelUnavailable(catalog, selectedModel)) {
