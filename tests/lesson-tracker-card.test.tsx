@@ -158,6 +158,15 @@ it("renders both sections with symbols and counts", async () => {
 	assert.match(card.getAttribute("class")!, /@min-\[60rem\]\/session:max-h-\[calc\(100%-1\.5rem\)\]/, "the room breakpoint the dock uses");
 });
 
+it("beside the closed pin drawer's tab, the card narrows to clear it and keeps its left edge", async () => {
+	const host = await mount(<LessonTrackerCard tracking={deriveLessonTracking(record)} bottomReserve={0} besideTab />);
+	const cls = host.querySelector('[data-testid="lesson-tracker"]')!.getAttribute("class")!;
+	// The tab is ~36px wide at right:0; 2.75rem + 14rem = 0.75rem + 16rem.
+	assert.match(cls, /\bright-11\b/);
+	assert.match(cls, /\bw-56\b/);
+	assert.doesNotMatch(cls, /\bright-3\b|\bw-64\b/);
+});
+
 it("shows only the sections that exist", async () => {
 	const mistakesOnly: LessonTracking = deriveLessonTracking([record[3]!]);
 	let host = await mount(<LessonTrackerCard tracking={mistakesOnly} bottomReserve={0} />);

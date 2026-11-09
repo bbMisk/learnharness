@@ -310,7 +310,7 @@ function PracticeWeakSpotsButton({ onStart }: { onStart: () => Promise<void> }) 
  * above the dock (`bottomReserve`: the dock's height, without its fade). A
  * longer card scrolls.
  */
-export function LessonTrackerCard({ tracking, plan = null, bottomReserve, onPracticeWeakSpots, planView, onPlanViewPlaced }: {
+export function LessonTrackerCard({ tracking, plan = null, bottomReserve, onPracticeWeakSpots, planView, onPlanViewPlaced, besideTab = false }: {
 	tracking: LessonTracking;
 	plan?: PlanProgress | null;
 	bottomReserve: number;
@@ -320,6 +320,9 @@ export function LessonTrackerCard({ tracking, plan = null, bottomReserve, onPrac
 	planView?: ReactNode;
 	/** Whether the card shows `planView` (false again on unmount). */
 	onPlanViewPlaced?: (placed: boolean) => void;
+	/** The closed pin drawer's tab sits on the area's right edge: the card
+	 *  keeps its left edge and narrows to clear it. */
+	besideTab?: boolean;
 }) {
 	const overlay = useSessionOverlay();
 	const { problems, mistakes } = tracking;
@@ -357,7 +360,7 @@ export function LessonTrackerCard({ tracking, plan = null, bottomReserve, onPrac
 			ref={asideRef}
 			data-testid="lesson-tracker"
 			aria-label="Lesson progress"
-			className="absolute right-3 top-3 z-20 flex max-h-[calc(100%-var(--lh-card-reserve))] w-64 max-w-[calc(100%-1.5rem)] flex-col gap-4 overflow-y-auto rounded-xl border border-border/80 bg-card/95 px-3.5 py-3 font-ui text-xs text-foreground shadow-sm backdrop-blur-sm @min-[60rem]/session:max-h-[calc(100%-1.5rem)]"
+			className={`absolute ${besideTab ? "right-11 w-56" : "right-3 w-64"} top-3 z-20 flex max-h-[calc(100%-var(--lh-card-reserve))] max-w-[calc(100%-1.5rem)] flex-col gap-4 overflow-y-auto rounded-xl border border-border/80 bg-card/95 px-3.5 py-3 font-ui text-xs text-foreground shadow-sm backdrop-blur-sm @min-[60rem]/session:max-h-[calc(100%-1.5rem)]`}
 			style={{ "--lh-card-reserve": `${bottomReserve + 24}px` } as CSSProperties}
 		>
 			{plan && (
