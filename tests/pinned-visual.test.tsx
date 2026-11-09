@@ -208,6 +208,10 @@ describe("layout", () => {
 		const narrow = demoFit(900, 300);
 		assert.equal(narrow.scale, DEMO_MIN_SCALE);
 		assert.ok(narrow.layout * narrow.scale > 300);
+		// A phone: the demo already lays out at 358 in the transcript, so it fits the 318 px drawer.
+		const phone = demoFit(358, 318);
+		assert.equal(phone.layout, 358);
+		assert.ok(Math.abs(phone.layout * phone.scale - 318) < 1e-6, "no sideways scroll");
 	});
 
 	it("Esc: an expanded pin closes first; an open drawer closes above a question; a closed one never opens", () => {
