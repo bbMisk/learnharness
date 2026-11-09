@@ -427,7 +427,7 @@ export function RenameRow({ chat, draft: initialDraft, onCommit, onCancel, showT
 							onCancel();
 						}
 					}}
-					aria-label="Rename session"
+					aria-label="Rename chat"
 					data-testid="session-rename-input"
 					className="lh-input w-full min-w-0 truncate border-0 border-b border-border bg-transparent px-0 text-foreground outline-none"
 				/>
@@ -740,8 +740,8 @@ function SessionsSidebar() {
 						className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 					>
 						<PlusIcon className="size-3" />
-						{modes.includes("teach") ? "Teaching" : "New session"}
-						<span className="sr-only">create a new session</span>
+						{modes.includes("teach") ? "Teaching" : "New chat"}
+						<span className="sr-only">create a new chat</span>
 					</button>
 					{showPractice && (
 					<button
@@ -752,7 +752,7 @@ function SessionsSidebar() {
 					>
 						<DumbbellIcon className="size-3" />
 						Practice
-						<span className="sr-only">create a new practice session</span>
+						<span className="sr-only">create a new practice chat</span>
 					</button>
 					)}
 					<a href="/review/index.html" data-testid="flashcards-link" className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
@@ -764,7 +764,7 @@ function SessionsSidebar() {
 
 				<div data-testid="session-search-section" className="mx-3 mb-2 flex items-center gap-2 rounded-md">
 
-					<Hint label="Search sessions" action="sessions-search" side="bottom">
+					<Hint label="Search chats" action="sessions-search" side="bottom">
 					<span className="relative flex-1">
 						<Input
 							ref={searchRef}

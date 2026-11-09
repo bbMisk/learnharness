@@ -71,7 +71,7 @@ describe("DeleteSessionDialog — the node-dialog shape (owner flow rework 2026-
 				onRun={() => {}}
 			/>,
 		);
-		assert.match(html, /Delete session\?/);
+		assert.match(html, /Delete chat\?/);
 		const title = html.match(/<h2[^>]*>/)?.[0] ?? "";
 		assert.match(title, /text-sm font-semibold text-destructive/); // red, abort-turn look (owner, 2026-10-13)
 		assert.ok(!title.includes("font-title"), "no serif display title");
