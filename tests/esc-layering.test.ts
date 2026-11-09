@@ -46,6 +46,12 @@ describe("escAbortTarget (the layered-Esc ruling)", () => {
 		);
 	});
 
+	it("an opened teach check steps back to its bar before the dismiss confirm", () => {
+		assert.equal(escAbortTarget({ ...none, checkOpen: true, pending: true }), "check");
+		assert.equal(escAbortTarget({ ...none, pending: true }), "question", "the next Esc dismisses");
+		assert.equal(escAbortTarget({ ...none, setupOpen: true, checkOpen: true, pending: true }), "setup", "setup over the check closes first");
+	});
+
 	it("stacking order among overlays: mermaid paints above plan (later in DOM)", () => {
 		assert.equal(escAbortTarget({ ...none, mermaidFocus: true, planOpen: true, pending: true }), "mermaid");
 	});

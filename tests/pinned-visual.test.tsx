@@ -209,7 +209,7 @@ describe("layout", () => {
 		assert.ok(narrow.layout * narrow.scale > 300);
 	});
 
-	it("Esc: an expanded pin closes first; an open drawer closes above a question; a closed one opens only when nothing else claims Esc", () => {
+	it("Esc: an expanded pin closes first; an open drawer closes above a question; a closed one never opens", () => {
 		const none = { abortAsk: false, mermaidFocus: false, planOpen: false, setupOpen: false, pending: false, problem: false, busy: false };
 		assert.equal(escAbortTarget({ ...none, pinExpanded: true, pending: true, drawer: "open" }), "pin-expanded");
 		assert.equal(escAbortTarget({ ...none, mermaidFocus: true, pinExpanded: true }), "mermaid");
@@ -217,7 +217,7 @@ describe("layout", () => {
 		assert.equal(escAbortTarget({ ...none, drawer: "open", planOpen: true }), "plan");
 		assert.equal(escAbortTarget({ ...none, drawer: "closed", pending: true }), "question");
 		assert.equal(escAbortTarget({ ...none, drawer: "closed", busy: true }), "turn");
-		assert.equal(escAbortTarget({ ...none, drawer: "closed" }), "pin-drawer");
+		assert.equal(escAbortTarget({ ...none, drawer: "closed" }), null, "Esc never opens UI");
 		assert.equal(escAbortTarget({ ...none, drawer: null }), null);
 	});
 });

@@ -298,7 +298,7 @@ function DrawerTab({ title, open, right, onToggle }: { title: string; open: bool
 			data-testid="pin-tab"
 			aria-expanded={open}
 			aria-label={open ? `Hide the pinned ${title}` : `Show the pinned ${title}`}
-			title={open ? "Hide (Esc)" : "Show (Esc)"}
+			title={open ? "Hide (Esc)" : "Show"}
 			onClick={onToggle}
 			className="absolute top-[40%] z-30 flex max-h-56 cursor-pointer items-center gap-1.5 rounded-l-lg border border-r-0 border-border/80 bg-card px-1 py-2.5 font-ui text-xs font-medium tracking-wide text-muted-foreground shadow-sm transition-colors [writing-mode:vertical-rl] hover:text-foreground"
 			style={{ right }}

@@ -225,6 +225,7 @@ export function Chat({
 	abortAskRef.current = abortAsk;
 	// The pinned demo/diagram's Esc inputs (assigned once the pin hook runs, below).
 	const pinEscRef = useRef<ReturnType<typeof usePinnedVisual> | null>(null);
+	const checkEscRef = useRef<(() => void) | null>(null);
 	useEffect(() => {
 		const onAbort = () => {
 			const pinned = pinEscRef.current;
@@ -233,6 +234,7 @@ export function Chat({
 				mermaidFocus: mermaidFocusRef.current !== null || figureFocusRef.current !== null,
 				pinExpanded: pinned?.escState.pinExpanded ?? false,
 				drawer: pinned?.escState.drawer ?? null,
+				checkOpen: checkEscRef.current !== null,
 				planOpen: planOpenRef.current,
 				setupOpen: setupOpenRef.current,
 				pending: pendingRef.current !== null,
@@ -246,6 +248,7 @@ export function Chat({
 			else if (target === "plan") setPlanOpen(false);
 			else if (target === "pin-expanded") pinned?.closeExpanded();
 			else if (target === "pin-drawer") pinned?.toggleDrawer();
+			else if (target === "check") checkEscRef.current?.();
 			// setup closes itself; null = nothing to do — both claimed.
 		};
 		window.addEventListener("lh:kbd-abort-turn", onAbort);
@@ -1334,6 +1337,7 @@ export function Chat({
 					room={trackerRoom.dock}
 					dictationCancel={dictation.cancel}
 					queuedSteers={visibleQueuedSteers(steerQueue, nativeMessages)}
+					checkEscRef={checkEscRef}
 					setupCta={
 						offersPlanAccept({ kind, cram, phase: phases.at(-1), hasPlan: !!planTree && planTree.nodes.length > 0, awaitingReply: awaitingPlanReply(nativeMessages as never), sendAllowed, busy, retryable }) && !zeroKeys && configured ? (
 							<PlanAcceptBar onAccept={acceptPlan} onChange={() => composerInputRef.current?.focus()} />
@@ -1446,7 +1450,7 @@ export function Chat({
  *  underneath. Priority is stacking order: the abort confirm (claims via its
  *  own dialog), the session overlays, setup (self-closing; the gate must
  *  only not fire), then the abort chain proper (question, problem, turn). */
-export type EscAbortTarget = "mermaid" | "pin-expanded" | "plan" | "setup" | "pin-drawer" | "question" | "problem" | "turn" | null;
+export type EscAbortTarget = "mermaid" | "pin-expanded" | "plan" | "setup" | "pin-drawer" | "check" | "question" | "problem" | "turn" | null;
 
 /**
  * Does the opening topic still owe its first send? The topic is the server's
@@ -1473,9 +1477,11 @@ export function escAbortTarget(s: {
 	/** A pinned demo shown over the whole area (components/pinned-visual.tsx). */
 	pinExpanded?: boolean;
 	/** The pin drawer (narrow layouts): an open drawer claims Esc to close
-	 *  above the question; a closed one opens only on an otherwise unclaimed
-	 *  Esc, so it never steals the question dismissal or the turn abort. */
+	 *  above the question. Esc never opens a closed one. */
 	drawer?: "open" | "closed" | null;
+	/** An opened teach check: Esc collapses it to its bar before the dismiss
+	 *  confirm. */
+	checkOpen?: boolean;
 }): EscAbortTarget {
 	if (s.abortAsk) return null; // the popup's own Esc — claimed by the dialog
 	if (s.mermaidFocus) return "mermaid";
@@ -1483,9 +1489,9 @@ export function escAbortTarget(s: {
 	if (s.planOpen) return "plan";
 	if (s.setupOpen) return "setup";
 	if (s.drawer === "open") return "pin-drawer";
+	if (s.checkOpen) return "check";
 	if (s.pending) return "question";
 	if (s.problem) return "problem";
 	if (s.busy) return "turn";
-	if (s.drawer === "closed") return "pin-drawer";
 	return null;
 }
