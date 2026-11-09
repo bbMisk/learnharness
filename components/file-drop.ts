@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { registerFileDrop, focusFileDrop } from "@/components/global-file-drop";
 import type { ClipboardEvent } from "react";
-import { directoryReferencePath } from "@/src/core";
+import { directoryReferencePath, filePathLabel, isDirectoryReference, uploadedImageReferences } from "@/src/core";
 
 /** One quoted path per line keeps spaces and unusual filenames unambiguous. */
 export function appendFilePaths(draft: string, paths: string[]): string {
@@ -52,6 +52,27 @@ export interface FilePreview {
 	name: string;
 	url: string;
 	image: boolean;
+}
+
+/** Attachment lines (appendFilePaths) whose chips were lost to a reload or a
+ *  chat switch: rebuild the chips from the draft. Uploaded images preview
+ *  from the server; folders stay text, as they were. */
+export function restoredPreviews(draft: string, known: readonly FilePreview[]): FilePreview[] {
+	const restored: FilePreview[] = [];
+	for (const line of draft.split("\n")) {
+		if (!line.startsWith('"') || !line.endsWith('"')) continue;
+		let path: unknown;
+		try {
+			path = JSON.parse(line);
+		} catch {
+			continue;
+		}
+		if (typeof path !== "string" || !/^(\/|[A-Za-z]:\\)/.test(path) || isDirectoryReference(path)) continue;
+		if ([...known, ...restored].some((item) => item.path === path)) continue;
+		const image = uploadedImageReferences(line)[0];
+		restored.push({ path, name: filePathLabel(path), url: image?.url ?? path, image: !!image });
+	}
+	return restored;
 }
 
 export interface FileDropOptions {
@@ -165,15 +186,16 @@ export function useFileDrop(value: string, onChange: (value: string) => void, op
 			}),
 		[id],
 	);
+	const shown = [...previews, ...restoredPreviews(value, previews)];
 	const removePath = (draft: string, path: string) =>
 		draft.replaceAll(`\n${JSON.stringify(path)}`, "").replaceAll(JSON.stringify(path), "");
-	const visibleText = (draft: string) => (hideImagePaths ? previews.reduce((text, item) => removePath(text, item.path), draft) : draft);
+	const visibleText = (draft: string) => (hideImagePaths ? shown.reduce((text, item) => removePath(text, item.path), draft) : draft);
 	return {
 		text: visibleText(value),
 		currentText: () => visibleText(latest.current.value),
 		changeText(text: string) {
 			const paths = hideImagePaths
-				? previews.filter((item) => latest.current.value.includes(JSON.stringify(item.path))).map((item) => item.path)
+				? shown.filter((item) => latest.current.value.includes(JSON.stringify(item.path))).map((item) => item.path)
 				: [];
 			const next = appendFilePaths(text, [...new Set(paths)]);
 			latest.current.value = next;
@@ -182,7 +204,7 @@ export function useFileDrop(value: string, onChange: (value: string) => void, op
 		error,
 		uploading,
 		isUploading: () => pending.current > 0,
-		previews: previews.filter((item) => value.includes(JSON.stringify(item.path))),
+		previews: shown.filter((item) => value.includes(JSON.stringify(item.path))),
 		remove(path: string) {
 			const next = removePath(latest.current.value, path);
 			latest.current.value = next;
