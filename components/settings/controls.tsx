@@ -10,6 +10,7 @@
 
 import { useState, type ComponentPropsWithRef, type ReactNode, type RefObject } from "react";
 import { cn } from "@/lib/utils";
+import { isComposing } from "@/components/ime";
 
 /** The settings dropdown dismissal, bound while a menu is open; returns
  *  the cleanup. A pointerdown inside the anchor or a portaled menu
@@ -293,7 +294,7 @@ export function CommitInput({
 			}}
 			onBlur={(e) => commit(e.currentTarget)}
 			onKeyDown={(e) => {
-				if (e.key === "Enter") commit(e.currentTarget);
+				if (e.key === "Enter" && !isComposing(e)) commit(e.currentTarget);
 				if (e.key === "Escape" && (editing || (type === "number" && e.currentTarget.validity?.badInput))) {
 					// An edit in progress: Esc reverts it and is this field's one
 					// action — the dialog behind stays open. React listens at the

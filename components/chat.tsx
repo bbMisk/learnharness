@@ -78,6 +78,7 @@ import { readDraft, writeDraft } from "@/components/draft-store";
 import { SideTutor, useSideTutor } from "@/components/side-tutor";
 import { useReadingThinkingResync } from "@/components/reading-thinking-resync";
 import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/thinking-block";
+import { isComposing } from "@/components/ime";
 import { FACTORY_SETTINGS } from "@/src/core";
 import { useReadingThinkingRefresh } from "@/components/reading-thinking-refresh";
 import { DockOverlay, GRADIENT_H } from "@/components/dock-overlay";
@@ -1162,7 +1163,7 @@ export function Chat({
 								value={titleDraft}
 								onChange={(e) => setTitleDraft(capName(e.target.value))}
 								onKeyDown={(e) => {
-									if (e.key === "Enter") void commitRename(titleDraft);
+									if (e.key === "Enter" && !isComposing(e)) void commitRename(titleDraft);
 									// stopPropagation claims the Esc: closing rename
 									// must not also abort a turn.
 									else if (e.key === "Escape") {

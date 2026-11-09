@@ -57,6 +57,7 @@ const STORAGE_KEY = "lh:sidebar-open";
  */
 import type { ChatGPTControlBridge, NativeSubscriptionControlBridge } from "@/src/core";
 import type { UpdateState } from "@/components/settings/update-settings.tsx";
+import { isComposing } from "@/components/ime";
 
 const SIDEBAR_AUTOCLOSE = 928;
 
@@ -449,7 +450,7 @@ export function RenameRow({ chat, draft: initialDraft, onCommit, onCancel, showT
 					onChange={(e) => setDraft(capName(e.target.value))}
 					onBlur={() => onCommit(draft)}
 					onKeyDown={(e) => {
-						if (e.key === "Enter") e.currentTarget.blur();
+						if (e.key === "Enter" && !isComposing(e)) e.currentTarget.blur();
 						if (e.key === "Escape") {
 							e.stopPropagation(); // discard, not also the sidebar/chat chains
 							onCancel();
@@ -873,7 +874,7 @@ function SessionsSidebar() {
 										);
 									return;
 								}
-								if (e.key === "Enter") {
+								if (e.key === "Enter" && !isComposing(e)) {
 									const target = shown![kbdIndex !== null && kbdIndex < n ? kbdIndex : 0];
 									if (!target) return;
 									e.preventDefault();

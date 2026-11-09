@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { fuzzyScore } from "@/src/core";
+import { isComposing } from "@/components/ime";
 
 /** The model picker's search, arrow-walk, row styling and scrolling machine.
  * Models, providers and dictation languages supply only their catalog and
@@ -74,7 +75,7 @@ export function SearchMenuList<T>({
 					setMenuIdx((i) => event.key === "ArrowDown"
 						? Math.min((i ?? -1) + 1, results.length - 1)
 						: Math.max((i ?? results.length) - 1, 0));
-				} else if (event.key === "Enter") {
+				} else if (event.key === "Enter" && !isComposing(event)) {
 					const chosen = results[menuIdx ?? 0];
 					if (!disabled && chosen !== undefined) {
 						event.preventDefault();

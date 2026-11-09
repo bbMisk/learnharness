@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { capName } from "@/src/core";
+import { isComposing } from "@/components/ime";
 
 /** Rename a project, guarding against an edit from another Mac (the route compares `expected`). */
 export async function renameProject(id: string, name: string, expected: string): Promise<void> {
@@ -69,7 +70,7 @@ export function InlineRename({
 			}}
 			disabled={saving}
 			onKeyDown={(event) => {
-				if (event.key === "Enter") {
+				if (event.key === "Enter" && !isComposing(event)) {
 					event.preventDefault();
 					void finish(true);
 				} else if (event.key === "Escape") {

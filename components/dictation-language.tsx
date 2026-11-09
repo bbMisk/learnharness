@@ -8,6 +8,7 @@ import { SettingsMenuTrigger, SettingsRow } from "@/components/settings/controls
 import { SearchMenuList } from "@/components/settings/search-menu-list";
 import { useDictationActive } from "@/components/dictation-state";
 import { useDictationLanguage } from "@/components/dictation-preference";
+import { isComposing } from "@/components/ime";
 
 type LanguagePreference = ReturnType<typeof useDictationLanguage>;
 
@@ -82,7 +83,7 @@ function DictationLanguagePicker({ preference, disabled }: {
 				if (event.key === "Enter") {
 					// Empty search results must not submit the composer, but a
 					// focused option button still needs Enter's native click.
-					if (event.target instanceof HTMLInputElement) event.preventDefault();
+					if (event.target instanceof HTMLInputElement && !isComposing(event)) event.preventDefault();
 					event.stopPropagation();
 				}
 			}}>

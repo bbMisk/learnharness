@@ -5,6 +5,7 @@ import { ChevronRightIcon, FolderIcon, FolderOpenIcon } from "lucide-react";
 import { canMoveFolder, folderIsEmpty, fuzzyScore, placementOf, folderEntryCheck, type SourceEntrySelection, type OrganizationAction, type SourceDirectory } from "@/src/core";
 import type { ChainSort } from "./chain-table";
 import { chainRow } from "./chain-navigation";
+import { isComposing } from "@/components/ime";
 
 export type OrganizationChange = (action: OrganizationAction) => Promise<string | void>;
 const DRAG_TYPE = "application/x-learnharness-source";
@@ -86,7 +87,7 @@ export function EditableSourceName({ name, onSave, onCancel, initiallyEditing = 
 			onChange={(e) => setDraft(e.target.value)} onBlur={() => { void commit(); }}
 			onKeyDown={(e) => {
 				if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); cancelled.current = true; setEditing(false); setFailure(""); onCancel?.(); }
-				if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); void commit(); }
+				if (e.key === "Enter" && !isComposing(e)) { e.preventDefault(); e.stopPropagation(); void commit(); }
 			}} onDragStart={(e) => { e.preventDefault(); e.stopPropagation(); }} />
 			: <button type="button" className={`block max-w-full truncate rounded-sm text-left text-sm font-medium leading-5 transition-colors hover:bg-accent${muted ? " text-muted-foreground/60" : ""}`} title="Rename"
 				onClick={() => { cancelled.current = false; setDraft(name); setEditing(true); }}>{name}</button>}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { captureFocus, focusComposer } from "@/components/focus-return";
+import { isComposing } from "@/components/ime";
 
 /**
  * The chat header's title and its click-to-rename state. Clicking the title
@@ -60,9 +61,10 @@ export function useSessionRename(chatId: string, title: string) {
 					el.select();
 					const onKey = (e: KeyboardEvent) => {
 						if (e.key !== "Enter" && e.key !== "Escape") return;
+						if (e.key === "Enter" && isComposing(e)) return; // the IME's confirm, not a commit
 						closedByKey.current = true;
 						// The focus moves before Enter's default: keep it from typing a newline there.
-						if (e.key === "Enter" && !e.isComposing) e.preventDefault();
+						if (e.key === "Enter") e.preventDefault();
 					};
 					el.addEventListener("keydown", onKey);
 					return () => el.removeEventListener("keydown", onKey);

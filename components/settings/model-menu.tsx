@@ -23,6 +23,7 @@ import type { ModelCatalogEntry } from "@/src/core";
 import { CLAUDE_CODE_PROVIDER, CUSTOM_PROVIDER, fuzzyScore, subscriptionLabel } from "@/src/core";
 import { formatTokens } from "@/components/usage-format";
 import { SearchMenuList } from "./search-menu-list";
+import { isComposing } from "@/components/ime";
 
 function priceLabel(cost: ModelCatalogEntry["cost"]): string {
 	if (!cost) return "Unpriced";
@@ -270,7 +271,7 @@ export function FontMenuList({
 								? Math.min((i ?? -1) + 1, walkable.length - 1)
 								: Math.max((i ?? walkable.length) - 1, 0),
 						);
-					} else if (e.key === "Enter") {
+					} else if (e.key === "Enter" && !isComposing(e)) {
 						const chosen = walkable[menuIdx ?? 0];
 						if (chosen !== undefined) {
 							e.preventDefault();
