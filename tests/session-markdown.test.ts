@@ -88,7 +88,7 @@ describe("messageMarkdown", () => {
 		assert.match(md, /^### Quiz · r1$/m);
 		assert.match(md, /\*\*Q:\*\* What is a derivative\?/);
 		assert.match(md, /The learner answered incorrectly\./);
-		assert.match(md, /\*\(his thinking: mixed up signs\)\*/);
+		assert.match(md, /\*\(learner's thinking: mixed up signs\)\*/);
 	});
 
 	it("explain results: the learner's own words are shown", () => {
@@ -97,7 +97,7 @@ describe("messageMarkdown", () => {
 			"r1",
 		)!;
 		assert.match(md, /^### Recall check · r1$/m);
-		assert.match(md, /The learner answered in his own words: it never strays far/);
+		assert.match(md, /The learner answered in their own words: it never strays far/);
 	});
 
 	it("probe-phase questions export under their own names (owner, 2026-10-09)", () => {
@@ -120,6 +120,12 @@ describe("messageMarkdown", () => {
 		)!;
 		assert.match(chosen, /^### Question · r1$/m);
 		assert.match(chosen, /The learner chose: second, also the third/);
+		const recorded = messageMarkdown(
+			result("r3", "a3", "ask_user_question", { questionText: "Which way?", answers: [{ index: 1, label: "second" }, { index: 2, label: "third" }] }),
+			"r3",
+		)!;
+		assert.match(recorded, /The learner chose: second, third$/m, "stored option records render by label");
+		assert.doesNotMatch(recorded, /object Object/);
 		const free = messageMarkdown(
 			result("r2", "a2", "ask_user_question", { questionText: "Why?", text: "because" }),
 			"r2",

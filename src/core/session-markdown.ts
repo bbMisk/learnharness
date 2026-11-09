@@ -80,7 +80,7 @@ function toolResultBody(result: ToolResultMessage, ctx?: MarkdownContext): { hea
 				dontKnow: boolean;
 				note: string;
 				text: string;
-				answers: string[];
+				answers: Array<string | { label?: unknown }>;
 				other: string;
 				dismissed: boolean;
 		  }>
@@ -106,8 +106,8 @@ function toolResultBody(result: ToolResultMessage, ctx?: MarkdownContext): { hea
 		else if (out?.dontKnow === true) body.push("The learner did not know.");
 		else if (out?.correct === true) body.push("The learner answered correctly.");
 		else if (out?.correct === false) body.push("The learner answered incorrectly.");
-		else if (typeof out?.text === "string" && out.text.trim()) body.push(`The learner answered in his own words: ${out.text.trim()}`);
-		if (typeof out?.note === "string" && out.note) body.push(`*(his thinking: ${out.note})*`);
+		else if (typeof out?.text === "string" && out.text.trim()) body.push(`The learner answered in their own words: ${out.text.trim()}`);
+		if (typeof out?.note === "string" && out.note) body.push(`*(learner's thinking: ${out.note})*`);
 		return { heading, body };
 	}
 
@@ -138,13 +138,14 @@ function toolResultBody(result: ToolResultMessage, ctx?: MarkdownContext): { hea
 		const question = typeof out?.questionText === "string" && out.questionText ? out.questionText : "(no question text)";
 		const body = [`**Q:** ${question}`];
 		const chosen = [
-			...(Array.isArray(out?.answers) ? out!.answers! : []),
+			// Stored answers are option records ({ label, ... }); older ones are strings.
+			...(Array.isArray(out?.answers) ? out!.answers!.map((a) => (typeof a === "string" ? a : String(a?.label ?? ""))).filter(Boolean) : []),
 			...(typeof out?.other === "string" && out.other.trim() ? [out.other.trim()] : []),
 		];
 		if (typeof out?.text === "string" && out.text.trim()) body.push(`The learner answered: ${out.text.trim()}`);
 		else if (chosen.length > 0) body.push(`The learner chose: ${chosen.join(", ")}`);
 		else if (out?.dismissed === true) body.push("The learner skipped this question.");
-		if (typeof out?.note === "string" && out.note) body.push(`*(his thinking: ${out.note})*`);
+		if (typeof out?.note === "string" && out.note) body.push(`*(learner's thinking: ${out.note})*`);
 		return { heading: "Question", body };
 	}
 
