@@ -119,16 +119,27 @@ export function composeFileRestriction(agent: AgentSettings | undefined, restric
 }
 
 /** The folder as typed, trimmed and without trailing separators, so
- *  "/tmp/" and "/tmp" are one entry. A root stays as it is. */
+ *  "/tmp/" and "/tmp" are one entry, and with "." / ".." resolved in a
+ *  POSIX or ~ path, so "/tmp/../tmp" is "/tmp". A root stays as it is. */
 export function normalizeFolder(folder: string): string {
 	const trimmed = folder.trim();
 	const stripped = trimmed.replace(/[\\/]+$/, "");
-	return stripped && !/^[A-Za-z]:$/.test(stripped) ? stripped : trimmed;
+	if (!stripped || /^[A-Za-z]:$/.test(stripped)) return trimmed;
+	const posix = /^(\/|~\/)/.exec(stripped)?.[0];
+	if (!posix) return stripped;
+	const parts: string[] = [];
+	for (const part of stripped.slice(posix.length).split("/")) {
+		if (part === "" || part === ".") continue;
+		if (part === "..") parts.pop();
+		else parts.push(part);
+	}
+	return parts.length ? posix + parts.join("/") : posix === "/" ? "/" : "~";
 }
 
-/** A whole-disk root: listing it would allow everything. */
+/** A whole-disk root or the whole home folder: listing it would allow
+ *  nearly everything. */
 export function isRootFolder(folder: string): boolean {
-	return /^([\\/]+|[A-Za-z]:[\\/]+)$/.test(folder.trim());
+	return /^([\\/]+|[A-Za-z]:[\\/]+|~[\\/]*)$/.test(folder.trim());
 }
 
 /** Compose: add one allowed folder (normalized; duplicates, roots and
@@ -818,7 +829,7 @@ export function AgentSection({
 					const addFolder = () => {
 						const next = normalizeFolder(folderInput);
 						if (!isFolderEntry(next)) { setFolderError("Enter an absolute path or ~/folder."); return; }
-						if (isRootFolder(next)) { setFolderError("Choose a specific folder, not the whole disk."); return; }
+						if (isRootFolder(next)) { setFolderError("Choose a specific folder, not the whole disk or home folder."); return; }
 						if (folders.map(normalizeFolder).includes(next)) { setFolderError("That folder is already listed."); return; }
 						onSectionChange(composeAddFolder(effectiveAgent, next));
 						setFolderInput("");
