@@ -38,6 +38,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { isComposing } from "@/components/ime";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
 import { focusComposer, useFocusReturn } from "@/components/focus-return";
@@ -161,6 +162,11 @@ export function SetupKeysBody({
 	isCustom?: boolean;
 	onCustomSaved?: () => void;
 }) {
+	const keyRef = useRef<HTMLInputElement>(null);
+	// A rejected key re-enables the field, which disabling had dropped focus from.
+	useEffect(() => {
+		if (!saving && error && (!document.activeElement || document.activeElement === document.body)) keyRef.current?.focus();
+	}, [saving, error]);
 	return (
 		<div className="flex flex-col gap-3 px-6 py-5" data-testid="setup-stage-keys">
 			<p className="text-xs text-muted-foreground">
@@ -206,6 +212,7 @@ export function SetupKeysBody({
 								}}
 								placeholder="Paste key…"
 								aria-label={`${provider.label} key`}
+								ref={keyRef}
 								data-testid="setup-key-input"
 								disabled={saving}
 								autoFocus
@@ -382,7 +389,7 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 	// (and any click outside it); only a bare Esc closes the dialog.
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
-			if (e.key !== "Escape") return;
+			if (e.key !== "Escape" || e.defaultPrevented || isComposing(e)) return;
 			// THE ONE-ESC LAW (owner, keyboard round 2026-10-06): claim at
 			// the document level before the layered dismissal — every branch
 			// below acts, so the window chain (dictation → abort) must

@@ -22,6 +22,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { isComposing } from "@/components/ime";
 import {
 	AUTH_KEYS,
 	CUSTOM_MODEL_DEFAULT_CONTEXT_WINDOW,
@@ -186,6 +187,17 @@ function KeyTableRow({
 	const [busy, setBusy] = useState(false);
 	// Delete takes two clicks: the first arms it, the second deletes.
 	const [confirmDelete, setConfirmDelete] = useState(false);
+	const inputRef = useRef<HTMLInputElement>(null);
+	// Folding the editor (Cancel, Esc, another row) drops its error: the saved key is fine.
+	const [wasExpanded, setWasExpanded] = useState(expanded);
+	if (wasExpanded !== expanded) {
+		setWasExpanded(expanded);
+		if (!expanded) setError(null);
+	}
+	// A failed save re-enables the field, which disabling had dropped focus from.
+	useEffect(() => {
+		if (!busy && error && (!document.activeElement || document.activeElement === document.body)) inputRef.current?.focus();
+	}, [busy, error]);
 
 	async function save() {
 		if (!value.trim() || busy) return;
@@ -215,6 +227,7 @@ function KeyTableRow({
 						}}
 						placeholder="Paste key…"
 						aria-label={`${label} key`}
+						ref={inputRef}
 						data-testid={`${testid}-input`}
 						disabled={busy}
 						autoFocus
@@ -376,7 +389,7 @@ export function KeysSection({
 	useEffect(() => {
 		if (openRow === null && adding === null && !addingCustom) return;
 		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key !== "Escape") return;
+			if (e.key !== "Escape" || e.defaultPrevented || isComposing(e)) return;
 			// A menu above this editor in the dismissal stack owns
 			// the first Escape; do not swallow it at document capture phase.
 			if (document.querySelector('[data-lh-menu]')) return;
