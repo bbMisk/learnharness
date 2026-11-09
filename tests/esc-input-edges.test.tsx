@@ -363,3 +363,51 @@ it("after a side-tutor reply, success or failure, its box has focus again for th
 		Object.assign(document, { createRange });
 	}
 });
+
+it("Find and the side tutor both open: an Esc from a field the user clicked into closes the newest and leaves focus there", async () => {
+	const { SideTutor, useSideTutor } = await import("../components/side-tutor.tsx");
+	const { SessionFind } = await import("../components/session-find.tsx");
+	const { kbdEventForAction } = await import("../src/core/keyboard.ts");
+	globalThis.fetch = (() => new Promise(() => {})) as unknown as typeof fetch;
+	const scope = document.createElement("div");
+	hosts.push(scope);
+	function Page() {
+		const { sideTutor, closeSideTutor } = useSideTutor();
+		return <>
+			<textarea data-testid="thinking" />
+			{sideTutor && <SideTutor chatId="c1" selectedText="" onClose={closeSideTutor} />}
+			<SessionFind scopeRef={{ current: scope as HTMLDivElement }} scrollContextRef={{ current: null }} />
+		</>;
+	}
+	mountHost();
+	await act(async () => { root!.render(<Page />); });
+	const thinking = document.querySelector<HTMLTextAreaElement>('[data-testid="thinking"]')!;
+	const tutorOpen = () => !!document.querySelector('[data-testid="side-tutor"]');
+	const openTutor = () => act(async () => { window.dispatchEvent(new dom.window.Event(kbdEventForAction("toggle-side-tutor"))); });
+	// The tutor, then Find (which would hand focus back to the tutor's box).
+	thinking.focus();
+	await openTutor();
+	await openFind();
+	thinking.focus();
+	await act(async () => { thinking.dispatchEvent(key("Escape")); });
+	await frame();
+	assert.ok(!findOpen() && tutorOpen());
+	assertSameNode(document.activeElement, thinking, "Find closed; focus stays in Your thinking");
+	await act(async () => { thinking.dispatchEvent(key("Escape")); });
+	await frame();
+	assert.ok(!tutorOpen());
+	// Find, then the tutor (which would hand focus back to Find's input).
+	await openFind();
+	await openTutor();
+	thinking.focus();
+	await act(async () => { thinking.dispatchEvent(key("Escape")); });
+	await frame();
+	assert.ok(findOpen() && !tutorOpen());
+	assertSameNode(document.activeElement, thinking, "the tutor closed; focus stays in Your thinking");
+	// From nowhere (a click on the page), the closing layer still hands focus back.
+	focused = null;
+	await act(async () => { document.dispatchEvent(key("Escape")); });
+	await frame();
+	assert.ok(!findOpen());
+	assertSameNode(document.activeElement, thinking, "back to where Find was opened from");
+});

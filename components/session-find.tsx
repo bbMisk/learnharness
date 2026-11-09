@@ -105,10 +105,10 @@ export function SessionFind({ scopeRef, scrollContextRef }: {
 	const [contentVersion, setContentVersion] = useState(0);
 	const newestEsc = useNewestEscLayer(open);
 
-	const close = useCallback(() => {
+	const close = useCallback((restoreFocus = true) => {
 		clearSessionFindHighlights();
 		setOpen(false);
-		if (!returnFocus.current?.(true)) focusComposer();
+		if (restoreFocus && !returnFocus.current?.(true)) focusComposer();
 	}, []);
 
 	useEffect(() => {
@@ -131,7 +131,8 @@ export function SessionFind({ scopeRef, scrollContextRef }: {
 			if (event.key !== "Escape" || event.defaultPrevented || isComposing(event) || sessionFindHasForegroundLayer(document) || !newestEsc()) return;
 			event.preventDefault();
 			event.stopPropagation();
-			close();
+			// Focus the user moved elsewhere (another panel, a field) stays there.
+			close(focusIn(inputRef.current?.closest("[role=search]")));
 		};
 		document.addEventListener("keydown", onEscape);
 		return () => document.removeEventListener("keydown", onEscape);
@@ -241,7 +242,7 @@ export function SessionFind({ scopeRef, scrollContextRef }: {
 				disabled={!result.count} onMouseDown={(event) => event.preventDefault()} onClick={() => step(1)}>
 				<ChevronDownIcon className="size-4" aria-hidden />
 			</button>
-			<button type="button" aria-label="Close Find" title="Close Find (Esc)" className={buttonClass} onClick={close}>
+			<button type="button" aria-label="Close Find" title="Close Find (Esc)" className={buttonClass} onClick={() => close()}>
 				<XIcon className="size-4" aria-hidden />
 			</button>
 		</div>

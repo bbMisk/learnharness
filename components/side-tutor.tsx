@@ -29,9 +29,9 @@ import {
 export function useSideTutor() {
 	const [sideTutor, setSideTutor] = useState<{ selectedText: string } | null>(null);
 	const sideReturnFocus = useRef<ReturnType<typeof captureFocus>>(null);
-	const closeSideTutor = useCallback(() => {
+	const closeSideTutor = useCallback((restoreFocus = true) => {
 		setSideTutor(null);
-		requestAnimationFrame(() => { if (!sideReturnFocus.current?.(true)) focusComposer(); });
+		if (restoreFocus) requestAnimationFrame(() => { if (!sideReturnFocus.current?.(true)) focusComposer(); });
 	}, []);
 	const toggleSideTutor = useCallback(() => {
 		if (sideTutor) {
@@ -53,15 +53,16 @@ export function useSideTutor() {
 		return () => window.removeEventListener(event, focusOrOpen);
 	}, [toggleSideTutor, sideTutor]);
 	useEffect(() => {
-		window.addEventListener("lh:close-side-tutor", closeSideTutor);
-		return () => window.removeEventListener("lh:close-side-tutor", closeSideTutor);
+		const onClose = () => closeSideTutor();
+		window.addEventListener("lh:close-side-tutor", onClose);
+		return () => window.removeEventListener("lh:close-side-tutor", onClose);
 	}, [closeSideTutor]);
 	return { sideTutor, toggleSideTutor, closeSideTutor };
 }
 
 /** Mounted only while open. No storage, lesson writes, or progress callbacks;
  * closing/unmounting discards the fork and cancels only its own request. */
-export function SideTutor({ chatId, selectedText, onClose }: { chatId: string; selectedText: string; onClose: () => void }) {
+export function SideTutor({ chatId, selectedText, onClose }: { chatId: string; selectedText: string; onClose: (restoreFocus?: boolean) => void }) {
 	const [snapshot, setSnapshot] = useState<SideSnapshot>();
 	const [history, setHistory] = useState<SideMessage[]>([]);
 	const [draft, setDraft] = useState(selectedText ? `Help me understand this:\n\n${selectedText}` : "");
@@ -105,7 +106,8 @@ export function SideTutor({ chatId, selectedText, onClose }: { chatId: string; s
 			if (e.key !== "Escape" || e.defaultPrevented || isComposing(e) || sessionFindHasForegroundLayer(document) || !newestEsc()) return;
 			e.preventDefault();
 			e.stopPropagation();
-			onClose();
+			// Focus the user moved elsewhere (another panel, a field) stays there.
+			onClose(focusIn(input.current?.closest("aside")));
 		};
 		document.addEventListener("keydown", close);
 		return () => document.removeEventListener("keydown", close);
@@ -196,7 +198,7 @@ export function SideTutor({ chatId, selectedText, onClose }: { chatId: string; s
 			>
 				<TopBar showSidebarToggle={false}>
 					<span className="min-w-0 flex-1 text-sm font-medium">Side tutor</span>
-					<Button variant="ghost" size="icon-sm" aria-label="Close side tutor" onClick={onClose}>
+					<Button variant="ghost" size="icon-sm" aria-label="Close side tutor" onClick={() => onClose()}>
 						<XIcon className="size-4" />
 					</Button>
 				</TopBar>
