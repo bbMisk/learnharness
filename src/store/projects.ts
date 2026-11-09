@@ -7,7 +7,9 @@ import { cleanName } from "../core/contracts.ts";
 import { emit } from "../core/events.ts";
 import { writeFileAtomic } from "./write-file.ts";
 export function createProjectStore(root: string) {
-	const validId = (id: string) => /^project_[a-zA-Z0-9_-]+$/.test(id);
+	// Ids are "project_" + a UUID; the length bound keeps an over-long link from
+	// reaching the filesystem (ENAMETOOLONG) instead of reading as not found.
+	const validId = (id: string) => id.length <= 200 && /^project_[a-zA-Z0-9_-]+$/.test(id);
 	const file = (id: string) => {
 		if (!validId(id)) throw new Error("Invalid project id.");
 		return path.join(root, id + ".json");

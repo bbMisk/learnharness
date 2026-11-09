@@ -115,6 +115,8 @@ it('a malformed project id is a quiet 404, with no error logged', async () => {
   const res = await project.GET(new Request('http://test/api'), {params:Promise.resolve({id:'BADID'})});
   assert.equal(res.status, 404);
   assert.equal(projectStore.get('../etc/passwd'), null);
+  const long = await project.GET(new Request('http://test/api'), {params:Promise.resolve({id:'project_'+'a'.repeat(246)})});
+  assert.equal(long.status, 404, 'a well-formed but over-long id');
  } finally { console.error = original; }
  assert.deepEqual(errors, []);
 });
