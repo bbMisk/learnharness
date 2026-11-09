@@ -24,6 +24,7 @@ import {
 	newThinkingMessage,
 	newUserMessage,
 	createViewProjector,
+	DEFAULT_CONFIDENCE_INDEX,
 	deriveLessonTracking,
 	latestTutorPin,
 	type ChatInput,
@@ -46,6 +47,13 @@ type StoredQuestionDraft = Omit<QuestionDraft, "form"> & {
 };
 function storableQuestionDraft(draft: QuestionDraft): StoredQuestionDraft {
 	return draft.form ? { ...draft, form: { ...draft.form, selection: { ...draft.form.selection, selected: [...draft.form.selection.selected] } } } : { ...draft, form: undefined };
+}
+/** Nothing picked or typed yet: no draft worth storing. */
+function untouchedQuestionDraft({ form, readingThinking }: QuestionDraft): boolean {
+	if (readingThinking) return false;
+	if (!form) return true;
+	const { selection } = form;
+	return !selection.selected.size && !selection.otherSelected && !selection.dontKnow && !form.thinking && !form.other && !form.text && form.confidenceIndex === DEFAULT_CONFIDENCE_INDEX;
 }
 function reviveQuestionDraft(stored: StoredQuestionDraft): QuestionDraft {
 	return stored.form ? { ...stored, form: { ...stored.form, selection: { ...stored.form.selection, selected: new Set(stored.form.selection.selected) } } } : { ...stored, form: undefined };
@@ -936,7 +944,7 @@ export class SessionModel {
 	saveQuestionDraft(questionKey: string, draft: Partial<QuestionDraft>): void {
 		const next = { ...this.questionDraft(questionKey), ...draft };
 		this.questionDrafts.set(questionKey, next);
-		writeDraft(this.draftKey(questionKey), storableQuestionDraft(next));
+		writeDraft(this.draftKey(questionKey), untouchedQuestionDraft(next) ? undefined : storableQuestionDraft(next));
 	}
 
 	private forgetResolvedDrafts(record: readonly LhMessage[]): void {
