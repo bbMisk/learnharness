@@ -47,15 +47,16 @@ export function useSessionRename(chatId: string, title: string) {
 		}
 	}, [renaming]);
 
-	// F2 opens the title rename.
+	// F2 opens the title rename; F2 inside the open rename keeps its draft.
 	useEffect(() => {
 		const onRename = () => {
+			if (renaming) return;
 			setTitleDraft(titleText);
 			setRenaming(true);
 		};
 		window.addEventListener("lh:kbd-rename-session", onRename);
 		return () => window.removeEventListener("lh:kbd-rename-session", onRename);
-	}, [titleText]);
+	}, [titleText, renaming]);
 
 	// The sidebar's inline rename dispatches the same lh:chat-renamed event:
 	// if it renamed this chat, patch the header title in place.

@@ -152,13 +152,15 @@ export function KeyboardShortcuts() {
 			}
 
 			// ── Registry dispatch.
-			const action = actionForBinding(eventBinding(e));
+			const binding = eventBinding(e);
+			const action = actionForBinding(binding);
 			if (!action) return;
 
 			// The input guard: inside a typing surface only mod/alt combos
-			// fire (they never type a character). Bare keys — "?" included —
-			// pass through so the field keeps them. Tab already returned above.
-			if (isTypingSurface(e) && !(e.metaKey || e.ctrlKey || e.altKey)) return;
+			// and F keys fire (they never type a character). Bare keys — "?"
+			// included — pass through so the field keeps them. Tab already
+			// returned above.
+			if (isTypingSurface(e) && !(e.metaKey || e.ctrlKey || e.altKey) && !/^(shift\+)?f\d+$/.test(binding)) return;
 
 			// Dispatch: global commands we own run here; surface commands
 			// ride the window event for the mounted surface to catch.
