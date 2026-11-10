@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CircleHelpIcon } from "lucide-react";
 import { MenuShell } from "@/components/menu-shell";
+import { focusLost } from "@/components/focus-return";
 import { Hint } from "@/components/ui/hint";
 import { useSettingsSaved } from "@/components/settings-signal";
 import { readChatSettings, readSettings } from "@/components/settings-read";
@@ -91,8 +92,7 @@ export function QuestionTypeChip({
 	useEffect(() => {
 		if (open || saving || !refocus.current) return;
 		refocus.current = false;
-		const active = document.activeElement;
-		if (!active || active === document.body) triggerRef.current?.focus();
+		if (focusLost()) triggerRef.current?.focus();
 	}, [open, saving]);
 	const effective = effectiveQuestionType(stored, cram, agentTools);
 

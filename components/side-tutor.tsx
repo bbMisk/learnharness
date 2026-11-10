@@ -6,9 +6,9 @@ import { MessageResponse } from "@/components/ai-elements/message";
 import { Conversation, ConversationContent } from "@/components/ai-elements/conversation";
 import { ResizableSidePanel } from "@/components/resizable-side-panel";
 import { TopBar } from "@/components/top-bar";
-import { focusIn, sessionFindHasForegroundLayer, useNewestEscLayer } from "@/components/session-find";
+import { sessionFindHasForegroundLayer, useNewestEscLayer } from "@/components/session-find";
 import { useOptionalServerResync } from "@/components/server-events";
-import { captureFocus, focusComposer } from "@/components/focus-return";
+import { captureFocus, focusComposer, focusLost } from "@/components/focus-return";
 import { isComposing } from "@/components/ime";
 import { Button } from "@/components/ui/button";
 import { useFileDrop } from "@/components/file-drop";
@@ -79,7 +79,7 @@ export function SideTutor({ chatId, selectedText, onClose }: { chatId: string; s
 	useEffect(() => {
 		if (busy || !refocus.current) return;
 		refocus.current = false;
-		if (focusIn(input.current?.closest("aside"))) input.current?.focus();
+		if (focusLost(input.current?.closest("aside"))) input.current?.focus();
 	}, [busy]);
 	// A snapshot read that failed (server or network down) retries once either is back.
 	const [loadTry, setLoadTry] = useState(0);
@@ -120,7 +120,7 @@ export function SideTutor({ chatId, selectedText, onClose }: { chatId: string; s
 			e.preventDefault();
 			e.stopPropagation();
 			// Focus the user moved elsewhere (another panel, a field) stays there.
-			onClose(focusIn(input.current?.closest("aside")));
+			onClose(focusLost(input.current?.closest("aside")));
 		};
 		document.addEventListener("keydown", close);
 		return () => document.removeEventListener("keydown", close);

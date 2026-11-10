@@ -38,6 +38,12 @@ export function captureFocus(): ((preventScroll: boolean) => boolean) | null {
 	};
 }
 
+/** Focus is nowhere (on <body>), or inside `within`: handing it on takes it from nobody. */
+export function focusLost(within?: Element | null): boolean {
+	const active = document.activeElement;
+	return !active || active === document.body || !!within?.contains(active);
+}
+
 /** The fields the page types into, first shown one wins: an open check
  * question's Your thinking (or answer), a practice problem's, the reading
  * note, then the composer. A collapsed check's dock is mounted but hidden. */

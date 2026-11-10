@@ -23,6 +23,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isComposing } from "@/components/ime";
+import { focusLost } from "@/components/focus-return";
 import {
 	AUTH_KEYS,
 	CUSTOM_MODEL_DEFAULT_CONTEXT_WINDOW,
@@ -154,12 +155,6 @@ export function keyStatusLine(status: AuthKeyStatus): string {
 	return `${tail} · ${chars}${status.source === "env" ? " · env" : ""}`;
 }
 
-/** Focus is inside `el`, or nowhere (on <body>). */
-function focusInOrLost(el: Element): boolean {
-	const active = document.activeElement;
-	return !active || active === document.body || el.contains(active);
-}
-
 /** One table row: label left, tiny docs link + status right. Writable
  *  rows click-unfold into an inline editor; env-owned rows are dimmed and
  *  read-only (a paste box there would mislead). */
@@ -208,15 +203,15 @@ function KeyTableRow({
 	// unless something mounted in the same commit (another row's field) took it.
 	const refocusRow = useRef(false);
 	const editorRef = useCallback((el: HTMLDivElement | null) => {
-		if (el) return () => { refocusRow.current = focusInOrLost(el); };
+		if (el) return () => { refocusRow.current = focusLost(el); };
 	}, []);
 	const rowRef = useCallback((el: HTMLButtonElement | null) => {
-		if (el && refocusRow.current && focusInOrLost(el)) el.focus();
+		if (el && refocusRow.current && focusLost(el)) el.focus();
 		refocusRow.current = false;
 	}, []);
 	// A failed save re-enables the field, which disabling had dropped focus from.
 	useEffect(() => {
-		if (!busy && error && (!document.activeElement || document.activeElement === document.body)) inputRef.current?.focus();
+		if (!busy && error && focusLost()) inputRef.current?.focus();
 	}, [busy, error]);
 
 	async function save() {
@@ -404,18 +399,18 @@ export function KeysSection({
 	const [addingCustom, setAddingCustom] = useState(false);
 	// The closing Add-provider editor hands focus back to "+ Add a provider".
 	const addEditorRef = useCallback((el: HTMLDivElement | null) => {
-		if (el) return () => { if (focusInOrLost(el)) document.querySelector<HTMLElement>('[data-testid="add-provider"]')?.focus(); };
+		if (el) return () => { if (focusLost(el)) document.querySelector<HTMLElement>('[data-testid="add-provider"]')?.focus(); };
 	}, []);
 	// The custom endpoint editor hands it back to the control that opened it.
 	const customEditorRef = useCallback((el: HTMLDivElement | null) => {
-		if (el) return () => { if (focusInOrLost(el)) document.querySelector<HTMLElement>('[data-testid="custom-endpoint-row-btn"], [data-testid="add-provider"]')?.focus(); };
+		if (el) return () => { if (focusLost(el)) document.querySelector<HTMLElement>('[data-testid="custom-endpoint-row-btn"], [data-testid="add-provider"]')?.focus(); };
 	}, []);
 	// A deleted added provider's row leaves with its key: focus goes to "+ Add a provider".
 	const deleted = useRef(false);
 	useEffect(() => {
 		if (!deleted.current) return;
 		deleted.current = false;
-		if (!document.activeElement || document.activeElement === document.body) document.querySelector<HTMLElement>('[data-testid="add-provider"]')?.focus();
+		if (focusLost()) document.querySelector<HTMLElement>('[data-testid="add-provider"]')?.focus();
 	}, [statuses]);
 
 	// Escape folds any open editor (unfolded row, Add-provider paste, custom

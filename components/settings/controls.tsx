@@ -11,6 +11,7 @@
 import { useState, type ComponentPropsWithRef, type ReactNode, type RefObject } from "react";
 import { cn } from "@/lib/utils";
 import { isComposing } from "@/components/ime";
+import { focusLost } from "@/components/focus-return";
 
 /** The settings dropdown dismissal, bound while a menu is open; returns
  *  the cleanup. A pointerdown inside the anchor or a portaled menu
@@ -41,7 +42,7 @@ export function bindSettingsMenuDismiss(anchorRef: RefObject<Element | null>, cl
 		document.removeEventListener("pointerdown", onPointerDown);
 		document.removeEventListener("keydown", onKeyDown);
 		// A pick closed the menu and took its focused search box with it.
-		if (trigger?.isConnected && (!document.activeElement || document.activeElement === document.body)) trigger.focus();
+		if (trigger?.isConnected && focusLost()) trigger.focus();
 	};
 }
 
