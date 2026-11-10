@@ -117,7 +117,11 @@ export function ProjectSidebar({
 				}}
 			>
 				<Dialog.Portal>
-					<Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
+					<Dialog.Overlay
+						className="fixed inset-0 z-50 bg-black/50"
+						// The second press of the double click that opened it keeps focus in the dialog.
+						onMouseDown={(e) => { if (e.detail > 1) e.preventDefault(); }}
+					/>
 					<Dialog.Content
 						data-lh-modal
 						aria-describedby={undefined}

@@ -109,6 +109,24 @@ export function computeMenuPlacement(
 /** The shared shell. Exactly one anchor seam: pass `anchorRef` (a live
  *  element ref) or `anchorTestid` (the settings section's pattern — the
  *  trigger is queried by testid at place time). */
+/** A click that closes a menu may be the first of a double click: the
+ *  second lands on whatever the menu covered (a chat row) or on a dialog
+ *  the item opened. Swallow that tail (detail > 1) for a moment after. */
+const DOUBLE_CLICK_TAIL_MS = 500;
+function swallowDoubleClickTail() {
+	const types = ["mousedown", "mouseup", "click", "dblclick"] as const;
+	const stop = (event: MouseEvent) => {
+		if (event.detail > 1) {
+			event.preventDefault();
+			event.stopPropagation();
+		}
+	};
+	for (const type of types) window.addEventListener(type, stop, true);
+	setTimeout(() => {
+		for (const type of types) window.removeEventListener(type, stop, true);
+	}, DOUBLE_CLICK_TAIL_MS);
+}
+
 export function MenuShell({
 	anchorRef,
 	anchorTestid,
@@ -143,6 +161,7 @@ export function MenuShell({
 		window.dispatchEvent(new CustomEvent(MENU_OPEN_EVENT));
 		return () => {
 			window.dispatchEvent(new CustomEvent(MENU_CLOSE_EVENT));
+			swallowDoubleClickTail();
 		};
 	}, []);
 
