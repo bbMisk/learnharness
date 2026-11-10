@@ -125,7 +125,12 @@ function render() {
     element("skip").hidden = !fallback;
     element("skip").textContent = revealed ? "Next card" : "Skip";
     element<HTMLButtonElement>("mcq-continue").disabled = saving;
-    if (mcq && !current.mcq && !revealed && !questionBlocked && !questionOffline && navigator.onLine && !preparingQuestion && questionKey !== current.id + current.revision) void prepareQuestion(current);
+    if (database && mcq && !current.mcq && !revealed && !questionBlocked && !questionOffline && navigator.onLine && !preparingQuestion && questionKey !== current.id + current.revision) {
+        // It renders the card again, as preparing, before its first await: this pass's
+        // values (fallback) are stale now, so stop here.
+        void prepareQuestion(current);
+        return;
+    }
     const nextDrawn = `${currentToken}:${revealed}:${selectedIndex}:${!!current.mcq}:${preparingQuestion}:${questionError}:${questionBlocked}:${saving}`;
 	if (drawn !== nextDrawn) {
 		drawn = nextDrawn;
