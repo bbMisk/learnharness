@@ -116,6 +116,13 @@ describe("backdrop dismissal requires a whole primary gesture on the scrim", () 
 		assert.equal(closes, 1);
 	});
 
+	it("the second press of a double click on the backdrop keeps focus in the dialog", () => {
+		const backdrop = element("backdrop");
+		assert.equal(dispatch(backdrop, "mousedown", { detail: 2 }).defaultPrevented, true);
+		assert.equal(dispatch(backdrop, "mousedown", { detail: 1 }).defaultPrevented, false, "a single press is untouched");
+		assert.equal(dispatch(element("action"), "mousedown", { detail: 2 }).defaultPrevented, false, "presses inside are untouched");
+	});
+
 	it("inside press → backdrop release → common-ancestor click stays open", () => {
 		dispatch(element("body"), "pointerdown");
 		dispatch(element("backdrop"), "pointerup");

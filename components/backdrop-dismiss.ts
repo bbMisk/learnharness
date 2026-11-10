@@ -35,6 +35,11 @@ export function useBackdropDismiss(onDismiss: () => void) {
 		onPointerCancelCapture() {
 			gesture.current = null;
 		},
+		onMouseDownCapture(event: MouseEvent<HTMLDivElement>) {
+			// The second press of the double click that opened this dialog
+			// must not take focus away from it.
+			if (event.detail > 1 && event.target === event.currentTarget) event.preventDefault();
+		},
 		onClickCapture(event: MouseEvent<HTMLDivElement>) {
 			const press = gesture.current;
 			gesture.current = null;

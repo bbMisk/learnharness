@@ -225,6 +225,16 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 		return () => document.removeEventListener("keydown", onKeyDown, true);
 	}, [open, toggle]);
 
+	// A shortcut that opens something on the page (Find, the side tutor, the
+	// model picker) closes the phone drawer, which would cover it.
+	useEffect(() => {
+		if (!open) return;
+		const events = (["find", "toggle-side-tutor", "open-model-picker"] as const).map(kbdEventForAction);
+		const onOpenBehind = () => { if (isPhone()) toggle(); };
+		for (const event of events) window.addEventListener(event, onOpenBehind);
+		return () => { for (const event of events) window.removeEventListener(event, onOpenBehind); };
+	}, [open, toggle]);
+
 	// ⌘B: the global shortcut dispatches kbdEventForAction("toggle-sidebar")
 	// and the context listens on exactly that name — derive both from the
 	// same helper, never a hand-spelled event string.

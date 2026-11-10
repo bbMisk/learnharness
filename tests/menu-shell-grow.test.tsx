@@ -57,3 +57,25 @@ it("content that grows past the cap after opening flips the menu to the roomier 
 		await act(async () => root.unmount());
 	}
 });
+
+it("closing a menu cancels the second click of that double click for a moment, never single clicks", async () => {
+	document.body.innerHTML = '<button id="row"></button><button id="under"></button><div id="host"></div>';
+	const root = createRoot(document.querySelector("#host")!);
+	// Linkedom runs target listeners after a window-capture stopPropagation, which a
+	// browser does not; the click-through itself is checked in a real browser.
+	const click = (detail: number) => {
+		const event = Object.assign(new dom.window.Event("click", { bubbles: true, cancelable: true }), { detail });
+		document.querySelector("#under")!.dispatchEvent(event);
+		return event.defaultPrevented;
+	};
+	try {
+		await act(async () => root.render(<Row />));
+		await act(async () => root.render(null)); // the item's first click closed the menu
+		assert.equal(click(2), true, "the tail is cancelled");
+		assert.equal(click(1), false, "a fresh single click is untouched");
+		await new Promise((resolve) => setTimeout(resolve, 550));
+		assert.equal(click(2), false, "the window ends: a later double click is the page's own");
+	} finally {
+		await act(async () => root.unmount());
+	}
+});
