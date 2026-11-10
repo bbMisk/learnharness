@@ -536,3 +536,45 @@ it("Find and the side tutor both open: an Esc from a field the user clicked into
 	assert.ok(!findOpen());
 	assertSameNode(document.activeElement, thinking, "back to where Find was opened from");
 });
+
+it("a double click on the composer's Send or Next problem does not also hit the Stop it turns into", async () => {
+	const { Composer } = await import("../components/composer.tsx");
+	const calls: string[] = [];
+	function Host({ next }: { next: boolean }) {
+		const [busy, setBusy] = useState(false);
+		return (
+			<Composer
+				busy={busy}
+				value={next ? "" : "why?"}
+				onChange={() => {}}
+				canSend={!busy && !next}
+				nextProblem={next}
+				onSend={() => { calls.push("send"); setBusy(true); }}
+				onNext={() => { calls.push("next"); setBusy(true); }}
+				onStop={() => calls.push("stop")}
+			/>
+		);
+	}
+	// One click of a real double click (detail 1, then 2): the browser submits the form
+	// after a submit button's click unless something prevented it.
+	const clickSlot = async (detail: number) => {
+		const button = document.querySelector<HTMLButtonElement>('[data-testid="composer"] button[type="submit"]')!;
+		const click = Object.assign(new dom.window.Event("click", { bubbles: true, cancelable: true }), { button: 0, detail });
+		await act(async () => { button.dispatchEvent(click); });
+		if (!click.defaultPrevented && !button.disabled) {
+			await act(async () => { button.closest("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })); });
+		}
+	};
+	for (const next of [false, true]) {
+		calls.length = 0;
+		mountHost();
+		await act(async () => { root!.render(<Host next={next} />); });
+		await clickSlot(1);
+		await clickSlot(2);
+		assert.deepEqual(calls, [next ? "next" : "send"], "the second click is ignored");
+		await clickSlot(1);
+		assert.deepEqual(calls, [next ? "next" : "send", "stop"], "a later single click on Stop stops");
+		await act(async () => { root?.unmount(); });
+		root = null;
+	}
+});
