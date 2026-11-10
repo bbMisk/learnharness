@@ -26,12 +26,14 @@ export function swallowDoubleClickTail() {
  *  No control in the app gives a double click its own meaning, so drop that
  *  click app-wide, in capture, before any handler sees it. Plain text keeps
  *  its double-click selection, and `dblclick` itself (the panel resize handle)
- *  is untouched. */
+ *  is untouched. A stepping control whose fast repeat IS the intent (zoom,
+ *  Find next) opts out with `data-lh-repeat`. */
 const CONTROL = "button, a[href], summary, [role=button], [role=menuitem], [role=option], [role=tab], [role=switch], [role=checkbox]";
 export function useDoubleClickGuard() {
 	useEffect(() => {
 		const stop = (event: MouseEvent) => {
-			if (event.detail > 1 && event.target instanceof Element && event.target.closest(CONTROL)) {
+			const control = event.detail > 1 && event.target instanceof Element ? event.target.closest(CONTROL) : null;
+			if (control && !control.hasAttribute("data-lh-repeat")) {
 				event.preventDefault();
 				event.stopPropagation();
 			}

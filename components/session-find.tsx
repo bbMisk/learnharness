@@ -240,11 +240,11 @@ export function SessionFind({ scopeRef, scrollContextRef }: {
 			<output aria-live="polite" data-testid="session-find-count" className="shrink-0 text-xs tabular-nums text-muted-foreground">
 				{query ? `${result.index + 1}/${result.count}` : ""}
 			</output>
-			<button type="button" aria-label="Previous match" title="Previous match (Shift+Enter)" className={buttonClass}
+			<button type="button" data-lh-repeat aria-label="Previous match" title="Previous match (Shift+Enter)" className={buttonClass}
 				disabled={!result.count} onMouseDown={(event) => event.preventDefault()} onClick={() => step(-1)}>
 				<ChevronUpIcon className="size-4" aria-hidden />
 			</button>
-			<button type="button" aria-label="Next match" title="Next match (Enter)" className={buttonClass}
+			<button type="button" data-lh-repeat aria-label="Next match" title="Next match (Enter)" className={buttonClass}
 				disabled={!result.count} onMouseDown={(event) => event.preventDefault()} onClick={() => step(1)}>
 				<ChevronDownIcon className="size-4" aria-hidden />
 			</button>

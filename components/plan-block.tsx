@@ -891,6 +891,7 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 <button
 									type="button"
 									aria-label="Zoom out"
+									data-lh-repeat
 									onClick={() => stepZoom(1 / 1.25)}
 									className="pointer-events-auto flex size-7 items-center justify-center rounded-md border border-border/70 bg-card/80 text-muted-foreground backdrop-blur transition-colors hover:bg-accent hover:text-foreground"
 								>
@@ -912,6 +913,7 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 <button
 									type="button"
 									aria-label="Zoom in"
+									data-lh-repeat
 									onClick={() => stepZoom(1.25)}
 									className="pointer-events-auto flex size-7 items-center justify-center rounded-md border border-border/70 bg-card/80 text-muted-foreground backdrop-blur transition-colors hover:bg-accent hover:text-foreground"
 								>
