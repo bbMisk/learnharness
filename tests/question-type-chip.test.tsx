@@ -230,6 +230,8 @@ it("Esc or a saved pick hands focus back to the chip", async () => {
 	await click(chip());
 	await settle();
 	assertSameNode(document.activeElement, menu(), "the menu takes focus");
+	await act(async () => { document.dispatchEvent(Object.assign(new dom.window.Event("keydown", { bubbles: true, cancelable: true }), { key: "Escape", isComposing: true, keyCode: 229 })); });
+	assert.ok(menu(), "an input method's Esc leaves the menu open");
 	await act(async () => { document.dispatchEvent(Object.assign(new dom.window.Event("keydown", { bubbles: true, cancelable: true }), { key: "Escape" })); });
 	assertSameNode(menu(), null);
 	assertSameNode(document.activeElement, chip(), "Esc: back to the chip");

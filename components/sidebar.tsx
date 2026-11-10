@@ -10,6 +10,7 @@ import Link from "next/link";
 import { flushSync } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
+import { usePopoverDismiss } from "@/components/popover-dismiss";
 import { captureFocus, focusComposer, watchUserMoves } from "@/components/focus-return";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode } from "@/src/core";
@@ -639,29 +640,10 @@ function SessionsSidebar() {
 	// or its row closes it; Esc is CLAIMED so it never also aborts a turn
 	// or folds the sidebar. Right-clicking another row re-anchors: its
 	// pointerdown closes this menu, its contextmenu opens the next.
-	useEffect(() => {
-		if (ctxChatId === null) return;
-		const onPointerDown = (e: PointerEvent) => {
-			const target = e.target as Node;
-			if (target instanceof Element && target.closest("[data-lh-menu]")) return;
-			if (ctxAnchorRef.current?.contains(target)) return;
-			setCtxChatId(null);
-		};
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape" && !e.defaultPrevented) {
-				e.preventDefault();
-				e.stopPropagation();
-				setCtxChatId(null);
-				returnFocus();
-			}
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
-	}, [ctxChatId, returnFocus]);
+	usePopoverDismiss(ctxAnchorRef, ctxChatId !== null, useCallback(() => setCtxChatId(null), []), {
+		inside: "[data-lh-menu]",
+		onEscape: useCallback(() => { setCtxChatId(null); returnFocus(); }, [returnFocus]),
+	});
 
 	// Inline rename: the row swaps to a text input;
 	// commit rides the SAME plumbing as the header rename — PUT the title,
