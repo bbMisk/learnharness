@@ -35,6 +35,9 @@ it("Esc is ignored while deleting; a failure shows in the dialog with Delete sti
 	);
 	const confirm = () => document.querySelector('[data-testid="delete-confirm"]')!;
 	await act(async () => (confirm() as HTMLElement).click());
+	assert.equal(confirm().textContent, "Delete", "a confirm right after opening is the opener's tail (Enter twice)");
+	await new Promise((resolve) => setTimeout(resolve, 550));
+	await act(async () => (confirm() as HTMLElement).click());
 	assert.equal(confirm().textContent, "Deleting…");
 	const esc = Object.assign(new dom.window.Event("keydown", { bubbles: true, cancelable: true }), { key: "Escape" });
 	await act(async () => void document.dispatchEvent(esc));
