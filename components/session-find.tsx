@@ -6,7 +6,7 @@ import { kbdEventForAction, stepSessionMatch } from "@/src/core";
 import {
 	affectsSessionFind, sameSessionRange, sessionFindIndex, sessionFindRanges, sessionRangeIdentity, type SessionFindIndex, type SessionRangeIdentity,
 } from "@/components/session-find-dom";
-import { captureFocus, focusComposer } from "@/components/focus-return";
+import { captureFocus, focusComposer, focusLost } from "@/components/focus-return";
 import { isComposing } from "@/components/ime";
 import { scrollSessionTarget, type SessionScrollContext } from "@/components/session-navigation";
 
@@ -61,12 +61,6 @@ export function sessionFindHasForegroundLayer(doc: Document): boolean {
 		const style = view.getComputedStyle(element);
 		return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0";
 	});
-}
-
-/** Whether focus is in `panel`, or nowhere: an Esc from there may hand it back. */
-export function focusIn(panel: Element | null | undefined): boolean {
-	const active = document.activeElement;
-	return !active || active === document.body || !!panel?.contains(active);
 }
 
 /** Find and the side tutor while open, oldest first: an Esc from outside both closes the newest. */
@@ -132,7 +126,7 @@ export function SessionFind({ scopeRef, scrollContextRef }: {
 			event.preventDefault();
 			event.stopPropagation();
 			// Focus the user moved elsewhere (another panel, a field) stays there.
-			close(focusIn(inputRef.current?.closest("[role=search]")));
+			close(focusLost(inputRef.current?.closest("[role=search]")));
 		};
 		document.addEventListener("keydown", onEscape);
 		return () => document.removeEventListener("keydown", onEscape);

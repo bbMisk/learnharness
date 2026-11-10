@@ -6,7 +6,8 @@ import { canMoveFolder, folderIsEmpty, fuzzyScore, placementOf, folderEntryCheck
 import type { ChainSort } from "./chain-table";
 import { chainRow } from "./chain-navigation";
 import { isComposing } from "@/components/ime";
-import { actionError } from "@/components/inline-rename";
+import { focusLost } from "@/components/focus-return";
+import { actionError } from "@/components/rename";
 
 export type OrganizationChange = (action: OrganizationAction) => Promise<string | void>;
 const DRAG_TYPE = "application/x-learnharness-source";
@@ -76,7 +77,7 @@ export function EditableSourceName({ name, onSave, onCancel, initiallyEditing = 
 	useLayoutEffect(() => { setRowEditing?.(editing); return () => setRowEditing?.(false); }, [editing, setRowEditing]);
 	useLayoutEffect(() => {
 		if (editing) { input.current?.focus(); input.current?.select(); }
-		else if (byKey.current) { byKey.current = false; if (!document.activeElement || document.activeElement === document.body) button.current?.focus(); }
+		else if (byKey.current) { byKey.current = false; if (focusLost()) button.current?.focus(); }
 	}, [editing]);
 	const commit = async () => {
 		if (cancelled.current || submitting.current) return;

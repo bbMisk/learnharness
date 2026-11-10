@@ -8,7 +8,7 @@ import { prettyModel } from "@/components/usage-format";
 import { ModelMenuList, ThinkingMenuList } from "@/components/settings/model-menu";
 import { composeSlotModel } from "@/components/settings/agent-section";
 import { MenuShell } from "@/components/menu-shell";
-import { captureFocus, focusComposer } from "@/components/focus-return";
+import { captureFocus, focusComposer, focusLost } from "@/components/focus-return";
 import { Hint } from "@/components/ui/hint";
 import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-signal";
 import { readChatSettings, readSettings } from "@/components/settings-read";
@@ -160,8 +160,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 	useEffect(() => {
 		if (open === null) return;
 		return () => {
-			const at = document.activeElement;
-			if ((!at || at === document.body) && !returnFocus.current?.(true)) focusComposer();
+			if (focusLost() && !returnFocus.current?.(true)) focusComposer();
 		};
 	}, [open]);
 	usePopoverDismiss(containerRef, open !== null, useCallback(() => setOpen(null), []), { inside: "[data-lh-menu]" });

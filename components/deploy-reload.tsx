@@ -3,17 +3,13 @@
 import { useState } from "react";
 import { RefreshCwIcon } from "lucide-react";
 import { useServerResync } from "@/components/server-events";
+import { sharedRead } from "@/components/shared-read";
 
 const BUILD = process.env.LH_BUILD;
 
-let sharedHealth: Promise<{ build?: string }> | null = null;
 /** The row and the pill resync together: one request per synchronous run. */
 function readHealth(): Promise<{ build?: string }> {
-	if (sharedHealth) return sharedHealth;
-	const read = fetch("/api/health", { cache: "no-store" }).then((response) => response.json() as Promise<{ build?: string }>);
-	sharedHealth = read;
-	queueMicrotask(() => { sharedHealth = null; });
-	return read;
+	return sharedRead("/api/health", () => fetch("/api/health", { cache: "no-store" }).then((response) => response.json() as Promise<{ build?: string }>));
 }
 
 /** After a deploy the events channel reconnects to a server with a new build. */

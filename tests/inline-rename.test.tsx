@@ -32,7 +32,8 @@ const { PathnameContext } = await import("next/dist/shared/lib/hooks-client-cont
 const router = { push() {}, replace() {}, refresh() {}, back() {}, forward() {}, prefetch() {} };
 // react-dom reads the DOM's event support when it loads, so it loads after the setup above.
 const { createRoot } = await import("react-dom/client");
-const { InlineRename, renameProject } = await import("../components/inline-rename.tsx");
+const { InlineRename } = await import("../components/inline-rename.tsx");
+const { renameProject } = await import("../components/rename.ts");
 const { ProjectPage } = await import("../components/project-page.tsx");
 const { ProjectSidebar } = await import("../components/project-sidebar.tsx");
 const { ServerEventsProvider } = await import("../components/server-events.tsx");

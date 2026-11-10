@@ -5,6 +5,7 @@ import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
 import { assertSameNode } from "./helpers/same-node.ts";
+import { windowCaptureClicks } from "./helpers/window-capture-click.ts";
 import { after, it } from "node:test";
 import type { Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -40,6 +41,8 @@ Object.assign(dom.window, {
 });
 Object.assign(dom.document, { oninput: null });
 Object.assign(dom.window.HTMLElement.prototype, { scrollIntoView() {}, select() {} });
+// AppShell mounts the app-wide double-click guard, a window capture listener.
+windowCaptureClicks(dom.window as unknown as Window & typeof globalThis);
 
 const { AppRouterContext } = await import("next/dist/shared/lib/app-router-context.shared-runtime.js");
 const { PathnameContext } = await import("next/dist/shared/lib/hooks-client-context.shared-runtime.js");
@@ -310,6 +313,8 @@ async function clickIcon(detail: number) {
 
 it("a double click on a row's archive icon archives only that row, however slow", async () => {
 	puts.length = 0;
+	// An earlier test's menu tail (swallowDoubleClickTail, 500 ms) lapses first: only AppShell's guard is under test.
+	await new Promise((resolve) => setTimeout(resolve, 500));
 	const realNow = Date.now;
 	try {
 		await clickIcon(1);

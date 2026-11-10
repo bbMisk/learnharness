@@ -16,7 +16,7 @@
  * refused too (see refusalFor).
  */
 
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useState } from "react";
 import {
 	KEYBOARD_ACTIONS,
 	eventBinding,
@@ -129,10 +129,8 @@ export function KeyboardSection() {
 		setNonce((n) => n + 1);
 	}
 
-	// Reset all takes two clicks: the first arms it, the second resets. A double
-	// click's second click (detail > 1) must not confirm what the first armed.
-	function resetAll(event: MouseEvent) {
-		if (event.detail > 1) return;
+	// Reset all takes two clicks: the first arms it, the second resets.
+	function resetAll() {
 		if (!confirmReset) {
 			setConfirmReset(true);
 			return;

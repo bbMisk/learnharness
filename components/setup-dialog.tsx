@@ -41,7 +41,7 @@ import { useEffect, useRef, useState } from "react";
 import { isComposing } from "@/components/ime";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
-import { focusComposer, useFocusReturn } from "@/components/focus-return";
+import { focusComposer, focusLost, useFocusReturn } from "@/components/focus-return";
 import type React from "react";
 import { type ModelCatalogEntry, type ModelSlotName, type ModelsSettings, COMPACTION_THRESHOLD_FLOOR, CUSTOM_PROVIDER } from "@/src/core";
 import { prettyModel } from "@/components/usage-format";
@@ -165,7 +165,7 @@ export function SetupKeysBody({
 	const keyRef = useRef<HTMLInputElement>(null);
 	// A rejected key re-enables the field, which disabling had dropped focus from.
 	useEffect(() => {
-		if (!saving && error && (!document.activeElement || document.activeElement === document.body)) keyRef.current?.focus();
+		if (!saving && error && focusLost()) keyRef.current?.focus();
 	}, [saving, error]);
 	return (
 		<div className="flex flex-col gap-3 px-6 py-5" data-testid="setup-stage-keys">
@@ -311,8 +311,7 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 	useFocusReturn(false, focusComposer);
 	const saved = useRef(false);
 	useEffect(() => () => {
-		const at = document.activeElement;
-		if (saved.current && (!at || at === document.body || at.closest('[data-testid="setup-cta"], [data-testid="setup-cta-keys"]'))) focusComposer();
+		if (saved.current && (focusLost() || document.activeElement?.closest('[data-testid="setup-cta"], [data-testid="setup-cta-keys"]'))) focusComposer();
 	}, []);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -437,7 +436,7 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 		const triggerTestid = openMenu.kind === "model" ? `setup-trigger-${openMenu.slot}` : `setup-thinking-${openMenu.slot}`;
 		return () => {
 			const trigger = document.querySelector<HTMLElement>(`[data-testid="${triggerTestid}"]`);
-			if (trigger && (!document.activeElement || document.activeElement === document.body)) trigger.focus();
+			if (trigger && focusLost()) trigger.focus();
 		};
 	}, [openMenu]);
 

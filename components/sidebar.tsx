@@ -12,6 +12,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
 import { captureFocus, focusComposer, watchUserMoves } from "@/components/focus-return";
+import { renameChat } from "@/components/rename";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode } from "@/src/core";
 import { ArchiveIcon, ArchiveRestoreIcon, CheckIcon, DumbbellIcon, LayersIcon, PinIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
@@ -423,9 +424,7 @@ export function SessionRow({
 		</button>
 		{onArchive && <Hint label={archiveLabel} side="right">
 			<button type="button" aria-label={archiveLabel} disabled={archiving} aria-busy={archiving}
-				// detail > 1: the second click of a double click. The clicked row hides at
-				// once and the next one slides under the pointer; it must not archive too.
-				onClick={event => { event.stopPropagation(); if (archiving || event.detail > 1) return; setArchiving(true); void onArchive().finally(() => setArchiving(false)); }}
+				onClick={event => { event.stopPropagation(); if (archiving) return; setArchiving(true); void onArchive().finally(() => setArchiving(false)); }}
 				className="absolute right-1.5 top-1.5 flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-card hover:text-foreground group-hover/session:opacity-100 group-focus-within/session:opacity-100 [@media(hover:none)]:opacity-100 disabled:opacity-40">
 				{chat.archived ? <ArchiveRestoreIcon className="size-3.5"/> : <ArchiveIcon className="size-3.5"/>}
 			</button>
@@ -657,13 +656,7 @@ function SessionsSidebar() {
 		if (t === "" || t === current) return;
 		const movedOn = watchUserMoves();
 		try {
-			const res = await fetch(`/api/chats/${id}`, {
-				method: "PUT",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ title: t }),
-			});
-			if (!res.ok) throw new Error(`rename failed: ${res.status}`);
-			window.dispatchEvent(new CustomEvent("lh:chat-renamed", { detail: { id, title: t } }));
+			await renameChat(id, t);
 		} catch (err) {
 			console.error("rename failed:", err); // keep the old title
 			setRenameError("Chat could not be renamed. Try again.");

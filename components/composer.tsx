@@ -207,9 +207,6 @@ export function Composer({
 					<button
 						type="submit"
 						data-testid="next-problem-button"
-						// The second click of a double-click must not hit the button's
-						// next role (Send/Next morph into Stop under the pointer).
-						onClick={(e) => { if (e.detail > 1) e.preventDefault(); }}
 						aria-label="Next problem"
 						className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-[10px] bg-green-600 px-4 font-ui text-xs font-medium uppercase tracking-wide text-white transition-colors hover:bg-green-500"
 					>
@@ -220,9 +217,6 @@ export function Composer({
 					<button
 						type="submit"
 						aria-label={busy && !canSend ? "Stop" : "Send"}
-						// The second click of a double-click must not hit the button's
-						// next role (Send/Next morph into Stop under the pointer).
-						onClick={(e) => { if (e.detail > 1) e.preventDefault(); }}
 						disabled={!busy && !canSend}
 						className={cn(
 							"flex size-10 shrink-0 items-center justify-center rounded-[10px] transition-colors",

@@ -62,7 +62,7 @@ import { TopBar } from "@/components/top-bar";
 import { DeleteSourceDialog } from "@/components/delete-source-dialog";
 import { LatexGlyph } from "@/components/latex-glyph";
 import { isComposing } from "@/components/ime";
-import { actionError } from "@/components/inline-rename";
+import { actionError } from "@/components/rename";
 
 /** The sortable columns. */
 export type ChainSortCol = "name" | "props" | "created";

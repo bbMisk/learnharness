@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "./backdrop-dismiss";
 import { useEscapeClose } from "@/components/open-modal";
-import { actionError } from "@/components/inline-rename";
+import { actionError } from "@/components/rename";
 import type { SourceEntry, SourceFolder } from "@/src/core";
 
 export function DeleteSourceBody({ sources, folders, deleteSessions, onDeleteSessions, busy, failure, onClose, onRun }: {
