@@ -9,7 +9,7 @@ import { notePreparedResponsesPayload } from "./request-fingerprint.ts";
 
 const USAGE = "https://chatgpt.com/settings/usage";
 export function chatGPTStreamError(message: string): string {
-	if (/prompt_cache/.test(message)) return "ChatGPT rejected the long cache setting. Set Cache back to default in Settings → Models. No API-key fallback was used.";
+	if (/prompt_cache/.test(message)) return "ChatGPT rejected the long cache setting. Set Cache back to default in Settings → Agent. No API-key fallback was used.";
 	if (/subscription_sharing_usage_limit_exceeded|quota|429/.test(message)) return `ChatGPT plan usage limit reached. Manage usage at ${USAGE}. No API-key fallback was used.`;
 	if (/scope|authorization_context|permission/.test(message)) return "ChatGPT plan permission is missing. Reconnect in Providers and authorize plan use. No API-key fallback was used.";
 	if (/expired|invalid_grant|401|invalid_user/.test(message)) return "Your ChatGPT session expired. Reconnect in Providers. No API-key fallback was used.";

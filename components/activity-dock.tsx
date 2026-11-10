@@ -307,6 +307,15 @@ export function ActivitySection({ feed: feedProp }: { feed?: ActivityFeed }) {
 	const abortRef = useRef({ blobs, refresh, setAbortStates });
 	abortRef.current = { blobs, refresh, setAbortStates };
 
+	// A row that left the feed is over: drop its abort state, so a later run
+	// with the same id (re-extracting one source) starts with a live End.
+	useEffect(() => {
+		setAbortStates((s) => {
+			const live = Object.keys(s).filter((id) => blobs.some((b) => b.id === id));
+			return live.length === Object.keys(s).length ? s : Object.fromEntries(live.map((id) => [id, s[id]!]));
+		});
+	}, [blobs]);
+
 	const totalCost = useMemo(() => {
 		const priced = blobs.map((b) => b.cost).filter((c): c is number => c !== null);
 		return priced.length === 0 ? null : priced.reduce((a, c) => a + c, 0);
