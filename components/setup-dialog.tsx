@@ -289,6 +289,11 @@ export function SetupDialog(props: SetupDialogProps) {
 
 function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 	const backdropDismiss = useBackdropDismiss(onClose);
+	// Open with focus in the dialog, not on ✕: a second Enter must not close it.
+	const dialogRef = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		if (!dialogRef.current?.contains(document.activeElement)) dialogRef.current?.focus();
+	}, []);
 	const { catalog, failed, refresh } = useModelCatalog();
 	const providerStageSeen = useRef(false);
 	const connectionCloseRequested = useRef(false);
@@ -522,12 +527,14 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 			{...backdropDismiss}
 		>
 			<div
+				ref={dialogRef}
+				tabIndex={-1}
 				role="dialog"
 				aria-modal="true"
 				data-lh-modal
 				aria-label="Set up your models"
 				data-testid="setup-dialog"
-				className="settings-dialog-pop flex max-h-[85vh] w-[640px] max-w-[min(90vw,calc(100vw-2*max(env(safe-area-inset-left,0px),env(safe-area-inset-right,0px))))] flex-col overflow-hidden rounded-md border border-border bg-card shadow-xl"
+				className="settings-dialog-pop outline-none flex max-h-[85vh] w-[640px] max-w-[min(90vw,calc(100vw-2*max(env(safe-area-inset-left,0px),env(safe-area-inset-right,0px))))] flex-col overflow-hidden rounded-md border border-border bg-card shadow-xl"
 				onClick={(e) => e.stopPropagation()}
 			>
 				<header className="flex h-15 shrink-0 items-center gap-3 border-b border-border px-5">
@@ -537,7 +544,6 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 						type="button"
 						aria-label="Close setup"
 						data-testid="setup-close"
-						autoFocus
 						onClick={onClose}
 						className="ml-auto text-muted-foreground transition-colors hover:text-foreground"
 					>

@@ -578,3 +578,36 @@ it("a double click on the composer's Send or Next problem does not also hit the 
 		root = null;
 	}
 });
+
+it("phone drawer: a shortcut that opens something on the page closes it; its own search keeps it", async () => {
+	phone = true;
+	const { SidebarProvider, useSidebar } = await import("../components/sidebar.tsx");
+	const { kbdEventForAction } = await import("../src/core/keyboard.ts");
+	let sidebar!: ReturnType<typeof useSidebar>;
+	function Probe() { sidebar = useSidebar(); return null; }
+	mountHost();
+	await act(async () => { root!.render(<SidebarProvider><Probe /></SidebarProvider>); });
+	for (const action of ["find", "toggle-side-tutor", "open-model-picker"] as const) {
+		await act(async () => sidebar.toggle());
+		assert.equal(sidebar.open, true);
+		await act(async () => { window.dispatchEvent(new CustomEvent(kbdEventForAction(action))); });
+		assert.equal(sidebar.open, false, `${action} closes the drawer that would cover it`);
+	}
+	await act(async () => sidebar.toggle());
+	await act(async () => { window.dispatchEvent(new CustomEvent(kbdEventForAction("sessions-search"))); });
+	assert.equal(sidebar.open, true, "searching chats happens in the drawer");
+});
+
+it("the setup dialog opens with focus on itself, not on ✕, so a second Enter cannot close it", async () => {
+	const { SetupDialog } = await import("../components/setup-dialog.tsx");
+	const get = globalThis.fetch;
+	globalThis.fetch = (async () => Response.json({ providers: [], models: [], slots: { strong: null, cheap: null, vision: null } })) as typeof fetch;
+	try {
+		mountHost();
+		await act(async () => { root!.render(<SetupDialog open onClose={() => assert.fail("closed")} onDone={() => {}} />); });
+		await frame();
+		assertSameNode(document.activeElement, document.querySelector('[data-testid="setup-dialog"]'), "focus is in the dialog");
+	} finally {
+		globalThis.fetch = get;
+	}
+});
