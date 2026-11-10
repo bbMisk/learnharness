@@ -618,7 +618,7 @@ export function AgentSection({
 							<button
 								type="button"
 								disabled={!dirty}
-								onClick={() => void saveSegment(info.path, segmentDraft[info.path] ?? "")}
+								onClick={() => { setConfirmSegmentDelete(false); void saveSegment(info.path, segmentDraft[info.path] ?? ""); }}
 								className={
 									dirty
 										? "text-xs text-foreground underline-offset-2 hover:underline"
