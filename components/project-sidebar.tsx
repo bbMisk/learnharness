@@ -7,6 +7,7 @@ import { ChevronRightIcon, FolderIcon, PlusIcon } from "lucide-react";
 import { Dialog } from "radix-ui";
 import type { ChatListItem, ProjectSummary } from "@/src/core";
 import { capName } from "@/src/core";
+import { swallowDoubleClickTail } from "@/components/double-click-tail";
 import { actionError, InlineRename, renameProject } from "@/components/inline-rename";
 type ProjectChats = {
 	chats: ChatListItem[];
@@ -127,8 +128,12 @@ export function ProjectSidebar({
 					<Dialog.Content
 						data-lh-modal
 						aria-describedby={undefined}
-						// The second press of the double click that opened it is not a dismissal.
-						onPointerDownOutside={(e) => { if (Date.now() - openedAt.current < DOUBLE_CLICK_GRACE_MS) e.preventDefault(); }}
+						// The second press of the double click that opened it is not a dismissal;
+						// a dismissal's own double click must not click what was under the dialog.
+						onPointerDownOutside={(e) => {
+							if (Date.now() - openedAt.current < DOUBLE_CLICK_GRACE_MS) e.preventDefault();
+							else swallowDoubleClickTail();
+						}}
 						// No Dialog.Trigger: a dismissal hands focus back to the + button
 						// (a created project navigates away instead).
 						onCloseAutoFocus={(e) => {
