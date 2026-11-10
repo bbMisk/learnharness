@@ -121,9 +121,10 @@ function swallowDoubleClickTail() {
 			event.stopPropagation();
 		}
 	};
-	for (const type of types) window.addEventListener(type, stop, true);
+	const target = window;
+	for (const type of types) target.addEventListener(type, stop, true);
 	setTimeout(() => {
-		for (const type of types) window.removeEventListener(type, stop, true);
+		for (const type of types) target.removeEventListener(type, stop, true);
 	}, DOUBLE_CLICK_TAIL_MS);
 }
 
