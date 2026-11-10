@@ -3,25 +3,21 @@
 import { useMemo } from "react";
 import type { ChatGPTControlBridge, ChatGPTStatus, NativeSubscriptionControlBridge, NativeSubscriptionProviderId, NativeSubscriptionStatus } from "@/src/core";
 import { useNotifyHub, type createNotifyHub } from "@/components/server-events";
+import { sharedRead } from "@/components/shared-read";
 
 type Hub = ReturnType<typeof createNotifyHub> | null;
 type Reply<T> = { value: T; browserAction?: string; error?: string };
 const PATH = "/api/subscriptions";
 const headers = { "Content-Type": "application/json", "x-learnharness-subscriptions": "1" };
 
-let sharedStatus: Promise<{ chatgpt: ChatGPTStatus; native: NativeSubscriptionStatus[] }> | null = null;
 /** The ChatGPT and native bridges read together (mount, resync): reads
  *  started in one synchronous run share one request. */
 function status() {
-	if (sharedStatus) return sharedStatus;
-	const read = (async () => {
+	return sharedRead(PATH, async () => {
 		const response = await fetch(PATH, { headers, cache: "no-store" });
 		if (!response.ok) throw new Error("Subscription status is unavailable.");
 		return response.json() as Promise<{ chatgpt: ChatGPTStatus; native: NativeSubscriptionStatus[] }>;
-	})();
-	sharedStatus = read;
-	queueMicrotask(() => { sharedStatus = null; });
-	return read;
+	});
 }
 async function control<T>(providerId: string, op: string, fields: Record<string, unknown> = {}): Promise<Reply<T>> {
 	const response = await fetch(PATH, { method: "POST", headers, body: JSON.stringify({ providerId, op, ...fields }) });
