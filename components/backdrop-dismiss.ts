@@ -38,8 +38,10 @@ export function useBackdropDismiss(onDismiss: () => void) {
 		onClickCapture(event: MouseEvent<HTMLDivElement>) {
 			const press = gesture.current;
 			gesture.current = null;
+			// detail > 1: the second click of a double click whose first click
+			// opened this dialog lands on the new backdrop; it must not close it.
 			if (press?.released && press.backdrop === event.currentTarget &&
-				event.button === 0 && event.target === event.currentTarget) {
+				event.button === 0 && event.target === event.currentTarget && !(event.detail > 1)) {
 				// This render's callback preserves current busy guards and props.
 				onDismiss();
 			}

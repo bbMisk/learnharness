@@ -158,3 +158,32 @@ test("disconnecting the custom endpoint focuses + Add a provider and frees Esc",
 	assert.ok(document.activeElement === byTest("add-provider"), "focus is on + Add a provider");
 	assert.equal((await escape()).defaultPrevented, false, "the next Esc is left to the dialog");
 });
+
+// A real double click is two clicks, the second with detail 2: it must only arm.
+const doubleClick = async (element: HTMLElement | null) => {
+	assert.ok(element);
+	for (const detail of [1, 2]) {
+		await act(async () => {
+			element.dispatchEvent(Object.assign(new dom.window.Event("click", { bubbles: true, cancelable: true }), { button: 0, detail }));
+			await settle();
+		});
+	}
+};
+
+test("a double click on Delete or Disconnect only arms it; a separate click confirms", async () => {
+	customBase = "http://localhost:11434/v1";
+	await mount(["TAVILY_API_KEY"]);
+	await click(byTest("key-tavily_api_key-row"));
+	await doubleClick(byTest("key-tavily_api_key-delete"));
+	assert.equal(byTest("key-tavily_api_key-delete")?.textContent, "Confirm delete");
+	assert.equal(keys.length, 1, "the key is still stored");
+	await click(byTest("key-tavily_api_key-delete"));
+	assert.equal(keys.length, 0, "a separate click deletes");
+
+	await click(byTest("custom-endpoint-row-btn"));
+	await doubleClick(byTest("custom-delete"));
+	assert.equal(byTest("custom-delete")?.textContent, "Confirm disconnect");
+	assert.equal(customBase, "http://localhost:11434/v1", "the endpoint is still connected");
+	await click(byTest("custom-delete"));
+	assert.equal(customBase, "", "a separate click disconnects");
+});

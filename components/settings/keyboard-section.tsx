@@ -16,7 +16,7 @@
  * refused too (see refusalFor).
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 import {
 	KEYBOARD_ACTIONS,
 	eventBinding,
@@ -99,6 +99,7 @@ export function KeyboardSection() {
 			e.stopPropagation();
 			if (e.key === "Escape") {
 				setRebinding(null);
+				setConflict((c) => (c?.id === rebinding ? null : c));
 				return;
 			}
 			// Modifier keydowns arrive one by one (⌘ down, then ⇧, then the
@@ -128,8 +129,10 @@ export function KeyboardSection() {
 		setNonce((n) => n + 1);
 	}
 
-	// Reset all takes two clicks: the first arms it, the second resets.
-	function resetAll() {
+	// Reset all takes two clicks: the first arms it, the second resets. A double
+	// click's second click (detail > 1) must not confirm what the first armed.
+	function resetAll(event: MouseEvent) {
+		if (event.detail > 1) return;
 		if (!confirmReset) {
 			setConfirmReset(true);
 			return;
@@ -168,7 +171,11 @@ export function KeyboardSection() {
 													{/* One button for Rebind and Cancel, so focus stays on it. */}
 													<button
 														type="button"
-														onClick={() => setRebinding(rebinding === def.id ? null : def.id)}
+														onClick={() => {
+															// Cancel also clears this row's conflict from an earlier attempt.
+															if (rebinding === def.id) setConflict((c) => (c?.id === def.id ? null : c));
+															setRebinding(rebinding === def.id ? null : def.id);
+														}}
 														data-testid={`kbd-rebind-${def.id}`}
 														className={`text-xs underline-offset-2 hover:text-foreground hover:underline ${rebinding === def.id ? "text-muted-foreground/70" : "text-muted-foreground"}`}
 													>

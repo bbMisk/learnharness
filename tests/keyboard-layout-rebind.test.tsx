@@ -124,6 +124,34 @@ describe("keyboard rebind shares layout normalization with dispatch", () => {
 		assert.deepEqual(loadOverrides(), {});
 	});
 
+	it("a double click on Reset all only arms it (its second click has detail 2)", async () => {
+		const host = await mount();
+		await click(host, "kbd-rebind-new-session");
+		await press({ key: "F4", code: "F4" });
+		const button = host.querySelector<HTMLElement>('[data-testid="kbd-reset-all"]')!;
+		for (const detail of [1, 2]) {
+			await act(async () => { button.dispatchEvent(Object.assign(new window.Event("click", { bubbles: true, cancelable: true }), { button: 0, detail })); });
+		}
+		assert.deepEqual(loadOverrides(), { "new-session": "f4" }, "the double click did not reset");
+		assert.equal(button.textContent, "Confirm reset all");
+		await click(host, "kbd-reset-all");
+		assert.deepEqual(loadOverrides(), {}, "a separate click still confirms");
+	});
+
+	it("cancelling a rebind by Cancel or Esc clears the row's earlier conflict", async () => {
+		const host = await mount();
+		const alert = () => host.querySelector('[data-testid="kbd-row-jump-graph"] [role="alert"]')?.textContent ?? "";
+		for (const cancel of ["button", "escape"] as const) {
+			await click(host, "kbd-rebind-jump-graph");
+			await press({ key: "b", code: "KeyB", metaKey: true });
+			assert.match(alert(), /already used by/);
+			await click(host, "kbd-rebind-jump-graph");
+			if (cancel === "button") await click(host, "kbd-rebind-jump-graph");
+			else await press({ key: "Escape", code: "Escape" });
+			assert.equal(alert(), "", `${cancel} clears the conflict`);
+		}
+	});
+
 	it("refuses a binding another action already uses, and says which", async () => {
 		const host = await mount();
 		await click(host, "kbd-rebind-jump-graph");

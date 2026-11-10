@@ -376,6 +376,86 @@ it("the side tutor's Stop stops: the click it takes never submits the box again"
 	}
 });
 
+it("a double click on the side tutor's Stop or Send does one click's worth", async () => {
+	const { SideTutor } = await import("../components/side-tutor.tsx");
+	const snapshot = { context: "c", truncated: false, model: { provider: "openai", id: "m" } };
+	const { createRange } = document;
+	const getSelection = dom.window.getSelection;
+	Object.assign(document, { createRange: () => ({ setStart() {}, setEnd() {}, selectNodeContents() {}, getClientRects: () => [], getBoundingClientRect: () => ({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }) }) });
+	Object.assign(dom.window, { getSelection: () => ({ toString: () => "", rangeCount: 0, removeAllRanges() {}, addRange() {} }) });
+	let posts = 0, aborts = 0;
+	globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+		if (init?.method !== "POST") return Response.json(snapshot);
+		posts++;
+		return new Response(new ReadableStream({
+			start(controller) {
+				controller.enqueue(new TextEncoder().encode(`${JSON.stringify({ type: "delta", text: "A limit point" })}\n`));
+				init.signal?.addEventListener("abort", () => { aborts++; controller.error(new DOMException("aborted", "AbortError")); });
+			},
+		}));
+	}) as unknown as typeof fetch;
+	// One click of a real double click on the Stop/Send slot (detail 1, then 2). A browser
+	// submits the form after a submit button's click unless something prevented it.
+	const clickSlot = async (detail: number) => {
+		const button = document.querySelector<HTMLButtonElement>('[aria-label="Stop side response"], [aria-label="Send side question"]')!;
+		const click = Object.assign(new dom.window.Event("click", { bubbles: true, cancelable: true }), { button: 0, detail });
+		await act(async () => { button.dispatchEvent(click); await Promise.resolve(); });
+		if (!click.defaultPrevented && button.isConnected && button.getAttribute("type") === "submit" && !button.disabled) {
+			await act(async () => { button.closest("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })); });
+		}
+		await frame();
+	};
+	try {
+		mountHost();
+		await act(async () => { root!.render(<SideTutor chatId="c1" selectedText="what is a limit point" onClose={() => {}} />); });
+		await frame();
+		await clickSlot(1);
+		await clickSlot(2);
+		assert.equal(posts, 1, "Send sends once");
+		assert.equal(aborts, 0, "the second click does not stop what the first sent");
+		await clickSlot(1);
+		await clickSlot(2);
+		assert.equal(aborts, 1, "Stop stops");
+		assert.equal(posts, 1, "and the second click does not send the question again");
+		assert.ok(document.querySelector('[data-testid="side-tutor"]')!.textContent!.includes("Side response stopped."));
+		await clickSlot(1);
+		assert.equal(posts, 2, "a later single click sends");
+	} finally {
+		Object.assign(dom.window, { getSelection });
+		Object.assign(document, { createRange });
+	}
+});
+
+it("a side tutor opened while the server or network was down loads its lesson context once it is back", async () => {
+	const { SideTutor } = await import("../components/side-tutor.tsx");
+	const { ServerEventsProvider } = await import("../components/server-events.tsx");
+	const snapshot = { context: "c", truncated: false, model: { provider: "openai", id: "m" } };
+	for (const back of ["online", "reconnect"] as const) {
+		let up = false, reads = 0, reopen = () => {};
+		globalThis.fetch = (async () => {
+			reads++;
+			if (!up) throw new TypeError("Failed to fetch");
+			return Response.json(snapshot);
+		}) as unknown as typeof fetch;
+		const connect = () => ({ close() {}, onEvent() {}, onOpen(cb: () => void) { reopen = cb; } });
+		mountHost();
+		await act(async () => { root!.render(<ServerEventsProvider connect={connect}><SideTutor chatId="c1" selectedText="why" onClose={() => {}} /></ServerEventsProvider>); });
+		await frame();
+		const send = () => document.querySelector<HTMLButtonElement>('[aria-label="Send side question"]')!;
+		assert.ok(send().disabled, "no context, no send");
+		assert.ok(document.querySelector('[data-testid="side-tutor"]')!.textContent!.includes("Failed to fetch"));
+		up = true;
+		await act(async () => { if (back === "online") window.dispatchEvent(new dom.window.Event("online")); else reopen(); });
+		await frame();
+		assert.equal(reads, 2, `${back}: the read retried`);
+		assert.ok(!send().disabled, `${back}: Send works again`);
+		assert.ok(!document.querySelector('[data-testid="side-tutor"]')!.textContent!.includes("Failed to fetch"));
+		assert.equal(document.querySelector<HTMLTextAreaElement>('[data-testid="side-tutor"] textarea')!.value, "Help me understand this:\n\nwhy", "the draft is kept");
+		await act(async () => { root!.unmount(); });
+		root = null;
+	}
+});
+
 it("after a side-tutor reply, success or failure, its box has focus again for the follow-up", async () => {
 	const { SideTutor } = await import("../components/side-tutor.tsx");
 	const snapshot = { context: "c", truncated: false, model: { provider: "openai", id: "m" } };
@@ -455,4 +535,46 @@ it("Find and the side tutor both open: an Esc from a field the user clicked into
 	await frame();
 	assert.ok(!findOpen());
 	assertSameNode(document.activeElement, thinking, "back to where Find was opened from");
+});
+
+it("a double click on the composer's Send or Next problem does not also hit the Stop it turns into", async () => {
+	const { Composer } = await import("../components/composer.tsx");
+	const calls: string[] = [];
+	function Host({ next }: { next: boolean }) {
+		const [busy, setBusy] = useState(false);
+		return (
+			<Composer
+				busy={busy}
+				value={next ? "" : "why?"}
+				onChange={() => {}}
+				canSend={!busy && !next}
+				nextProblem={next}
+				onSend={() => { calls.push("send"); setBusy(true); }}
+				onNext={() => { calls.push("next"); setBusy(true); }}
+				onStop={() => calls.push("stop")}
+			/>
+		);
+	}
+	// One click of a real double click (detail 1, then 2): the browser submits the form
+	// after a submit button's click unless something prevented it.
+	const clickSlot = async (detail: number) => {
+		const button = document.querySelector<HTMLButtonElement>('[data-testid="composer"] button[type="submit"]')!;
+		const click = Object.assign(new dom.window.Event("click", { bubbles: true, cancelable: true }), { button: 0, detail });
+		await act(async () => { button.dispatchEvent(click); });
+		if (!click.defaultPrevented && !button.disabled) {
+			await act(async () => { button.closest("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })); });
+		}
+	};
+	for (const next of [false, true]) {
+		calls.length = 0;
+		mountHost();
+		await act(async () => { root!.render(<Host next={next} />); });
+		await clickSlot(1);
+		await clickSlot(2);
+		assert.deepEqual(calls, [next ? "next" : "send"], "the second click is ignored");
+		await clickSlot(1);
+		assert.deepEqual(calls, [next ? "next" : "send", "stop"], "a later single click on Stop stops");
+		await act(async () => { root?.unmount(); });
+		root = null;
+	}
 });

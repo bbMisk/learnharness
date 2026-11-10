@@ -7,6 +7,7 @@ import { Conversation, ConversationContent } from "@/components/ai-elements/conv
 import { ResizableSidePanel } from "@/components/resizable-side-panel";
 import { TopBar } from "@/components/top-bar";
 import { focusIn, sessionFindHasForegroundLayer, useNewestEscLayer } from "@/components/session-find";
+import { useOptionalServerResync } from "@/components/server-events";
 import { captureFocus, focusComposer } from "@/components/focus-return";
 import { isComposing } from "@/components/ime";
 import { Button } from "@/components/ui/button";
@@ -80,6 +81,18 @@ export function SideTutor({ chatId, selectedText, onClose }: { chatId: string; s
 		refocus.current = false;
 		if (focusIn(input.current?.closest("aside"))) input.current?.focus();
 	}, [busy]);
+	// A snapshot read that failed (server or network down) retries once either is back.
+	const [loadTry, setLoadTry] = useState(0);
+	const loadFailed = !snapshot && !!error;
+	useOptionalServerResync(() => {
+		if (loadFailed) setLoadTry((n) => n + 1);
+	});
+	useEffect(() => {
+		if (!loadFailed) return;
+		const retry = () => setLoadTry((n) => n + 1);
+		window.addEventListener("online", retry);
+		return () => window.removeEventListener("online", retry);
+	}, [loadFailed]);
 	useEffect(() => {
 		const abort = new AbortController();
 		setSnapshot(undefined);
@@ -96,7 +109,7 @@ export function SideTutor({ chatId, selectedText, onClose }: { chatId: string; s
 			abort.abort();
 			request.current?.abort();
 		};
-	}, [chatId]);
+	}, [chatId, loadTry]);
 	useEffect(() => {
 		input.current?.focus();
 	}, []);
@@ -287,6 +300,8 @@ export function SideTutor({ chatId, selectedText, onClose }: { chatId: string; s
 								// still inside the click: preventDefault keeps it from submitting.
 								onClick={(e) => {
 									e.preventDefault();
+									// detail > 1: a double click on Send must not stop what it just sent.
+									if (e.detail > 1) return;
 									request.current?.abort();
 								}}
 							>
@@ -298,6 +313,10 @@ export function SideTutor({ chatId, selectedText, onClose }: { chatId: string; s
 								size="icon-sm"
 								aria-label="Send side question"
 								disabled={!snapshot || !draft.trim() || files.uploading}
+								// detail > 1: a double click on Stop must not resend the question it put back.
+								onClick={(e) => {
+									if (e.detail > 1) e.preventDefault();
+								}}
 							>
 								<ArrowUpIcon className="size-4" />
 							</Button>
