@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, type MouseEvent, type PointerEvent } from "react";
+import { swallowDoubleClickTail } from "@/components/double-click-tail";
 
 /** A synthesized click may target the backdrop even when a drag began
  * inside the dialog. Require both endpoints of the same primary gesture.
@@ -49,6 +50,8 @@ export function useBackdropDismiss(onDismiss: () => void) {
 				event.button === 0 && event.target === event.currentTarget && !(event.detail > 1)) {
 				// This render's callback preserves current busy guards and props.
 				onDismiss();
+				// A double click's second click must not land on what was under the dialog.
+				swallowDoubleClickTail();
 			}
 		},
 	};
