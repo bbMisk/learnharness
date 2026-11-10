@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { captureFocus, focusComposer, watchUserMoves } from "@/components/focus-return";
 import { isComposing } from "@/components/ime";
+import { renameChat } from "@/components/rename";
 
 /**
  * The chat header's title and its click-to-rename state. Clicking the title
@@ -33,16 +34,8 @@ export function useSessionRename(chatId: string, title: string) {
 			if (t === "" || t === titleText) return; // empty commit = discard
 			const movedOn = watchUserMoves();
 			try {
-				const res = await fetch(`/api/chats/${chatId}`, {
-					method: "PUT",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ title: t }),
-				});
-				if (!res.ok) throw new Error(`rename failed: ${res.status}`);
+				await renameChat(chatId, t);
 				setTitleText(t);
-				window.dispatchEvent(
-					new CustomEvent("lh:chat-renamed", { detail: { id: chatId, title: t } }),
-				);
 			} catch (err) {
 				// Keep the old title; reopen the field with what was typed.
 				console.error("rename failed:", err);

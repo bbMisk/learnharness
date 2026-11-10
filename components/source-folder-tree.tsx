@@ -7,7 +7,7 @@ import type { ChainSort } from "./chain-table";
 import { chainRow } from "./chain-navigation";
 import { isComposing } from "@/components/ime";
 import { focusLost } from "@/components/focus-return";
-import { actionError } from "@/components/inline-rename";
+import { actionError } from "@/components/rename";
 
 export type OrganizationChange = (action: OrganizationAction) => Promise<string | void>;
 const DRAG_TYPE = "application/x-learnharness-source";

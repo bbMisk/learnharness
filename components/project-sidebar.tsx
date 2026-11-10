@@ -8,7 +8,8 @@ import { Dialog } from "radix-ui";
 import type { ChatListItem, ProjectSummary } from "@/src/core";
 import { capName } from "@/src/core";
 import { swallowDoubleClickTail } from "@/components/double-click-tail";
-import { actionError, InlineRename, renameProject } from "@/components/inline-rename";
+import { InlineRename } from "@/components/inline-rename";
+import { actionError, renameProject } from "@/components/rename";
 type ProjectChats = {
 	chats: ChatListItem[];
 	moveChat: (id: string, projectId: string | null) => void;

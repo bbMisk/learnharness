@@ -11,6 +11,7 @@ import { flushSync } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { captureFocus, focusComposer, watchUserMoves } from "@/components/focus-return";
+import { renameChat } from "@/components/rename";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode } from "@/src/core";
 import { ArchiveIcon, ArchiveRestoreIcon, CheckIcon, DumbbellIcon, LayersIcon, PinIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
@@ -673,13 +674,7 @@ function SessionsSidebar() {
 		if (t === "" || t === current) return;
 		const movedOn = watchUserMoves();
 		try {
-			const res = await fetch(`/api/chats/${id}`, {
-				method: "PUT",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ title: t }),
-			});
-			if (!res.ok) throw new Error(`rename failed: ${res.status}`);
-			window.dispatchEvent(new CustomEvent("lh:chat-renamed", { detail: { id, title: t } }));
+			await renameChat(id, t);
 		} catch (err) {
 			console.error("rename failed:", err); // keep the old title
 			setRenameError("Chat could not be renamed. Try again.");

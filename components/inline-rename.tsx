@@ -5,26 +5,6 @@ import { capName } from "@/src/core";
 import { isComposing } from "@/components/ime";
 import { focusComposer, watchUserMoves } from "@/components/focus-return";
 
-/** A refused action's message: the server's own line, or `fallback` when the
- *  request never got an answer (fetch's raw "Failed to fetch" TypeError, an
- *  unreadable body). */
-export function actionError(error: unknown, fallback: string): string {
-	return error instanceof Error && error.name === "Error" && error.message ? error.message : fallback;
-}
-
-/** Rename a project, guarding against an edit from another Mac (the route compares `expected`). */
-export async function renameProject(id: string, name: string, expected: string): Promise<void> {
-	const response = await fetch("/api/projects/" + id, {
-		method: "PUT",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ name, expected: { name: expected } }),
-	});
-	if (!response.ok) {
-		const body = (await response.json().catch(() => ({}))) as { error?: string };
-		throw new Error(body.error || "Could not rename the project.");
-	}
-}
-
 /** An in-place name field (owner, 2026-11-01): Enter or leaving the field
  *  saves, Escape cancels; an unchanged or empty name just closes it. A
  *  failed save keeps the field open with the typed name, to fix or cancel. */
