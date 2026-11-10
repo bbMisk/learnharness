@@ -3,6 +3,7 @@ import React, { act, useState } from "react";
 
 import assert from "node:assert/strict";
 import { assertSameNode } from "./helpers/same-node.ts";
+import { windowCaptureClicks } from "./helpers/window-capture-click.ts";
 import { afterEach, it } from "node:test";
 import type { Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
@@ -62,8 +63,13 @@ Object.assign(document, {
 		type === "keydown" && isCapture(options) ? void captureKeydown.delete(listener) : removeListener(type, listener, options),
 });
 
+windowCaptureClicks(dom.window as unknown as Window & typeof globalThis);
+
 // react-dom reads the DOM's event support when it loads, so it loads after the setup above.
 const { createRoot } = await import("react-dom/client");
+const { useDoubleClickGuard } = await import("../components/double-click-tail.ts");
+/** AppShell's app-wide guard: the second click of a double click never reaches a control. */
+function DoubleClickGuard() { useDoubleClickGuard(); return null; }
 const { AppRouterContext } = await import("next/dist/shared/lib/app-router-context.shared-runtime.js");
 const { PathnameContext } = await import("next/dist/shared/lib/hooks-client-context.shared-runtime.js");
 const router = { push() {}, replace() {}, refresh() {}, back() {}, forward() {}, prefetch() {} };
@@ -407,7 +413,7 @@ it("a double click on the side tutor's Stop or Send does one click's worth", asy
 	};
 	try {
 		mountHost();
-		await act(async () => { root!.render(<SideTutor chatId="c1" selectedText="what is a limit point" onClose={() => {}} />); });
+		await act(async () => { root!.render(<><DoubleClickGuard /><SideTutor chatId="c1" selectedText="what is a limit point" onClose={() => {}} /></>); });
 		await frame();
 		await clickSlot(1);
 		await clickSlot(2);
@@ -568,7 +574,7 @@ it("a double click on the composer's Send or Next problem does not also hit the 
 	for (const next of [false, true]) {
 		calls.length = 0;
 		mountHost();
-		await act(async () => { root!.render(<Host next={next} />); });
+		await act(async () => { root!.render(<><DoubleClickGuard /><Host next={next} /></>); });
 		await clickSlot(1);
 		await clickSlot(2);
 		assert.deepEqual(calls, [next ? "next" : "send"], "the second click is ignored");

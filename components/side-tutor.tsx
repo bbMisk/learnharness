@@ -300,8 +300,6 @@ export function SideTutor({ chatId, selectedText, onClose }: { chatId: string; s
 								// still inside the click: preventDefault keeps it from submitting.
 								onClick={(e) => {
 									e.preventDefault();
-									// detail > 1: a double click on Send must not stop what it just sent.
-									if (e.detail > 1) return;
 									request.current?.abort();
 								}}
 							>
@@ -313,10 +311,6 @@ export function SideTutor({ chatId, selectedText, onClose }: { chatId: string; s
 								size="icon-sm"
 								aria-label="Send side question"
 								disabled={!snapshot || !draft.trim() || files.uploading}
-								// detail > 1: a double click on Stop must not resend the question it put back.
-								onClick={(e) => {
-									if (e.detail > 1) e.preventDefault();
-								}}
 							>
 								<ArrowUpIcon className="size-4" />
 							</Button>

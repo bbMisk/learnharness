@@ -274,8 +274,7 @@ function KeyTableRow({
 					{status.present && status.source === "file" && onDelete && (
 						<button
 							type="button"
-							// detail > 1: a double click's second click must not confirm what the first armed.
-							onClick={(e) => { if (e.detail > 1) return; if (confirmDelete) void onDelete(); else setConfirmDelete(true); }}
+							onClick={() => { if (confirmDelete) void onDelete(); else setConfirmDelete(true); }}
 							disabled={busy}
 							data-testid={`${testid}-delete`}
 							className={`shrink-0 text-xs underline-offset-2 hover:text-red-500 hover:underline ${confirmDelete ? "text-red-500" : "text-muted-foreground/70"}`}
@@ -997,8 +996,7 @@ function CustomEndpointEditor({
 				{onDelete && baseUrl0.trim() && (
 					<button
 						type="button"
-						onClick={async (e) => {
-							if (e.detail > 1) return; // a double click arms only, like Delete
+						onClick={async () => {
 							if (!confirmDisconnect) { setConfirmDisconnect(true); return; }
 							setBusy(true); const err = await onDelete(revision); if (err) setError(err); setBusy(false);
 						}}

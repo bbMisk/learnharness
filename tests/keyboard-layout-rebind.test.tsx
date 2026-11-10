@@ -9,6 +9,8 @@ import { parseHTML } from "linkedom";
 import type { Root } from "react-dom/client";
 import { KeyboardSection } from "../components/settings/keyboard-section.tsx";
 import { actionForBinding, eventBinding, loadOverrides } from "../src/core/keyboard.ts";
+import { useDoubleClickGuard } from "../components/double-click-tail.ts";
+import { windowCaptureClicks } from "./helpers/window-capture-click.ts";
 
 const { window, document } = parseHTML("<html><body></body></html>");
 const storage = new Map<string, string>();
@@ -17,7 +19,10 @@ Object.assign(window, { localStorage: {
 	setItem: (key: string, value: string) => { storage.set(key, value); },
 	removeItem: (key: string) => { storage.delete(key); },
 } });
-Object.assign(globalThis, { window, document });
+Object.assign(globalThis, { window, document, Element: window.Element });
+windowCaptureClicks(window as unknown as Window & typeof globalThis);
+/** AppShell's app-wide guard: the second click of a double click never reaches a control. */
+function DoubleClickGuard() { useDoubleClickGuard(); return null; }
 const roots: { root: Root; host: HTMLElement }[] = [];
 
 async function mount() {
@@ -26,7 +31,7 @@ async function mount() {
 	const { createRoot } = await import("react-dom/client");
 	const root = createRoot(host);
 	roots.push({ root, host });
-	await act(async () => { root.render(<KeyboardSection />); });
+	await act(async () => { root.render(<><DoubleClickGuard /><KeyboardSection /></>); });
 	return host;
 }
 

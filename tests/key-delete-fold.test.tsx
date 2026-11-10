@@ -6,6 +6,7 @@ import { afterEach, test } from "node:test";
 import { parseHTML } from "linkedom";
 import type { Root } from "react-dom/client";
 import { AUTH_KEYS, type AuthKeyStatus } from "../src/core/index.ts";
+import { windowCaptureClicks } from "./helpers/window-capture-click.ts";
 
 // Delete is two clicks, and only ever from a fresh start; a confirmed delete
 // folds its row. The custom endpoint editor returns focus like the others.
@@ -24,8 +25,12 @@ Object.assign(globalThis, {
 let focused: Element | null = null;
 dom.window.HTMLElement.prototype.focus = function (this: Element) { focused = this; };
 Object.defineProperty(dom.document, "activeElement", { get: () => (focused?.isConnected ? focused : dom.document.body), configurable: true });
+windowCaptureClicks(dom.window as unknown as Window & typeof globalThis);
 const { createRoot } = await import("react-dom/client");
 const { KeysSection } = await import("../components/settings/keys-section.tsx");
+const { useDoubleClickGuard } = await import("../components/double-click-tail.ts");
+/** AppShell's app-wide guard: the second click of a double click never reaches a control. */
+function DoubleClickGuard() { useDoubleClickGuard(); return null; }
 
 const realFetch = globalThis.fetch;
 const stored = (id: string): AuthKeyStatus => ({
@@ -65,7 +70,7 @@ async function mount(initial: string[]) {
 		return Response.json({});
 	}) as typeof fetch;
 	root = createRoot(document.getElementById("root")!);
-	await act(async () => { root!.render(<KeysSection />); await settle(); });
+	await act(async () => { root!.render(<><DoubleClickGuard /><KeysSection /></>); await settle(); });
 }
 
 test("an armed Delete is disarmed when the row folds by Esc or by opening another row", async () => {
@@ -162,6 +167,8 @@ test("disconnecting the custom endpoint focuses + Add a provider and frees Esc",
 // A real double click is two clicks, the second with detail 2: it must only arm.
 const doubleClick = async (element: HTMLElement | null) => {
 	assert.ok(element);
+	// An earlier test's menu tail (swallowDoubleClickTail, 500 ms) lapses first: only the app-wide guard is under test.
+	await new Promise((resolve) => setTimeout(resolve, 500));
 	for (const detail of [1, 2]) {
 		await act(async () => {
 			element.dispatchEvent(Object.assign(new dom.window.Event("click", { bubbles: true, cancelable: true }), { button: 0, detail }));
