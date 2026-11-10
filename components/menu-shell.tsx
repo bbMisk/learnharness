@@ -4,6 +4,7 @@ import { safeAreaInsets } from "@/components/safe-area";
 export { safeAreaInsets };
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import { swallowDoubleClickTail } from "@/components/double-click-tail";
 
 /**
  * The shared menu shell: one placement body for the app's dropdown menus —
@@ -109,25 +110,6 @@ export function computeMenuPlacement(
 /** The shared shell. Exactly one anchor seam: pass `anchorRef` (a live
  *  element ref) or `anchorTestid` (the settings section's pattern — the
  *  trigger is queried by testid at place time). */
-/** A click that closes a menu may be the first of a double click: the
- *  second lands on whatever the menu covered (a chat row) or on a dialog
- *  the item opened. Swallow that tail (detail > 1) for a moment after. */
-const DOUBLE_CLICK_TAIL_MS = 500;
-function swallowDoubleClickTail() {
-	const types = ["mousedown", "mouseup", "click", "dblclick"] as const;
-	const stop = (event: MouseEvent) => {
-		if (event.detail > 1) {
-			event.preventDefault();
-			event.stopPropagation();
-		}
-	};
-	const target = window;
-	for (const type of types) target.addEventListener(type, stop, true);
-	setTimeout(() => {
-		for (const type of types) target.removeEventListener(type, stop, true);
-	}, DOUBLE_CLICK_TAIL_MS);
-}
-
 export function MenuShell({
 	anchorRef,
 	anchorTestid,

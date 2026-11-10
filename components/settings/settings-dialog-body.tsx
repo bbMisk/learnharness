@@ -108,6 +108,11 @@ export function SettingsDialogBody({
 	// MenuShell open-count — drives the content column's scroll lock.
 	const [openMenus, setOpenMenus] = useState(0);
 	const contentRef = useRef<HTMLDivElement | null>(null);
+	// Open with focus in the dialog, not on ✕: a second Enter must not close it.
+	const dialogRef = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		if (!dialogRef.current?.contains(document.activeElement)) dialogRef.current?.focus();
+	}, []);
 	// Scroll-lock (the scrollbar may stay, scrolling must NOT happen,
 	// nothing may move): the content column keeps overflow-y-auto — the scrollbar and every width stay exactly
 	// as they are — and while any MenuShell is open, non-passive wheel +
@@ -242,12 +247,14 @@ export function SettingsDialogBody({
 
 	return (
 		<div
+			ref={dialogRef}
+			tabIndex={-1}
 			role="dialog"
 			aria-modal="true"
 			data-lh-modal
 			aria-label="Settings"
 			data-testid="settings-dialog"
-			className="settings-dialog-pop flex h-[620px] max-h-[85vh] w-[920px] max-w-[min(90vw,calc(100vw-2*max(env(safe-area-inset-left,0px),env(safe-area-inset-right,0px))))] flex-col overflow-hidden rounded-md border border-border bg-card shadow-xl"
+			className="settings-dialog-pop outline-none flex h-[620px] max-h-[85vh] w-[920px] max-w-[min(90vw,calc(100vw-2*max(env(safe-area-inset-left,0px),env(safe-area-inset-right,0px))))] flex-col overflow-hidden rounded-md border border-border bg-card shadow-xl"
 			onClick={(e) => e.stopPropagation()}
 		>
 			{/* Header — the app's quiet CMU title language. */}
@@ -262,7 +269,6 @@ export function SettingsDialogBody({
 						<button
 					type="button"
 					aria-label="Close settings"
-					autoFocus
 					data-testid="settings-close"
 					className="ml-auto size-7 rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 					onClick={onClose}

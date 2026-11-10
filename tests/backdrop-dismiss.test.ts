@@ -116,6 +116,22 @@ describe("backdrop dismissal requires a whole primary gesture on the scrim", () 
 		assert.equal(closes, 1);
 	});
 
+	it("closing by a click cancels that double click's second click on what was under the dialog", async () => {
+		const backdrop = element("backdrop");
+		click(backdrop, { detail: 1 });
+		assert.equal(closes, 1);
+		const under = document.createElement("button");
+		document.body.append(under);
+		try {
+			assert.equal(dispatch(under, "click", { detail: 2 }).defaultPrevented, true, "the tail is swallowed");
+			assert.equal(dispatch(under, "click", { detail: 1 }).defaultPrevented, false, "a fresh single click is not");
+			await new Promise((resolve) => setTimeout(resolve, 550));
+			assert.equal(dispatch(under, "click", { detail: 2 }).defaultPrevented, false, "the window ends");
+		} finally {
+			under.remove();
+		}
+	});
+
 	it("the second press of a double click on the backdrop keeps focus in the dialog", () => {
 		const backdrop = element("backdrop");
 		assert.equal(dispatch(backdrop, "mousedown", { detail: 2 }).defaultPrevented, true);

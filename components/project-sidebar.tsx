@@ -37,6 +37,7 @@ export function ProjectSidebar({
 	const listRef = useRef<HTMLElement>(null);
 	const addRef = useRef<HTMLButtonElement>(null);
 	const created = useRef(false);
+	const openedAt = useRef(0);
 	const [more, setMore] = useState(false);
 	useEffect(() => {
 		const el = listRef.current;
@@ -85,6 +86,7 @@ export function ProjectSidebar({
 					aria-label="Add project"
 					onClick={() => {
 						created.current = false;
+						openedAt.current = Date.now();
 						setOpen(true);
 					}}
 					className="flex size-6 items-center justify-center rounded hover:bg-accent"
@@ -125,6 +127,8 @@ export function ProjectSidebar({
 					<Dialog.Content
 						data-lh-modal
 						aria-describedby={undefined}
+						// The second press of the double click that opened it is not a dismissal.
+						onPointerDownOutside={(e) => { if (Date.now() - openedAt.current < DOUBLE_CLICK_GRACE_MS) e.preventDefault(); }}
 						// No Dialog.Trigger: a dismissal hands focus back to the + button
 						// (a created project navigates away instead).
 						onCloseAutoFocus={(e) => {
@@ -170,6 +174,9 @@ export function ProjectSidebar({
 		</section>
 	);
 }
+
+/** A press this soon after opening is the second half of the opening double click. */
+const DOUBLE_CLICK_GRACE_MS = 500;
 
 function ProjectFolder({
 	project,
