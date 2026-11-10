@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
+import { useEscapeClose } from "@/components/open-modal";
 import { focusComposer, useFocusReturn } from "@/components/focus-return";
 
 /**
@@ -131,21 +132,7 @@ export function AbortTurnDialog({
 	busy?: boolean;
 }) {
 	// Esc cancels the popup (claimed — never a chained abort).
-	useEffect(() => {
-		if (mode === null) return;
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape" && !e.defaultPrevented) {
-				// THE ONE-ESC LAW (keyboard round 2026-10-06): claim at the
-				// document level — a window-level stopPropagation cannot stop
-				// the earlier-registered global window listener.
-				e.preventDefault();
-				e.stopPropagation();
-				onClose();
-			}
-		};
-		document.addEventListener("keydown", onKeyDown);
-		return () => document.removeEventListener("keydown", onKeyDown);
-	}, [mode, onClose]);
+	useEscapeClose(mode !== null, onClose);
 
 	if (mode === null || typeof document === "undefined") return null;
 	return createPortal(

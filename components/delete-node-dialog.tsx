@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
+import { useEscapeClose } from "@/components/open-modal";
 
 /** The 409 extraction_running line (owner phrasing, node interlude):
  *  the server's error names the extraction; the ACTIVITY DOCK is the
@@ -175,21 +176,7 @@ export function DeleteNodeDialog({
 	}, [hasItems]);
 
 	// Esc closes (claimed — a dialog Esc must not also abort a turn).
-	useEffect(() => {
-		if (!hasItems) return;
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape" && !e.defaultPrevented) {
-				// THE ONE-ESC LAW (keyboard round 2026-10-06): claim at the
-				// document level — a window-level stopPropagation cannot stop
-				// the earlier-registered global window listener.
-				e.preventDefault();
-				e.stopPropagation();
-				onClose();
-			}
-		};
-		document.addEventListener("keydown", onKeyDown);
-		return () => document.removeEventListener("keydown", onKeyDown);
-	}, [hasItems, onClose]);
+	useEscapeClose(hasItems, onClose);
 
 	// Sequential full deaths — never parallel (the store's revision
 	// counter and the sweep must observe them in order). A failure STOPS

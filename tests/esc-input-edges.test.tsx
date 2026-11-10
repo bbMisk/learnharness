@@ -148,6 +148,33 @@ it("the side tutor ignores an input method's Esc", async () => {
 	assert.equal(closed, 1);
 });
 
+it("a dialog's Esc (useEscapeClose) ignores an input method's Esc and claims a plain one, at the document or the window's capture", async () => {
+	const { DeleteNodeDialog } = await import("../components/delete-node-dialog.tsx");
+	const { useEscapeClose } = await import("../components/open-modal.ts");
+	let closed = 0;
+	mountHost();
+	await act(async () => { root!.render(<DeleteNodeDialog nodes={[{ id: "n1", name: "Node" }]} onClose={() => { closed++; }} onDeleted={() => {}} />); });
+	const ime = imeEsc();
+	await act(async () => { document.body.dispatchEvent(ime); });
+	assert.equal(closed, 0, "the composition's Esc");
+	assert.equal(ime.defaultPrevented, false, "left unclaimed");
+	const plain = key("Escape");
+	await act(async () => { document.body.dispatchEvent(plain); });
+	assert.equal(closed, 1);
+	assert.equal(plain.defaultPrevented, true, "claimed");
+	let captured = 0, busyClosed = 0;
+	function Capture() { useEscapeClose(true, () => { captured++; }, { capture: true }); useEscapeClose(true, () => { busyClosed++; }, { busy: true }); return null; }
+	await act(async () => { root!.render(<Capture />); });
+	await act(async () => { window.dispatchEvent(imeEsc()); });
+	assert.equal(captured, 0, "the composition's Esc, at the window");
+	const busy = key("Escape");
+	await act(async () => { document.body.dispatchEvent(busy); });
+	assert.equal(busyClosed, 0, "busy: stays open");
+	assert.equal(busy.defaultPrevented, true, "busy: still claimed");
+	await act(async () => { window.dispatchEvent(key("Escape")); });
+	assert.equal(captured, 1);
+});
+
 it("phone drawer: Esc from a field behind it closes the drawer first, before Find; its own fields keep their Esc", async () => {
 	phone = true;
 	const { SidebarProvider, useSidebar } = await import("../components/sidebar.tsx");

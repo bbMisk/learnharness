@@ -16,7 +16,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { isComposing } from "@/components/ime";
+import { useEscapeClose } from "@/components/open-modal";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
 import { focusComposer, useFocusReturn } from "@/components/focus-return";
@@ -178,19 +178,7 @@ export function SettingsDialogBody({
 	// Escape closes the dialog — the outer dismiss layer. While any MenuShell
 	// is open, that menu's own Esc handler (bindSettingsMenuDismiss) acts
 	// instead.
-	useEffect(() => {
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape" && openMenus === 0 && !e.defaultPrevented && !isComposing(e)) {
-				// ONE Esc, one action: claim at the document level so the window
-				// chain (dictation → abort) does not also act.
-				e.preventDefault();
-				e.stopPropagation();
-				onClose();
-			}
-		};
-		document.addEventListener("keydown", onKey);
-		return () => document.removeEventListener("keydown", onKey);
-	}, [onClose, openMenus]);
+	useEscapeClose(openMenus === 0, onClose);
 
 	/** ONE writer for the whole dialog: PUT the whole section, keep the
 	 *  record mirror in sync, surface route errors inline (a 400 is a

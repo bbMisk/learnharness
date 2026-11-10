@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
+import { useEscapeClose } from "@/components/open-modal";
 import type { ChatDeleteMode, ChatListItem } from "@/src/core";
 
 /** The graph-traces checkbox copy (owner, 2026-09-24 flow rework — was
@@ -76,21 +77,7 @@ export function DeleteSessionDialog({
 	}, [chat]);
 
 	// Esc closes (claimed — a menu/dialog Esc must not also abort a turn).
-	useEffect(() => {
-		if (!chat) return;
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape" && !e.defaultPrevented) {
-				// THE ONE-ESC LAW (keyboard round 2026-10-06): claim at the
-				// document level — a window-level stopPropagation cannot stop
-				// the earlier-registered global window listener.
-				e.preventDefault();
-				e.stopPropagation();
-				if (!busy) onClose(); // a delete in flight stays open, so its failure shows
-			}
-		};
-		document.addEventListener("keydown", onKeyDown);
-		return () => document.removeEventListener("keydown", onKeyDown);
-	}, [chat, onClose, busy]);
+	useEscapeClose(!!chat, onClose, { busy });
 
 	const run = async () => {
 		if (!chat || busy || Date.now() - openedAt.current < 500) return;

@@ -39,7 +39,7 @@ import {
 	KEYBOARD_ACTIONS,
 } from "@/src/core";
 import { isDictationActive } from "@/components/dictation";
-import { openModal } from "@/components/open-modal";
+import { openModal, useEscapeClose } from "@/components/open-modal";
 import { useSettingsDialog } from "@/components/settings/settings-dialog.tsx";
 
 // Re-exported for the contract pin (tests/keyboard-toggle-sidebar.test.ts):
@@ -214,16 +214,7 @@ function CheatSheetDialog({ onClose }: { onClose: () => void }) {
 	useEffect(() => panelRef.current?.focus(), []);
 	// The topmost layer: claim Esc in the window's capture phase, before any
 	// layer under it (Chains, a plan, a menu) sees it at the document.
-	useEffect(() => {
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key !== "Escape" || e.defaultPrevented) return;
-			e.preventDefault();
-			e.stopPropagation();
-			onClose();
-		};
-		window.addEventListener("keydown", onKey, true);
-		return () => window.removeEventListener("keydown", onKey, true);
-	}, [onClose]);
+	useEscapeClose(true, onClose, { capture: true });
 	const scopes = ["global", "chat", "graph"] as const;
 	const scopeLabels: Record<(typeof scopes)[number], string> = {
 		global: "Global",
