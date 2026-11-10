@@ -113,7 +113,7 @@ describe("providerKeyMissing — the envelope factory (provider-key interlude, 2
 	it("names the provider from the curated label and carries the exact machine code", () => {
 		const envelope = providerKeyMissing("openrouter", ["strong"]);
 		assert.deepEqual(envelope, {
-			error: "No OpenRouter key is set — add one in Settings → Keys",
+			error: "No OpenRouter key is set — add one in Settings → Providers",
 			code: PROVIDER_KEY_MISSING_CODE,
 			provider: "openrouter",
 			slots: ["strong"],
@@ -123,7 +123,7 @@ describe("providerKeyMissing — the envelope factory (provider-key interlude, 2
 
 	it("an unknown provider falls back to its raw id as the label", () => {
 		const envelope = providerKeyMissing("weird", ["cheap"]);
-		assert.equal(envelope.error, "No weird key is set — add one in Settings → Keys");
+		assert.equal(envelope.error, "No weird key is set — add one in Settings → Providers");
 	});
 });
 
@@ -150,6 +150,10 @@ describe("isProviderKeyRefusal — the job-record matcher (provider-key interlud
 		assert.equal(isProviderKeyRefusal(undefined), false);
 		assert.equal(isProviderKeyRefusal("FAILED: headless crashed"), false);
 		assert.equal(isProviderKeyRefusal(modelsNotConfigured(["strong"]).error), false, "the models refusal is a different failure");
+	});
+	it("names the Providers section, and still matches job records saved with the old Keys wording", () => {
+		assert.equal(providerKeyMissing("openai", ["cheap"]).error, "No OpenAI key is set — add one in Settings → Providers");
+		assert.equal(isProviderKeyRefusal("No OpenAI key is set — add one in Settings → Keys"), true);
 	});
 });
 
