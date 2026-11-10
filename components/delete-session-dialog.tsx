@@ -61,6 +61,11 @@ export function DeleteSessionDialog({
 	// busy, so no mid-flight switches).
 	const [failure, setFailure] = useState<{ code: string; error: string } | null>(null);
 
+	// Enter twice on "Delete…" (or the opening double click) must not confirm:
+	// an activation this soon after opening is the tail of the one that opened it.
+	const openedAt = useRef(0);
+	useEffect(() => { if (chat) openedAt.current = Date.now(); }, [chat]);
+
 	// Fresh state per session: closing resets, opening a new chat starts clean.
 	useEffect(() => {
 		if (!chat) {
@@ -88,7 +93,7 @@ export function DeleteSessionDialog({
 	}, [chat, onClose, busy]);
 
 	const run = async () => {
-		if (!chat || busy) return;
+		if (!chat || busy || Date.now() - openedAt.current < 500) return;
 		const mode: ChatDeleteMode = traces ? "delete-nodes" : "preserve-graph";
 		setBusy(true);
 		setFailure(null);

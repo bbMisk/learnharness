@@ -296,6 +296,9 @@ async function prepareOffline() {
 	} catch { notify("The offline download did not finish. Keep this page open online, then reload."); }
 }
 
+// Buttons here change under the pointer (Skip → the next card's choices): the second
+// click of a double click or double tap must never act. Nothing on this page needs one.
+document.addEventListener("click", (event) => { if (event.detail > 1) { event.preventDefault(); event.stopPropagation(); } }, true);
 element("mcq-retry").onclick = () => { if (current) void prepareQuestion(current); };
 // The button stays put for the next card: let go of it, so ↓ and Space reach that card.
 element("skip").onclick = () => { if (!current) return; skipped.add(current.id); current = undefined; revealed = false; element("skip").blur(); render(); };
