@@ -114,11 +114,11 @@ export function CoverageMenuBlock({ chatId }: { chatId: string }) {
 	const [extracting, setExtracting] = useState(false); // optimistic until the server says running
 	const lastUncoveredRef = useRef<number | null>(null);
 
-	const load = useCallback(async () => {
+	const load = useCallback(async (): Promise<SessionCoverage | null> => {
 		const next = await fetchCoverage(chatId);
 		if (next === null) {
 			setCoverage((was) => (was === undefined ? null : was));
-			return;
+			return null;
 		}
 		// The optimistic state stands down once the server says running, or
 		// once the fold moved coverage (the run finished).
@@ -130,6 +130,7 @@ export function CoverageMenuBlock({ chatId }: { chatId: string }) {
 		}
 		lastUncoveredRef.current = next.uncoveredTokens;
 		setCoverage(next);
+		return next;
 	}, [chatId]);
 
 	// On MENU OPEN (the block mounts with the menu — on-demand, never
@@ -172,7 +173,11 @@ export function CoverageMenuBlock({ chatId }: { chatId: string }) {
 		refreshActivity();
 		const started = await requestExtract(chatId);
 		if (!started) setExtracting(false);
-		void load();
+		// A started run is registered before the 202, so this read shows it
+		// running. Not running here = it ended at once (e.g. refused for no
+		// model): stand down instead of polling "Running" forever.
+		const next = await load();
+		if (next && !next.running) setExtracting(false);
 	};
 	return (
 		<CoverageMenuBody
