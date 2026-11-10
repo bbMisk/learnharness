@@ -66,6 +66,8 @@ it("Save and Delete drop the kept draft, so the box shows the file again", async
 	await act(async () => { button("Save")!.click(); });
 	assert.equal(segment.overrideText, "Be brief.");
 	await act(async () => { button("Delete")!.click(); });
+	assert.notEqual(segment.overrideText, null, "Delete only arms: the text is the user's");
+	await act(async () => { button("Confirm delete")!.click(); });
 	assert.equal(segment.overrideText, null);
 	assert.equal(button("Save")!.disabled, true, "nothing left to save after Delete");
 	await act(async () => first.root.unmount());

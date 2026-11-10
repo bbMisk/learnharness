@@ -271,6 +271,9 @@ it("Delete project asks in the app's own dialog, not the native confirm()", asyn
 		assert.ok(!dialog(), "Cancel closes it");
 		assert.deepEqual(pushed, [], "nothing deleted");
 		await act(async () => button("Delete project").click());
+		await act(async () => button("Delete").click());
+		assert.deepEqual(pushed, [], "a confirm right after opening is the opener's tail (Enter twice)");
+		await new Promise((resolve) => setTimeout(resolve, 550));
 		await act(async () => {
 			button("Delete").click();
 			await new Promise((resolve) => setTimeout(resolve, 0));
@@ -323,6 +326,7 @@ it("this tab's project delete goes home without flashing the deleted page, and E
 	const tick = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 	await tick();
 	await act(async () => ([...host.querySelectorAll("button")].find((b) => b.textContent === "Delete project") as HTMLElement).click());
+	await new Promise((resolve) => setTimeout(resolve, 550)); // past the opener's Enter-twice window
 	await act(async () => (document.querySelector('[data-testid="delete-project-confirm"]') as HTMLElement).click());
 	const esc = Object.assign(new dom.window.Event("keydown", { bubbles: true, cancelable: true }), { key: "Escape" });
 	await act(async () => void document.dispatchEvent(esc));

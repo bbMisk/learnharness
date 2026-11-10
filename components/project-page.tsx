@@ -150,8 +150,12 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 	const router = useRouter();
 	const [confirmDelete, setConfirmDelete] = useState(false);
 	const [deleting, setDeleting] = useState(false);
+	// Enter twice on "Delete project" must not confirm: an activation this soon
+	// after the dialog opened is the tail of the one that opened it.
+	const confirmOpenedAt = useRef(0);
+	useEffect(() => { if (confirmDelete) confirmOpenedAt.current = Date.now(); }, [confirmDelete]);
 	const deleteProject = async () => {
-		if (deleting) return;
+		if (deleting || Date.now() - confirmOpenedAt.current < 500) return;
 		setError("");
 		setDeleting(true);
 		deletingHere.current = true;

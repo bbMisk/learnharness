@@ -1,6 +1,7 @@
 "use client";
 
 import { startChatDrag } from "@/components/chat-drag";
+import { useDoubleClickGuard } from "@/components/double-click-tail";
 import { useChatOrganization } from "@/components/chat-organization";
 import { ProjectSidebar } from "@/components/project-sidebar";
 import { GlobalFileDrop } from "@/components/global-file-drop";
@@ -1098,6 +1099,7 @@ function SessionsSidebar() {
 
 /** The app frame: sidebar inline + content. Rendered once in the root layout. */
 export function AppShell({ children }: { children: React.ReactNode }) {
+	useDoubleClickGuard();
 	return (
 		<SettingsDialogProvider>
 			<GlobalFileDrop />

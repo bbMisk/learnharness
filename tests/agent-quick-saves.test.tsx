@@ -126,6 +126,7 @@ it("an offline prompt-override Save or Delete says it failed", async () => {
 		await act(async () => { row().find((b) => b.textContent === "Save")!.click(); await sleep(5); });
 		assert.equal(document.querySelector('[data-testid="segment-status"]')?.textContent, "Save failed. Try again.");
 		await act(async () => { row().find((b) => b.textContent === "Delete")!.click(); await sleep(5); });
+		await act(async () => { row().find((b) => b.textContent === "Confirm delete")!.click(); await sleep(5); });
 		assert.equal(document.querySelector('[data-testid="segment-status"]')?.textContent, "Delete failed. Try again.");
 		await act(async () => { await sleep(5); });
 		assert.deepEqual(rejections, []);
