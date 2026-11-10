@@ -99,6 +99,7 @@ export function KeyboardSection() {
 			e.stopPropagation();
 			if (e.key === "Escape") {
 				setRebinding(null);
+				setConflict((c) => (c?.id === rebinding ? null : c));
 				return;
 			}
 			// Modifier keydowns arrive one by one (⌘ down, then ⇧, then the
@@ -170,7 +171,11 @@ export function KeyboardSection() {
 													{/* One button for Rebind and Cancel, so focus stays on it. */}
 													<button
 														type="button"
-														onClick={() => setRebinding(rebinding === def.id ? null : def.id)}
+														onClick={() => {
+															// Cancel also clears this row's conflict from an earlier attempt.
+															if (rebinding === def.id) setConflict((c) => (c?.id === def.id ? null : c));
+															setRebinding(rebinding === def.id ? null : def.id);
+														}}
 														data-testid={`kbd-rebind-${def.id}`}
 														className={`text-xs underline-offset-2 hover:text-foreground hover:underline ${rebinding === def.id ? "text-muted-foreground/70" : "text-muted-foreground"}`}
 													>
