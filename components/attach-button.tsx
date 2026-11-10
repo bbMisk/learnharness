@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { PaperclipIcon } from "lucide-react";
 import { MenuShell } from "@/components/menu-shell";
+import { usePopoverDismiss } from "@/components/popover-dismiss";
 import type { useFileDrop } from "@/components/file-drop";
 
 /** The composer paperclip. On the local desktop app it opens a two-item menu
@@ -10,27 +11,11 @@ import type { useFileDrop } from "@/components/file-drop";
 export function AttachButton({ fileDrop }: { fileDrop: ReturnType<typeof useFileDrop> }) {
 	const [open, setOpen] = useState(false);
 	const triggerRef = useRef<HTMLButtonElement>(null);
-	useEffect(() => {
-		if (!open) return;
-		const onPointerDown = (event: PointerEvent) => {
-			const target = event.target as Element;
-			if (target instanceof Element && target.closest('[data-testid="attach-menu"]')) return;
-			if (!triggerRef.current?.contains(target)) setOpen(false);
-		};
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape" || event.defaultPrevented) return;
-			event.preventDefault();
-			event.stopPropagation();
-			setOpen(false);
-			triggerRef.current?.focus();
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown, true);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown, true);
-		};
-	}, [open]);
+	usePopoverDismiss(triggerRef, open, useCallback(() => setOpen(false), []), {
+		inside: '[data-testid="attach-menu"]',
+		onEscape: useCallback(() => { setOpen(false); triggerRef.current?.focus(); }, []),
+		captureEsc: true,
+	});
 	const item = "rounded-lg px-2 py-1.5 text-left text-card-foreground transition-colors hover:bg-muted";
 	return (
 		<>

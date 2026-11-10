@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "./backdrop-dismiss";
+import { useEscapeClose } from "@/components/open-modal";
 import { actionError } from "@/components/inline-rename";
 import type { SourceEntry, SourceFolder } from "@/src/core";
 
@@ -41,12 +42,7 @@ export function DeleteSourceDialog({ open, sources, folders, onDelete, onClose }
 	const [deleteSessions, setDeleteSessions] = useState(false), [busy, setBusy] = useState(false), [failure, setFailure] = useState("");
 	useEffect(() => { if (!open) { setDeleteSessions(false); setBusy(false); setFailure(""); } }, [open]);
 	const backdrop = useBackdropDismiss(() => { if (!busy) onClose(); });
-	useEffect(() => {
-		if (!open) return;
-		const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape" && !event.defaultPrevented) { event.preventDefault(); event.stopPropagation(); if (!busy) onClose(); } };
-		document.addEventListener("keydown", onKeyDown);
-		return () => document.removeEventListener("keydown", onKeyDown);
-	}, [open, busy, onClose]);
+	useEscapeClose(open, onClose, { busy });
 	if (!open) return null;
 	const run = async () => {
 		if (busy) return;

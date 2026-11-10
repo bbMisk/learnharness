@@ -16,6 +16,7 @@ import {
 import { Maximize2Icon, Minimize2Icon, PinIcon, PinOffIcon } from "lucide-react";
 import { useResizableWidth } from "@/components/resizable-side-panel";
 import { focusComposer } from "@/components/focus-return";
+import { useEscapeClose } from "@/components/open-modal";
 import { pinnedJobId, pinTargetOf, type LhViewMessage, type ManualPin, type PinTarget, type TutorPin } from "@/src/core";
 
 /**
@@ -292,17 +293,7 @@ export function usePinnedVisual({
 	const closeExpanded = useCallback(() => setExpanded(false), []);
 	// The expanded demo is a modal (data-lh-modal), so the global Esc chain
 	// is gated: it claims its own Esc at the document level.
-	useEffect(() => {
-		if (!showExpanded) return;
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key !== "Escape" || e.defaultPrevented) return;
-			e.preventDefault();
-			e.stopPropagation();
-			setExpanded(false);
-		};
-		document.addEventListener("keydown", onKey);
-		return () => document.removeEventListener("keydown", onKey);
-	}, [showExpanded]);
+	useEscapeClose(showExpanded, closeExpanded);
 	// An Esc inside a demo, pinned or not, arrives through its bridge: replay
 	// it on the iframe, so it takes one layer as if pressed on the page, in every mode.
 	useEffect(() => {

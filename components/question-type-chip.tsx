@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CircleHelpIcon } from "lucide-react";
 import { MenuShell } from "@/components/menu-shell";
+import { usePopoverDismiss } from "@/components/popover-dismiss";
 import { Hint } from "@/components/ui/hint";
 import { useSettingsSaved } from "@/components/settings-signal";
 import { readChatSettings, readSettings } from "@/components/settings-read";
@@ -126,27 +127,10 @@ export function QuestionTypeChip({
 
 	// The dropdown contract (model-picker's): a click outside the menu or Esc
 	// closes it; the menu body lives in a portal, carved out via [data-lh-menu].
-	useEffect(() => {
-		if (!open) return;
-		const onPointerDown = (e: PointerEvent) => {
-			const t = e.target as Element;
-			if (t instanceof Element && t.closest("[data-lh-menu]")) return;
-			if (!triggerRef.current?.contains(t)) setOpen(false);
-		};
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key !== "Escape" || e.defaultPrevented) return;
-			e.preventDefault();
-			e.stopPropagation();
-			refocus.current = true;
-			setOpen(false);
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
-	}, [open]);
+	usePopoverDismiss(triggerRef, open, useCallback(() => setOpen(false), []), {
+		inside: "[data-lh-menu]",
+		onEscape: useCallback(() => { refocus.current = true; setOpen(false); }, []),
+	});
 
 	const pick = async (next: QuestionType) => {
 		if (saving) return;

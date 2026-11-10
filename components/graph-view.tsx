@@ -1055,28 +1055,7 @@ export function GraphView({
 	const [ctxNode, setCtxNode] = useState<{ id: string; name: string; x: number; y: number } | null>(null);
 	const ctxAnchorRef = useRef<HTMLDivElement | null>(null);
 	const [deletingNode, setDeletingNode] = useState<{ id: string; name: string } | null>(null);
-	useEffect(() => {
-		if (ctxNode === null) return;
-		const onPointerDown = (e: PointerEvent) => {
-			const target = e.target as Node;
-			if (target instanceof Element && target.closest("[data-lh-menu]")) return;
-			if (ctxAnchorRef.current?.contains(target)) return;
-			setCtxNode(null);
-		};
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape" && !e.defaultPrevented) {
-				e.preventDefault();
-				e.stopPropagation();
-				setCtxNode(null);
-			}
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
-	}, [ctxNode]);
+	usePopoverDismiss(ctxAnchorRef, ctxNode !== null, useCallback(() => setCtxNode(null), []), { inside: "[data-lh-menu]" });
 
 	// Layout: the positions ledger (written by the server's incremental
 	// settle after every merge) IS the layout — the renderer receives it as

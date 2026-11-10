@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { isComposing } from "@/components/ime";
+import { usePopoverDismiss } from "@/components/popover-dismiss";
 import type { ChatSettings, ModelCatalogEntry, ModelCatalogResponse, ModelsSettings, UserSettings } from "@/src/core";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { prettyModel } from "@/components/usage-format";
@@ -164,31 +164,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 			if ((!at || at === document.body) && !returnFocus.current?.(true)) focusComposer();
 		};
 	}, [open]);
-	useEffect(() => {
-		if (open === null) return;
-		const onPointerDown = (e: PointerEvent) => {
-			const t = e.target as Element;
-			if (t instanceof Element && t.closest("[data-lh-menu]")) return;
-			if (containerRef.current && !containerRef.current.contains(t)) {
-				setOpen(null);
-			}
-		};
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape" && !e.defaultPrevented && !isComposing(e)) {
-				// Claim the Esc (keyboard wave A): the window-level chain must
-				// not ALSO stop dictation / abort the turn under this menu.
-				e.preventDefault();
-				e.stopPropagation();
-				setOpen(null);
-			}
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
-	}, [open]);
+	usePopoverDismiss(containerRef, open !== null, useCallback(() => setOpen(null), []), { inside: "[data-lh-menu]" });
 
 	// One write seam: composeSlotModel preserves the cheap/vision siblings
 	// (replace-whole-section discipline) and the per-field independence of
