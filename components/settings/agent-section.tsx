@@ -400,6 +400,9 @@ export function AgentSection({
 	const [engineKeys, setEngineKeys] = useState<Partial<Record<SearchEngineId, boolean>>>({});
 	const [prompts, setPrompts] = useState<PromptView | null>(null);
 	const [openSegment, setOpenSegment] = useState<string | null>(null);
+	// Deleting an override loses the user's text: Delete arms, a second click confirms.
+	const [confirmSegmentDelete, setConfirmSegmentDelete] = useState(false);
+	useEffect(() => setConfirmSegmentDelete(false), [openSegment]);
 	const [segmentDraft, setSegmentDraft] = useState<Record<string, string>>(() => ({ ...segmentDrafts }));
 	const [segmentStatus, setSegmentStatus] = useState<string | null>(null);
 	/** One open dropdown for the whole section: which slot (or the search
@@ -627,10 +630,14 @@ export function AgentSection({
 							{fileExists && (
 								<button
 									type="button"
-									onClick={() => void deleteSegment(info.path)}
+									onClick={() => {
+										if (!confirmSegmentDelete) { setConfirmSegmentDelete(true); return; }
+										setConfirmSegmentDelete(false);
+										void deleteSegment(info.path);
+									}}
 									className="text-xs text-muted-foreground/70 underline-offset-2 hover:text-red-500 hover:underline"
 								>
-									Delete
+									{confirmSegmentDelete ? "Confirm delete" : "Delete"}
 								</button>
 							)}
 							{/* The quiet inline confirmation next to the action
