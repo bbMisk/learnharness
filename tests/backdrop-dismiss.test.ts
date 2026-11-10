@@ -108,6 +108,14 @@ describe("backdrop dismissal requires a whole primary gesture on the scrim", () 
 		assert.equal(closes, 1, "the completed gesture is consumed");
 	});
 
+	it("a double click's second click (detail 2) does not close; a fresh click does", () => {
+		const backdrop = element("backdrop");
+		click(backdrop, { detail: 2 });
+		assert.equal(closes, 0, "e.g. the double click that opened the dialog");
+		click(backdrop, { detail: 1 });
+		assert.equal(closes, 1);
+	});
+
 	it("inside press → backdrop release → common-ancestor click stays open", () => {
 		dispatch(element("body"), "pointerdown");
 		dispatch(element("backdrop"), "pointerup");
