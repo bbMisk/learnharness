@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSettingsSaved } from "@/components/settings-signal";
 import dynamic from "next/dynamic";
 import { CornerDownLeftIcon } from "lucide-react";
 import { MinimalHome } from "@/components/minimal-home";
@@ -39,11 +40,12 @@ export function Home({
 }: {
 	initialConfigured: boolean;
 	/** GRAPH RENDERING off (owner, 2026-10-06): the home's main view is
-	 * the chains view, not the canvas. Read server-side per navigation —
-	 * changing the setting applies on the next visit home. */
+	 * the chains view, not the canvas. Read server-side; a save in Settings
+	 * re-reads it (router.refresh), so the change shows at once. */
 	rendering?: boolean;
 }) {
 	const router = useRouter();
+	useSettingsSaved((section) => { if (section === "graph") router.refresh(); });
 	const [topic, setTopic] = useState("");
 	/* The topic MIRROR ("nothing gets lost" round, 2026-10-01 — same
 	 * mechanics as the chat composer, owner's consistency ruling): a
