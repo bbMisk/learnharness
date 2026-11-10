@@ -426,6 +426,36 @@ it("a double click on the side tutor's Stop or Send does one click's worth", asy
 	}
 });
 
+it("a side tutor opened while the server or network was down loads its lesson context once it is back", async () => {
+	const { SideTutor } = await import("../components/side-tutor.tsx");
+	const { ServerEventsProvider } = await import("../components/server-events.tsx");
+	const snapshot = { context: "c", truncated: false, model: { provider: "openai", id: "m" } };
+	for (const back of ["online", "reconnect"] as const) {
+		let up = false, reads = 0, reopen = () => {};
+		globalThis.fetch = (async () => {
+			reads++;
+			if (!up) throw new TypeError("Failed to fetch");
+			return Response.json(snapshot);
+		}) as unknown as typeof fetch;
+		const connect = () => ({ close() {}, onEvent() {}, onOpen(cb: () => void) { reopen = cb; } });
+		mountHost();
+		await act(async () => { root!.render(<ServerEventsProvider connect={connect}><SideTutor chatId="c1" selectedText="why" onClose={() => {}} /></ServerEventsProvider>); });
+		await frame();
+		const send = () => document.querySelector<HTMLButtonElement>('[aria-label="Send side question"]')!;
+		assert.ok(send().disabled, "no context, no send");
+		assert.ok(document.querySelector('[data-testid="side-tutor"]')!.textContent!.includes("Failed to fetch"));
+		up = true;
+		await act(async () => { if (back === "online") window.dispatchEvent(new dom.window.Event("online")); else reopen(); });
+		await frame();
+		assert.equal(reads, 2, `${back}: the read retried`);
+		assert.ok(!send().disabled, `${back}: Send works again`);
+		assert.ok(!document.querySelector('[data-testid="side-tutor"]')!.textContent!.includes("Failed to fetch"));
+		assert.equal(document.querySelector<HTMLTextAreaElement>('[data-testid="side-tutor"] textarea')!.value, "Help me understand this:\n\nwhy", "the draft is kept");
+		await act(async () => { root!.unmount(); });
+		root = null;
+	}
+});
+
 it("after a side-tutor reply, success or failure, its box has focus again for the follow-up", async () => {
 	const { SideTutor } = await import("../components/side-tutor.tsx");
 	const snapshot = { context: "c", truncated: false, model: { provider: "openai", id: "m" } };
