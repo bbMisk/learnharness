@@ -730,3 +730,32 @@ test("Fast is account-specific, lease-approved, and actual delivery ignores stal
   assert.equal((await f.rawLease(false,scope())).requestedTier,undefined);
  } finally { f.service.close(); }
 });
+
+test("Ultrafast is opt-in and leases only use it when the account catalog advertises it for the model", async () => {
+ let ultrafastAvailable = true;
+ const f = await loggedIn({ provider: async target => target.endsWith("/models") ? Response.json({ models: [
+  { slug: "gpt-5", display_name: "Fixture", visibility: "list", service_tiers: [{id:"priority"}, ...(ultrafastAvailable ? [{id:"ultrafast"}] : [])] },
+  { slug: "fast-only", display_name: "Fast only", visibility: "list", service_tiers: [{id:"fast"}] },
+ ] }) : undefined });
+ try {
+  let catalog = await f.service.models();
+  const lease = (selectedModelId = "gpt-5") => f.rawLease(false, {expectedAccountId:catalog.accountId,expectedAuthorityRevision:catalog.authorityRevision,selectedModelId});
+  assert.deepEqual(catalog.status.ultrafastModels, ["gpt-5"]);
+  assert.equal((await lease()).requestedTier, undefined);
+  await f.service.fast(true); catalog = await f.service.models();
+  assert.equal((await lease()).requestedTier, "priority");
+  await f.service.ultrafast(true); catalog = await f.service.models();
+  assert.equal(catalog.status.fastMode, false);
+  const accelerated = await lease();
+  assert.equal(accelerated.requestedTier, "ultrafast");
+  assert.equal((await lease("fast-only")).requestedTier, undefined);
+  f.service.reportTier({...accelerated,modelId:"gpt-5",startedAt:20,requested:"ultrafast",served:"ultrafast"});
+  assert.equal((await f.service.status()).lastServiceTier.served, "ultrafast");
+  ultrafastAvailable = false; catalog = await f.service.models();
+  assert.deepEqual(catalog.status.ultrafastModels, []);
+  assert.equal((await lease()).requestedTier, undefined);
+  await f.service.ultrafast(false); catalog = await f.service.models();
+  assert.equal(catalog.status.ultrafastMode, false);
+  await assert.rejects(f.service.ultrafast(true));
+ } finally { f.service.close(); }
+});

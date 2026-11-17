@@ -37,7 +37,8 @@ const Context = createContext({
 	warning: null as string | null,
 	connect: () => {},
 	manage: (_id: string) => {},
- fast: (_enabled: boolean) => {},
+	fast: (_enabled: boolean) => {},
+	ultrafast: undefined as ((enabled: boolean) => void) | undefined,
 	select: (_id: string) => {},
 	dismissWarning: () => {},
 });
@@ -248,6 +249,7 @@ export function ChatGPTUIProvider({ children }: { children: React.ReactNode }) {
 		// completion, failure, or explicit cancellation releases the attempt.
 	}
 	const context = {
+		ultrafast: bridge?.ultrafast && ((enabled: boolean) => { void control("change", () => bridge.ultrafast!(enabled)); }),
 		fast: (enabled: boolean) => { if (bridge?.fast) void control("change", () => bridge.fast!(enabled)); },
 		status, busy, error: warning ? null : visibleError, inlineError: dialog || warning ? null : visibleError, warning: dialog?.kind === "warning" ? null : warning,
 		connect: openConnect,
@@ -356,23 +358,33 @@ export function ChatGPTBackgroundAccess({ provider }: { provider: string | undef
 	return <Button type="button" size="xs" variant="ghost" className="cursor-pointer" disabled={ui.busy} onClick={() => ui.manage(account.id)}>Enable background use</Button>;
 }
 
-/** Account-owned Fast preference; the service can still deliver Standard. */
+/** Account-owned speed preferences and the tier delivered for the selected model. */
 export function ChatGPTSpeedIndicator({ modelId }: { modelId?: string }) {
 	const ui = useContext(Context);
-	// The footer pill is the one Fast control, so its failures show beside it.
+	// Show speed control failures beside the footer controls.
 	const [asked, setAsked] = useState(false);
 	if (!ui.status.activeId) return null;
 	const enabled = ui.status.fastMode === true;
 	const supported = ui.status.fastModels?.includes(modelId ?? "");
+	const ultrafastEnabled = ui.status.ultrafastMode === true;
+	const ultrafastSupported = ui.status.ultrafastModels?.includes(modelId ?? "");
 	const last = ui.status.lastServiceTier?.modelId === modelId ? ui.status.lastServiceTier : undefined;
-	const served = last?.served === "priority" || last?.served === "fast" ? "Fast" : last?.served === "default" ? "Standard" : "Unknown";
-	const hint = `${enabled ? "Request Fast responses" : "Use Standard responses"}. Fast uses more plan allowance and may still be served at Standard speed.${last ? ` Last response: ${served}.` : ""}${!supported && !enabled ? " Fast is unavailable for this model." : ""}`;
+	const served = last?.served === "ultrafast" ? "Ultrafast" : last?.served === "priority" || last?.served === "fast" ? "Fast" : last?.served === "default" ? "Standard" : "Unknown";
+	const hint = `${enabled ? "Request Fast responses" : ultrafastEnabled && ultrafastSupported ? "Ultrafast is selected" : "Use Standard responses"}. Fast uses more plan allowance and may still be served at Standard speed.${last ? ` Last response: ${served}.` : ""}${!supported && !enabled ? " Fast is unavailable for this model." : ""}`;
+	const ultrafastHint = `Ultrafast uses more plan allowance.${ultrafastEnabled && !ultrafastSupported ? " This model uses Standard speed." : ""}${last ? ` Last response: ${served}.` : ""}`;
+	const speedClass = "flex h-7 shrink-0 items-center whitespace-nowrap rounded-full border bg-card/85 px-2.5 text-xs shadow-lg backdrop-blur transition-colors hover:bg-muted disabled:opacity-50";
 	return <>
 		<button type="button" data-testid="chatgpt-speed-indicator" aria-label="Fast mode" aria-pressed={enabled}
 			disabled={ui.busy || (!enabled && !supported)} onClick={() => { setAsked(true); ui.fast(!enabled); }} title={hint}
-			className="flex h-7 shrink-0 items-center whitespace-nowrap rounded-full border bg-card/85 px-2.5 text-xs shadow-lg backdrop-blur transition-colors hover:bg-muted disabled:opacity-50">
+			className={speedClass}>
 			Fast {enabled ? "on" : "off"}
 		</button>
+		{ui.ultrafast && (ultrafastSupported || ultrafastEnabled) && (
+			<button type="button" data-testid="chatgpt-ultrafast-indicator" aria-label="Ultrafast mode" aria-pressed={ultrafastEnabled}
+				disabled={ui.busy} onClick={() => { setAsked(true); ui.ultrafast?.(!ultrafastEnabled); }} title={ultrafastHint} className={speedClass}>
+				Ultrafast {ultrafastEnabled ? (ultrafastSupported ? "on" : "unavailable") : "off"}
+			</button>
+		)}
 		{asked && ui.error && <span role="alert" className="text-xs text-destructive">{ui.error}</span>}
 	</>;
 }

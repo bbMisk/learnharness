@@ -14,6 +14,8 @@ const TOKEN = `${ISSUER}/api/accounts/oauth/token`;
 const JWKS = `${ISSUER}/.well-known/jwks.json`;
 const SCOPES = ["openid", "profile", "email", "offline_access", "resource.invoke", "chatgpt.tokens.use.direct"];
 const REVOCATION_WARNING = "Account disconnected locally. Remote revocation could not be confirmed.";
+const FAST_TIERS = ["priority", "fast"];
+const ACCELERATED_TIERS = [...FAST_TIERS, "ultrafast"];
 const random = () => crypto.randomBytes(32).toString("base64url");
 const fail = (code) => Object.assign(new Error(code), { code });
 const publicError = (err) => ({
@@ -40,7 +42,9 @@ function validateState(state) {
 	const ids = new Set(); const clients = new Set();
 	for (const r of state.registrations) {
 		if (!r || !nonempty(r.id) || ids.has(r.id) || !nonempty(r.clientId) || r.clientId === "dynamic_agent_client" || clients.has(r.clientId) || r.issuer !== ISSUER || !nonempty(r.subject) || (Object.hasOwn(r, "background") && typeof r.background !== "boolean") || (r.email !== undefined && typeof r.email !== "string") || (Object.hasOwn(r, "reconnectRequired") && r.reconnectRequired !== true)) throw fail("storage");
-		if (Object.hasOwn(r, "fastMode") && typeof r.fastMode !== "boolean") throw fail("storage");
+		for (const field of ["fastMode", "ultrafastMode"]) {
+			if (Object.hasOwn(r, field) && typeof r[field] !== "boolean") throw fail("storage");
+		}
 		ids.add(r.id); clients.add(r.clientId);
 		if (r.tokens !== undefined) {
 			const t = r.tokens;
@@ -204,7 +208,9 @@ function createChatGPT({ store, openExternal, fetch: request = globalThis.fetch,
 			error: lastError,
 			catalogError,
 			fastMode: active()?.fastMode === true,
-			fastModels: catalog.filter(m => m.service_tiers?.some(t => t.id === "priority" || t.id === "fast")).map(m => m.id),
+			fastModels: catalog.filter(m => m.service_tiers?.some(t => FAST_TIERS.includes(t.id))).map(m => m.id),
+			ultrafastMode: active()?.ultrafastMode === true,
+			ultrafastModels: catalog.filter(m => m.service_tiers?.some(t => t.id === "ultrafast")).map(m => m.id),
 			lastServiceTier: lastServiceTier?.accountId === active()?.id ? lastServiceTier : undefined,
 		};
 	}
@@ -318,7 +324,7 @@ function createChatGPT({ store, openExternal, fetch: request = globalThis.fetch,
 						if (closed || abort.signal.aborted || epoch !== attemptEpoch) throw fail("cancelled");
 						const existing = state.registrations.find((r) => r.clientId === clientId);
 						if (existing && existing.subject !== verified.subject) throw fail("identity");
-						const record = { id: existing?.id ?? crypto.randomUUID(), clientId, issuer: ISSUER, ...verified, tokens, ...(existing?.fastMode !== undefined ? { fastMode: existing.fastMode } : {}) };
+						const record = { id: existing?.id ?? crypto.randomUUID(), clientId, issuer: ISSUER, ...verified, tokens, ...(existing?.fastMode !== undefined ? { fastMode: existing.fastMode } : {}), ...(existing?.ultrafastMode !== undefined ? { ultrafastMode: existing.ultrafastMode } : {}) };
 						const next = structuredClone(state);
 						next.registrations = next.registrations.filter((r) => r.id !== record.id).concat(record);
 						next.activeId = record.id;
@@ -417,8 +423,10 @@ function createChatGPT({ store, openExternal, fetch: request = globalThis.fetch,
 		if (typeof background !== "boolean" || !expected || !nonempty(expected.expectedAccountId) || !Number.isSafeInteger(expected.expectedAuthorityRevision) || !nonempty(expected.selectedModelId)) throw fail("catalog");
 		const value = await credential(background, expected);
 		const model = catalog.find(m => m.id === expected.selectedModelId);
-		const tier = model?.service_tiers?.find(t => t.id === "priority") ?? model?.service_tiers?.find(t => t.id === "fast");
-		return { ...value, ...(active()?.fastMode === true && tier ? { requestedTier: tier.id } : {}) };
+		const account = active();
+		const preferred = account?.ultrafastMode ? ["ultrafast"] : account?.fastMode ? FAST_TIERS : [];
+		const requestedTier = preferred.find(id => model?.service_tiers?.some(t => t.id === id));
+		return { ...value, ...(requestedTier ? { requestedTier } : {}) };
 	}
 	const modelValue = () => ({ ...stamp(), status: snapshot(), accountId: active()?.id ?? null, models: catalog });
 	async function models() {
@@ -437,7 +445,7 @@ function createChatGPT({ store, openExternal, fetch: request = globalThis.fetch,
 				...(Number.isSafeInteger(m.max_output_tokens) && m.max_output_tokens > 0 ? { max_output_tokens: m.max_output_tokens } : {}),
 				...(Array.isArray(m.input_modalities) ? { input_modalities: m.input_modalities.filter(x => x === "text" || x === "image") } : {}),
 				...(Array.isArray(m.supported_reasoning_levels) && m.supported_reasoning_levels.every(x => x && typeof x.effort === "string") ? { supported_reasoning_levels: m.supported_reasoning_levels.filter(x => x && typeof x.effort === "string").map(x => ({ effort: x.effort })) } : {}),
-				...(Array.isArray(m.service_tiers) ? { service_tiers: m.service_tiers.filter(x => x && (x.id === "priority" || x.id === "fast")).map(x => ({ id: x.id })) } : {}),
+				...(Array.isArray(m.service_tiers) ? { service_tiers: m.service_tiers.filter(x => x && ACCELERATED_TIERS.includes(x.id)).map(x => ({ id: x.id })) } : {}),
 			}));
 			const changed = JSON.stringify(visible) !== JSON.stringify(catalog);
 			catalog = visible;
@@ -453,20 +461,24 @@ function createChatGPT({ store, openExternal, fetch: request = globalThis.fetch,
 			return modelValue();
 		}
 	}
-	async function fast(enabled) {
+	async function setSpeed(field, enabled) {
 		if (typeof enabled !== "boolean") throw fail("identity");
 		const accountId = active()?.id, capturedEpoch = epoch;
 		await ready();
 		return serial(async () => {
 			if (!accountId || active()?.id !== accountId || capturedEpoch !== epoch) throw fail("disconnected");
-			const next = structuredClone(state); next.registrations.find(r => r.id === accountId).fastMode = enabled;
+			if (enabled && field === "ultrafastMode" && !catalog.some(m => m.service_tiers?.some(t => t.id === "ultrafast"))) throw fail("catalog");
+			const next = structuredClone(state);
+			const account = next.registrations.find(r => r.id === accountId);
+			account[field] = enabled;
+			if (enabled) account[field === "fastMode" ? "ultrafastMode" : "fastMode"] = false;
 			await save(next); authorityRevision++; notify(); return snapshot();
 		});
 	}
 	function reportTier(value) {
-		if (!value || value.accountId !== active()?.id || value.epoch !== epoch || value.authorityRevision !== authorityRevision || !catalog.some(m => m.id === value.modelId) || !Number.isSafeInteger(value.startedAt) || (value.requested !== null && value.requested !== "priority" && value.requested !== "fast")) return;
+		if (!value || value.accountId !== active()?.id || value.epoch !== epoch || value.authorityRevision !== authorityRevision || !catalog.some(m => m.id === value.modelId) || !Number.isSafeInteger(value.startedAt) || (value.requested !== null && !ACCELERATED_TIERS.includes(value.requested))) return;
 		if (lastServiceTier?.startedAt > value.startedAt) return;
-		lastServiceTier = { accountId: value.accountId, modelId: value.modelId, requested: value.requested, served: ["default", "priority", "fast", "auto", "flex"].includes(value.served) ? value.served : null, startedAt: value.startedAt }; notify();
+		lastServiceTier = { accountId: value.accountId, modelId: value.modelId, requested: value.requested, served: ["default", "auto", "flex", ...ACCELERATED_TIERS].includes(value.served) ? value.served : null, startedAt: value.startedAt }; notify();
 	}
 	async function select(id) {
 		pending?.cancel();
@@ -566,7 +578,7 @@ function createChatGPT({ store, openExternal, fetch: request = globalThis.fetch,
 	function close() { closed = true; pending?.cancel(); stop(); }
 	function pause() { paused = true; pending?.cancel(); stop(); notify(); }
 	function resume() { paused = false; if (!storageDenied) suspended = false; notify(); }
-	return { status, login, cancelLogin, lease, models, select, consent, fast, reportTier, disconnect, logout, close, pause, resume, stamp };
+	return { status, login, cancelLogin, lease, models, select, consent, fast: (enabled) => setSpeed("fastMode", enabled), ultrafast: (enabled) => setSpeed("ultrafastMode", enabled), reportTier, disconnect, logout, close, pause, resume, stamp };
 }
 
 module.exports = { createChatGPT, fileStore, publicError, allowedAuthEndpoint, SCOPES, validateState };

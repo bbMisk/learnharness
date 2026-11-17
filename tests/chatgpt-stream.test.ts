@@ -16,6 +16,7 @@ const realFetch = globalThis.fetch;
 const desktopMarker = process.env.LH_DESKTOP_SERVER, desktopSecret = process.env.LH_DESKTOP_API_SECRET;
 const originalKey = process.env.OPENAI_API_KEY;
 let leaseError: string | null = null;
+let requestedTier: "ultrafast" | undefined;
 let requests: { authorization: string | null; body: Record<string, any>; url: string }[] = [];
 let responseEvents: unknown[] = [];
 const ipc = (value: unknown) => (process.emit as (name: string, value: unknown) => boolean)("message", value);
@@ -29,7 +30,7 @@ before(async () => {
 	Object.defineProperty(process, "send", { configurable: true, value: (message: any, callback?: () => void) => {
 		queueMicrotask(() => {
 			ipc({ channel: "lh:chatgpt", id: message.id, op: message.op,
-				...(message.op === "lease" && leaseError ? { ok: false, error: leaseError, stamp: { epoch: 1, authorityRevision: 1, revision: 1 } } : { ok: true, value: message.op === "lease" ? { accessToken: "scratch-oauth-only", accountId: "scratch-account", epoch: 1, authorityRevision: 1, revision: 1 } : { epoch: 1, authorityRevision: 1, revision: 1, status, accountId: "scratch-account", models: [{ id: model.id, name: "Scratch account model" }, { id: "unknown-capabilities", name: "Do not invent capabilities" }] } }),
+				...(message.op === "lease" && leaseError ? { ok: false, error: leaseError, stamp: { epoch: 1, authorityRevision: 1, revision: 1 } } : { ok: true, value: message.op === "lease" ? { accessToken: "scratch-oauth-only", requestedTier, accountId: "scratch-account", epoch: 1, authorityRevision: 1, revision: 1 } : { epoch: 1, authorityRevision: 1, revision: 1, status, accountId: "scratch-account", models: [{ id: model.id, name: "Scratch account model" }, { id: "unknown-capabilities", name: "Do not invent capabilities" }] } }),
 			});
 		});
 		callback?.(); return true;
@@ -90,6 +91,18 @@ test("alias resolves only OAuth; native Responses body is stateless/namespaced, 
 	assert(replay.some((item: any) => item.encrypted_content === "scratch-encrypted-reasoning"));
 	assert(replay.some((item: any) => item.type === "function_call" && item.id === "fc_scratch" && item.namespace === "learnharness"));
 	assert(replay.some((item: any) => item.type === "function_call_output" && item.call_id === "call_scratch"));
+});
+
+test("the account-approved Ultrafast tier reaches the Responses request", async () => {
+	requests = [];
+	responseEvents = [complete()];
+	requestedTier = "ultrafast";
+	try {
+		const engine = piEngineForSpec({ provider: "chatgpt", id: model.id }, false);
+		await engine.streamFn(engine.model, context()).result();
+		assert.equal(requests.length, 1);
+		assert.equal(requests[0]!.body.service_tier, "ultrafast");
+	} finally { requestedTier = undefined; }
 });
 
 test("mixed history never blanket-relabels API providers or reuses foreign reasoning signatures", () => {

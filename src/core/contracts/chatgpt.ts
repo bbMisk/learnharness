@@ -15,6 +15,8 @@ export interface ChatGPTStatus {
 	catalogError?: string | null;
  fastMode?: boolean;
  fastModels?: string[];
+ ultrafastMode?: boolean;
+ ultrafastModels?: string[];
  lastServiceTier?: { modelId: string; requested: string | null; served: string | null };
 }
 export interface ChatGPTControlBridge {
@@ -26,6 +28,7 @@ export interface ChatGPTControlBridge {
 	disconnect(id: string): Promise<ChatGPTStatus>;
 	logout(id: string): Promise<ChatGPTStatus>;
 	fast?(enabled: boolean): Promise<ChatGPTStatus>;
+	ultrafast?(enabled: boolean): Promise<ChatGPTStatus>;
 	consent(enabled: boolean): Promise<ChatGPTStatus>;
 	onChange(callback: () => void): () => void;
 }

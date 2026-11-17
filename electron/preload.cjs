@@ -74,6 +74,7 @@ contextBridge.exposeInMainWorld("lh", {
 		logout: (id) => ipcRenderer.invoke("lh:chatgpt:control", { op: "logout", id }),
 		consent: (enabled) => ipcRenderer.invoke("lh:chatgpt:control", { op: "consent", enabled }),
 		fast: (enabled) => ipcRenderer.invoke("lh:chatgpt:control", { op: "fast", enabled }),
+		ultrafast: (enabled) => ipcRenderer.invoke("lh:chatgpt:control", { op: "ultrafast", enabled }),
 		onChange: (cb) => {
 			const listener = () => cb();
 			ipcRenderer.on("lh:chatgpt:changed", listener);

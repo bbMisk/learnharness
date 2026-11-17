@@ -596,3 +596,23 @@ test("a failed Fast change shows its reason beside the footer pill, and there is
  assert.match(document.querySelector('[role="alert"]')?.textContent??"",/Fast mode is unavailable right now/);
  assertSameNode(document.querySelector('[data-testid="chatgpt-fast-setting"]'),null);
 });
+
+test("Ultrafast can be opted into on an eligible model and turned off after availability changes", async () => {
+ const initial = {...connected(),ultrafastMode:false,ultrafastModels:["gpt-6.2-sol"]} as ChatGPTStatus;
+ const f = fixture(initial, {ultrafast: async enabled => {
+  const next = {...f.status,ultrafastMode:enabled};
+  f.push(next);
+  return next;
+ }});
+ await mount(<ChatGPTSpeedIndicator modelId="gpt-6.2-sol"/>);
+ const speed = () => byTest("chatgpt-ultrafast-indicator");
+ assert.equal(speed().textContent, "Ultrafast off");
+ await click(speed());
+ assert.equal(speed().getAttribute("aria-pressed"), "true");
+ await act(async () => f.push({...f.status,lastServiceTier:{modelId:"gpt-6.2-sol",requested:"ultrafast",served:"ultrafast"}}));
+ assert.match(speed().title, /Last response: Ultrafast/);
+ await act(async () => f.push({...f.status,ultrafastModels:[]}));
+ assert.equal(speed().textContent, "Ultrafast unavailable");
+ await click(speed());
+ assertSameNode(document.querySelector('[data-testid="chatgpt-ultrafast-indicator"]'), null);
+});

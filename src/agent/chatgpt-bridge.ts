@@ -7,7 +7,7 @@ export type { ChatGPTStatus } from "../core/contracts/chatgpt.ts";
 export interface Stamp { epoch: number; authorityRevision: number; revision: number }
 interface StatusValue extends Stamp { status: ChatGPTStatus }
 interface ModelsValue extends StatusValue { accountId: string | null; models: ({ id: string; name: string } & Record<string, unknown>)[] }
-interface LeaseValue extends Stamp { accessToken: string; accountId: string; requestedTier?: "priority" | "fast" }
+interface LeaseValue extends Stamp { accessToken: string; accountId: string; requestedTier?: "priority" | "fast" | "ultrafast" }
 interface Pending { op: string; resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }
 interface BridgeState {
  status: ChatGPTStatus; stamp: Stamp; models: Model<"openai-responses">[]; catalogAccount: string | null;
@@ -99,7 +99,7 @@ export async function chatGPTLease(scope: AdmissionScope, background: boolean): 
  if (!chatGPTScopeCurrent(scope)) throw new Error("ChatGPT catalog authority changed");
  const value = await chatGPTRequest<LeaseValue>("lease", { background, expectedAccountId: scope.accountId, expectedAuthorityRevision: scope.authorityRevision, selectedModelId: scope.selectedModelId });
  if (!validStamp(value) || !chatGPTScopeCurrent(scope) || value.epoch !== scope.epoch || value.authorityRevision !== scope.authorityRevision || value.accountId !== scope.accountId || typeof value.accessToken !== "string" || !value.accessToken || value.accessToken.startsWith("sk-")) throw new Error("ChatGPT lease is stale");
- if (value.requestedTier !== undefined && value.requestedTier !== "priority" && value.requestedTier !== "fast") throw new Error("Invalid ChatGPT service tier");
+ if (value.requestedTier !== undefined && value.requestedTier !== "priority" && value.requestedTier !== "fast" && value.requestedTier !== "ultrafast") throw new Error("Invalid ChatGPT service tier");
  return value;
 }
 /** Safe status confirmation can establish consent-only denial, never parse error text. */
