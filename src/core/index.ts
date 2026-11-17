@@ -104,4 +104,4 @@ export * from "./demo-document.ts";
 
 export * from "./review.ts";
 export { IMAGE_MIME, uploadedImageReferences, withoutUploadedImagePaths } from "./upload-images.ts";
-export type { ProjectRecord, ProjectView, ProjectFile, ProjectSummary } from './projects.ts';
+export type { ProjectRecord, ProjectView, ProjectFile, ProjectFolder, ProjectSummary } from './projects.ts';

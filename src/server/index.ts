@@ -58,7 +58,7 @@ export { uploadStore, UploadError } from "../store/uploads.ts";
 export { learningHistory, captureLearningHistory } from "./learning-history.ts";
 
 export { reviewSnapshot, reviewCatalog, ReviewError } from "./review.ts";
-export { projectStore, projectView, projectInstructions } from './projects.ts';
+export { projectStore, projectView, projectInstructions, checkProjectFolder } from './projects.ts';
 export { setChatOrganization } from '../store/chats.ts';
 export { subscriptionControlsResponse, subscriptionBrowserResponse } from "./web-subscription-http.ts";
 export { sessionCost } from "./pricing.ts";

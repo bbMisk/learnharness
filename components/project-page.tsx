@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowUpRightIcon, FileIcon, FolderIcon, MessageSquareIcon, PaperclipIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react";
@@ -20,6 +20,8 @@ import { ConnectionDialog } from "@/components/settings/connection-controls";
 import { clearDraft, readDraft, writeDraft } from "@/components/draft-store";
 /** A project deleted here or in another window (or restored by browser Back
  *  after a delete) swaps for the not-found page, as ChatGate does for chats. */
+const noSubscription = () => () => {};
+
 export function ProjectPage({ initial }: { initial: ProjectView }) {
 	const [gone, setGone] = useState(false);
 	return gone ? <NotFoundView message="This project was deleted." /> : <ProjectBody initial={initial} onGone={() => setGone(true)} />;
@@ -184,7 +186,13 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 			if (!id) throw new Error("The file could not be added to this project.");
 			await save({ addFileIds: [id] });
 		},
+		onFolder: async (folder) => {
+			await save({ addFolders: [folder] });
+		},
 	});
+	// Client-only: the folder picker exists only in the local desktop app.
+	const linkedFolders = project.linkedFolders ?? [];
+	const canAddFolder = useSyncExternalStore(noSubscription, () => files.canAddFolder(), () => false);
 	const tabClass =
 		"flex items-center gap-2 rounded-md px-3 py-2 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground data-[state=active]:bg-accent data-[state=active]:text-foreground";
 	const buttonClass =
@@ -367,6 +375,18 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 										<PaperclipIcon className="size-3.5" />
 										Add files
 									</button>
+									{canAddFolder && (
+										<button
+											type="button"
+											data-testid="project-add-folder"
+											disabled={files.uploading}
+											onClick={() => void files.addFolder()}
+											className={buttonClass + " bg-accent"}
+										>
+											<FolderIcon className="size-3.5" />
+											Add folder
+										</button>
+									)}
 									<input
 										ref={files.inputRef}
 										type="file"
@@ -379,10 +399,12 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 										}}
 									/>
 								</div>
-								{!project.files.length && (
+								{!project.files.length && !linkedFolders.length && (
 									<div className="rounded-lg bg-card/50 px-6 py-10 text-center">
 										<PaperclipIcon className="mx-auto mb-3 size-5 text-muted-foreground" />
-										<p className="font-prose text-lg">Drop files here, or choose Add files.</p>
+										<p className="font-prose text-lg">
+											{canAddFolder ? "Drop files or folders here, or choose Add files or Add folder." : "Drop files here, or choose Add files."}
+										</p>
 										<p className="mt-2 font-prose text-sm text-muted-foreground">
 											Add notes, readings, or problem sets for the tutor to reference.
 										</p>
@@ -404,6 +426,32 @@ function ProjectBody({ initial, onGone }: { initial: ProjectView; onGone: () => 
 									</div>
 								))}
 								<div className="space-y-1">
+									{linkedFolders.map((folder) => (
+										<div
+											key={folder.path}
+											data-testid="project-folder"
+											className="group flex items-center gap-3 rounded-lg px-3 py-3 hover:bg-accent/40"
+										>
+											<FolderIcon className="size-4 shrink-0 text-muted-foreground" />
+											<div className="min-w-0 flex-1">
+												<div className="truncate font-prose text-base">{folder.name}</div>
+												<div className="truncate text-xs text-muted-foreground" title={folder.path}>
+													{folder.available ? folder.path : "Folder not found: " + folder.path}
+												</div>
+											</div>
+											<span className="text-xs text-muted-foreground">Linked</span>
+											<button
+												type="button"
+												aria-label={"Remove folder " + folder.name}
+												onClick={() =>
+													void save({ removeFolders: [folder.path] }).catch((error) => setError(actionError(error, "Folder could not be removed. Try again.")))
+												}
+												className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+											>
+												<XIcon className="size-3.5" />
+											</button>
+										</div>
+									))}
 									{project.files.map((file) => (
 										<div
 											key={file.id}
