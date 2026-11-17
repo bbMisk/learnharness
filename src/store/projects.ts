@@ -54,6 +54,7 @@ export function createProjectStore(root: string) {
 				name: cleanName(name) || "New project",
 				instructions: "",
 				fileIds: [],
+				folders: [],
 				createdAt: now,
 				updatedAt: now,
 			});
@@ -73,7 +74,7 @@ export function createProjectStore(root: string) {
 			const wanted = cleanName(name).toLowerCase();
 			return list().some((project) => project.id !== exceptId && project.name.toLowerCase() === wanted);
 		},
-		update(id: string, updates: Partial<Pick<ProjectRecord, "name" | "instructions" | "fileIds">>) {
+		update(id: string, updates: Partial<Pick<ProjectRecord, "name" | "instructions" | "fileIds" | "folders">>) {
 			const record = get(id);
 			if (!record) throw new Error("Project not found.");
 			return save({
@@ -81,6 +82,7 @@ export function createProjectStore(root: string) {
 				...updates,
 				name: cleanName(updates.name ?? "") || record.name,
 				fileIds: updates.fileIds ? [...new Set(updates.fileIds)] : record.fileIds,
+				folders: updates.folders ? [...new Set(updates.folders)] : record.folders ?? [],
 				updatedAt: new Date(Math.max(Date.now(), Date.parse(record.updatedAt) + 1)).toISOString(),
 			});
 		},

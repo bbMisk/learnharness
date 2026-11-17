@@ -7,6 +7,7 @@ import path from "node:path";
 import { PATHS } from "../../config.ts";
 import { isWithin, realSourcePath, type FileAccessPolicy } from "../agent/tools/file-access.ts";
 import { readFileAccessSettings } from "../store/settings.ts";
+import { linkedProjectFolders } from "./projects.ts";
 
 export function expandFolder(folder: string, home: string = os.homedir()): string {
 	if (folder === "~") return home;
@@ -31,6 +32,8 @@ export function fileAccessPolicy(): FileAccessPolicy {
 	const folders = result.settings.folders.map((folder) => expandFolder(folder));
 	// Added only once it exists, so a fresh install reports no "unavailable folder".
 	if (result.settings.restricted && fs.existsSync(uploadsFolder())) folders.push(uploadsFolder());
+	// Folders the learner linked to a project stay readable too (owner 2026-11-17).
+	if (result.settings.restricted) folders.push(...linkedProjectFolders());
 	return { restricted: result.settings.restricted, folders };
 }
 

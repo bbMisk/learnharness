@@ -1,5 +1,5 @@
 import { NAME_MAX_CHARS } from "@/src/core";
-import { jsonResponse, projectStore, projectView, setChatOrganization, stores, uploadStore } from "@/src/server";
+import { checkProjectFolder, jsonResponse, projectStore, projectView, setChatOrganization, stores, uploadStore } from "@/src/server";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
 	const project = await projectView((await params).id);
@@ -18,7 +18,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
 		(body.name !== undefined && (typeof body.name !== "string" || !body.name.trim() || body.name.length > 200)) ||
 		(body.instructions !== undefined && (typeof body.instructions !== "string" || body.instructions.length > 32000)) ||
 		(body.expected !== undefined && (!body.expected || typeof body.expected !== "object")) ||
-		["addFileIds", "removeFileIds"].some(
+		["addFileIds", "removeFileIds", "addFolders", "removeFolders"].some(
 			(key) => body[key] !== undefined && (!Array.isArray(body[key]) || body[key].some((id: unknown) => typeof id !== "string")),
 		)
 	) {
@@ -28,11 +28,19 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
 		return Response.json({ error: "Reload this project before saving. Keep a copy of your edits." }, { status: 400 });
 	if (body.name !== undefined && projectStore.nameTaken(body.name, id))
 		return Response.json({ error: "A project with that name already exists." }, { status: 400 });
-	if (body.fileIds !== undefined) return Response.json({ error: "Reload the project before removing files." }, { status: 400 });
+	if (body.fileIds !== undefined || body.folders !== undefined)
+		return Response.json({ error: "Reload the project before removing files." }, { status: 400 });
 	try {
 		await Promise.all((body.addFileIds || []).map((id: string) => uploadStore.read(id)));
 		// No await between comparison and write: edits and file deltas use the current host record.
 		const current = projectStore.get(id)!;
+		const linked = (current.folders ?? []).filter((folder) => !body.removeFolders?.includes(folder));
+		const added: string[] = [];
+		for (const folder of body.addFolders || []) {
+			const checked = checkProjectFolder(folder, [...linked, ...added]);
+			if ("error" in checked) return Response.json({ error: checked.error }, { status: 400 });
+			added.push(checked.path);
+		}
 		const conflicts = (["name", "instructions"] as const).filter(
 			(field) =>
 				body[field] !== undefined &&
@@ -51,6 +59,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
 			...(body.addFileIds || body.removeFileIds
 				? { fileIds: [...current.fileIds.filter((file) => !body.removeFileIds?.includes(file)), ...(body.addFileIds || [])] }
 				: {}),
+			...(body.addFolders || body.removeFolders ? { folders: [...linked, ...added] } : {}),
 		});
 		return Response.json(await projectView(id));
 	} catch (error) {

@@ -86,6 +86,9 @@ export interface FileDropOptions {
 	label?: string;
 	activate?: () => void;
 	onUploaded?: (path: string) => Promise<void>;
+	/** Where a dropped or picked folder goes instead of the draft (project
+	 *  Files links it live). Folders still need the local desktop app. */
+	onFolder?: (path: string) => Promise<void>;
 }
 export function useFileDrop(value: string, onChange: (value: string) => void, options: FileDropOptions = {}) {
 	const { onUploadingChange, hideImagePaths = false, imagesOnly = false, uploadAll = false } = options;
@@ -131,13 +134,17 @@ export function useFileDrop(value: string, onChange: (value: string) => void, op
 					if (directories?.has(file)) {
 						// A folder attaches by its own path with a trailing separator
 						// (upstream 0.5.0); its bytes are never read or uploaded.
-						if (imagesOnly || uploadAll) throw new Error("Folders can't be added here. Add the files inside it instead.");
+						if (imagesOnly || (uploadAll && !options.onFolder)) throw new Error("Folders can't be added here. Add the files inside it instead.");
 						const native = window.lh?.remoteServer ? undefined : window.lh?.getPathForFile;
 						let folder = "";
 						try { folder = native?.(file) || ""; } catch { /* no local path */ }
 						if (!folder) throw new Error("Folders can only be attached in the desktop app on this computer.");
-						const path = directoryReferencePath(folder);
 						if (!mounted.current) return;
+						if (options.onFolder) {
+							await options.onFolder(folder);
+							continue;
+						}
+						const path = directoryReferencePath(folder);
 						const next = appendFilePaths(latest.current.value, [path]);
 						latest.current.onChange(next);
 						latest.current.value = next;
@@ -215,13 +222,18 @@ export function useFileDrop(value: string, onChange: (value: string) => void, op
 		inputRef,
 		addFiles,
 		/** The desktop folder picker applies (local desktop app, a field that takes paths). */
-		canAddFolder: () => !imagesOnly && !uploadAll && !window.lh?.remoteServer && !!window.lh?.chooseAttachmentFolder,
+		canAddFolder: () =>
+			!imagesOnly && (!uploadAll || !!options.onFolder) && !window.lh?.remoteServer && !!window.lh?.chooseAttachmentFolder,
 		/** Attach a picked folder like a dropped one: its path, never its contents. */
 		async addFolder() {
 			setError("");
 			try {
 				const folder = await window.lh?.chooseAttachmentFolder?.();
 				if (!folder || !mounted.current) return;
+				if (options.onFolder) {
+					await options.onFolder(folder);
+					return;
+				}
 				const next = appendFilePaths(latest.current.value, [directoryReferencePath(folder)]);
 				latest.current.onChange(next);
 				latest.current.value = next;
