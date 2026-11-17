@@ -320,7 +320,9 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 
 	return (
 		<div ref={containerRef} className="relative ml-auto flex min-w-0 max-w-full shrink-0 flex-wrap items-center justify-end gap-1.5" data-testid="model-control">
-{effectiveProvider === "chatgpt" && <ChatGPTSpeedIndicator modelId={effectiveId} />}
+			{effectiveProvider === "chatgpt" && (
+				<ChatGPTSpeedIndicator modelId={effectiveId} onOpenMenu={() => setOpen(null)} otherMenuOpen={open !== null} />
+			)}
 
 			<Hint
 				label={effectiveId ? `${effectiveProvider ? `${effectiveProvider}:` : ""}${effectiveId}` : "Model selector"}

@@ -1,6 +1,9 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from "react";
+import { CheckIcon, ZapIcon } from "lucide-react";
+import { MenuShell } from "@/components/menu-shell";
+import { usePopoverDismiss } from "@/components/popover-dismiss";
 import type { ChatGPTStatus } from "@/src/core";
 import { ConnectionDialog, ConnectionFooter, ConnectionRow } from "./connection-controls";
 import { Button } from "@/components/ui/button";
@@ -358,32 +361,113 @@ export function ChatGPTBackgroundAccess({ provider }: { provider: string | undef
 	return <Button type="button" size="xs" variant="ghost" className="cursor-pointer" disabled={ui.busy} onClick={() => ui.manage(account.id)}>Enable background use</Button>;
 }
 
-/** Account-owned speed preferences and the tier delivered for the selected model. */
-export function ChatGPTSpeedIndicator({ modelId }: { modelId?: string }) {
+const SPEEDS = ["Standard", "Fast", "Ultrafast"] as const;
+type ChatGPTSpeed = (typeof SPEEDS)[number];
+
+function SpeedBolt({ speed }: { speed: ChatGPTSpeed }) {
+	if (speed === "Ultrafast") {
+		return <span aria-hidden="true" className="inline-flex items-center -space-x-1">
+			<ZapIcon className="size-3.5 fill-current" />
+			<ZapIcon className="size-3.5 fill-current" />
+		</span>;
+	}
+	return <ZapIcon aria-hidden="true" className={`size-4 ${speed === "Fast" ? "fill-current" : ""}`} />;
+}
+
+export function ChatGPTSpeedIndicator({ modelId, onOpenMenu, otherMenuOpen = false }: {
+	modelId?: string;
+	onOpenMenu?: () => void;
+	otherMenuOpen?: boolean;
+}) {
 	const ui = useContext(Context);
-	// Show speed control failures beside the footer controls.
+	const triggerRef = useRef<HTMLButtonElement>(null);
+	const menuId = useId();
+	const [open, setOpen] = useState(false);
 	const [asked, setAsked] = useState(false);
+	const fast = ui.status.fastMode === true;
+	const ultrafast = ui.status.ultrafastMode === true;
+	const fastAvailable = ui.status.fastModels?.includes(modelId ?? "") === true;
+	const ultrafastAvailable = !!ui.ultrafast && ui.status.ultrafastModels?.includes(modelId ?? "") === true;
+	const showMenu = ultrafastAvailable || (ultrafast && !!ui.ultrafast);
+	const menuOpen = open && showMenu && !otherMenuOpen && !!ui.status.activeId;
+	const dismiss = useCallback(() => setOpen(false), []);
+	const closeAndFocus = useCallback(() => {
+		dismiss();
+		triggerRef.current?.focus();
+	}, [dismiss]);
+	usePopoverDismiss(triggerRef, menuOpen, dismiss, {
+		inside: '[data-testid="chatgpt-speed-menu"]',
+		onEscape: closeAndFocus,
+	});
+	useEffect(() => { if (!showMenu || otherMenuOpen) dismiss(); }, [showMenu, otherMenuOpen, dismiss]);
 	if (!ui.status.activeId) return null;
-	const enabled = ui.status.fastMode === true;
-	const supported = ui.status.fastModels?.includes(modelId ?? "");
-	const ultrafastEnabled = ui.status.ultrafastMode === true;
-	const ultrafastSupported = ui.status.ultrafastModels?.includes(modelId ?? "");
+
+	const speed = ultrafast && ultrafastAvailable ? "Ultrafast" : fast && fastAvailable ? "Fast" : "Standard";
 	const last = ui.status.lastServiceTier?.modelId === modelId ? ui.status.lastServiceTier : undefined;
 	const served = last?.served === "ultrafast" ? "Ultrafast" : last?.served === "priority" || last?.served === "fast" ? "Fast" : last?.served === "default" ? "Standard" : "Unknown";
-	const hint = `${enabled ? "Request Fast responses" : ultrafastEnabled && ultrafastSupported ? "Ultrafast is selected" : "Use Standard responses"}. Fast uses more plan allowance and may still be served at Standard speed.${last ? ` Last response: ${served}.` : ""}${!supported && !enabled ? " Fast is unavailable for this model." : ""}`;
-	const ultrafastHint = `Ultrafast uses more plan allowance.${ultrafastEnabled && !ultrafastSupported ? " This model uses Standard speed." : ""}${last ? ` Last response: ${served}.` : ""}`;
-	const speedClass = "flex h-7 shrink-0 items-center whitespace-nowrap rounded-full border bg-card/85 px-2.5 text-xs shadow-lg backdrop-blur transition-colors hover:bg-muted disabled:opacity-50";
+	const unavailable = ultrafast && !ultrafastAvailable ? "Ultrafast is unavailable for this model." :
+		!fastAvailable && (fast || !ultrafastAvailable) ? "Fast is unavailable for this model." : "";
+	const label = `Speed: ${speed}`;
+	const title = [label, unavailable, last && `Last response: ${served}.`].filter(Boolean).join(" ");
+	function openMenu() {
+		onOpenMenu?.();
+		setOpen(true);
+	}
+	function choose(next: ChatGPTSpeed) {
+		if (menuOpen) closeAndFocus();
+		setAsked(true);
+		if (next === "Ultrafast" && !ultrafast) ui.ultrafast?.(true);
+		else if (next === "Fast" && !fast) ui.fast(true);
+		else if (next === "Standard" && ultrafast) ui.ultrafast?.(false);
+		else if (next === "Standard" && fast) ui.fast(false);
+	}
+
 	return <>
-		<button type="button" data-testid="chatgpt-speed-indicator" aria-label="Fast mode" aria-pressed={enabled}
-			disabled={ui.busy || (!enabled && !supported)} onClick={() => { setAsked(true); ui.fast(!enabled); }} title={hint}
-			className={speedClass}>
-			Fast {enabled ? "on" : "off"}
+		<button
+			ref={triggerRef}
+			type="button"
+			data-testid="chatgpt-speed-indicator"
+			data-speed={speed.toLowerCase()}
+			aria-label={label}
+			aria-haspopup={showMenu ? "menu" : undefined}
+			aria-expanded={showMenu ? menuOpen : undefined}
+			aria-controls={menuOpen ? menuId : undefined}
+			aria-pressed={showMenu ? undefined : speed === "Fast"}
+			disabled={ui.busy || (!showMenu && !fast && !fastAvailable)}
+			title={title}
+			onClick={() => {
+				if (!showMenu) choose(fast ? "Standard" : "Fast");
+				else if (menuOpen) dismiss();
+				else openMenu();
+			}}
+			onKeyDown={(event) => {
+				if (showMenu && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+					event.preventDefault();
+					openMenu();
+				}
+			}}
+			className={`inline-flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${speed === "Standard" ? "text-muted-foreground" : "text-foreground"}`}
+		>
+			<SpeedBolt speed={speed} />
 		</button>
-		{ui.ultrafast && (ultrafastSupported || ultrafastEnabled) && (
-			<button type="button" data-testid="chatgpt-ultrafast-indicator" aria-label="Ultrafast mode" aria-pressed={ultrafastEnabled}
-				disabled={ui.busy} onClick={() => { setAsked(true); ui.ultrafast?.(!ultrafastEnabled); }} title={ultrafastHint} className={speedClass}>
-				Ultrafast {ultrafastEnabled ? (ultrafastSupported ? "on" : "unavailable") : "off"}
-			</button>
+		{menuOpen && (
+			<MenuShell anchorRef={triggerRef} testid="chatgpt-speed-menu" preferredSide="up" focusFirst
+				menuClass="w-36 rounded-lg border bg-popover p-1 text-sm text-popover-foreground shadow-md">
+				<div id={menuId} role="menu" aria-label="Response speed">
+					{SPEEDS.map((option) => (
+						<button key={option} type="button" role="menuitemradio" tabIndex={-1}
+							aria-checked={speed === option}
+							disabled={option === "Fast" ? !fastAvailable : option === "Ultrafast" && !ultrafastAvailable}
+							title={option === "Standard" ? undefined : "Uses more ChatGPT plan allowance"}
+							onClick={() => choose(option)}
+							className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left outline-none hover:bg-accent focus:bg-accent disabled:opacity-50">
+							<span className="flex w-6 shrink-0 justify-center"><SpeedBolt speed={option} /></span>
+							{option}
+							{speed === option && <CheckIcon aria-hidden="true" className="ml-auto size-3.5 shrink-0" />}
+						</button>
+					))}
+				</div>
+			</MenuShell>
 		)}
 		{asked && ui.error && <span role="alert" className="text-xs text-destructive">{ui.error}</span>}
 	</>;

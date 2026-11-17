@@ -577,42 +577,65 @@ test("Fast remains an explicit preference when the service delivers Standard, an
  const f=fixture(initial,{fast:async enabled=>{changed.push(enabled);const next={...f.status,fastMode:enabled};f.push(next);return next;}});
  await mount(<ChatGPTSpeedIndicator modelId="gpt-6.1-terra"/>);
  const speed=()=>byTest("chatgpt-speed-indicator");
- assert.equal(speed().textContent,"Fast on");assert.equal(speed().getAttribute("aria-pressed"),"true");
+ assert.equal(speed().getAttribute("data-speed"),"fast");assert.equal(speed().getAttribute("aria-pressed"),"true");
+ assert.equal(speed().querySelectorAll("svg.fill-current").length, 1);
  assert.match(speed().title,/Last response: Standard/);
- await click(speed());assert.equal(speed().textContent,"Fast off");assert.deepEqual(changed,[false]);
- await click(speed());assert.equal(speed().textContent,"Fast on");assert.deepEqual(changed,[false,true]);
+ await click(speed());assert.equal(speed().getAttribute("data-speed"),"standard");assert.deepEqual(changed,[false]);
+ assert.equal(speed().querySelectorAll("svg.fill-current").length, 0);
+ await click(speed());assert.equal(speed().getAttribute("data-speed"),"fast");assert.deepEqual(changed,[false,true]);
  await act(async()=>f.push({...f.status,fastModels:[]}));
  assert.equal((speed() as HTMLButtonElement).disabled,false,"turning off is always allowed");
  await click(speed());assert.equal((speed() as HTMLButtonElement).disabled,true,"unsupported models cannot request Fast");
  assert.match(speed().title,/unavailable/);
 });
 
-test("a failed Fast change shows its reason beside the footer pill, and there is no second Fast switch in Manage",async()=>{
+test("a failed Fast change shows its reason beside the speed button, and there is no second Fast switch in Manage",async()=>{
  const initial={...connected(),fastMode:false,fastModels:["gpt-6.1-terra"]} as ChatGPTStatus;
  fixture(initial,{fast:async()=>({error:"Fast mode is unavailable right now."}) as unknown as ChatGPTStatus});
  await mount(<ChatGPTSpeedIndicator modelId="gpt-6.1-terra"/>);
- assertSameNode(document.querySelector('[role="alert"]'),null,"no error before the pill is used");
+ assertSameNode(document.querySelector('[role="alert"]'),null,"no error before the button is used");
  await click(byTest("chatgpt-speed-indicator"));
  assert.match(document.querySelector('[role="alert"]')?.textContent??"",/Fast mode is unavailable right now/);
  assertSameNode(document.querySelector('[data-testid="chatgpt-fast-setting"]'),null);
 });
 
-test("Ultrafast can be opted into on an eligible model and turned off after availability changes", async () => {
- const initial = {...connected(),ultrafastMode:false,ultrafastModels:["gpt-6.2-sol"]} as ChatGPTStatus;
- const f = fixture(initial, {ultrafast: async enabled => {
-  const next = {...f.status,ultrafastMode:enabled};
-  f.push(next);
-  return next;
- }});
- await mount(<ChatGPTSpeedIndicator modelId="gpt-6.2-sol"/>);
- const speed = () => byTest("chatgpt-ultrafast-indicator");
- assert.equal(speed().textContent, "Ultrafast off");
+test("the lightning menu switches among three icon states and clears an unavailable Ultrafast preference", async () => {
+ const id = "gpt-6.2-sol";
+ const f = fixture({...connected(), fastMode:false, fastModels:[id], ultrafastMode:false, ultrafastModels:[id]}, {
+  fast: async enabled => {
+   const next = {...f.status, fastMode:enabled, ultrafastMode:false};
+   f.push(next);
+   return next;
+  },
+  ultrafast: async enabled => {
+   const next = {...f.status, fastMode:false, ultrafastMode:enabled};
+   f.push(next);
+   return next;
+  },
+ });
+ await mount(<ChatGPTSpeedIndicator modelId={id}/>);
+ const speed = () => byTest("chatgpt-speed-indicator");
+ const option = (label: string) => button(label, byTest("chatgpt-speed-menu"));
+ assert.equal(speed().getAttribute("aria-label"), "Speed: Standard");
  await click(speed());
- assert.equal(speed().getAttribute("aria-pressed"), "true");
- await act(async () => f.push({...f.status,lastServiceTier:{modelId:"gpt-6.2-sol",requested:"ultrafast",served:"ultrafast"}}));
- assert.match(speed().title, /Last response: Ultrafast/);
- await act(async () => f.push({...f.status,ultrafastModels:[]}));
- assert.equal(speed().textContent, "Ultrafast unavailable");
+ assert.equal(speed().getAttribute("aria-expanded"), "true");
+ assert.equal(option("Standard").getAttribute("aria-checked"), "true");
+ await click(option("Fast"));
+ assert.equal(speed().getAttribute("aria-label"), "Speed: Fast");
+ assert.equal(speed().querySelectorAll("svg.fill-current").length, 1);
  await click(speed());
- assertSameNode(document.querySelector('[data-testid="chatgpt-ultrafast-indicator"]'), null);
+ await click(option("Ultrafast"));
+ assert.equal(speed().getAttribute("aria-label"), "Speed: Ultrafast");
+ assert.equal(speed().querySelectorAll("svg.fill-current").length, 2);
+ await act(async () => f.push({...f.status, lastServiceTier:{modelId:id,requested:"ultrafast",served:"priority"}}));
+ assert.match(speed().title, /Last response: Fast/);
+ await act(async () => f.push({...f.status, ultrafastModels:[]}));
+ assert.equal(speed().getAttribute("aria-label"), "Speed: Standard");
+ assert.match(speed().title, /Ultrafast is unavailable/);
+ await click(speed());
+ assert.equal(option("Ultrafast").disabled, true);
+ await click(option("Standard"));
+ assert.equal(f.status.ultrafastMode, false);
+ assert.equal(speed().getAttribute("aria-haspopup"), null);
+ assertSameNode(document.querySelector('[data-testid="chatgpt-speed-menu"]'), null);
 });
