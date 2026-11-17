@@ -91,6 +91,20 @@ it("the desktop app's Add folder links the picked folder and lists it as one row
 	assert.match(rows[0]!.textContent ?? "", /\/Users\/me\/Course Notes/);
 });
 
+it("a refused folder shows the server's reason and adds no row", async () => {
+	setLh({ chooseAttachmentFolder: async () => "/Users/me/Notes" });
+	await mount({});
+	const realPut = globalThis.fetch;
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) =>
+		init?.method === "PUT"
+			? new Response(JSON.stringify({ error: "That folder is already in this project." }), { status: 400 })
+			: realPut(input, init)) as typeof fetch;
+	await act(async () => addFolderButton()!.click());
+	await settle();
+	assert.match(host.textContent ?? "", /That folder is already in this project\./);
+	assert.equal(host.querySelectorAll('[data-testid="project-folder"]').length, 0);
+});
+
 it("a missing linked folder says so and can be removed", async () => {
 	const puts: object[] = [];
 	await mount({ folders: ["/gone/Old"], linkedFolders: [{ path: "/gone/Old", name: "Old", available: false }] }, puts);

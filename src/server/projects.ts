@@ -9,9 +9,9 @@ export { projectStore };
 
 function readableFolder(folder: string): boolean {
 	try {
-		const real = fs.realpathSync.native(folder);
-		if (!fs.statSync(real).isDirectory()) return false;
-		fs.accessSync(real, fs.constants.R_OK | fs.constants.X_OK);
+		const real = fs.realpathSync.native(/* turbopackIgnore: true */ folder);
+		if (!fs.statSync(/* turbopackIgnore: true */ real).isDirectory()) return false;
+		fs.accessSync(/* turbopackIgnore: true */ real, fs.constants.R_OK | fs.constants.X_OK);
 		return true;
 	} catch {
 		return false;
@@ -49,7 +49,7 @@ export function checkProjectFolder(
 	if (data !== null && isWithin(real, data)) return { error: "That folder holds LearnHarness's own data." };
 	let stat: fs.Stats;
 	try {
-		stat = fs.statSync(real);
+		stat = fs.statSync(/* turbopackIgnore: true */ real);
 	} catch {
 		return { error: "That folder doesn't exist." };
 	}
