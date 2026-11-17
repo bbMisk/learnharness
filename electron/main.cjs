@@ -141,6 +141,8 @@ if (process.argv.includes("--browser-service")) {
 
 let serverProcess = null;
 let clientConnection = false;
+/** The shared host is a loopback URL: same computer, same disk, so folder paths it receives are readable. */
+let hostOnThisComputer = false;
 const { connectionPage, connectionSenders, openConnectionWindow, requestContextClose, installConnectionIPC } = require("./connection-ipc.cjs").createConnectionIPC({ app, BrowserWindow, ipcMain, dialog, serverProcess: () => serverProcess, desktopAPISecret: () => desktopAPISecret });
 
 let chatgpt = null;
@@ -326,7 +328,7 @@ function createWindow(url, connectionError) {
 			nodeIntegration: false,
 
 			preload: path.join(__dirname, "preload.cjs"),
-			additionalArguments: [...(clientConnection ? ["--lh-server-client"] : []), ...(clientConnection || process.env.LH_DEV_URL ? ["--lh-web-subscriptions"] : [])],
+			additionalArguments: [...(clientConnection ? ["--lh-server-client"] : []), ...(clientConnection && hostOnThisComputer ? ["--lh-local-host"] : []), ...(clientConnection || process.env.LH_DEV_URL ? ["--lh-web-subscriptions"] : [])],
 		},
 		// Live-resize + first-paint flash (owner, 2026-09-17): during a resize
 		// the native window surface changes size before Chromium's compositor
@@ -697,6 +699,7 @@ async function main() {
 	catch (error) { connectionError = error.message; }
 	const url = devUrl ?? sharedUrl ?? `http://127.0.0.1:${await freePort()}`;
 	clientConnection = !!sharedUrl || (!!devUrl && !connection.isLoopback(devUrl));
+	hostOnThisComputer = !!sharedUrl && connection.isLoopback(sharedUrl);
 	installConnectionIPC(url);
 	if (!connectionError && !devUrl && !sharedUrl) {
 		desktopAPISecret = randomBytes(32).toString("hex");

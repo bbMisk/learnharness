@@ -77,6 +77,13 @@ export function restoredPreviews(draft: string, known: readonly FilePreview[]): 
 	return restored;
 }
 
+/** A folder is attached by its path, so the host must share this computer's
+ *  disk: a local desktop window, or a shared host on loopback. Files keep
+ *  uploading to a shared host either way. */
+function folderPathsReachHost(): boolean {
+	return !window.lh?.remoteServer || !!window.lh?.hostOnThisComputer;
+}
+
 export interface FileDropOptions {
 	onUploadingChange?: (busy: boolean) => void;
 	hideImagePaths?: boolean;
@@ -135,7 +142,7 @@ export function useFileDrop(value: string, onChange: (value: string) => void, op
 						// A folder attaches by its own path with a trailing separator
 						// (upstream 0.5.0); its bytes are never read or uploaded.
 						if (imagesOnly || (uploadAll && !options.onFolder)) throw new Error("Folders can't be added here. Add the files inside it instead.");
-						const native = window.lh?.remoteServer ? undefined : window.lh?.getPathForFile;
+						const native = folderPathsReachHost() ? window.lh?.getPathForFile : undefined;
 						let folder = "";
 						try { folder = native?.(file) || ""; } catch { /* no local path */ }
 						if (!folder) throw new Error("Folders can only be attached in the desktop app on this computer.");
@@ -223,7 +230,7 @@ export function useFileDrop(value: string, onChange: (value: string) => void, op
 		addFiles,
 		/** The desktop folder picker applies (local desktop app, a field that takes paths). */
 		canAddFolder: () =>
-			!imagesOnly && (!uploadAll || !!options.onFolder) && !window.lh?.remoteServer && !!window.lh?.chooseAttachmentFolder,
+			!imagesOnly && (!uploadAll || !!options.onFolder) && folderPathsReachHost() && !!window.lh?.chooseAttachmentFolder,
 		/** Attach a picked folder like a dropped one: its path, never its contents. */
 		async addFolder() {
 			setError("");
