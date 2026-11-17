@@ -1,7 +1,7 @@
 "use client";
 
 import { MessageResponse } from "@/components/ai-elements/message";
-import type { PdfResult, ResearchResult } from "@/src/core";
+import { isWebSourceUrl, type PdfResult, type ResearchResult } from "@/src/core";
 
 // The research and pdf tool-call boxes are the DispatchCard (the
 // registry's dispatch renderer); their briefs ride the steer message (the
@@ -79,14 +79,19 @@ export function ResearchBriefCard({ output }: { output: unknown }) {
 					<ul className="flex flex-col gap-0.5 text-xs">
 						{result.sources.map((s) => (
 							<li key={s.url} className="truncate">
-								<a
-									href={s.url}
-									target="_blank"
-									rel="noopener noreferrer"
-									className="text-primary underline-offset-2 hover:underline"
-								>
-									{s.title}
-								</a>
+								{isWebSourceUrl(s.url) ? (
+									<a
+										href={s.url}
+										target="_blank"
+										rel="noopener noreferrer"
+										className="text-primary underline-offset-2 hover:underline"
+									>
+										{s.title}
+									</a>
+								) : (
+									// Saved before sources were limited to http(s): never a link.
+									<span className="text-muted-foreground">{s.title}</span>
+								)}
 							</li>
 						))}
 					</ul>

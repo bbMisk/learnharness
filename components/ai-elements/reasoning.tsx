@@ -23,7 +23,7 @@ import {
 import { Streamdown } from "streamdown";
 
 import { transformMathDelimiters } from "@/src/core";
-import { streamdownPlugins, streamdownRemend } from "./message";
+import { streamdownPlugins, streamdownRehypePlugins, streamdownRemend } from "./message";
 import { mdComponents } from "@/components/md-blocks";
 import { CachedBlock } from "@/components/cached-block";
 import { Shimmer } from "./shimmer";
@@ -199,7 +199,7 @@ export type ReasoningContentProps = ComponentProps<
 function ReasoningMarkdown({ children }: { children: string }) {
   const { isStreaming } = useReasoning();
   return (
-    <Streamdown components={mdComponents} plugins={streamdownPlugins} remend={streamdownRemend} parseIncompleteMarkdown={isStreaming} BlockComponent={CachedBlock}>
+    <Streamdown components={mdComponents} plugins={streamdownPlugins} rehypePlugins={streamdownRehypePlugins} remend={streamdownRemend} parseIncompleteMarkdown={isStreaming} BlockComponent={CachedBlock}>
       {transformMathDelimiters(children)}
     </Streamdown>
   );
