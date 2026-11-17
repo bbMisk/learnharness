@@ -105,6 +105,33 @@ it("a refused folder shows the server's reason and adds no row", async () => {
 	assert.equal(host.querySelectorAll('[data-testid="project-folder"]').length, 0);
 });
 
+it("a desktop window on a shared host on this computer (loopback) still offers Add folder", async () => {
+	setLh({ remoteServer: true, hostOnThisComputer: true, chooseAttachmentFolder: async () => "/Users/me/Notes" });
+	const puts: object[] = [];
+	await mount({}, puts);
+	assert.ok(addFolderButton());
+	await act(async () => addFolderButton()!.click());
+	await settle();
+	assert.deepEqual(puts, [{ addFolders: ["/Users/me/Notes"] }]);
+});
+
+it("a dropped folder on a loopback shared host links by its native path", async () => {
+	setLh({ remoteServer: true, hostOnThisComputer: true, getPathForFile: () => "/Users/me/Dropped" });
+	const linked: string[] = [];
+	let drop: ReturnType<typeof useFileDrop> | undefined;
+	function Probe() {
+		drop = useFileDrop("", () => {}, { uploadAll: true, onFolder: async (path) => { linked.push(path); } });
+		return null;
+	}
+	host = document.createElement("div");
+	root = createRoot(host);
+	await act(async () => root.render(<Probe />));
+	const folder = new File([], "Dropped");
+	await act(async () => drop!.addFiles([folder], new Set([folder])));
+	assert.deepEqual(linked, ["/Users/me/Dropped"]);
+	assert.equal(drop!.error, "");
+});
+
 it("a missing linked folder says so and can be removed", async () => {
 	const puts: object[] = [];
 	await mount({ folders: ["/gone/Old"], linkedFolders: [{ path: "/gone/Old", name: "Old", available: false }] }, puts);

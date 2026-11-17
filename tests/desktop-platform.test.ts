@@ -15,7 +15,7 @@ const mainRequire = createRequire(mainFile);
 /** Decline the single-instance lock so normal boot never spawns a server.
  * Then call the REAL createWindow with a stub Electron API and inspect its
  * constructor options. No rewritten copy of the production logic. */
-function windowOptions(platform: string, env: Record<string, string> = {}) {
+function windowOptions(platform: string, env: Record<string, string> = {}, connection = "") {
 	class FakeWindow {
 		constructor(readonly options: unknown) {}
 		webContents = { on() {}, setWindowOpenHandler() {} };
@@ -34,7 +34,7 @@ function windowOptions(platform: string, env: Record<string, string> = {}) {
 		__dirname: dirname(mainFile),
 	};
 	runInNewContext(mainSource, context, { filename: mainFile });
-	const win = runInNewContext('createWindow("http://127.0.0.1:9000")', context) as FakeWindow;
+	const win = runInNewContext(connection + 'createWindow("http://127.0.0.1:9000")', context) as FakeWindow;
 	// The options originate in a VM realm; normalize prototypes for assertions.
 	return JSON.parse(JSON.stringify(win.options));
 }
@@ -67,6 +67,14 @@ describe("desktop window chrome", () => {
 		assert.deepEqual(windowOptions("darwin", { LH_DEV_URL: "http://localhost:3000" }).webPreferences.additionalArguments, ["--lh-web-subscriptions"]);
 	});
 
+	it("a shared host on loopback is marked as on this computer, a remote host is not", () => {
+		// Same state boot sets from shared-server.json (main.cjs: clientConnection / hostOnThisComputer).
+		const args = (setup: string) => windowOptions("darwin", {}, setup).webPreferences.additionalArguments;
+		assert.deepEqual(args("clientConnection = true; hostOnThisComputer = true;"), ["--lh-server-client", "--lh-local-host", "--lh-web-subscriptions"]);
+		assert.deepEqual(args("clientConnection = true; hostOnThisComputer = false;"), ["--lh-server-client", "--lh-web-subscriptions"]);
+		assert.match(mainSource, /hostOnThisComputer = !!sharedUrl && connection\.isLoopback\(sharedUrl\);/);
+	});
+
 	it("dev preload routes opaque sign-in actions through its narrow external-browser channel", async () => {
 		let bridge!: { subscriptionTransport: string; openSubscriptionBrowser(action: string): Promise<void> };
 		const invoked: unknown[][] = [];
@@ -97,7 +105,7 @@ describe("desktop window chrome", () => {
 		runInNewContext(readFileSync(new URL("../electron/preload.cjs", import.meta.url), "utf8"), context);
 		assert.equal(bridge.platform, "win32");
 		assert.deepEqual(Object.keys(bridge).sort(), [
-			"chatgpt", "checkForUpdates", "chooseAttachmentFolder", "expandWindow", "getConnection", "getPathForFile", "getUpdateState", "getZoom", "installUpdate", "onCloseRequest", "onOpenSettings", "onUpdateStatus", "onZoom", "openConnection", "platform", "quitFromHome", "remoteServer", "setConnection", "subscriptions",
+			"chatgpt", "checkForUpdates", "chooseAttachmentFolder", "expandWindow", "getConnection", "getPathForFile", "getUpdateState", "getZoom", "hostOnThisComputer", "installUpdate", "onCloseRequest", "onOpenSettings", "onUpdateStatus", "onZoom", "openConnection", "platform", "quitFromHome", "remoteServer", "setConnection", "subscriptions",
 		]);
 		assert.deepEqual(Object.keys(bridge.subscriptions as object).sort(), ["cancel", "consent", "disconnect", "login", "onChange", "open", "respond", "retry", "status"]);
 	});

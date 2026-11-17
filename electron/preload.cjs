@@ -41,6 +41,8 @@ ipcRenderer.on("lh:open-settings", (_event, section) => {
 contextBridge.exposeInMainWorld("lh", {
 	platform: process.platform,
 	remoteServer: process.argv?.includes("--lh-server-client") ?? false,
+	// The shared host runs on this computer (loopback), so it can read folder paths.
+	hostOnThisComputer: process.argv?.includes("--lh-local-host") ?? false,
 	onCloseRequest: (cb) => {
 		const listener = () => cb();
 		ipcRenderer.on("lh:close-context", listener);

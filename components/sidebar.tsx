@@ -80,6 +80,8 @@ declare global {
 			/** Read-only host OS; determines the native-control gutter. */
 			platform?: string;
 			remoteServer?: boolean;
+			/** The shared host is on this computer (loopback), so folder paths reach it. */
+			hostOnThisComputer?: boolean;
 			onCloseRequest?: (cb: () => void) => () => void;
 			quitFromHome?: () => Promise<void>;
 			getConnection?: () => Promise<{mode: string; url: string}>;
