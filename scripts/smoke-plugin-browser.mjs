@@ -834,12 +834,13 @@ export async function verifyPluginBrowser(url, options = {}) {
 		const retainedPicker = await page.$(KNOWLEDGE_OVERLAY);
 		const retainedSelection = await page.$(selectedPremise);
 		const pickerFocus = await page.evaluateHandle(() => document.activeElement);
-		// The sidebar is isolated by the picker. Use the existing global command,
-		// not a synthetic click into the inactive background.
+		// A page-origin picker is a main-pane view (assertPaneKnowledgePicker),
+		// not a modal: Settings covers it via the shared modal boundary's
+		// aria-hidden isolation. Open it with the existing global command.
 		await chord(",");
 		await page.waitForSelector('[data-testid="settings-dialog"]', { visible: true });
 		assert.equal(await page.$$eval('[data-testid="settings-dialog"]', nodes => nodes.length), 1);
-		assert.equal(await retainedPicker.evaluate(overlay => overlay.isConnected && !!overlay.closest("[inert]") && getComputedStyle(overlay).display !== "none"), true, "Fresh Settings must cover the same painted picker, not close/remount it");
+		assert.equal(await retainedPicker.evaluate(overlay => overlay.isConnected && !!overlay.closest('[inert], [aria-hidden="true"]') && getComputedStyle(overlay).display !== "none"), true, "Fresh Settings must cover the same painted picker, not close/remount it");
 		assert.equal(await retainedSelection.evaluate(input => input.isConnected && input.checked), true);
 		assert.equal(await page.$eval('[data-testid="settings-dialog"]', dialog => {
 			const bounds = dialog.getBoundingClientRect();
@@ -867,9 +868,9 @@ export async function verifyPluginBrowser(url, options = {}) {
 		await page.waitForSelector('[data-testid="settings-dialog"]', { hidden: true });
 		await page.mouse.move(0, 0);
 		await page.waitForFunction(input => document.activeElement === input, { timeout: timeoutMs }, pickerFocus);
-		assert.equal(await retainedPicker.evaluate((overlay, selector) => overlay.isConnected && document.querySelector(selector) === overlay && !overlay.closest("[inert]"), KNOWLEDGE_OVERLAY), true);
+		assert.equal(await retainedPicker.evaluate((overlay, selector) => overlay.isConnected && document.querySelector(selector) === overlay && !overlay.closest('[inert], [aria-hidden="true"]'), KNOWLEDGE_OVERLAY), true);
 		assert.equal(await retainedSelection.evaluate(input => input.isConnected && input.checked), true, "Resuming the same picker retains the actual selection control");
-		await assertFullWindowPicker();
+		await assertPaneKnowledgePicker(page);
 		await assertKnowledge("closing fresh Settings resumes the mounted picker and its controlled selection", [KNOWLEDGE.premiseId], 1);
 		await screenshot("foreground-settings-picker-resumed");
 		evidence.foreground.push({ label: "Fresh Settings nests above the same picker and returns focus on close", pickerRetained: true, selectionRetained: true, focusRestored: true, ids: [KNOWLEDGE.premiseId] });
