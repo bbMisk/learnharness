@@ -6,7 +6,7 @@
  * suggestions are offered in Settings, never applied on their own.
  */
 
-/** Per-model text cap (matches the flashcard curator guidance). */
+/** Per-model text cap. */
 export const MODEL_INSTRUCTIONS_MAX = 8000;
 
 export function modelInstructionsKey(model: { provider: string; id: string }): string {

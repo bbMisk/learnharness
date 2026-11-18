@@ -1,5 +1,5 @@
 import { useEffect, type RefObject } from "react";
-import { isComposing } from "@/components/ime";
+import { useInteractionLayer, useInteractionLayers } from "./interaction-layers";
 
 /**
  * Close-on-dismissal for floating panels (graph chrome, 2026-09-17):
@@ -12,36 +12,38 @@ import { isComposing } from "@/components/ime";
  *
  * `inside`: presses on what matches it count as inside too (a menu body
  * portaled out of the root: without it a row's pointerdown eats the pick).
- * `onEscape`: what Esc does instead of `close` (e.g. hand focus back).
- * `captureEsc`: hear Esc in the document's capture phase.
+ * `onEscape`: what Esc does instead of `close` (e.g. hand focus back);
+ * Esc reaches it through the interaction-layer controller.
  */
 export function usePopoverDismiss(
 	rootRef: RefObject<HTMLElement | null>,
 	open: boolean,
 	close: () => void,
-	{ inside, onEscape, captureEsc = false }: { inside?: string; onEscape?: () => void; captureEsc?: boolean } = {},
-): void {
+	options: {
+		inside?: string;
+		onEscape?: () => void;
+		/** No-op: Escape is owned by the interaction-layer controller now. */
+		captureEsc?: boolean;
+		layerRootRef?: RefObject<HTMLElement | null>;
+		ownerId?: string;
+	} = {},
+) {
+	const { inside, onEscape } = options;
+	const controller = useInteractionLayers();
+	const panel = options.layerRootRef ?? rootRef;
+	const layer = useInteractionLayer({ kind: "popup", enabled: open, rootRef: panel, anchorRef: rootRef, ownerId: options.ownerId,
+		onClose: (reason) => { if (reason === "escape" && onEscape) onEscape(); else close(); return "closed"; } });
 	useEffect(() => {
 		if (!open) return;
 		const onPointerDown = (e: PointerEvent) => {
+			if (!controller.isElementEligible(panel.current)) return;
 			if (inside && e.target instanceof Element && e.target.closest(inside)) return;
 			if (rootRef.current && !rootRef.current.contains(e.target as Node)) close();
 		};
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape" && !e.defaultPrevented && !isComposing(e)) {
-				// Claim the Esc (keyboard wave A): the window-level dismiss
-				// chain must not ALSO stop dictation / abort a turn under
-				// this popover. Popovers are the chain's topmost layer.
-				e.preventDefault();
-				e.stopPropagation();
-				(onEscape ?? close)();
-			}
-		};
 		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown, captureEsc);
 		return () => {
 			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown, captureEsc);
 		};
-	}, [open, close, rootRef, inside, onEscape, captureEsc]);
+	}, [open, close, rootRef, inside, panel, controller]);
+	return layer;
 }

@@ -7,6 +7,7 @@ import { Type } from "typebox";
 import { type PiEngine, type ThinkingLevel } from "../models.ts";
 import { providerEventObserver, type ProviderEventObserver } from "../provider-events.ts";
 import { backgroundCaptureStream, createBackgroundCapture, type BackgroundCapture } from "../background-capture.ts";
+import { workerRequestStream } from "../worker-request-admission.ts";
 import type { VisualResult } from "../../core/contracts.ts";
 import type { LearnerImage } from "../tools/learner-image.ts";
 import { embedLearnerImage, LEARNER_IMAGE_HREF } from "../../core/learner-image-svg.ts";
@@ -180,7 +181,7 @@ export async function runVisualMaker(input: VisualMakerInput, opts: VisualMakerO
 	const reasoning = engine.level;
 	const sessionId = randomUUID();
 	const capture = createBackgroundCapture({ role: "visualMaker", runId: sessionId, sourceId: opts.chatId });
-	const streamEngine = { ...engine, streamFn: backgroundCaptureStream(engine.streamFn, capture) };
+	const streamEngine = { ...engine, streamFn: backgroundCaptureStream(workerRequestStream(engine.streamFn), capture) };
 	const learnerImage = input.image;
 	// The fork's dark-figure style is for drawn figures; a learner photo keeps
 	// the annotation rules (high-contrast marks on the picture itself).

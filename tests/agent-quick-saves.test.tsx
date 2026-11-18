@@ -5,7 +5,7 @@ import { it } from "node:test";
 import { parseHTML } from "linkedom";
 import type { AgentSettings } from "../src/core";
 
-// Flashcard-curator and model-instruction saves go through the Agent save
+// Model-instruction saves go through the Agent save
 // queue: two quick changes on a slow server both land, and a failed save
 // keeps the typed draft. Prompt overrides report an unreachable server.
 const dom = parseHTML("<html><body><div id='root'></div></body></html>");
@@ -21,7 +21,6 @@ const bodies: Record<string, unknown> = {
 	"/api/keys": { keys: [] },
 	"/api/models": { models: [{ id: "opus", name: "Opus", provider: "anthropic" }, { id: "gpt-5", name: "GPT-5", provider: "openai" }], slots: { strong: null, cheap: null, vision: null } },
 	"/api/settings/prompts": { prober: [], teacher: [segment], practice: [] },
-	"/api/flashcard-agent": { running: false, phase: "Idle", preparedToday: 0, startedToday: 0, dailyLimit: 20, error: null, model: null },
 };
 let offline = false;
 globalThis.fetch = (async (url: string) => {
@@ -61,18 +60,6 @@ const pickModel = (key: string) => act(() => {
 });
 const button = (label: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === label)!;
 
-it("two quick flashcard-curator changes on a slow server both land", async () => {
-	const { root, stored } = await mount({ flashcards: { dailyLimit: 20 } }, 300);
-	await act(async () => { document.querySelector<HTMLButtonElement>('[aria-label="automatic flashcards"]')!.click(); });
-	const limit = document.querySelector<HTMLInputElement>('[data-testid="input-flashcard-agent-limit"]')!;
-	await type(limit, "7");
-	await act(async () => { limit.dispatchEvent(new dom.window.Event("focusout", { bubbles: true })); });
-	await act(async () => { await sleep(700); });
-	assert.deepEqual(stored().flashcards, { dailyLimit: 7, enabled: false });
-	assert.equal(document.querySelector('[aria-label="automatic flashcards"]')!.getAttribute("aria-checked"), "false");
-	await act(async () => root.unmount());
-});
-
 it("saving instructions for two models quickly keeps both", async () => {
 	const { root, stored } = await mount({}, 300);
 	const text = () => document.querySelector<HTMLTextAreaElement>('[data-testid="model-instructions-text"]')!;
@@ -87,10 +74,8 @@ it("saving instructions for two models quickly keeps both", async () => {
 	await act(async () => root.unmount());
 });
 
-it("a failed guidance or instructions save keeps the draft after Settings closes", async () => {
+it("a failed instructions save keeps the draft after Settings closes", async () => {
 	const first = await mount({}, 0, true);
-	await type(document.querySelector<HTMLTextAreaElement>("#flashcard-curator-instructions")!, "Guidance typed");
-	await act(async () => { button("Save guidance").click(); await sleep(5); });
 	pickModel("anthropic:opus");
 	await type(document.querySelector<HTMLTextAreaElement>('[data-testid="model-instructions-text"]')!, "Instructions typed");
 	await act(async () => { button("Save instructions").click(); await sleep(5); });
@@ -98,16 +83,13 @@ it("a failed guidance or instructions save keeps the draft after Settings closes
 	const second = await mount({}, 0);
 	pickModel("anthropic:opus");
 	// linkedom renders no initial textarea value: the Save buttons are enabled only while a draft differs from the saved text.
-	assert.equal(button("Save guidance").disabled, false, "guidance draft kept");
 	assert.equal(button("Save instructions").disabled, false, "instructions draft kept");
-	// A save that lands drops both drafts.
-	await act(async () => { button("Save guidance").click(); await sleep(5); });
+	// A save that lands drops the draft.
 	await act(async () => { button("Save instructions").click(); await sleep(5); });
-	assert.deepEqual(second.stored(), { flashcards: { instructions: "Guidance typed" }, modelInstructions: { "anthropic:opus": "Instructions typed" } });
+	assert.deepEqual(second.stored(), { modelInstructions: { "anthropic:opus": "Instructions typed" } });
 	await act(async () => second.root.unmount());
 	const third = await mount(second.stored(), 0);
 	pickModel("anthropic:opus");
-	assert.equal(button("Save guidance").disabled, true);
 	assert.equal(button("Save instructions").disabled, true);
 	await act(async () => third.root.unmount());
 });

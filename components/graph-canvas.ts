@@ -43,6 +43,7 @@ import { select } from "d3-selection";
 import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from "d3-zoom";
 import type { Simulation, SimulationLinkDatum } from "d3-force";
 import { clusterHue, type Pt } from "./cluster-geometry.ts";
+import type { RenderedMode } from "@/src/core";
 import {
 	createGraphSimulation,
 	DEFAULT_PHYSICS_TUNING,
@@ -91,6 +92,20 @@ export interface CanvasCluster {
 	members: string[];
 }
 
+/** Cluster region + label lightness (HSL %), per rendered mode — the
+ *  hues come from clusterHue, only the lightness follows the page. */
+export interface ClusterLightness {
+	ring: number;
+	label: number;
+}
+
+/** Dark keeps the original 60% regions / 78% labels; light darkens both so
+ *  the pastel regions and their labels read on the paper background. */
+export const CLUSTER_LIGHTNESS: Record<RenderedMode, ClusterLightness> = {
+	dark: { ring: 60, label: 78 },
+	light: { ring: 42, label: 30 },
+};
+
 /** Theme colors, resolved to #rrggbb by the caller (canvas wants hex,
  *  and the renderer must not read CSS itself). */
 export interface CanvasColors {
@@ -98,6 +113,7 @@ export interface CanvasColors {
 	edge: string;
 	label: string;
 	hoverText: string;
+	clusterLightness: ClusterLightness;
 }
 
 export interface CanvasData {
@@ -1579,11 +1595,13 @@ export class GraphCanvasRenderer {
 		data.clusters.forEach((cluster, ci) => {
 			const hue = clusterHue(cluster.id);
 			// Full-opacity strokes: alpha is applied ONCE at the very end
-			// (dilate at 1 → blur → scale by edgeAlpha). Per-stroke alpha
-			// would accumulate under source-over stacking into darker
-			// overlap spots; at alpha 1 the alpha channel is a pure coverage
-			// indicator — overlaps of any count contribute exactly 1.0.
-			rctx.strokeStyle = `hsla(${hue}, 65%, 60%, 1)`;
+			// (dilate at 1 → blur → scale by edgeAlpha). Baking per-stroke
+			// alpha in here made source-over stacking ACCUMULATE it — an
+			// orphan disc overlapping anything read as a darker double-
+			// counted spot (user report 2026-09-14). At alpha 1 the alpha
+			// channel is a pure coverage indicator: overlaps of any count
+			// contribute exactly 1.0.
+			rctx.strokeStyle = `hsla(${hue}, 65%, ${data.colors.clusterLightness.ring}%, 1)`;
 			rctx.beginPath();
 			// Endpoints actually covered by a stroke's round caps.
 			const touched = new Set<string>();
@@ -1604,12 +1622,14 @@ export class GraphCanvasRenderer {
 			}
 			rctx.stroke();
 
-			// Member discs: clusters are topics by meaning, so many members
-			// share NO intra-cluster edge and strokes alone would leave them
-			// uncolored. A disc (same radius as a round cap = dilation)
-			// covers exactly the members no stroke reached: every member is
-			// painted by its edges' caps OR one disc, never both.
-			rctx.fillStyle = `hsla(${hue}, 65%, 60%, 1)`;
+			// Member discs for the SEMANTIC era (DECIDED 2026-09-13): clusters
+			// are now topics by meaning, and many members (orphans, isolated
+			// micro-topics) share NO intra-cluster edge with anyone — edge
+			// strokes alone left them completely uncolored. A disc (same
+			// radius as a round cap = dilation) covers exactly the members no
+			// stroke reached: every member is painted by its edges' caps OR
+			// one disc, never both — the no-double-counting rule survives.
+			rctx.fillStyle = `hsla(${hue}, 65%, ${data.colors.clusterLightness.ring}%, 1)`;
 			const discR = dilationW / cell;
 			for (const id of cluster.members) {
 				if (touched.has(id) || !isVisible(id)) continue;
@@ -1788,7 +1808,7 @@ export class GraphCanvasRenderer {
 			const lineH = (settings.clusterLabelSize * REGION_LABEL_LINE_HEIGHT) / k;
 			for (const rm of this.regionMeta) {
 				if (!rm.lines) continue;
-				ctx.fillStyle = `hsla(${rm.hue}, 55%, 78%, 0.85)`;
+				ctx.fillStyle = `hsla(${rm.hue}, 55%, ${data.colors.clusterLightness.label}%, 0.85)`;
 				const firstOffset = (-(rm.lines.length - 1) / 2) * lineH;
 				for (let i = 0; i < rm.lines.length; i++) {
 					ctx.fillText(rm.lines[i]!, rm.cx, rm.cy + firstOffset + i * lineH);

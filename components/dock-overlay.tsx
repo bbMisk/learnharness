@@ -9,8 +9,18 @@ import { focusComposer } from "@/components/focus-return";
 import { Hint } from "@/components/ui/hint";
 import { useSessionOverlay } from "@/components/session-overlay";
 import { ConversationScrollButton } from "@/components/ai-elements/conversation";
+import { Button } from "@/components/ui/button";
 import { dockStateKey } from "@/components/dock-state-key";
 import { forwardDockWheel, useDockHeight } from "@/components/dock-height";
+import { createDockMorph } from "@/components/dock-morph";
+import { useOptionalInteractionLayers } from "@/components/interaction-layers";
+import { isInteractionScopeEligible } from "@/components/plugin-input-focus";
+import { composingQuestionKey, pluginQuestionKeySuppressed } from "@/components/plugin-question-keys";
+import { PluginQuestionDock } from "@/components/plugin-question-dock";
+import { PluginProblemDock, type PluginProblemDockProps } from "@/components/plugin-problem-dock";
+import type { PrepareBuiltinSubmission, PreparePluginQuestionSubmission, PrepareThinkingSubmission } from "@/components/plugin-submission-adapters";
+import type { NativeQuestionViewState, SessionInputViewReader, SessionViewTargets, ViewReaderRef } from "@/components/session-view-readers";
+import type { PluginQuestionDraft } from "@/components/session-core";
 import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-steers";
 import { finishDictation } from "@/components/dictation";
 import { QuestionDock } from "@/components/question-dock";
@@ -20,7 +30,8 @@ import { rememberRevealed, wasRevealed } from "@/components/revealed-questions";
 import { useHydrated } from "@/components/use-hydrated";
 import { rememberDockFolded, restoresReadingPosition, savedDockReserve } from "@/components/session-navigation";
 import { ReadingThinkingField } from "@/components/reading-thinking";
-import type { pendingQuestionOf, Phase3, QuestionAnswerData, QuestionFormDraft } from "@/src/core";
+import { pluginQuestionOccurrenceKey } from "@/src/core";
+import type { ChatInput, pendingQuestionOf, Phase3, PluginQuestionSnapshot, PluginSessionViewInput, PluginSubmissionOccurrence, QuestionAnswerData, QuestionData, QuestionFormDraft } from "@/src/core";
 
 /** The dock column: narrower than the transcript, ~46rem centered. */
 const DOCK = "mx-auto w-full max-w-[46rem] px-4";
@@ -90,12 +101,19 @@ export function shouldStampGeometryMute(nextH: number, prevH: number, pending: b
  * click it (or scroll back to the bottom) to re-expand. The question form
  * stays MOUNTED while collapsed (hidden, not unmounted) so a half-made
  * selection survives.
+ *
+ * Plugin-posed questions and problems own the band like built-in ones; the
+ * view readers expose the mounted inputs to plugin actions (read-only).
  */
 export function DockOverlay({
+	viewReader, viewTargets, unavailableOccurrence,
 	pending,
+	onPrepareBuiltin, onBuiltinPendingInput, onPrepareThinking, pendingThinkingInput, onPreparePluginQuestion, preparing, preparationStatus,
+	pluginQuestion, pluginDraft, pluginAvailable, pluginReady, onPluginMicAvailable, onPluginSend, onPluginDismiss, unreadablePlugin, reconciliation, onRetrySync,
 	initialQuestionDraft,
 	onSaveQuestionDraft,
-	practice,
+	practice, pluginPractice,
+	chatId,
 	compactionRunning,
 	onSubmitThinking,
 	teachingCheck,
@@ -117,7 +135,32 @@ export function DockOverlay({
 	queuedSteers,
 	checkEscRef,
 }: {
+	viewReader?: SessionInputViewReader;
+	viewTargets?: SessionViewTargets;
+	unavailableOccurrence?: PluginSubmissionOccurrence;
 	pending: ReturnType<typeof pendingQuestionOf>;
+	onPrepareBuiltin: PrepareBuiltinSubmission;
+	onBuiltinPendingInput: (question: QuestionData) => boolean;
+	onPrepareThinking: PrepareThinkingSubmission;
+	pendingThinkingInput: boolean;
+	onPreparePluginQuestion: PreparePluginQuestionSubmission;
+	/** A submission is being prepared (plugin interceptors): submits wait. */
+	preparing: boolean;
+	/** The preparation failure line, shown at the top of the shell. */
+	preparationStatus: React.ReactNode;
+	/** A pending plugin-posed question owns the band instead of `pending`. */
+	pluginQuestion?: PluginQuestionSnapshot;
+	pluginDraft?: PluginQuestionDraft;
+	pluginAvailable: boolean;
+	pluginReady: boolean;
+	onPluginMicAvailable(available: boolean): void;
+	onPluginSend(input: ChatInput): Promise<boolean>;
+	onPluginDismiss(): Promise<void>;
+	/** A plugin question whose renderer or record can't be read: the band
+	 *  says so and offers the dismissal. */
+	unreadablePlugin: boolean;
+	reconciliation: "ready" | "syncing" | "failed";
+	onRetrySync(): void;
 	initialQuestionDraft?: QuestionFormDraft;
 	onSaveQuestionDraft: (draft: QuestionFormDraft) => void;
 	/** Compaction running for this chat: the docks' submit affordance gate
@@ -126,6 +169,10 @@ export function DockOverlay({
 	/** The active practice problem {toolCallId, input}: owns the dock like a
 	 *  pending question (the composer is replaced); null in teaching sessions. */
 	practice: { toolCallId: string; input: unknown } | null;
+	/** The active problem is plugin-posed: its own dock replaces the practice dock. */
+	pluginPractice?: Omit<PluginProblemDockProps, "expanded" | "onExpand">;
+	/** The chat (plugin docks mount their renderers against it). */
+	chatId: string;
 	/** The practice dock's send lane. */
 	onSubmitThinking: (text: string) => void;
 	/** Teach-phase check: keeps the optional reading-notes field. */
@@ -169,8 +216,14 @@ export function DockOverlay({
 	 *  showing, so Esc steps it back to its bar before the dismiss confirm. */
 	checkEscRef?: React.RefObject<(() => void) | null>;
 }) {
+	const controller = useOptionalInteractionLayers();
 	const { isAtBottom, scrollToBottom, scrollRef } = useStickToBottomContext();
 	const overlay = useSessionOverlay();
+	// The question that owns the band: a plugin-posed one, an unreadable
+	// plugin one, or the built-in pending call.
+	const pendingId = pluginQuestion ? pluginQuestionOccurrenceKey(pluginQuestion.occurrence) : unreadablePlugin ? "unreadable-plugin-question" : pending?.key ?? null;
+	const questionOwnsDock = !!pending || !!pluginQuestion || unreadablePlugin;
+	const ownsDock = questionOwnsDock || !!practice;
 	// Render-fresh bottom state: the arrival block below reads it during
 	// render. Assigned per render like the other refs below.
 	const atBottomRef = useRef(isAtBottom);
@@ -181,7 +234,7 @@ export function DockOverlay({
 	// Session storage is read only after hydration, so the first render
 	// matches the server's; an opened check then opens in the next render.
 	const hydrated = useHydrated();
-	const openedBefore = hydrated && wasRevealed(pending?.key ?? null);
+	const openedBefore = hydrated && wasRevealed(pendingId);
 	// Coming back to a saved reading position: the question starts folded so
 	// it doesn't cover the passage (reaching the bottom opens it as usual).
 	// The router's path: during this render the URL may still be the last page's.
@@ -205,8 +258,14 @@ export function DockOverlay({
 	}
 	const revealPending = requiresReveal && !revealed;
 
-	const pendingId = pending?.key ?? null;
 	const initialPendingRef = useRef(pendingId);
+	const readingInputRef = useRef<HTMLDivElement>(null);
+	// Plain objects, not useRef: each carries a `changed` hook as well, and a
+	// dev-mode ref object is sealed.
+	const [nativeViewReader] = useState<ViewReaderRef<NativeQuestionViewState>>(() => ({ current: null }));
+	const [practiceViewReader] = useState<ViewReaderRef<string>>(() => ({ current: null }));
+	const [customViewReader] = useState<ViewReaderRef<{ available: boolean }>>(() => ({ current: null }));
+	nativeViewReader.changed = practiceViewReader.changed = customViewReader.changed = viewReader?.changed;
 
 	// Question arrival state, applied during render, before the first paint.
 	// A stale expanded=true from the previous question would paint one frame
@@ -252,8 +311,8 @@ export function DockOverlay({
 	// Dock ownership (the fold machine, the reserve immunity, the arrival
 	// states): a pending question OR an active practice problem — either
 	// replaces the composer and owns the band.
-	const pendingRef = useRef(!!pending || !!practice);
-	pendingRef.current = !!pending || !!practice;
+	const pendingRef = useRef(ownsDock);
+	pendingRef.current = ownsDock;
 	const requiresRevealRef = useRef(requiresReveal);
 	requiresRevealRef.current = requiresReveal;
 	const revealedRef = useRef(revealed);
@@ -266,11 +325,36 @@ export function DockOverlay({
 	const bodyRef = useRef<HTMLDivElement>(null);
 	const shellRef = useRef<HTMLDivElement>(null);
 	const contentRef = useRef<HTMLDivElement>(null);
-	const mode = pending
+	const mode = pluginQuestion ? `plugin-question:${pendingId}` : unreadablePlugin ? "unreadable-plugin-question" : pending
 		? `question:${pending.key}`
 		: practice
-			? `practice:${practice.toolCallId}`
+			? `practice:${pluginPractice?.snapshot.problemId ?? practice.toolCallId}`
 			: "chat";
+
+	// The plugin view reader: what the mounted input holds right now, read at
+	// click time by plugin actions (never a second state model).
+	useLayoutEffect(() => {
+		if (!viewReader || !viewTargets) return;
+		const read = (): PluginSessionViewInput => {
+			if (pluginQuestion && pluginDraft && viewTargets.pluginQuestion) return { ...viewTargets.pluginQuestion, input: pluginQuestion.input, expanded, revealed: !revealPending,
+				available: customViewReader.current?.().available ?? false, draft: pluginDraft };
+			if (unreadablePlugin) return { type: "unavailable", ...(unavailableOccurrence ? { occurrence: unavailableOccurrence } : {}), expanded, revealed: !revealPending };
+			if (pending) {
+				const state = nativeViewReader.current?.();
+				const target = state && state.question.id === pending.toolCallId ? viewTargets.answer(state.question) : undefined;
+				return target && state ? { ...target, expanded, revealed: !revealPending, available: true, draft: { ...state.draft, readingThinking } }
+					: { type: "unavailable", occurrence: { messageId: pending.messageId, contentIndex: pending.contentIndex, toolCallId: pending.toolCallId, toolName: pending.tool }, expanded, revealed: !revealPending };
+			}
+			if (pluginPractice && viewTargets.pluginProblem) return { ...viewTargets.pluginProblem, input: pluginPractice.snapshot.input, expanded,
+				available: customViewReader.current?.().available ?? false, draft: pluginPractice.draft };
+			if (practice && viewTargets.thinking) return { ...viewTargets.thinking, expanded, draft: { thinking: practiceViewReader.current?.() ?? "" } };
+			return viewTargets.text;
+		};
+		viewReader.current = read;
+		return () => { if (viewReader.current === read) viewReader.current = null; };
+	});
+	const unavailableViewKey = unavailableOccurrence ? pluginQuestionOccurrenceKey(unavailableOccurrence) : "";
+	useLayoutEffect(() => { viewReader?.changed?.(); }, [viewReader, mode, expanded, revealPending, readingThinking, unavailableViewKey]);
 
 	// The plan marginalia's flank: from the DOCK container's right edge to the
 	// block's right edge, the bare diagram's canvas. A ResizeObserver on the
@@ -335,9 +419,18 @@ export function DockOverlay({
 	// effect below. Short windows scroll the reading/question/answer body;
 	// the stats/model toolbar remains outside that overflow viewport.
 	const [sbInset, setSbInset] = useState(0);
+	// The height-morph key (components/dock-state-key.ts): the expanded term
+	// (the fold) applies to every docked variant, question and practice.
+	// Typing growth keeps the key and never animates; fold/unfold morphs.
+	const stateKey = dockStateKey(mode, ownsDock, expanded);
+	const heightMorphRef = useRef<ReturnType<typeof createDockMorph> | null>(null);
+	if (!heightMorphRef.current) heightMorphRef.current = createDockMorph();
+	const retargetOpening = useCallback(() => heightMorphRef.current?.retarget(stateKey), [stateKey]);
+	useIsoLayoutEffect(() => () => heightMorphRef.current?.dispose(), []);
 	useDockHeight({
 		scrollRef, blockRef, viewportRef, bodyRef, shellRef, contentRef,
-		expanded, enabled: !!pending || !!practice, mode, onScrollbarInset: setSbInset, onHeight: offer,
+		expanded, enabled: ownsDock, mode, onScrollbarInset: setSbInset, onHeight: offer,
+		onLayout: retargetOpening,
 	});
 
 	// Growth mute: during a live turn the transcript grows and stick-to-bottom
@@ -430,8 +523,9 @@ export function DockOverlay({
 	// opens. A typing surface or a focused button owns its own Enter; this
 	// listener claims only plain focus, where Enter would do nothing.
 	useEffect(() => {
-		if (!pending || expanded) return;
+		if (!questionOwnsDock || expanded) return;
 		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.defaultPrevented || pluginQuestionKeySuppressed(e) || composingQuestionKey(e) || !isInteractionScopeEligible(blockRef.current, controller)) return;
 			if (openModal() || !opensWaitingCheck(e, e.target as Element | null)) return;
 			// Claimed: the reopen lands in a microtask before the window-level
 			// Enter-submits runs, which would then submit the just-opened form.
@@ -443,8 +537,8 @@ export function DockOverlay({
 		};
 		document.addEventListener("keydown", onKeyDown);
 		return () => document.removeEventListener("keydown", onKeyDown);
-	}, [pending, expanded]);
-	const checkCollapsible = !!pending && requiresReveal && expanded;
+	}, [questionOwnsDock, expanded, controller]);
+	const checkCollapsible = (!!pending || !!pluginQuestion) && requiresReveal && expanded;
 	const refocusOnFoldRef = useRef(false);
 	useEffect(() => {
 		if (!checkEscRef || !checkCollapsible) return;
@@ -541,38 +635,14 @@ export function DockOverlay({
 			{ duration: 160, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
 		);
 	}, [expanded]);
-	// The height-morph key (components/dock-state-key.ts): the expanded term
-	// (the fold) applies to every docked variant, question and practice.
-	// Typing growth keeps the key and never animates; fold/unfold morphs.
-	const stateKey = dockStateKey(mode, !!pending || !!practice, expanded);
-	const prevRef = useRef<{ key: string; height: number } | null>(null);
 	useIsoLayoutEffect(() => {
 		const el = shellRef.current;
 		if (!el) return;
-		const p = prevRef.current;
-		if (p && p.key === stateKey) {
-			// Same variant: keep the settled height fresh, but never measure while
-			// a morph is in flight — getBoundingClientRect would read the ANIMATED
-			// value and corrupt the start height of the next morph.
-			if (el.getAnimations().length === 0) {
-				const h = el.getBoundingClientRect().height;
-				p.height = h;
-				measureBlock(); // typing growth → the spacer grows with the box
-			}
-			return;
-		}
-		el.getAnimations().forEach((a) => a.cancel()); // flush to natural height before measuring
-		const h = el.getBoundingClientRect().height;
-		// Variant change → re-reserve. Growth applies instantly; a drop (the
-		// fold, or question → composer) is filtered by the offer policy.
-		measureBlock();
-		if (p && Math.abs(p.height - h) > 1) {
-			el.animate([{ height: `${p.height}px` }, { height: `${h}px` }], {
-				duration: 120,
-				easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
-			});
-		}
-		prevRef.current = { key: stateKey, height: h };
+		// The private morph controller owns only this shell's height animation
+		// (components/dock-morph.ts): a variant change morphs, typing growth
+		// keeps the key and re-reserves. Late child layout can retarget an
+		// opening over its remaining original time.
+		heightMorphRef.current?.layout(el, stateKey, ownsDock && expanded, measureBlock);
 	});
 
 	return (
@@ -583,6 +653,7 @@ export function DockOverlay({
 					<div ref={viewportRef} data-dock-viewport="" className="pointer-events-auto">
 					<div ref={bodyRef}>
 					{setupCta}
+					{reconciliation === "failed" && <div role="alert" className="mb-2 rounded-2xl border bg-card px-4 py-3 text-sm">Could not sync the saved chat. <Button type="button" variant="ghost" onClick={onRetrySync}>Retry syncing</Button></div>}
 					{/* The queued-steer indicator: quiet one-liners above the shell,
 					    right-aligned to where its corner rounding starts. A line goes
 					    away when its card lands (visibleQueuedSteers). */}
@@ -591,9 +662,10 @@ export function DockOverlay({
 					    waits. It claims dictated speech until the learner reveals a
 					    collapsed check (the dock reclaims it then), and is sent with
 					    the check answer. */}
-					{pending && teachingCheck && showReadingThinking && (
+					{(pending || pluginQuestion) && teachingCheck && showReadingThinking && (
 						<ReadingThinkingField
-							key={pending.toolCallId}
+							key={pending?.toolCallId ?? pendingId ?? undefined}
+							inputRef={readingInputRef}
 							onUploadingChange={setReadingUploading}
 							value={readingThinking}
 							revision={readingThinkingRevision}
@@ -612,6 +684,7 @@ export function DockOverlay({
 						/>
 					)}
 					<div ref={shellRef} data-attachment-composer="" className="pointer-events-auto overflow-hidden rounded-2xl border bg-card shadow-lg">
+						{preparationStatus}
 						{/* Include descendant margins (notably practice thinking's
 						    bottom margin) in the natural content measurement. */}
 						<div
@@ -619,8 +692,16 @@ export function DockOverlay({
 							key={mode}
 							className={mode === initialModeRef.current ? "flow-root" : "flow-root dock-variant"}
 						>
-							{pending ? (
+							{pluginQuestion && pluginDraft ? (
+								<PluginQuestionDock viewReader={customViewReader} snapshot={pluginQuestion} chatId={chatId} draft={pluginDraft} expanded={expanded} reveal={revealPending} onExpand={expandAndReveal} ready={pluginReady} available={pluginAvailable} reconciliation={reconciliation} readingRef={readingInputRef} onMicAvailable={onPluginMicAvailable} send={onPluginSend} dismiss={onPluginDismiss} prepareSubmission={onPreparePluginQuestion} />
+							) : unreadablePlugin ? (
+								<div className="px-4 py-3">
+									{reconciliation === "syncing" && <p role="status" className="text-sm text-muted-foreground">Preparing question…</p>}
+									{reconciliation === "ready" && <><p role="status" className="text-sm text-muted-foreground">Question unavailable</p><Button type="button" variant="ghost" disabled={!pluginReady} onClick={() => { void finishDictation().then(onPluginDismiss); }}>Dismiss question</Button></>}
+								</div>
+							) : pending ? (
 								<QuestionDock
+									viewReader={nativeViewReader}
 									toolName={pending.tool as "quiz" | "probe" | "ask_user_question" | "explain" | "recall"}
 									toolCallId={pending.toolCallId}
 									input={pending.input as never}
@@ -629,6 +710,9 @@ export function DockOverlay({
 									phase={phase}
 									onExpand={expandAndReveal}
 									onSubmit={onSubmitAnswer}
+									onPrepareSubmission={onPrepareBuiltin}
+									hasPendingInput={onBuiltinPendingInput}
+									preparing={preparing}
 									initialDraft={initialQuestionDraft}
 									onSaveDraft={onSaveQuestionDraft}
 									onEscape={dictationCancel}
@@ -636,9 +720,12 @@ export function DockOverlay({
 									attachmentsUploading={readingUploading}
 									compactionRunning={compactionRunning}
 								/>
+							) : pluginPractice ? (
+								<PluginProblemDock {...pluginPractice} viewReader={customViewReader} expanded={expanded} onExpand={() => { setExpanded(true); void suppressFoldDuringReveal(); }} />
 							) : practice ? (
 								<PracticeDock
 									key={hydrated ? practice.toolCallId : `${practice.toolCallId}:server`}
+									viewReader={practiceViewReader}
 									problemCallId={practice.toolCallId}
 									input={practice.input as { statement: string }}
 									expanded={expanded}
@@ -647,6 +734,9 @@ export function DockOverlay({
 										void suppressFoldDuringReveal();
 									}}
 									onSubmit={onSubmitThinking}
+									onPrepareSubmission={onPrepareThinking}
+									hasPendingInput={pendingThinkingInput}
+									preparing={preparing}
 									onEscape={dictationCancel}
 									compactionRunning={compactionRunning}
 								/>
@@ -675,7 +765,7 @@ export function DockOverlay({
 				    is the canvas). Folding the dock fades and blurs it out. The box
 				    shrinks with the flank; below MARGIN_MIN_W it fades rather than
 				    unmounting mid-question. Click opens the popup. */}
-				{pending && plan && (
+				{(pending || pluginQuestion) && plan && (
 					<Hint label="Open the full plan" side="bottom">
 <button
 						type="button"

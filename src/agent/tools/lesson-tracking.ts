@@ -40,9 +40,6 @@ export interface LessonTrackingToolContext {
 	chatId: string;
 	/** The record the tracker seeds from. */
 	chatStore: ChatStore;
-	/** Called after each logged mistake (the composition root writes its
-	 *  flashcard — server/mistake-cards.ts); fire-and-forget. */
-	onMistake?: (mistake: { id: string; text: string }) => void;
 }
 
 const problemListInput = Type.Object({
@@ -104,11 +101,7 @@ export function lessonTrackingTools(
 				"Log a substantive mistake the learner made (a misconception or a wrong step, not a slip or typo) as one short line naming it. " +
 				"Returns its id (m1, m2, …) for resolve_mistake.",
 			parameters: noteMistakeInput,
-			execute: serverExecute(NOTE_MISTAKE_TOOL, noteMistakeInput, ({ text }) => {
-				const result = tracker().noteMistake(text);
-				if (result.ok) ctx.onMistake?.({ id: result.details.id, text: result.details.text });
-				return reply(result);
-			}),
+			execute: serverExecute(NOTE_MISTAKE_TOOL, noteMistakeInput, ({ text }) => reply(tracker().noteMistake(text))),
 		},
 		[RESOLVE_MISTAKE_TOOL]: {
 			name: RESOLVE_MISTAKE_TOOL,

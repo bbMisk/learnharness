@@ -41,7 +41,7 @@ export interface ChatRecord {
 	learningEvents?: LearningEvent[];
 	/** Session-local processed pictures; artifact records carry references only. */
 	imageSnapshots?: Record<string, ImageSnapshot>;
-	/** The session's kind — absent = teach (pre-practice records). */
+	/** The session's kind; an absent field reads as teach. */
 	kind?: ChatKind;
 	/** Chosen after the probe: "cram" runs the test-focused loop
 	 *  (core/cram.ts); absent = the full teaching method. */
@@ -140,8 +140,7 @@ export interface CallUsage {
 	outputTokens: number | undefined;
 	/** Cached input tokens READ (billed at the cache-read rate, if any). */
 	cacheReadTokens: number | undefined;
-	/** Input tokens written to the cache this call (OpenRouter bills writes
-	 * for some providers; undefined = not reported/not billed). */
+	/** Input tokens written to the cache this call; undefined when not reported. */
 	cacheWriteTokens: number | undefined;
 	/** Subset of cacheWriteTokens written with one-hour retention. Missing
 	 * on older logs; new native captures explicitly record zero if absent. */
@@ -150,15 +149,13 @@ export interface CallUsage {
 	reasoningTokens: number | undefined;
 }
 
-/** One billing turn: one full invocation of the teacher (a client turn or a
- * wake turn — same handler, same log). A turn with tool calls spans several
- * agent steps, and each step bills separately. Capture lands at the persist
- * seam (server); cost is INFERRED at read time from core/prices.ts. */
+/** Usage for one native conversation-handler invocation, including user and
+ * wake turns. A tool-using turn may span several separately billed model calls.
+ * Accounting is captured when the turn persists; cost is estimated from the
+ * recorded calls and model catalog at read time. */
 export interface TurnUsage {
-	/** Unique per REQUEST (turn): one invocation of the handler — the
-	 *  idempotency key for the append-only log. Continuation turns share a
-	 *  response message id (the SDK coalesces them); keying on messageId
-	 *  would swallow their usage. */
+	/** Request identity for one handler invocation and the append-only log's
+	 * idempotency key. Distinct from the transcript association in messageId. */
 	id: string;
 	/** The assistant message the turn produced — provenance, keys this
 	 *  entry to the transcript (the block this turn "belongs" to). */
@@ -265,16 +262,10 @@ export interface PlanBlockData {
 	edges: Array<{ from: string; to: string }>;
 }
 
-/** The list view's shape (messageCount instead of full messages) + the
- *  per-session status the picker renders. `phase` and `pendingQuestion`
- *  derive from the stored record (tree + messages); the store computes
- *  them in listChats. Liveness (`busy`) is NOT record-derived — the API
- *  route merges it in (see ChatListItem).
- *
- *  Phase semantics (three phases, event-driven — docs/archive/probe-teach-split.md
- *  §4): probe ends at the concluded probe_done, plan ends at the successful
- *  plan_init; derived from the transcript (core/phases.ts phaseAt3).
- */
+/** Saved-session summary with a message count instead of full history.
+ * Phase and pending-input flags derive from native transcript events.
+ * Live turn/compaction state is added separately in ChatListItem, not
+ * inferred from the saved record. */
 export interface ChatSummary {
 	pinned?: boolean;
 	archived?: boolean;
@@ -286,7 +277,8 @@ export interface ChatSummary {
 	/** Normalized kind (absent record field reads as teach). */
 	kind: ChatKind;
 	messageCount: number;
-	/** The session's current phase, derived from the stored plan tree. */
+	/** Transcript-derived phase: probe ends at successful probe_done completion;
+	 * plan ends at the first node-tagged teaching question call, not its answer. */
 	phase: Phase3;
 	/** An unanswered quiz/ask question is waiting for the learner. */
 	pendingQuestion: boolean;
@@ -311,10 +303,8 @@ export interface ChatSummary {
  *  split at exactly the record/liveness seam. */
 export interface ChatListItem extends ChatSummary {
 	busy: boolean;
-	/** Live compaction liveness (turn-liveness's twin): true while a
-	 *  background context compaction holds the chat's model gate. The
-	 *  route attaches it from the compaction registry — never
-	 *  record-derived (the marker persists, the RUN is ephemeral). */
+	/** True while background context compaction holds the chat's model gate.
+	 * Supplied by the live compaction registry, not by saved compaction markers. */
 	compacting: boolean;
 }
 

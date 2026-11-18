@@ -118,7 +118,7 @@ export function findPendingToolCall(messages: UIMessage[], authority: PendingQue
 	if (authority === null) return null;
 	for (let m = messages.length - 1; m >= 0; m--) {
 		for (const part of messages[m]!.parts) {
-			if (!isToolUIPart(part) || part.state !== "input-available") continue;
+			if (!isToolUIPart(part) || part.pluginQuestion || part.state !== "input-available") continue;
 			const tool = part.type.slice("tool-".length);
 			if (!(QUESTION_TOOLS as readonly string[]).includes(tool)) continue;
 			if (part.toolCallId === authority.toolCallId && tool === authority.tool &&

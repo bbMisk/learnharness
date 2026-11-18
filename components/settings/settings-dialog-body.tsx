@@ -6,8 +6,9 @@
  * - Dialog, not a page: opens over whatever screen you're on, so appearance
  *   edits restyle the chat LIVE behind it. Escape, backdrop, and ✕ all
  *   close. Modal-only — /settings redirects.
- * - Left section nav in the app's mono chrome (text-only, active =
- *   bg-accent), no icons.
+ * - Left section nav in the app's mono chrome, with small decorative
+ *   Lucide icons for the built-in sections; active = bg-accent. Icons
+ *   inherit the row's color, without a separate palette.
  * - Surface-agnostic: the sections talk to /api/settings* and localStorage
  *   only, so this shell could be re-mounted as an OS window unchanged.
  *
@@ -15,10 +16,10 @@
  * sections write through it, switching sections never refetches.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useEscapeClose } from "@/components/open-modal";
-import { createPortal } from "react-dom";
-import { useBackdropDismiss } from "@/components/backdrop-dismiss";
+import { useCallback, useContext, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { BotIcon, KeyIcon, KeyboardIcon, PaletteIcon, PlugIcon, PuzzleIcon, SettingsIcon, WaypointsIcon, type LucideIcon } from "lucide-react";
+import { HostDialog } from "@/components/host-dialog";
+import type { CloseOutcome } from "@/components/interaction-layers";
 import { focusComposer, useFocusReturn } from "@/components/focus-return";
 import {
 	CURRENT_SETTINGS_VERSION,
@@ -44,46 +45,51 @@ import { SettingsRow, ThinSelect, Toggle } from "./controls";
 import { SessionModeChips } from "./session-mode-chips";
 import { ConnectionSettings } from "./connection-settings";
 import { KeyboardSection } from "./keyboard-section.tsx";
+import { PluginsSection } from "./plugins-section.tsx";
+import { PluginSettingsPage } from "./plugin-settings-page.tsx";
+import { usePlugins } from "@/components/plugins";
+import { WriteOrderContext, type SettingsWriteOrder } from "./settings-dialog.tsx";
 
 /** Hints earn their place: only the keyboard note (storage location is a
  *  real question users ask). */
 const SECTIONS = [
-	{ id: "keys", label: "Providers" },
-	{ id: "agent", label: "Agent" },
-	{ id: "appearance", label: "Appearance" },
-	{ id: "graph", label: "Graph" },
-	{ id: "keyboard", label: "Keyboard", hint: "Stored on this device" },
-	{ id: "general", label: "General" },
+	{ id: "keys", label: "Providers", icon: KeyIcon },
+	{ id: "agent", label: "Agent", icon: BotIcon },
+	{ id: "appearance", label: "Appearance", icon: PaletteIcon },
+	{ id: "graph", label: "Graph", icon: WaypointsIcon },
+	{ id: "keyboard", label: "Keyboard", icon: KeyboardIcon, hint: "Stored on this device" },
+	{ id: "general", label: "General", icon: SettingsIcon },
 ] as const;
-export type SectionId = (typeof SECTIONS)[number]["id"];
+export type SectionId = (typeof SECTIONS)[number]["id"] | "plugins" | "core-plugins" | `plugin:${string}`;
 
-/** The open dialog: portal + dim backdrop around the body. */
+/** The open dialog: the shared modal shell + plain dim backdrop around the body. */
 export function SettingsDialog({
 	onClose,
 	initialSection,
 	initialRow,
+	navigationRequest,
+	layerId,
 }: {
-	onClose: () => void;
+	onClose: () => CloseOutcome;
 	initialSection: SectionId;
+	navigationRequest: number;
+	layerId: string;
 	/** The keys-section row to unfold (see settings-dialog.tsx). */
 	initialRow: string | null;
 }) {
-	const backdropDismiss = useBackdropDismiss(onClose);
 	// Closing hands focus back to whatever held it on open (the Settings button),
 	// caret included, or to the page's composer when nothing did (the /settings deep link).
 	useFocusReturn(false, focusComposer);
-	// Plain dim backdrop (no blur — nothing decorative); a genuine
-	// backdrop click closes, the dialog body stops propagation.
-	return createPortal(
-		<div
-			className="fixed inset-0 z-50 flex items-center justify-center bg-background/80"
-			data-testid="settings-backdrop"
-			{...backdropDismiss}
-		>
-			<SettingsDialogBody onClose={onClose} initialSection={initialSection} initialRow={initialRow} />
-		</div>,
-		document.body,
-	);
+	// Keep the original visual frame and plain dim backdrop. The shared
+	// untransformed boundary also contains this modal's portaled menus.
+	return <SettingsDialogBody onClose={onClose} initialSection={initialSection}
+		initialRow={initialRow} navigationRequest={navigationRequest}
+		renderFrame={frame => <HostDialog open layerId={layerId} ownerId={null}
+			onClose={onClose} frame={frame} aria-label="Settings"
+			backdropProps={{
+				className: "fixed inset-0 z-50 flex items-center justify-center bg-background/80",
+				"data-testid": "settings-backdrop",
+			}}>{frame.props.children}</HostDialog>} />;
 }
 
 /** The dialog without the portal/backdrop — the SSR-testable frame
@@ -92,14 +98,24 @@ export function SettingsDialogBody({
 	onClose,
 	initialSection = "keys",
 	initialRow = null,
+	navigationRequest = 0,
+	renderFrame,
 }: {
 	onClose: () => void;
+	/** The runtime supplies the shared modal shell; standalone SSR retains the frame. */
+	renderFrame?: (frame: ReactElement<{ children: ReactNode }>) => ReactNode;
 	initialSection?: SectionId;
+	/** Repeated opens must retarget even when the requested section is unchanged. */
+	navigationRequest?: number;
 	/** The keys row to unfold on arrival (null = none). While-open
 	 *  retargets follow it exactly like initialSection below. */
 	initialRow?: string | null;
 }) {
 	const { onAppearanceChange } = useAppearance();
+	const inheritedWriteOrder = useContext(WriteOrderContext);
+	const standaloneWriteOrder = useRef<SettingsWriteOrder>({ issued: 0, acknowledged: 0, listeners: new Set() });
+	const writeOrder = inheritedWriteOrder ?? standaloneWriteOrder;
+	const { snapshot } = usePlugins();
 	const [record, setRecord] = useState<UserSettings | null | undefined>(
 		undefined,
 	);
@@ -108,11 +124,6 @@ export function SettingsDialogBody({
 	// MenuShell open-count — drives the content column's scroll lock.
 	const [openMenus, setOpenMenus] = useState(0);
 	const contentRef = useRef<HTMLDivElement | null>(null);
-	// Open with focus in the dialog, not on ✕: a second Enter must not close it.
-	const dialogRef = useRef<HTMLDivElement>(null);
-	useEffect(() => {
-		if (!dialogRef.current?.contains(document.activeElement)) dialogRef.current?.focus();
-	}, []);
 	// Scroll-lock (the scrollbar may stay, scrolling must NOT happen,
 	// nothing may move): the content column keeps overflow-y-auto — the scrollbar and every width stay exactly
 	// as they are — and while any MenuShell is open, non-passive wheel +
@@ -148,7 +159,37 @@ export function SettingsDialogBody({
 	// nothing.
 	useEffect(() => {
 		setActive(initialSection);
-	}, [initialSection]);
+	}, [initialSection, navigationRequest]);
+
+	const enabledPlugins = snapshot.plugins.filter(plugin => plugin.info.enabled);
+	const activePluginId = active.startsWith("plugin:") ? active.slice("plugin:".length) : null;
+	const activePlugin = enabledPlugins.find(plugin => plugin.info.id === activePluginId);
+	// Keep a deep link pending while discovery loads. Once discovery settles,
+	// disabled/uninstalled destinations return to management, never stale DOM.
+	const missingPlugin = activePluginId !== null && !activePlugin && !snapshot.loading;
+	const management = snapshot.plugins.find(plugin => plugin.info.id === activePluginId)?.info.origin === "core" ? "core-plugins" : "plugins";
+	useEffect(() => {
+		if (missingPlugin) setActive(management);
+	}, [missingPlugin, management]);
+	const selected = missingPlugin ? management : active;
+	const navSections: { id: SectionId; label: string; icon?: LucideIcon }[] = [
+		...SECTIONS,
+		{ id: "core-plugins", label: "Core plugins", icon: PlugIcon },
+		{ id: "plugins", label: "Community plugins", icon: PuzzleIcon },
+		...enabledPlugins.map(plugin => ({ id: `plugin:${plugin.info.id}` as const, label: plugin.info.manifest?.name ?? plugin.info.id })),
+	];
+
+	// A save may finish after its original dialog closes. Publish its
+	// acknowledged snapshot to whichever Settings instance is mounted now.
+	useEffect(() => {
+		const authority = writeOrder.current;
+		const apply = (record: UserSettings, fileAccessError: string | null) => {
+			setRecord(record);
+			setFileAccessError(fileAccessError);
+		};
+		authority.listeners.add(apply);
+		return () => { authority.listeners.delete(apply); };
+	}, [writeOrder]);
 
 	// Fetch once per dialog mount, and again after any section is saved
 	// (here or in another window), so a section PUT never replaces newer
@@ -159,7 +200,10 @@ export function SettingsDialogBody({
 	useOptionalServerEvent("settings-changed", () => setLoads((n) => n + 1));
 	// A load that failed while the server was down retries once it is back.
 	useOptionalServerResync(() => { if (record === null) setLoads((n) => n + 1); });
+	// A GET started before a newer acknowledged save cannot roll it back.
 	useEffect(() => {
+		const authority = writeOrder.current;
+		const acknowledgedAtRead = authority.acknowledged;
 		let alive = true;
 		fetch("/api/settings")
 			.then((r) =>
@@ -167,18 +211,17 @@ export function SettingsDialogBody({
 			)
 			.then((body: { settings: UserSettings | null; fileAccessError?: string }) => {
 				if (!alive) return;
-				setRecord(body.settings ?? { version: CURRENT_SETTINGS_VERSION });
-				setFileAccessError(body.fileAccessError ?? null);
+				const unchanged = authority.acknowledged === acknowledgedAtRead;
+				setRecord(unchanged ? body.settings ?? { version: CURRENT_SETTINGS_VERSION } : authority.record ?? body.settings ?? { version: CURRENT_SETTINGS_VERSION });
+				setFileAccessError(unchanged ? body.fileAccessError ?? null : authority.fileAccessError ?? null);
 			})
 			// A failed refresh keeps the record already shown.
 			.catch(() => { if (alive) setRecord((prev) => (loads === 0 ? null : prev)); });
 		return () => { alive = false; };
-	}, [loads]);
+	}, [loads, writeOrder]);
 
-	// Escape closes the dialog — the outer dismiss layer. While any MenuShell
-	// is open, that menu's own Esc handler (bindSettingsMenuDismiss) acts
-	// instead.
-	useEscapeClose(openMenus === 0, onClose);
+	// Escape closes through the shared interaction owner (HostDialog); an
+	// open MenuShell is its own, higher layer.
 
 	/** ONE writer for the whole dialog: PUT the whole section, keep the
 	 *  record mirror in sync, surface route errors inline (a 400 is a
@@ -188,18 +231,22 @@ export function SettingsDialogBody({
 			section: "general" | "agent" | "models" | "appearance" | "graph" | "compaction",
 			body: object,
 		): Promise<boolean> => {
+			const ticket = ++writeOrder.current.issued;
 			setError(null);
 			const res = await fetch(`/api/settings/${section}`, {
 				method: "PUT",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify(body),
 			}).catch(() => null);
-			if (!res) { setError(`${section} settings could not be saved. Try again.`); return false; }
+			if (!res) {
+				if (ticket === writeOrder.current.issued) setError(`${section} settings could not be saved. Try again.`);
+				return false;
+			}
 			if (!res.ok) {
 				const detail = (await res.json().catch(() => ({}))) as {
 					error?: string;
 				};
-				setError(detail.error ?? `${section} settings could not be saved (${res.status}). Try again.`);
+				if (ticket === writeOrder.current.issued) setError(detail.error ?? `${section} settings could not be saved (${res.status}). Try again.`);
 				return false;
 			}
 			// Server truth, never the request body: the server may normalize
@@ -207,17 +254,24 @@ export function SettingsDialogBody({
 			// surface must show the stored value in this same interaction.
 			const reply = (await res.json().catch(() => null)) as { settings?: UserSettings; fileAccessError?: string } | null;
 			const stored = reply?.settings;
-			setFileAccessError(reply?.fileAccessError ?? null);
-			setRecord(
-				(prev) =>
-					stored ?? ({ ...(prev ?? {}), [section]: body }) as UserSettings,
-			);
+			if (!stored || typeof stored !== "object" || Array.isArray(stored) || stored.version !== 1 ||
+				!stored[section] || typeof stored[section] !== "object" || Array.isArray(stored[section])) {
+				if (ticket === writeOrder.current.issued) setError(`${section}: Could not confirm saved settings. Your input has been kept.`);
+				return false;
+			}
+			if (ticket >= writeOrder.current.acknowledged) {
+				writeOrder.current.acknowledged = ticket;
+				writeOrder.current.record = stored;
+				writeOrder.current.fileAccessError = reply?.fileAccessError ?? null;
+				for (const apply of writeOrder.current.listeners) apply(stored, writeOrder.current.fileAccessError);
+				// Every accepted response is a full canonical record, including
+				// appearance saved by an earlier, still-pending section request.
+				onAppearanceChange(stored.appearance);
+			}
 			notifySettingsSaved(section);
-			if (section === "appearance")
-				onAppearanceChange(body as AppearanceSettings);
 			return true;
 		},
-		[onAppearanceChange],
+		[onAppearanceChange, writeOrder],
 	);
 
 	// General PUTs replace the section: retain sibling choices and serialize saves.
@@ -233,9 +287,8 @@ export function SettingsDialogBody({
 		}
 	};
 
-	return (
+	const frame = (
 		<div
-			ref={dialogRef}
 			tabIndex={-1}
 			role="dialog"
 			aria-modal="true"
@@ -249,7 +302,7 @@ export function SettingsDialogBody({
 			<header className="flex h-15 shrink-0 items-center gap-3 border-b border-border px-5">
 				<h2 className="font-title text-2xl tracking-tight">Settings</h2>
 				<Hint
-						// Esc closes the dialog (its own listener) — surface it.
+						// Esc closes through the shared interaction owner.
 						label="Close"
 						binding="escape"
 						side="left"
@@ -275,32 +328,36 @@ export function SettingsDialogBody({
 			</header>
 
 			<div className="flex min-h-0 flex-1 flex-col sm:flex-row">
-				{/* Left nav — text-only mono, active = bg-accent. Phones: a
-				    wrapping row above the content. */}
+				{/* Left nav — mono labels and theme-inherited decorative icons,
+				    active = bg-accent. Phones: a wrapping row above the content. */}
 				<nav
 					aria-label="Settings sections"
 					data-testid="settings-nav"
-					className="flex shrink-0 flex-wrap gap-1 border-b border-border p-2 sm:w-44 sm:flex-col sm:flex-nowrap sm:border-r sm:border-b-0"
+					className="flex min-h-0 shrink-0 flex-wrap gap-1 overflow-y-auto border-b border-border p-2 sm:w-48 sm:flex-col sm:flex-nowrap sm:border-r sm:border-b-0"
 				>
-					{SECTIONS.map((s) => (
-						<button
-							key={s.id}
-							type="button"
-							data-testid={`settings-nav-${s.id}`}
-							aria-current={active === s.id}
-							className={`rounded-sm px-3 py-1.5 text-left font-ui text-sm transition-colors ${
-								active === s.id
-									? "bg-accent text-foreground"
-									: "text-muted-foreground hover:bg-accent hover:text-foreground"
-							}`}
-							onClick={() => {
-								// Each section opens at its top, not the last one's scroll.
-								if (contentRef.current) contentRef.current.scrollTop = 0;
-								setActive(s.id);
-							}}
-						>
-							{s.label}
-						</button>
+					{navSections.map((s, index) => (
+						<div key={s.id} className="shrink-0">
+							{index === SECTIONS.length && <hr className="my-2 border-border" />}
+							<button
+								type="button"
+								data-testid={`settings-nav-${s.id}`}
+								aria-current={selected === s.id}
+								className={`flex w-full items-center gap-2 break-words rounded-sm px-3 py-1.5 text-left font-ui text-sm transition-colors ${
+									selected === s.id
+										? "bg-accent text-foreground"
+										: "text-muted-foreground hover:bg-accent hover:text-foreground"
+								}`}
+								onClick={() => {
+									// Each section opens at its top, not the last one's scroll.
+									if (contentRef.current) contentRef.current.scrollTop = 0;
+									setActive(s.id);
+								}}
+							>
+								{s.icon && <s.icon aria-hidden="true" focusable="false" className="size-3.5 shrink-0" />}
+								<span className="min-w-0">{s.label}</span>
+							</button>
+							{s.id === "plugins" && <hr className="my-2 border-border" />}
+						</div>
 					))}
 				</nav>
 
@@ -315,16 +372,19 @@ export function SettingsDialogBody({
 					className="min-w-0 flex-1 overflow-y-auto"
 					data-testid="settings-content"
 				>
-					{error && (
+					{error && !activePluginId && selected !== "plugins" && selected !== "core-plugins" && (
 						<p
 							role="alert"
-							className="m-4 rounded-sm border border-red-500/40 px-3 py-2 text-xs text-red-500"
+							className="m-4 rounded-sm border border-error/40 px-3 py-2 text-xs text-error"
 							data-testid="settings-error"
 						>
 							{error}
 						</p>
 					)}
-					{record === undefined ? (
+					{selected === "plugins" || selected === "core-plugins" ? <PluginsSection origin={selected === "core-plugins" ? "core" : "community"} onOpenSettings={pluginId => setActive(`plugin:${pluginId}`)} />
+						: activePlugin ? <PluginSettingsPage key={`${activePlugin.info.id}/${activePlugin.info.revision}`} plugin={activePlugin} />
+							: activePluginId !== null ? <p role="status" className="px-6 py-5 text-xs text-muted-foreground">Loading plugins…</p>
+								: record === undefined ? (
 						<p className="px-6 py-5 text-xs text-muted-foreground/70">
 							Loading settings…
 						</p>
@@ -434,18 +494,6 @@ export function SettingsDialogBody({
 										/>
 									</SettingsRow>
 									<SettingsRow
-										label="Cards from imported knowledge"
-										hint="Also make flashcards from imported material, not just chat history. Review history is kept."
-										testid="row-flashcard-sources"
-									>
-										<Toggle
-											checked={record.general?.flashcardSources === "all"}
-											label="cards from imported knowledge"
-											disabled={savingGeneral}
-											onChange={(on) => void writeGeneral({ flashcardSources: on ? "all" : "chats" })}
-										/>
-									</SettingsRow>
-									<SettingsRow
 										label="Learning history"
 										hint="Export questions, responses and timestamps for future review."
 										testid="row-learning-history"
@@ -483,7 +531,7 @@ export function SettingsDialogBody({
 											write("agent", next)
 										}
 										onCompactionChange={(next: CompactionSettings) =>
-											void write("compaction", next)
+											write("compaction", next)
 										}
 									/>
 								</SettingsSection>
@@ -496,7 +544,7 @@ export function SettingsDialogBody({
 									<AppearanceSection
 										appearance={record.appearance}
 										onSectionChange={(next: AppearanceSettings) =>
-											void write("appearance", next)
+											write("appearance", next)
 										}
 									/>
 								</SettingsSection>
@@ -509,7 +557,7 @@ export function SettingsDialogBody({
 									<GraphSection
 										graph={record.graph}
 										onSectionChange={(next: GraphSettings) =>
-											void write("graph", next)
+											write("graph", next)
 										}
 									/>
 								</SettingsSection>
@@ -529,4 +577,5 @@ export function SettingsDialogBody({
 			</div>
 		</div>
 	);
+	return renderFrame ? renderFrame(frame) : frame;
 }

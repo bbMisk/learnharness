@@ -7,6 +7,7 @@ import { useRef, useState } from "react";
 import type { GraphCostSummary } from "@/src/core";
 import { planCostLabel } from "@/components/usage-format";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
+import { INTERACTION_LAYER_Z_BASE } from "@/components/host-dialog";
 import { Hint } from "@/components/ui/hint";
 
 /** Compact token display: 45231 → "45.2k"; absent → "—". */
@@ -78,7 +79,8 @@ export function GraphCostControl({ costs }: { costs: GraphCostSummary }) {
 	// Click anywhere outside (or Escape) closes the panel — the root
 	// wraps button + panel, so the toggle itself keeps working.
 	const rootRef = useRef<HTMLDivElement>(null);
-	usePopoverDismiss(rootRef, open, () => setOpen(false));
+	const panelRef = useRef<HTMLDivElement>(null);
+	const popupLayer = usePopoverDismiss(rootRef, open, () => setOpen(false), { layerRootRef: panelRef });
 	return (
 		<div ref={rootRef} className="relative">
 			<Hint
@@ -98,7 +100,7 @@ export function GraphCostControl({ costs }: { costs: GraphCostSummary }) {
 			</button>
 			</Hint>
 			{open && (
-				<div className="absolute right-0 top-full mt-2 max-h-[60vh] overflow-y-auto">
+				<div ref={panelRef} style={{ zIndex: INTERACTION_LAYER_Z_BASE + popupLayer.order }} className="absolute right-0 top-full mt-2 max-h-[60vh] overflow-y-auto">
 					<GraphCostPanel costs={costs} />
 				</div>
 			)}

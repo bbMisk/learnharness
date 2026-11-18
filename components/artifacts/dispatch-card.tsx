@@ -31,9 +31,14 @@ const KIND_LABEL: Record<JobKind, string> = {
 	demo: "Demo agent",
 	visual: "Figure agent",
 	pdf: "PDF reader",
+	plugin: "Plugin worker",
 };
 
-export function DispatchCard({ part }: ArtifactPartProps) {
+export function DispatchCard(props: ArtifactPartProps | { toolCallId: string; kind: JobKind }) {
+	// The registry renders it from the tool part; a plugin worker's accepted
+	// call names its job directly (plugin-renderers.tsx).
+	if (!("part" in props)) return <DispatchStatus toolCallId={props.toolCallId} kind={props.kind} />;
+	const { part } = props;
 	if (part.state !== "output-available") return null;
 	return <DispatchStatus toolCallId={part.toolCallId} kind={part.type.slice("tool-".length) as JobKind} />;
 }
@@ -41,7 +46,7 @@ export function DispatchCard({ part }: ArtifactPartProps) {
 function DispatchStatus({ toolCallId, kind }: { toolCallId: string; kind: JobKind }) {
 	const jobs = useContext(JobsContext);
 	const job = jobs.find((j) => j.toolCallId === toolCallId) ?? null;
-	const label = KIND_LABEL[kind];
+	const label = kind === "plugin" ? job?.plugin?.label || job?.plugin?.toolName || KIND_LABEL.plugin : KIND_LABEL[kind];
 	const [open, setOpen] = useState(false);
 	const [now, setNow] = useState(() => Date.now());
 	const working = job ? jobDisplay(job).working : false;
@@ -76,7 +81,7 @@ function DispatchStatus({ toolCallId, kind }: { toolCallId: string; kind: JobKin
 	return <details id={`agent-${job.id}`} onToggle={(event) => setOpen(event.currentTarget.open)} className="group rounded-xl border bg-card text-card-foreground" data-testid={job.status === "running" ? "dispatch-card" : "dispatch-settled"}>
 		<summary className="cursor-pointer list-none p-4 [&::-webkit-details-marker]:hidden" aria-label={`Inspect ${label}`}>
 			<div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-				{display.working ? <BrailleSpinner label={`${label} running`} /> : job.status === "error" ? <XIcon className="size-3.5 text-red-500" /> : <CheckIcon className="size-3.5" />}
+				{display.working ? <BrailleSpinner label={`${label} running`} /> : job.status === "error" ? <XIcon className="size-3.5 text-error" /> : <CheckIcon className="size-3.5" />}
 				{label}{elapsed !== null && <span className="font-normal">· {Math.round(elapsed / 1000)}s</span>}
 				<ChevronDownIcon className="ml-auto size-3.5 transition-transform group-open:rotate-180" />
 			</div>

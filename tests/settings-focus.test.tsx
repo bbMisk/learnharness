@@ -1,3 +1,4 @@
+import { DEFAULT_THEME } from "../src/core/themes.ts";
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 
@@ -49,22 +50,22 @@ describe("Settings keyboard focus", () => {
 		const opener = document.createElement("button");
 		document.body.append(opener);
 		opener.focus();
-		await render(<AppearanceProvider><SettingsDialog onClose={() => {}} initialSection="general" initialRow={null} /></AppearanceProvider>);
+		await render(<AppearanceProvider initialAppearance={undefined} initialTheme={DEFAULT_THEME}><SettingsDialog onClose={() => "closed"} initialSection="general" initialRow={null} navigationRequest={0} layerId="settings" /></AppearanceProvider>);
 		// Compare identities: a failing DOM-node diff would inspect the whole document.
 		assert.ok(focused !== opener, "the dialog took focus");
-		await act(async () => { root!.render(<AppearanceProvider>{null}</AppearanceProvider>); });
+		await act(async () => { root!.render(<AppearanceProvider initialAppearance={undefined} initialTheme={DEFAULT_THEME}>{null}</AppearanceProvider>); });
 		assert.ok(focused === opener, "focus went back to the opener");
 		opener.remove();
 	});
 
 	it("closing Settings with no opener (the /settings deep link) focuses the composer", async () => {
 		globalThis.fetch = (async () => Response.json({ settings: null })) as typeof fetch;
-		await render(<AppearanceProvider><SettingsDialog onClose={() => {}} initialSection="general" initialRow={null} /></AppearanceProvider>);
+		await render(<AppearanceProvider initialAppearance={undefined} initialTheme={DEFAULT_THEME}><SettingsDialog onClose={() => "closed"} initialSection="general" initialRow={null} navigationRequest={0} layerId="settings" /></AppearanceProvider>);
 		const composer = document.createElement("form");
 		composer.setAttribute("data-testid", "composer");
 		composer.innerHTML = '<div role="textbox" data-file-path-input=""></div>';
 		document.body.append(composer);
-		await act(async () => { root!.render(<AppearanceProvider>{null}</AppearanceProvider>); });
+		await act(async () => { root!.render(<AppearanceProvider initialAppearance={undefined} initialTheme={DEFAULT_THEME}>{null}</AppearanceProvider>); });
 		assert.ok(focused === composer.firstElementChild, "focus went to the composer");
 		composer.remove();
 	});

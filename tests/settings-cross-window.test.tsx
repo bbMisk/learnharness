@@ -1,3 +1,4 @@
+import { DEFAULT_THEME } from "../src/core/themes.ts";
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 
@@ -57,7 +58,7 @@ async function mount(children: React.ReactNode) {
 	document.body.append(host);
 	root = createRoot(host);
 	await act(async () => {
-		root!.render(<ServerEventsProvider connect={connect}><AppearanceProvider>{children}</AppearanceProvider></ServerEventsProvider>);
+		root!.render(<ServerEventsProvider connect={connect}><AppearanceProvider initialAppearance={undefined} initialTheme={DEFAULT_THEME}>{children}</AppearanceProvider></ServerEventsProvider>);
 	});
 }
 

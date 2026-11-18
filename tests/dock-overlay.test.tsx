@@ -55,7 +55,7 @@ function Overlay({ onSubmit, children, reveal = true, checkEscRef, id = "q1", re
 	return (
 		<StickToBottom>
 			<StickToBottom.Content>{() => null}</StickToBottom.Content>
-			<DockOverlay pending={{ ...pending, key: id, toolCallId: id } as never} initialQuestionDraft={draft} onSaveQuestionDraft={() => {}} practice={null}
+			<DockOverlay {...({} as React.ComponentProps<typeof DockOverlay>)} pending={{ ...pending, key: id, toolCallId: id } as never} initialQuestionDraft={draft} onSaveQuestionDraft={() => {}} practice={null}
 				compactionRunning={false} onSubmitThinking={() => {}} teachingCheck={reveal} requiresReveal={reveal} showReadingThinking={reading}
 				readingThinking="" readingThinkingRevision={0} onReadingThinking={() => {}} phase={"teach" as never} composer={null}
 				onSubmitAnswer={onSubmit} footer={null} onReserve={() => {}} room="" queuedSteers={[]} checkEscRef={checkEscRef} />
@@ -248,7 +248,7 @@ it("a question left folded inside the dock's band comes back folded, keeping the
 		<PathnameContext.Provider value="/chat/band">
 			<StickToBottom>
 				<StickToBottom.Content>{() => null}</StickToBottom.Content>
-				<DockOverlay pending={pending as never} initialQuestionDraft={draft} onSaveQuestionDraft={() => {}} practice={null}
+				<DockOverlay {...({} as React.ComponentProps<typeof DockOverlay>)} pending={pending as never} initialQuestionDraft={draft} onSaveQuestionDraft={() => {}} practice={null}
 					compactionRunning={false} onSubmitThinking={() => {}} teachingCheck={false} requiresReveal={false} showReadingThinking={false}
 					readingThinking="" readingThinkingRevision={0} onReadingThinking={() => {}} phase={"probe" as never} composer={null}
 					onSubmitAnswer={() => {}} footer={null} onReserve={(h) => reserves.push(h)} room="" queuedSteers={[]} />
@@ -313,7 +313,7 @@ it("folding the check keeps the spacer's reserve but reports the smaller live he
 		const host = await mount(
 			<StickToBottom>
 				<StickToBottom.Content>{() => null}</StickToBottom.Content>
-				<DockOverlay pending={{ ...pending, key: "q-live", toolCallId: "q-live" } as never} initialQuestionDraft={draft} onSaveQuestionDraft={() => {}} practice={null}
+				<DockOverlay {...({} as React.ComponentProps<typeof DockOverlay>)} pending={{ ...pending, key: "q-live", toolCallId: "q-live" } as never} initialQuestionDraft={draft} onSaveQuestionDraft={() => {}} practice={null}
 					compactionRunning={false} onSubmitThinking={() => {}} teachingCheck requiresReveal showReadingThinking={false}
 					readingThinking="" readingThinkingRevision={0} onReadingThinking={() => {}} phase={"teach" as never} composer={null}
 					onSubmitAnswer={() => {}} footer={null} onReserve={(h) => reserves.push(h)} onBlockHeight={(h) => heights.push(h)} room="" queuedSteers={[]} checkEscRef={escRef} />

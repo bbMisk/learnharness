@@ -1,16 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { captureFocus, focusComposer, watchUserMoves } from "@/components/focus-return";
 import { isComposing } from "@/components/ime";
 import { renameChat } from "@/components/rename";
+import { useOptionalInteractionLayers } from "@/components/interaction-layers";
+import { isInteractionScopeEligible } from "@/components/plugin-input-focus";
 
 /**
  * The chat header's title and its click-to-rename state. Clicking the title
  * opens edit mode with everything selected. Enter or a click away commits
  * (PUT /api/chats/:id); Escape discards. The server never bumps updatedAt on a
  * rename (sidebar order must not churn); the sidebar updates instantly via the
- * lh:chat-renamed window event.
+ * lh:chat-renamed window event. F2 (lh:kbd-rename-session) opens it only
+ * while `scopeRef`'s session area is eligible (no newer layer covers it).
  */
-export function useSessionRename(chatId: string, title: string) {
+export function useSessionRename(chatId: string, title: string, scopeRef?: RefObject<HTMLElement | null>) {
+	const controller = useOptionalInteractionLayers();
 	const [titleText, setTitleText] = useState(title);
 	const [renaming, setRenaming] = useState(false);
 	const [titleDraft, setTitleDraft] = useState("");
@@ -83,6 +87,7 @@ export function useSessionRename(chatId: string, title: string) {
 	// and F2 elsewhere moves into a quietly reopened one.
 	useEffect(() => {
 		const onRename = () => {
+			if (scopeRef && !isInteractionScopeEligible(scopeRef.current, controller)) return;
 			if (renaming) {
 				const el = titleInputRef.current;
 				if (el && document.activeElement !== el) {
@@ -97,7 +102,7 @@ export function useSessionRename(chatId: string, title: string) {
 		};
 		window.addEventListener("lh:kbd-rename-session", onRename);
 		return () => window.removeEventListener("lh:kbd-rename-session", onRename);
-	}, [titleText, renaming]);
+	}, [titleText, renaming, scopeRef, controller]);
 
 	// The sidebar's inline rename dispatches the same lh:chat-renamed event:
 	// if it renamed this chat, patch the header title in place, and close a

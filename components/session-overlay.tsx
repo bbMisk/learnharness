@@ -4,11 +4,12 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import { MaximizeIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fitGraphView, fitZoomFor, zoomedGraphView, type Viewport } from "@/components/pan-zoom";
-import { useEscapeClose } from "@/components/open-modal";
 import { renderMermaid } from "@/components/mermaid-render";
+import { useAppearance } from "@/components/settings/appearance";
 import { MermaidError } from "@/components/mermaid-error";
 import { Hint } from "@/components/ui/hint";
 import { SvgImage } from "@/components/artifacts/svg-image";
+import { InteractionLayerOwner, useInteractionLayer } from "./interaction-layers";
 
 /**
  * SESSION-SCOPED OVERLAYS (owner wave, 2026-09-19): the "fullscreen"
@@ -30,17 +31,28 @@ import { SvgImage } from "@/components/artifacts/svg-image";
 
 /** The expand seam: md-blocks' mermaid hover button calls openMermaid with
  *  the chart source; the figure card's fullscreen button calls openFigure
- *  with the raw svg (+ its invert state); every plan control (the transcript
- *  plan block, the dock marginalia, the progress card's diagram) calls
- *  openPlan. The chat page (which provides this context) opens the overlay
- *  and owns its Esc layering. Null when no chat page is mounted (sidebar
- *  previews etc.): the expand buttons don't render there, and the plan
- *  controls render but open nothing. */
+ *  with the raw svg (+ its invert state); a submitted image's preview calls
+ *  openImage; every plan control (the transcript plan block, the dock
+ *  marginalia, the progress card's diagram) calls openPlan. The chat page
+ *  (which provides this context) opens the overlay and owns its Esc
+ *  layering. Null when no chat page is mounted (sidebar previews etc.): the
+ *  expand buttons don't render there, and the plan controls render but open
+ *  nothing. */
+export interface SessionImage {
+	src: string;
+	width: number;
+	height: number;
+}
+
 export const SessionOverlayContext = createContext<{
 	openMermaid: (chart: string) => void;
 	openFigure: (svg: string, inverted: boolean) => void;
 	openPlan: () => void;
+	openImage?: (image: SessionImage) => void;
 } | null>(null);
+
+/** Upstream's name for the same context (plugin hosts and fixtures use it). */
+export const SessionMermaidContext = SessionOverlayContext;
 
 export function useSessionOverlay() {
 	return useContext(SessionOverlayContext);
@@ -81,11 +93,13 @@ export function chartSize(svg: string): { w: number; h: number } {
 export function MermaidOverlay({
 	chart,
 	svg: rawSvg,
+	image,
 	inverted = false,
 	onClose,
 }: {
 	chart?: string;
 	svg?: string;
+	image?: SessionImage;
 	inverted?: boolean;
 	onClose: () => void;
 }) {
@@ -93,7 +107,13 @@ export function MermaidOverlay({
 	const [svg, setSvg] = useState<string | null>(rawSvg ?? null);
 	const [error, setError] = useState<string | null>(null);
 	const [attempt, setAttempt] = useState(0);
+	const { resolvedMode } = useAppearance();
 	useEffect(() => {
+		if (image) {
+			setSvg(null);
+			setError(null);
+			return;
+		}
 		if (rawSvg !== undefined) {
 			setSvg(rawSvg);
 			setError(null);
@@ -103,7 +123,7 @@ export function MermaidOverlay({
 		let cancelled = false;
 		setSvg(null);
 		setError(null);
-		renderMermaid(chart)
+		renderMermaid(chart, resolvedMode)
 			.then((s) => {
 				if (!cancelled) setSvg(s);
 			})
@@ -113,11 +133,15 @@ export function MermaidOverlay({
 		return () => {
 			cancelled = true;
 		};
-	}, [rawSvg, chart, attempt]);
+	}, [rawSvg, chart, image, attempt, resolvedMode]);
 
-	// Esc closes: one Esc, one action; the window chain (dictation → abort)
-	// never fires under a surfaced layer.
-	useEscapeClose(true, onClose);
+	// Esc closes through the interaction layers: one Esc, one action; the
+	// window chain (dictation → abort) never fires under a surfaced layer.
+	const rootRef = useRef<HTMLDivElement>(null);
+	const layer = useInteractionLayer({
+		kind: "view", enabled: true, rootRef,
+		onClose: () => { onClose(); return "closed"; },
+	});
 
 	// ── pan/zoom viewport (same wiring as the plan popup) ──
 	const viewportRef = useRef<HTMLDivElement>(null);
@@ -130,7 +154,9 @@ export function MermaidOverlay({
 		return () => ro.disconnect();
 	}, []);
 
-	const box = useMemo(() => (svg ? chartSize(svg) : { w: 0, h: 0 }), [svg]);
+	const box = useMemo(() => image ? { w: image.width, h: image.height } : svg ? chartSize(svg) : { w: 0, h: 0 }, [svg, image]);
+	const mediaName = image ? "Image" : "Diagram";
+	const fitLabel = image ? "Fit image to view" : "Fit diagram to view";
 	const fitZoom = useMemo(() => fitZoomFor(box, size), [box, size]);
 
 	const [view, setView] = useState<Viewport>({ x: 0, y: 0, zoom: 1 });
@@ -143,11 +169,11 @@ export function MermaidOverlay({
 		if (atFloor) userAdjustedRef.current = false;
 	}, [atFloor]);
 	useEffect(() => {
-		if (userAdjustedRef.current || !size.w || !size.h || !svg) return;
+		if (userAdjustedRef.current || !size.w || !size.h || (!svg && !image)) return;
 		setView(fitGraphView(box, size, fitZoom));
 		const raf = requestAnimationFrame(() => setSettled(true));
 		return () => cancelAnimationFrame(raf);
-	}, [fitZoom, size, box, svg]);
+	}, [fitZoom, size, box, svg, image]);
 
 	useEffect(() => {
 		const el = viewportRef.current;
@@ -204,20 +230,24 @@ export function MermaidOverlay({
 	};
 
 	return (
+		<InteractionLayerOwner.Provider value={layer.id}>
 		<div
+			ref={rootRef}
 			data-testid="mermaid-overlay"
 			// SESSION-SCOPED (not fixed): mounts absolute inside the chat
 			// page's session-area div — below the drag bar, right of the
 			// sidebar. 80% + blur: the transcript ghosts through (owner
 			// decision, 2026-09-19).
-			className="absolute inset-0 z-40 flex flex-col bg-background/80 p-4 backdrop-blur-sm"
+			className="pointer-events-auto absolute inset-0 z-40 flex flex-col bg-background/80 p-4 backdrop-blur-sm"
+			// Ranked inside the session's bounded view stack, below app modals.
+			style={{ zIndex: 100 + layer.order }}
 			role="dialog"
 			aria-modal="true"
 			data-lh-modal
-			aria-label="Diagram focus"
+			aria-label={`${mediaName} focus`}
 		>
 			<div className="mb-2 flex items-center gap-2">
-				<span className="text-sm font-medium">Diagram</span>
+				<span className="text-sm font-medium">{mediaName}</span>
 				<span className="text-xs text-muted-foreground">from this lesson</span>
 				<Hint label="Close" binding="escape" side="left">
 <button
@@ -246,7 +276,7 @@ export function MermaidOverlay({
 					<div className="flex h-full items-center justify-center p-4">
 						<MermaidError chart={chart ?? ""} error={error} retry={() => setAttempt((a) => a + 1)} />
 					</div>
-				) : svg ? (
+				) : (svg || image) ? (
 					<>
 						<div
 							className="absolute top-0 left-0 origin-top-left"
@@ -268,19 +298,23 @@ export function MermaidOverlay({
 							{/* Figures share the card's image boundary and white backing.
 							    Mermaid keeps its inline renderer; globals.css removes
 							    its max-width cap so it fills the natural-size box. */}
-							{rawSvg !== undefined ? (
+							{image ? (
+								// Reuse the figure viewport without re-encoding or inverting raster bytes.
+								// eslint-disable-next-line @next/next/no-img-element
+								<img src={image.src} alt="Submitted image" draggable={false} className="block h-auto w-full" />
+							) : rawSvg !== undefined ? (
 								<div
 									data-lh-overlay-chart
 									className="bg-white"
 									style={inverted ? { filter: "invert(1) hue-rotate(180deg)" } : undefined}
 								>
-									<SvgImage svg={svg} className="block h-auto w-full" />
+									<SvgImage svg={svg ?? ""} className="block h-auto w-full" />
 								</div>
 							) : (
 								<div
 									data-lh-overlay-chart
 									className="[&_svg]:h-auto [&_svg]:w-full"
-									dangerouslySetInnerHTML={{ __html: svg }}
+									dangerouslySetInnerHTML={{ __html: svg ?? "" }}
 								/>
 							)}
 						</div>
@@ -298,10 +332,10 @@ export function MermaidOverlay({
 									<MinusIcon className="size-3.5" />
 								</button>
 </Hint>
-								<Hint label="Fit diagram to view" side="bottom">
+								<Hint label={fitLabel} side="bottom">
 <button
 									type="button"
-									aria-label="Fit diagram to view"
+									aria-label={fitLabel}
 									onClick={fitView}
 									className="pointer-events-auto flex size-7 items-center justify-center rounded-md border border-border/70 bg-card/80 text-muted-foreground backdrop-blur transition-colors hover:bg-accent hover:text-foreground"
 								>
@@ -330,5 +364,6 @@ export function MermaidOverlay({
 				)}
 			</div>
 		</div>
+		</InteractionLayerOwner.Provider>
 	);
 }

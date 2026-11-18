@@ -14,7 +14,6 @@
 - [ChatGPT account setup](chatgpt-plan.md) — subscription connection, plan use, and limits.
 - [Cache retention](cache-retention.md) — per-slot cache retention for ChatGPT and Claude Code.
 - [Learning history](learning-history.md) — export raw learning history.
-- [Offline flashcards](offline-flashcards.md) — phone review from the knowledge graph.
 - [Fork workflow](fork-workflow.md) — tracking upstream and deploying this fork.
 
 ## Development and maintenance

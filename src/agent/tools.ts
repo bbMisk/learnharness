@@ -379,8 +379,6 @@ export interface TeacherToolContext extends PlanToolContext {
 	 *  rides along — the spawn fires mid-stream, before the tool part is
 	 *  persisted to the transcript (a transcript scan would race it). */
 	spawn: (job: JobRecord, input: ResearchInput | DemoInput | VisualInput | PdfInput) => void;
-	/** note_mistake's flashcard seam (lesson-tracking.ts). */
-	onMistake?: (mistake: { id: string; text: string }) => void;
 }
 
 /** The quizzing mechanics: `tools.explain === true` in the resolved

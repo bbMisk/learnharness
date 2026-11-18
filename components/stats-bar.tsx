@@ -6,6 +6,7 @@ import { usePopoverDismiss } from "@/components/popover-dismiss";
 import { CLAUDE_CODE_PROVIDER, sessionCacheHitRate, subscriptionLabels, subscriptionLabel, type cliContextWindowOf, type SessionPricing, type TurnUsage } from "@/src/core";
 import { formatTokens, formatUsd, planCostLabel, prettyModel } from "@/components/usage-format";
 import { ModelControl, catalogLimits, useModelCatalog } from "@/components/model-picker";
+import { INTERACTION_LAYER_Z_BASE } from "@/components/host-dialog";
 
 export function formatContextMeasurement(tokens: number | null, limit: number | null): string {
 	const numerator = tokens === null ? "?" : formatTokens(tokens);
@@ -75,14 +76,14 @@ export function StatsBar({
 	// when it would cross a side edge (notch, narrow window), and capped to the
 	// safe room above it (it opens upward), so a long turn list scrolls instead
 	// of leaving the top of a landscape phone. Measured on open and on resize.
-	const detailRef = useRef<HTMLDivElement>(null);
+	const panelRef = useRef<HTMLDivElement>(null);
 	const [placement, setPlacement] = useState<{ shift: number; maxHeight: number } | null>(null);
 	useLayoutEffect(() => {
 		if (!open) {
 			setPlacement(null);
 			return;
 		}
-		const el = detailRef.current;
+		const el = panelRef.current;
 		if (!el) return;
 		let shift = 0; // the shift currently applied
 		const measure = () => {
@@ -108,7 +109,7 @@ export function StatsBar({
 	// Same dropdown discipline as the model control (owner, df4433f treatment,
 	// stats round 1): close on any pointerdown outside the bar or on Escape.
 	const barRef = useRef<HTMLDivElement>(null);
-	usePopoverDismiss(barRef, open, useCallback(() => setOpen(false), []));
+	const popupLayer = usePopoverDismiss(barRef, open && !!(chatId || turns.length), useCallback(() => setOpen(false), []), { layerRootRef: panelRef });
 	// The picker reports its effective selection. CLI windows are session-
 	// scoped; unknown metadata always means usage-only, never a guessed maximum.
 	const { catalog } = useModelCatalog();
@@ -163,14 +164,13 @@ export function StatsBar({
 			</button>
 				{open && (
 					<div
-						ref={detailRef}
+						ref={panelRef}
 						data-testid="stats-detail"
-						style={
-							placement
-								? { maxHeight: placement.maxHeight, ...(placement.shift ? { transform: `translateX(calc(-50% + ${placement.shift}px))` } : {}) }
-								: undefined
-						}
-						className="absolute bottom-full left-1/2 z-40 mb-1.5 w-72 -translate-x-1/2 overflow-y-auto rounded-xl border bg-card p-3 text-xs shadow-xl"
+						style={{
+							zIndex: INTERACTION_LAYER_Z_BASE + popupLayer.order,
+							...(placement ? { maxHeight: placement.maxHeight, ...(placement.shift ? { transform: `translateX(calc(-50% + ${placement.shift}px))` } : {}) } : {}),
+						}}
+						className="absolute bottom-full left-1/2 mb-1.5 w-72 -translate-x-1/2 overflow-y-auto rounded-xl border bg-card p-3 text-xs shadow-xl"
 					>
 						<div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 							Session stats

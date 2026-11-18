@@ -3,6 +3,7 @@ import type { AssistantMessage, ToolResultMessage, Usage } from "@earendil-works
 import { randomUUID } from "node:crypto";
 import { APP_IDENTITY, type PiEngine } from "../models.ts";
 import { usageWasAdmitted } from "../subscription-request-cycle.ts";
+import { workerRequestStream } from "../worker-request-admission.ts";
 import { providerEventObserver } from "../provider-events.ts";
 import { backgroundCaptureStream, createBackgroundCapture } from "../background-capture.ts";
 import type { ModelRole } from "../../../config.ts";
@@ -20,14 +21,18 @@ import type { ModelRole } from "../../../config.ts";
  */
 
 export interface SubagentRunOptions {
-	/** The role whose engine (model + thinking level) this run uses. */
-	role: ModelRole;
+	/** Named core role for opt-in captures. Optional: plugin runs do not
+	 * invent core roles. */
+	role?: ModelRole;
 	/** The settings-resolved engine (model + thinking level) this run uses;
-	 *  tests pass a scripted one. */
-	engine: PiEngine;
+	 *  tests pass a scripted one. Required at run time: there is no role
+	 *  fallback (BYOK). */
+	engine?: PiEngine;
 	systemPrompt: string;
-	/** The run's one user message; every run starts fresh from it. */
-	prompt: string;
+	/** Initial transcript (continuation semantics: ends user / toolResult). */
+	messages?: AgentMessage[];
+	/** Fresh-run prompt text (mutually exclusive with a continuation). */
+	prompt?: string;
 	/** Max model calls (the old stepCountIs safety net). */
 	maxTurns: number;
 	/** Abort mid-model-call (the real-kill semantics). */
@@ -36,6 +41,12 @@ export interface SubagentRunOptions {
 	onUsage?: (usage: Usage) => void;
 	/** Activity line per tool execution (job record progress). */
 	onToolStart?: (toolName: string, args: unknown) => void;
+	/** Awaited native checkpoint barrier, before other observers or tool execution. */
+	onEvent?: (event: AgentEvent) => void | Promise<void>;
+	/** Guard immediately before each native provider request. */
+	beforeRequest?: () => void | Promise<void>;
+	/** Internal runner exception: conversation compaction is not worker work. */
+	bypassWorkerRequestAdmission?: boolean;
 	/** Per completed assistant message (extraction's step log). */
 	onAssistantMessage?: (message: AssistantMessage, step: number) => void;
 	/** Extra stop rule (extractor: stop after a clean submit). */
@@ -55,12 +66,16 @@ export interface SubagentRunResult {
 }
 
 export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRunOptions): Promise<SubagentRunResult> {
+	if (opts.abortSignal?.aborted) throw Object.assign(new Error("aborted"), { name: "AbortError" });
 	const { engine } = opts;
+	if (!engine) throw new Error("An explicit engine is required (no configured model role fallback)");
 	let turns = 0;
 	// Debug recorder (owner, 2026-10-04): raw provider events per job run.
-	const providerEvents = opts.chatId ? providerEventObserver(opts.chatId, `job:${opts.role}`) : undefined;
+	const providerEvents = opts.chatId && opts.role ? providerEventObserver(opts.chatId, `job:${opts.role}`) : undefined;
 	const sessionId = randomUUID();
-	const capture = createBackgroundCapture({ role: opts.role, runId: sessionId, sourceId: opts.chatId });
+	// Captures have a core-role identity. Explicit plugin engines have no such
+	// role; do not misattribute them or invent a new capture product surface.
+	const capture = opts.role ? createBackgroundCapture({ role: opts.role, runId: sessionId, sourceId: opts.chatId }) : undefined;
 	const agent = new Agent({
 		identity: APP_IDENTITY,
 		// One unsaved conversation per invocation, stable through every turn.
@@ -70,8 +85,16 @@ export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRu
 			model: engine.model,
 			thinkingLevel: engine.level,
 			tools,
+			messages: opts.messages ?? [],
 		},
-		streamFn: backgroundCaptureStream(engine.streamFn, capture),
+		streamFn: backgroundCaptureStream(
+			opts.bypassWorkerRequestAdmission ? engine.streamFn : workerRequestStream(engine.streamFn),
+			capture,
+		),
+		prepareRequest: async () => {
+			if (opts.abortSignal?.aborted) throw Object.assign(new Error("aborted"), { name: "AbortError" });
+			await opts.beforeRequest?.();
+		},
 		...(providerEvents ? { onProviderStreamEvent: providerEvents } : {}),
 		// 0.87.1: shouldStopAfterTurn → finishTurn (same call point; "end"
 		// exits before the steering poll, exactly the old boolean-true).
@@ -86,13 +109,15 @@ export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRu
 	const onAbort = () => agent.abort();
 	opts.abortSignal?.addEventListener("abort", onAbort, { once: true });
 
+	const before = opts.messages?.length ?? 0;
 	let step = 0;
 	let errorMessage: string | undefined;
 	let aborted = false;
 	let runFailure: unknown;
 
 	try {
-		agent.subscribe((event: AgentEvent) => {
+		agent.subscribe(async (event: AgentEvent) => {
+			await opts.onEvent?.(event);
 			switch (event.type) {
 				case "message_end":
 					if ((event.message as { role?: string }).role === "assistant") {
@@ -104,11 +129,11 @@ export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRu
 								aborted = true;
 							break;
 						}
-						if (!usageWasAdmitted(m.usage)) { if (m.stopReason === "error") errorMessage = m.errorMessage; break; }
+						if (!usageWasAdmitted(m.usage)) { if (m.stopReason === "error") errorMessage = m.errorMessage ?? "Subagent provider error"; break; }
 						step++;
 						opts.onUsage?.(m.usage);
 						opts.onAssistantMessage?.(m, step);
-						if (m.stopReason === "error") errorMessage = m.errorMessage;
+						if (m.stopReason === "error") errorMessage = m.errorMessage ?? "Subagent provider error";
 					} else if (event.message.role === "toolResult") {
 						capture?.toolResult(event.message);
 					}
@@ -118,11 +143,12 @@ export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRu
 					break;
 			}
 		});
-		await agent.prompt({
+		if (opts.prompt !== undefined) await agent.prompt({
 			role: "user",
 			content: opts.prompt,
 			timestamp: Date.now(),
 		});
+		else await agent.continue();
 	} catch (error) {
 		runFailure = error;
 		throw error;
@@ -140,8 +166,11 @@ export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRu
 	if (errorMessage !== undefined) throw new Error(errorMessage);
 
 	// 0.87.1: drop the seeded leading SystemMessage (transcript rework —
-	// see ui-stream's settleWith).
-	const newMessages = agent.state.messages.filter((m) => (m as { role?: string }).role !== "system");
+	// see ui-stream's settleWith) before slicing past the input count, or
+	// the seed displaces the slice and the last INPUT message leaks in.
+	const newMessages = agent.state.messages
+		.filter((m) => (m as { role?: string }).role !== "system")
+		.slice(before);
 	const assistants = newMessages.filter((m) => (m as { role?: string }).role === "assistant") as AssistantMessage[];
 	const last = assistants[assistants.length - 1];
 	const text = last

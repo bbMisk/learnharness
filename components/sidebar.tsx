@@ -14,8 +14,8 @@ import { usePopoverDismiss } from "@/components/popover-dismiss";
 import { captureFocus, focusComposer, watchUserMoves } from "@/components/focus-return";
 import { renameChat } from "@/components/rename";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
-import type { ChatDeleteMode } from "@/src/core";
-import { ArchiveIcon, ArchiveRestoreIcon, CheckIcon, DumbbellIcon, LayersIcon, PinIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import type { ChatDeleteMode, ThemeMode } from "@/src/core";
+import { ArchiveIcon, ArchiveRestoreIcon, CheckIcon, DumbbellIcon, PinIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
@@ -34,6 +34,11 @@ import { notifySettingsSaved } from "@/components/settings-signal";
 import { DeployReload } from "@/components/deploy-reload";
 import { useVisibleModes } from "@/components/session-modes";
 import { useGeneralSettings } from "@/components/general-settings";
+import { PluginWidgets } from "@/components/plugins";
+import { PluginSidebarActions } from "@/components/plugin-chrome";
+import { HostContentRootContext, HostRouteLifetimeProvider } from "@/components/host-content-root";
+import { isInteractionScopeEligible } from "@/components/plugin-input-focus";
+import { InteractionLayersProvider, useInteractionLayers, useOptionalInteractionLayers } from "@/components/interaction-layers";
 
 /**
  * Toggleable sidebar — NOT a modal drawer: no backdrop, no focus theft. It
@@ -97,6 +102,9 @@ declare global {
 			chatgpt?: ChatGPTControlBridge;
 			subscriptions?: NativeSubscriptionControlBridge;
 			expandWindow: () => void;
+			/** Native chrome follows the active theme (theme wave): main sets
+			 *  themeSource and repaints the window background / overlay. */
+			setAppearance?: (a: { mode: ThemeMode; background: string }) => void;
 			/** The zoom truth: subscribes to "lh:zoom" pushes; returns unsubscribe. */
 			onZoom?: (cb: (factor: number) => void) => () => void;
 			getZoom?: () => Promise<number>;
@@ -441,6 +449,7 @@ export function SessionRow({
  *  The meta line stays so the row never changes height mid-edit. */
 export function RenameRow({ chat, draft: initialDraft, onCommit, onCancel, showTime = false, takeFocus = true }: { chat: ChatListItem; draft?: string; onCommit: (next: string, byKey: boolean) => void; onCancel: () => void; showTime?: boolean; takeFocus?: boolean }) {
 	const [draft, setDraft] = useState(initialDraft ?? chat.title);
+	const interactions = useOptionalInteractionLayers();
 	const inputRef = useRef<HTMLInputElement | null>(null);
 	const byEnter = useRef(false);
 	useEffect(() => {
@@ -470,6 +479,8 @@ export function RenameRow({ chat, draft: initialDraft, onCommit, onCancel, showT
 					onKeyDown={(e) => {
 						if (e.key === "Enter" && !isComposing(e)) { byEnter.current = true; e.currentTarget.blur(); }
 						if (e.key === "Escape" && !isComposing(e)) {
+							if (interactions && !interactions.isElementEligible(e.currentTarget)) return;
+							interactions?.claimEscape(e);
 							e.preventDefault(); // claimed: Find / the side tutor stay open
 							e.stopPropagation(); // discard, not also the sidebar/chat chains
 							onCancel();
@@ -493,6 +504,7 @@ export type SessionKindFilter = "teach" | "all" | "practice";
 const KIND_FILTER_KEY = "lh:session-kind-filter";
 
 function SessionsSidebar() {
+	const interactions = useInteractionLayers();
 	const { open, toggle } = useSidebar();
 	const [chats, setChats] = useState<ChatListItem[] | null>(null);
 	const [query, setQuery] = useState("");
@@ -689,6 +701,7 @@ function SessionsSidebar() {
 	const searchReturn = useRef<(() => void) | null>(null);
 	useEffect(() => {
 		const onFocusSearch = () => {
+			if (interactions.getActiveModal() || interactions.getTopLayer()?.kind === "popup") return;
 			if (document.activeElement !== searchRef.current) {
 				const restore = captureFocus();
 				searchReturn.current = () => { if (!restore?.(true)) focusComposer(); };
@@ -700,13 +713,14 @@ function SessionsSidebar() {
 			// slide-in doesn't gate the keystroke.
 			// Select a kept query, so typing replaces it.
 			requestAnimationFrame(() => {
+				if (!isInteractionScopeEligible(searchRef.current, interactions)) return;
 				searchRef.current?.focus();
 				searchRef.current?.select();
 			});
 		};
 		window.addEventListener("lh:kbd-sessions-search", onFocusSearch);
 		return () => window.removeEventListener("lh:kbd-sessions-search", onFocusSearch);
-	}, [open, toggle]);
+	}, [open, toggle, interactions]);
 
 	// Keep the kbd-selected row in view (the rows are the container's only
 	// buttons, so the index matches).
@@ -801,35 +815,34 @@ function SessionsSidebar() {
 				</div>
 
 				{/* Two doors, STACKED: full-width rows give the labels room;
-				    teaching keeps the draft route, practice carries its mode. */}
-				<div className="mx-3 mb-2 flex flex-col gap-1.5">
+				    teaching keeps the draft route, practice carries its mode.
+				    Core doors always lead explicit plugin sidebar placements. */}
+				<PluginSidebarActions>
 					<button
 						type="button"
 						data-testid="new-session"
+						title="Teaching"
 						onClick={() => void newSession()}
-						className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+						className="flex min-w-0 w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 					>
-						<PlusIcon className="size-3" />
-						{modes.includes("teach") ? "Teaching" : "New chat"}
+						<PlusIcon className="size-3 shrink-0" />
+						<span className="min-w-0 truncate">{modes.includes("teach") ? "Teaching" : "New chat"}</span>
 						<span className="sr-only">create a new chat</span>
 					</button>
 					{showPractice && (
 					<button
 						type="button"
 						data-testid="new-session-practice"
+						title="Practice"
 						onClick={() => router.push("/chat/new?mode=practice")}
-						className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+						className="flex min-w-0 w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 					>
-						<DumbbellIcon className="size-3" />
-						Practice
+						<DumbbellIcon className="size-3 shrink-0" />
+						<span className="min-w-0 truncate">Practice</span>
 						<span className="sr-only">create a new practice chat</span>
 					</button>
 					)}
-					<a href="/review/index.html" data-testid="flashcards-link" className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
-						<LayersIcon className="size-3" />
-						Flashcards
-					</a>
-				</div>
+				</PluginSidebarActions>
 
 
 				<div data-testid="session-search-section" className="mx-3 mb-2 flex items-center gap-2 rounded-md">
@@ -856,6 +869,8 @@ function SessionsSidebar() {
 							// window Esc chain (dictation / abort) doesn't also fire.
 							onKeyDown={(e) => {
 								if (e.key === "Escape" && !isComposing(e)) {
+									if (!interactions.isElementEligible(e.currentTarget)) return;
+									interactions.claimEscape(e);
 									e.preventDefault(); // claimed: Find / the side tutor stay open
 									e.stopPropagation();
 									if (query) {
@@ -988,7 +1003,7 @@ function SessionsSidebar() {
 				    above). MenuShell owns placement/focus/arrow cycling; the
 				    dismissal effect above owns the contract. */}
 				{ctxChatId !== null && (
-					<MenuShell
+					<MenuShell onClose={() => { setCtxChatId(null); return "closed"; }}
 						anchorRef={ctxAnchorRef}
 						testid="session-context-menu"
 						preferredSide="down"
@@ -1077,15 +1092,23 @@ function SessionsSidebar() {
 /** The app frame: sidebar inline + content. Rendered once in the root layout. */
 export function AppShell({ children }: { children: React.ReactNode }) {
 	useDoubleClickGuard();
+	const [contentRoot, setContentRoot] = useState<HTMLElement | null>(null);
+	const pathname = usePathname();
 	return (
-		<SettingsDialogProvider>
-			<GlobalFileDrop />
-			<SessionsSidebar />
-			<main className="relative min-w-0 flex-1">{children}</main>
-			{/* The single document-level keydown listener —
-			    after the content in the tree, but it's window-level so order only
-			    matters for the events it dispatches, never for DOM priority. */}
-			<KeyboardShortcuts />
-		</SettingsDialogProvider>
+		<HostRouteLifetimeProvider pathname={pathname}>
+		<HostContentRootContext.Provider value={contentRoot}>
+			<InteractionLayersProvider><SettingsDialogProvider>
+				<GlobalFileDrop />
+				<SessionsSidebar />
+				{/* The host content root (plugin surfaces portal into it). */}
+				<main ref={setContentRoot} className="relative isolate min-w-0 flex-1">{children}</main>
+				{/* The single document-level keydown listener —
+				    after the content in the tree, but it's window-level so order only
+				    matters for the events it dispatches, never for DOM priority. */}
+				<KeyboardShortcuts />
+				<PluginWidgets />
+			</SettingsDialogProvider></InteractionLayersProvider>
+		</HostContentRootContext.Provider>
+		</HostRouteLifetimeProvider>
 	);
 }

@@ -1,3 +1,4 @@
+import { DEFAULT_THEME } from "../src/core/themes.ts";
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 
@@ -26,7 +27,7 @@ it("Settings nav: a row above the content below sm, the 176px column from sm up"
 	document.body.append(host);
 	const root = createRoot(host);
 	try {
-		await act(async () => { root.render(<AppearanceProvider><SettingsDialog onClose={() => {}} initialSection="general" initialRow={null} /></AppearanceProvider>); });
+		await act(async () => { root.render(<AppearanceProvider initialAppearance={undefined} initialTheme={DEFAULT_THEME}><SettingsDialog onClose={() => "closed"} initialSection="general" initialRow={null} navigationRequest={0} layerId="settings" /></AppearanceProvider>); });
 		const nav = document.querySelector('[data-testid="settings-nav"]')!;
 		const navClasses = nav.getAttribute("class")!.split(/\s+/);
 		const frameClasses = nav.parentElement!.getAttribute("class")!.split(/\s+/);

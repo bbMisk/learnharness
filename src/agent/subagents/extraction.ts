@@ -13,7 +13,6 @@ import {
 	type ProviderKeyMissing,
 } from "../../core/settings.ts";
 import type { PiEngine } from "../models.ts";
-import { withBgLlmSlot } from "./bg-llm-semaphore.ts";
 import type {
 	AuditVerdicts,
 	CallUsage,
@@ -576,8 +575,8 @@ function runAuditor(
 
 /** The pipeline phases, in order — what the home status endpoint shows.
  *  The phases tell the truth about what the job is actually waiting on.
- *  "queued": waiting for a permit of the shared background-LLM semaphore
- *  (bg-llm-semaphore.ts), not for the model.
+ *  Worker-request admission happens inside the model stream; the old
+ *  extraction-wide "queued" phase is retained only for type compatibility.
  *  "waiting": the serialized-audit gate — the job's audit+merge critical
  *  section is queued behind another job's; the extractor is done but the
  *  auditor may not start until the graph is stable. */
@@ -869,7 +868,9 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 			return await critical();
 		} finally {
 			if (onAbort && signal && !signal.aborted) signal.removeEventListener("abort", onAbort);
-			release();
+			// A cancelled waiter leaves promptly, but may not release its chain
+			// link before its predecessor: successors still owe that earlier hold.
+			void prev.then(release, release);
 		}
 	}
 
@@ -959,16 +960,6 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		return auditResult;
 	}
 
-
-	/** THE EXTRACT SLOT: extraction chunk jobs run under the SHARED
-	 *  background-LLM semaphore — one process-wide pool of 3 permits (see
-	 *  bg-llm-semaphore.ts). The job's registry-row signal kills a queued
-	 *  ticket (dead-ticket handoff). The audit side needs no slot: audits
-	 *  already serialize behind their own global lock. */
-	async function withExtractSlot<T>(jobKey: string, critical: () => Promise<T>): Promise<T> {
-		const signal = runningExtractions.get(jobKey)?.controller.signal;
-		return withBgLlmSlot(signal, critical);
-	}
 
 	/** Append the job's usage record to its source's log (the chat's
 	 *  extractions, or the notes source record) — success or failure: a failed
@@ -1113,11 +1104,8 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 							const batchIds = new Set(
 								messages.filter((m) => messageViewLines(m, m.id, failedOutputCalls).length > 0).map((m) => m.id),
 							);
-							setPhase(jobKey, "queued", "chat", undefined, part);
-							const findings = await withExtractSlot(jobKey, async () => {
-								setPhase(jobKey, "extracting", "chat", undefined, part);
-								return extract(jobKey, chatId, view, batchIds);
-							});
+							setPhase(jobKey, "extracting", "chat", undefined, part);
+							const findings = await extract(jobKey, chatId, view, batchIds);
 							return withAuditLock(jobKey, "chat", undefined, async () => {
 								setPhase(jobKey, "auditing", "chat", undefined, part);
 								const auditResult = await audit(jobKey, chatId, findings);
@@ -1275,12 +1263,9 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 					settled.push({
 						status: "fulfilled",
 						value: await runJob({ id, kind: "notes", label: input.filePath, part }, async (jobKey) => {
-							setPhase(jobKey, "queued", "notes", input.filePath, part);
+							setPhase(jobKey, "extracting", "notes", input.filePath, part);
 							chunkSignal = runningExtractions.get(jobKey)?.controller.signal;
-							const findings = await withExtractSlot(jobKey, async () => {
-								setPhase(jobKey, "extracting", "notes", input.filePath, part);
-								return notesExtract(jobKey, { ...input, text: chunk, part });
-							});
+							const findings = await notesExtract(jobKey, { ...input, text: chunk, part });
 							// Reacquired per chunk so cross-source runs interleave fairly.
 							return withAuditLock(jobKey, "notes", input.filePath, async () => {
 								setPhase(jobKey, "auditing", "notes", input.filePath, part);

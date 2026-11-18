@@ -8,6 +8,8 @@ import { prettyModel } from "@/components/usage-format";
 import { ModelMenuList, ThinkingMenuList } from "@/components/settings/model-menu";
 import { composeSlotModel } from "@/components/settings/agent-section";
 import { MenuShell } from "@/components/menu-shell";
+import { useInteractionLayers } from "@/components/interaction-layers";
+import { isInputShortcutScopeEligible } from "@/components/plugin-input-focus";
 import { captureFocus, focusComposer, focusLost } from "@/components/focus-return";
 import { Hint } from "@/components/ui/hint";
 import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-signal";
@@ -61,6 +63,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 	const [open, setOpen] = useState<"model" | "thinking" | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
+	const interactions = useInteractionLayers();
 	const recordRevision = useRef(0);
 	const writeQueue = useRef(Promise.resolve());
 	const enqueueWrite = useCallback((write: () => Promise<void>) => {
@@ -266,6 +269,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 	// tab-focus. Both work from any focus, including mid-typing.
 	useEffect(() => {
 		const onOpenPicker = () => {
+			if (!isInputShortcutScopeEligible(containerRef.current, interactions)) return;
 			captureReturn();
 			setOpen("model");
 			setError(null);
@@ -273,10 +277,11 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 		};
 		window.addEventListener("lh:kbd-open-model-picker", onOpenPicker);
 		return () => window.removeEventListener("lh:kbd-open-model-picker", onOpenPicker);
-	}, [refresh, captureReturn]);
+	}, [refresh, captureReturn, interactions]);
 
 	useEffect(() => {
 		const onCycleThinking = () => {
+			if (!isInputShortcutScopeEligible(containerRef.current, interactions)) return;
 			if (levels.length === 0) return;
 			const idx = effectiveLevel === undefined ? -1 : levels.indexOf(effectiveLevel);
 			const next = levels[(idx + 1) % levels.length];
@@ -285,7 +290,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 		};
 		window.addEventListener("lh:kbd-cycle-thinking", onCycleThinking);
 		return () => window.removeEventListener("lh:kbd-cycle-thinking", onCycleThinking);
-	}, [levels, effectiveLevel, applyLevel]);
+	}, [levels, effectiveLevel, applyLevel, interactions]);
 
 	// Selecting a model (click and Enter share one path): keep the
 	// thinking level only when the new model supports it — otherwise
@@ -376,7 +381,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 			{open === "model" && (
 				<MenuShell
 					anchorRef={containerRef}
-					testid="model-menu"
+					testid="model-menu" onClose={() => { setOpen(null); return "closed"; }}
 					preferredSide="up"
 					menuClass="flex w-[22rem] flex-col rounded-xl border bg-card p-2 text-xs shadow-xl"
 				>
@@ -400,7 +405,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 			{open === "thinking" && (
 				<MenuShell
 					anchorRef={containerRef}
-					testid="thinking-menu"
+					testid="thinking-menu" onClose={() => { setOpen(null); return "closed"; }}
 					preferredSide="up"
 					menuClass="flex w-44 flex-col gap-0.5 rounded-xl border bg-card p-2 text-xs shadow-xl"
 				>

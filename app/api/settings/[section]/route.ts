@@ -30,12 +30,9 @@
  * lands here.
  */
 
-import type { AgentSettings, ChatSettings, ModelsSettings } from "@/src/core";
-import { emit } from "@/src/core";
+import { emit, isBuiltinThemeId, type AgentSettings, type AppearanceSettings, type ChatSettings, type ModelsSettings } from "@/src/core";
 import {
 	SETTINGS_SECTIONS,
-	scheduleFlashcardCuration,
-	abortFlashcardAgent,
 	allSegmentPaths,
 	clampChatLevel,
 	clampModelsLevels,
@@ -43,6 +40,8 @@ import {
 	fileAccessConfigurationError,
 	promptOverrides,
 	readSettingsRecord,
+	refreshWorkerRequestAdmission,
+	themeStore,
 	validateChatSettings,
 	validateModelsSettings,
 	writeSettingsRecord,
@@ -87,6 +86,19 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 		const verdict = validateModelsSettings(parsed.settings as ModelsSettings, record.models);
 		if (!verdict.ok) {
 			return Response.json({ error: verdict.error, supported: verdict.supported }, { status: 400 });
+		}
+	}
+	// A newly selected theme must exist. A saved theme whose file vanished
+	// already renders as Default: heal that unchanged reference on write,
+	// rather than trapping unrelated font/size/ligature edits behind a 400.
+	if (section === "appearance") {
+		const appearance = parsed.settings as AppearanceSettings;
+		const theme = appearance.theme;
+		if (theme !== undefined && !isBuiltinThemeId(theme) && themeStore.readTheme(theme) === null) {
+			if (theme !== record.appearance?.theme) {
+				return Response.json({ error: `unknown theme "${theme}"` }, { status: 400 });
+			}
+			appearance.theme = "default";
 		}
 	}
 	if (section === "agent") {
@@ -135,10 +147,9 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 	const stored = writeSettingsRecord(next);
 	// Other open windows that read this section refetch it.
 	emit("settings-changed", { section });
-	if (section === "agent" || section === "general" || section === "models") {
-		if (stored.agent?.flashcards?.enabled === false) abortFlashcardAgent();
-		else scheduleFlashcardCuration();
-	}
+	// Only a successful durable write changes admission. Increasing the
+	// limit immediately drains queued requests; decreasing never cancels active work.
+	refreshWorkerRequestAdmission();
 	const fileAccessError = fileAccessConfigurationError();
 	return Response.json({ settings: stored, ...(fileAccessError ? { fileAccessError } : {}) });
 }

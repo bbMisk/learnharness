@@ -5,12 +5,6 @@ import { MAX_IMPORT_BODY_BYTES } from "./lib/notes-import-limits.ts";
 const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string; homepage: string };
 
 const nextConfig: NextConfig = {
-	async headers() {
-		return [
-			{ source: "/review/:path*", headers: [{ key: "Cache-Control", value: "no-cache" }] },
-			{ source: "/review/assets/:path*", headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] },
-		];
-	},
 	// Public build metadata only; no new runtime Electron version API.
 	// LH_BUILD: one id per build, baked into server and client, so open windows notice a deploy.
 	env: { LH_VERSION: pkg.version, LH_HOMEPAGE: pkg.homepage, LH_BUILD: String(Date.now()) },

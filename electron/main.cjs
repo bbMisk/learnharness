@@ -24,7 +24,7 @@
  *     would shadow every settings-page key change until restart.
  */
 
-const { app, BrowserWindow, Menu, ipcMain, session, shell, dialog } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, nativeTheme, session, shell, dialog } = require("electron");
 const { pickAttachmentPath } = require("./attachment-picker.cjs");
 const { createChatGPT, fileStore } = require("./chatgpt.cjs");
 const { attachChatGPTChild, trustedSender, chatGPTControl } = require("./chatgpt-ipc.cjs");
@@ -56,6 +56,18 @@ const PRODUCT_NAME = "LearnHarness";
 app.setName(PRODUCT_NAME);
 const AUTH_FILE = () => path.join(app.getPath("userData"), "auth.json");
 const DATA_DIR = () => path.join(app.getPath("userData"), "data");
+
+// Resolve the saved palette before window creation; renderer reports keep
+// it current after live saves. This helper needs no compiled server bundle.
+const { normalizeAppearance, themeSourceFor, serverDataDir, readAppearance, chromeColors } = require("./appearance-chrome.cjs");
+let appearance = normalizeAppearance(null);
+
+function applyChrome(win) {
+	if (win.isDestroyed()) return;
+	const colors = chromeColors(appearance);
+	win.setBackgroundColor(colors.color);
+	if (process.platform !== "darwin") win.setTitleBarOverlay(colors);
+}
 
 /** The packaged standalone server (extraResources → Resources/server).
  *  In dev LH_DEV_URL short-circuits everything: no spawn, no packaging —
@@ -336,7 +348,7 @@ function createWindow(url, connectionError) {
 				// height. Do not force the zoom-invariant native overlay to match
 				// the renderer's 60 CSS px bar: zooming out would cover its border.
 				// The renderer reserves the actual width via env(titlebar-area-*).
-				titleBarOverlay: { color: "#141414", symbolColor: "#e5e5e5" },
+				titleBarOverlay: chromeColors(appearance),
 				// Keep the custom bar alone; Alt reveals the native menu.
 				autoHideMenuBar: true,
 			}),
@@ -352,10 +364,11 @@ function createWindow(url, connectionError) {
 		// the native window surface changes size before Chromium's compositor
 		// has a frame at the new size, and the gap shows the window's NATIVE
 		// background — Electron's default is white, glaring on a dark app.
-		// The app background (#141414) fills the lag instead. `show: false` +
-		// ready-to-show is the same treatment for first paint: the window
-		// appears only once the page has actually rendered.
-		backgroundColor: "#141414",
+		// The app's background for the rendered mode fills the lag instead
+		// (chromeColors). `show: false` + ready-to-show is the same treatment
+		// for first paint: the window appears only once the page has
+		// actually rendered.
+		backgroundColor: chromeColors(appearance).color,
 		show: false,
 		// Narrow-window behavior (owner, 2026-09-17): 640px is the floor —
 		// below it even a wrapped chrome row gets cramped and the chat header
@@ -708,6 +721,14 @@ async function main() {
 
 	await app.whenReady();
 
+	// Read the same record/custom theme the server uses before constructing
+	// any native window, including the external development shell.
+	appearance = readAppearance(serverDataDir({
+		devUrl: process.env.LH_DEV_URL, env: process.env,
+		packagedDataDir: DATA_DIR(), repoRoot: path.join(__dirname, ".."),
+	}));
+	nativeTheme.themeSource = themeSourceFor(appearance.mode);
+
 	// Dev mode: point at a running `next dev` server (LH_DEV_URL) — no
 	// spawn, no packaging, full HMR. The rest of this shell still applies
 	// (guards, menu, single instance).
@@ -753,7 +774,24 @@ async function main() {
 		catch { connectionError = "The host is unavailable. Check that LearnHarness and Tailscale are running, then reconnect."; }
 		log(`shared server: ${sharedUrl}`);
 	} else if (devUrl) {
-		log(`dev mode: ${devUrl}`);
+		log(`dev mode: ${devUrl} — waiting for server`);
+		const { waitForDevServer } = require("./dev-server-readiness.cjs");
+		const startup = new AbortController();
+		const cancelStartup = () => startup.abort(new Error("Development startup cancelled by application quit"));
+		app.once("before-quit", cancelStartup);
+		try {
+			await waitForDevServer(devUrl, { signal: startup.signal });
+			if (startup.signal.aborted) return;
+			log(`dev server ready: ${devUrl}`);
+		} catch (error) {
+			if (!startup.signal.aborted) {
+				log(`dev server startup failed: ${error?.message ?? error}`);
+				app.exit(1);
+			}
+			return;
+		} finally {
+			app.removeListener("before-quit", cancelStartup);
+		}
 	}
 
 	// Renderer controls contain no token/URL/code operation. The separate server
@@ -815,6 +853,14 @@ async function main() {
 		const { x, y, width, height } = win.getBounds();
 		const target = SIDEBAR_AUTOCLOSE;
 		if (width < target) win.setBounds({ x, y, width: target, height });
+	});
+	// The renderer reports every appearance write (and the record on load):
+	// the chrome follows without a restart.
+	ipcMain.on("lh:appearance", (event, next) => {
+		if (!trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) return;
+		appearance = normalizeAppearance(next);
+		nativeTheme.themeSource = themeSourceFor(appearance.mode);
+		for (const win of BrowserWindow.getAllWindows()) applyChrome(win);
 	});
 	reopenWindow = () => { chatgpt?.resume(); subscriptions?.resume(); return createWindow(url, connectionError); };
 	app.on("activate", () => {

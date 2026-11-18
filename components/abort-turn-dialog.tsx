@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useRef, type ReactElement, type ReactNode } from "react";
+import { HostDialog } from "@/components/host-dialog";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
-import { useEscapeClose } from "@/components/open-modal";
 import { focusComposer, useFocusReturn } from "@/components/focus-return";
 
 /**
@@ -54,6 +53,7 @@ export function AbortTurnBody({
 	onClose,
 	onConfirm,
 	busy = false,
+	renderFrame,
 }: {
 	mode: AbortMode;
 	onClose: () => void;
@@ -61,6 +61,7 @@ export function AbortTurnBody({
 	/** The dismiss doubles as the abort when a turn is still running
 	 * (owner, 2026-10-04): the line says so. */
 	busy?: boolean;
+	renderFrame?: (frame: ReactElement<{ children: ReactNode }>) => ReactNode;
 }) {
 	const backdropDismiss = useBackdropDismiss(onClose);
 	// Focus lands on the action so Enter confirms; closing hands it back to
@@ -72,17 +73,7 @@ export function AbortTurnBody({
 		confirmRef.current?.focus();
 	}, []);
 	const copy = COPY[mode];
-	return (
-		<div
-			role="dialog"
-			aria-modal="true"
-			data-lh-modal
-			aria-label={copy.title}
-			data-testid="abort-turn-dialog"
-			className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm"
-			// A genuine click on the scrim cancels — the cautious default, like Esc.
-			{...backdropDismiss}
-		>
+	const frame = (
 			<div
 				className="mx-4 w-full max-w-sm rounded-xl border bg-card p-5 shadow-lg"
 				onClick={(e) => e.stopPropagation()}
@@ -115,8 +106,11 @@ export function AbortTurnBody({
 					</button>
 				</div>
 			</div>
-		</div>
 	);
+	if (renderFrame) return renderFrame(frame);
+	return <div role="dialog" aria-modal="true" data-lh-modal aria-label={copy.title} data-testid="abort-turn-dialog"
+		className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm"
+		{...backdropDismiss}>{frame}</div>;
 }
 
 export function AbortTurnDialog({
@@ -131,12 +125,11 @@ export function AbortTurnDialog({
 	onConfirm: (mode: AbortMode) => void;
 	busy?: boolean;
 }) {
-	// Esc cancels the popup (claimed — never a chained abort).
-	useEscapeClose(mode !== null, onClose);
-
-	if (mode === null || typeof document === "undefined") return null;
-	return createPortal(
-		<AbortTurnBody mode={mode} onClose={onClose} onConfirm={() => onConfirm(mode)} busy={busy} />,
-		document.body,
-	);
+	if (mode === null) return null;
+	return <AbortTurnBody mode={mode} onClose={onClose} onConfirm={() => onConfirm(mode)} busy={busy}
+		renderFrame={(frame) => <HostDialog open frame={frame} aria-label={COPY[mode].title}
+			onClose={() => { onClose(); return "closed"; }}
+			backdropProps={{ className: "fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm", "data-testid": "abort-turn-dialog" }}>
+			{frame.props.children}
+		</HostDialog>} />;
 }

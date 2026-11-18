@@ -56,3 +56,4 @@ describe("escAbortTarget (the layered-Esc ruling)", () => {
 		assert.equal(escAbortTarget({ ...none, mermaidFocus: true, planOpen: true, pending: true }), "mermaid");
 	});
 });
+

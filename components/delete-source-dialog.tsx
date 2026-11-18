@@ -1,19 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
-import { useBackdropDismiss } from "./backdrop-dismiss";
-import { useEscapeClose } from "@/components/open-modal";
+import { useEffect, useState, type ReactElement, type ReactNode } from "react";
+import { HostDialog } from "./host-dialog";
 import { actionError } from "@/components/rename";
 import type { SourceEntry, SourceFolder } from "@/src/core";
 
-export function DeleteSourceBody({ sources, folders, deleteSessions, onDeleteSessions, busy, failure, onClose, onRun }: {
+export function DeleteSourceBody({ sources, folders, deleteSessions, onDeleteSessions, busy, failure, onClose, onRun, renderFrame }: {
 	sources: SourceEntry[]; folders: SourceFolder[]; deleteSessions: boolean; onDeleteSessions: (checked: boolean) => void;
 	busy: boolean; failure: string; onClose: () => void; onRun: () => void;
+	renderFrame?: (frame: ReactElement<{ children: ReactNode }>) => ReactNode;
 }) {
 	const chats = sources.filter((s) => s.kind === "chat");
 	const names = [...sources.map((s) => s.label ?? s.id), ...folders.map((f) => f.name)];
-	return <div role="dialog" aria-modal="true" data-lh-modal aria-label="Delete sources" data-testid="delete-source-dialog"
+	const frame = <div role="dialog" aria-modal="true" data-lh-modal aria-label="Delete sources" data-testid="delete-source-dialog"
 		onClick={(e) => e.stopPropagation()} className="w-[32rem] max-w-[calc(100vw-2rem)] rounded-xl border bg-card p-5 shadow-xl">
 		<h2 className="text-sm font-semibold text-destructive">Delete selected sources and folders?</h2>
 		<p className="mt-1.5 font-mono text-sm" data-testid="source-deletion-names">{names.slice(0, 8).join(", ")}{names.length > 8 ? `, and ${names.length - 8} more` : ""}</p>
@@ -34,6 +33,7 @@ export function DeleteSourceBody({ sources, folders, deleteSessions, onDeleteSes
 			<button type="button" data-testid="source-delete-confirm" disabled={busy} onClick={onRun} className="rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-xs text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-40">{busy ? "Deleting…" : failure ? "Try again" : "Delete"}</button>
 		</div>
 	</div>;
+	return renderFrame ? renderFrame(frame) : frame;
 }
 
 export function DeleteSourceDialog({ open, sources, folders, onDelete, onClose }: {
@@ -41,8 +41,7 @@ export function DeleteSourceDialog({ open, sources, folders, onDelete, onClose }
 }) {
 	const [deleteSessions, setDeleteSessions] = useState(false), [busy, setBusy] = useState(false), [failure, setFailure] = useState("");
 	useEffect(() => { if (!open) { setDeleteSessions(false); setBusy(false); setFailure(""); } }, [open]);
-	const backdrop = useBackdropDismiss(() => { if (!busy) onClose(); });
-	useEscapeClose(open, onClose, { busy });
+
 	if (!open) return null;
 	const run = async () => {
 		if (busy) return;
@@ -51,8 +50,10 @@ export function DeleteSourceDialog({ open, sources, folders, onDelete, onClose }
 		catch (error) { setFailure(actionError(error, "Could not delete sources.")); }
 		finally { setBusy(false); }
 	};
-	return createPortal(<div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80" {...backdrop}>
-		<DeleteSourceBody sources={sources} folders={folders} deleteSessions={deleteSessions} onDeleteSessions={setDeleteSessions}
-			busy={busy} failure={failure} onClose={onClose} onRun={() => { void run(); }} />
-	</div>, document.body);
+	return <DeleteSourceBody sources={sources} folders={folders} deleteSessions={deleteSessions} onDeleteSessions={setDeleteSessions}
+		busy={busy} failure={failure} onClose={onClose} onRun={() => { void run(); }}
+		renderFrame={(frame) => <HostDialog open frame={frame} onClose={() => {
+			if (busy) return "blocked";
+			onClose(); return "closed";
+		}} backdropProps={{ className: "fixed inset-0 z-50 flex items-center justify-center bg-background/80" }}>{frame.props.children}</HostDialog>} />;
 }
