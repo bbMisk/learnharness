@@ -927,13 +927,27 @@ export async function verifyPluginBrowser(url, options = {}) {
 		await screenshot("foreground-settings-restored");
 		await openForegroundPicker(settingsOrigin.root);
 		await assertPickerOrigin("custom input is retained until intentional section navigation", settingsOrigin, settingsIds, 1, true);
+		// Fork (QA #4, owner-confirmed after the v0.6.1 merge): an open modal
+		// owns the keyboard, so Mod+, is inert while the Settings-origin picker
+		// is up. It must neither close the picker nor retarget Settings.
+		const blockedPicker = await page.$(KNOWLEDGE_OVERLAY);
 		await chord(",");
+		await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+		assert.equal(await blockedPicker.evaluate((overlay, selector) => overlay.isConnected && document.querySelector(selector) === overlay, KNOWLEDGE_OVERLAY), true, "Mod+, must not close the modal picker (global shortcuts are blocked under a modal)");
+		assert.equal(await page.$('[data-testid="section-keys"]'), null, "Mod+, must not retarget Settings behind the modal picker");
+		await assertPickerOrigin("blocked Mod+, leaves the picker and its covered Settings origin untouched", settingsOrigin, settingsIds, 1, true);
+		await blockedPicker.dispose();
+		// The fork's own way out: Escape closes only the picker, then the
+		// Providers section is reached by ordinary Settings navigation.
+		await page.keyboard.press("Escape");
 		await page.waitForSelector(KNOWLEDGE_OVERLAY, { hidden: true });
+		await assertPickerOrigin("Escape after a blocked Mod+, restores the same custom Settings", settingsOrigin, settingsIds, 1, false, true);
+		await page.locator('[data-testid="settings-nav-keys"]').click();
 		await page.waitForSelector('[data-testid="section-keys"]', { visible: true });
-		assert.equal(await retainedSettings.evaluate(dialog => dialog.isConnected && document.querySelector('[data-testid="settings-dialog"]') === dialog), true, "Mod+, must reuse the same Settings frame while retargeting Providers");
+		assert.equal(await retainedSettings.evaluate(dialog => dialog.isConnected && document.querySelector('[data-testid="settings-dialog"]') === dialog), true, "Returning to Providers must reuse the same Settings frame");
 		assert.equal(await page.$$eval('[data-testid="settings-dialog"]', nodes => nodes.length), 1);
-		assert.equal(await settingsOrigin.input.evaluate(input => input.isConnected), false, "Existing Mod+, default intentionally leaves the custom Settings section");
-		evidence.foreground.push({ label: "Mod+, guarded return-to reuses Settings frame and retargets existing Providers default", sameSettingsFrame: true, pickerClosed: true, providersVisible: true, customSectionDisposedOnNavigation: true });
+		assert.equal(await settingsOrigin.input.evaluate(input => input.isConnected), false, "Navigating to Providers intentionally leaves the custom Settings section");
+		evidence.foreground.push({ label: "Mod+, is blocked under the Settings-origin modal picker; Escape closes only the picker and Providers navigation reuses the same Settings frame", sameSettingsFrame: true, shortcutBlocked: true, pickerClosed: true, providersVisible: true, customSectionDisposedOnNavigation: true });
 		await retainedSettings.dispose();
 		await screenshot("foreground-settings-return-providers");
 		await page.locator('[data-testid="settings-nav-plugins"]').click();
@@ -1125,6 +1139,7 @@ export async function verifyPluginBrowser(url, options = {}) {
 				await page.waitForSelector(sample.selector, { visible: true });
 				const before = await settingsRecord();
 				const writesBefore = evidence.requests.filter(entry => entry.method === "PUT" && new URL(entry.url).pathname === `/api/settings/${sample.section}`).length;
+				const storedShown = await page.$eval(sample.selector, input => input.value);
 				await selectNativeNumber(sample.selector); await page.keyboard.type("1e");
 				const invalidBefore = await numberSnapshot(sample.selector);
 				const imageBefore = await numberScreenshot(sample.selector, `native-number-${sample.section}-invalid-before-escape`);
@@ -1135,26 +1150,31 @@ export async function verifyPluginBrowser(url, options = {}) {
 				const invalidAfter = await numberSnapshot(sample.selector);
 				const imageAfter = await numberScreenshot(sample.selector, `native-number-${sample.section}-invalid-after-escape`);
 				const after = await settingsRecord();
-				const visibleTextProved = invalidBefore.nativeEditorText === "1e" && invalidAfter.nativeEditorText === "1e";
-				evidence.nativeNumbers.push({ section: sample.section, token: "1e", invalidBefore, invalidAfter, before: before.settings?.[sample.section], after: after.settings?.[sample.section], imageBefore, imageAfter,
+				// Fork (owner-confirmed after the v0.6.1 merge): Escape REVERTS an
+				// in-progress edit, an invalid token included: the stored value
+				// shows again, focus stays in the field and nothing is written.
+				const visibleTextProved = invalidBefore.nativeEditorText === "1e" && invalidAfter.nativeEditorText === storedShown;
+				evidence.nativeNumbers.push({ section: sample.section, token: "1e", storedShown, invalidBefore, invalidAfter, before: before.settings?.[sample.section], after: after.settings?.[sample.section], imageBefore, imageAfter,
 					visibleTextProof: visibleTextProved ? "Chromium native UA editing-buffer text before/after Escape" : "Requires human review of paired actual Chromium input screenshots; DOM value is not visual proof" });
-				assert.equal(invalidAfter.badInput, true, "Native invalid buffer was erased on Escape/blur: human decision required; do not change input type or production behavior as a smoke workaround");
-				assert.equal(invalidAfter.focused, false, "Escape must leave the numeric field");
+				assert.equal(invalidAfter.badInput, false, "Escape must revert the invalid buffer (fork behavior)");
+				assert.equal(invalidAfter.value, storedShown, "Escape must show the stored value again");
+				assert.equal(invalidAfter.focused, true, "Escape reverts the edit and keeps focus in the numeric field");
 				assert.equal(await page.$$eval('[data-testid="settings-dialog"]', nodes => nodes.length), 1, "Invalid field Escape must not close Settings");
 				assert.deepEqual(after.settings?.[sample.section], before.settings?.[sample.section], "Invalid native buffer must not accidentally unset or persist any setting");
 				assert.equal(evidence.requests.filter(entry => entry.method === "PUT" && new URL(entry.url).pathname === `/api/settings/${sample.section}`).length, writesBefore, "Invalid field Escape must issue no settings PUT");
 				for (const attribute of ["type", "min", "max", "step", "appearance", "spinAppearance"]) assert.equal(invalidAfter[attribute], invalidBefore[attribute], `Native number ${attribute} must survive Escape`);
-				if (invalidBefore.nativeEditorText === "1e" && invalidAfter.nativeEditorText !== "1e") assert.fail("Chromium erased the visible incomplete token on blur; human review required (see native-number screenshots)");
+				if (invalidAfter.nativeEditorText !== undefined) assert.equal(invalidAfter.nativeEditorText, storedShown, "The visible native editor must show the stored value after Escape");
+				// Escape reverts in the fork, so a valid value commits with Enter.
 				await selectNativeNumber(sample.selector); await page.keyboard.type(sample.valid);
 				const saved = page.waitForResponse(response => new URL(response.url()).pathname === `/api/settings/${sample.section}` && response.request().method() === "PUT");
-				await page.keyboard.press("Escape");
+				await page.keyboard.press("Enter");
 				const response = await saved;
 				assert.equal(response.status(), 200); const acknowledgment = await response.json();
 				assert.equal(acknowledgment.settings?.[sample.section]?.[sample.key], sample.canonical, "Successful settings response must acknowledge the canonical normalized section value");
 				await page.waitForFunction(({ selector, canonical }) => document.querySelector(selector)?.value === String(canonical), {}, sample);
 				const canonical = await settingsRecord();
 				assert.equal(canonical.settings?.[sample.section]?.[sample.key], sample.canonical);
-				assert.equal(await page.$$eval('[data-testid="settings-dialog"]', nodes => nodes.length), 1, "Valid field Escape commits but leaves Settings open");
+				assert.equal(await page.$$eval('[data-testid="settings-dialog"]', nodes => nodes.length), 1, "Valid field Enter commits and leaves Settings open");
 				evidence.nativeNumbers.push({ section: sample.section, typed: sample.valid, canonical: sample.canonical, acknowledgment, stored: canonical.settings?.[sample.section] });
 			}
 		} finally { await cdp.detach(); }
@@ -1164,7 +1184,7 @@ export async function verifyPluginBrowser(url, options = {}) {
 		assert.equal(updatedMarkdownProse.fontSize, "12px", "Existing public Markdown must react to the acknowledged Settings prose-size change without remounting");
 		evidence.markdown.push({ label: "native Settings prose-size acknowledgment updates the existing public Markdown surface", prose: updatedMarkdownProse });
 		evidence.nativeNumberVisualReviewRequired = evidence.nativeNumbers.some(sample => sample.token && !sample.visibleTextProof.startsWith("Chromium native UA"));
-		evidence.assertions.push("Actual Chromium native-number 1e buffers consume Escape without writes/unset or dialog dismissal; visible token retention is proved by native UA text when available, otherwise paired input screenshots require human review; valid concurrency 3.0→3 and prose size -5→12 display canonical acknowledgments without changing number types/stepper attributes");
+		evidence.assertions.push("Actual Chromium native-number 1e buffers are reverted to the stored value by Escape (fork) without writes/unset or dialog dismissal; valid concurrency 3.0→3 and prose size -5→12 commit on Enter and display canonical acknowledgments without changing number types/stepper attributes");
 
 		evidence.stage = "worker admission: UI limit 1 and keyless LOOPBACK provider";
 		const untouched = await admissionCall("admission-status");
@@ -1317,7 +1337,10 @@ export async function verifyPluginBrowser(url, options = {}) {
 		assert.ok(await page.$('[data-testid="stats-thinking"]'), "Host model-thinking control remains present");
 		assert.ok(await page.$('[data-testid="dictation-toggle"]'), "Host microphone remains present");
 		const draftText = "  exact offline answer\n\tsecond line  \n";
-		await page.locator(questionEditor).fill(draftText);
+		// Set the exact draft without key events: a typed "\n" is a plain Enter,
+		// which the host submits for an unclaimed ("pass") plugin editor key
+		// (plugin-question-keys.ts; pinned by tests/plugin-question-components).
+		await page.locator(questionEditor).fill(draftText, { typingThreshold: 0 });
 		await page.$eval(questionEditor, node => node.setSelectionRange(3, 8));
 		const editor = await page.$(questionEditor);
 		const beforeFold = await editor.evaluate(node => ({ mount: node.dataset.mount, value: node.value, start: node.selectionStart, end: node.selectionEnd, publishes: node.dataset.publishes }));
@@ -1367,9 +1390,11 @@ export async function verifyPluginBrowser(url, options = {}) {
 		await editor.evaluate(node => node.setSelectionRange(node.value.length, node.value.length));
 		await page.keyboard.press("Tab");
 		assert.equal(await editor.evaluate(node => document.activeElement === node && node.dataset.tabs === "1"), true, "Plain Tab must invoke the current plugin editor once rather than native/global focus traversal");
-		await page.keyboard.press("Enter");
+		// Plain Enter is the host submit for an unclaimed plugin editor key;
+		// Shift+Enter keeps native editing without a second host submit.
+		await page.keyboard.down("Shift"); await page.keyboard.press("Enter"); await page.keyboard.up("Shift");
 		const expectedAnswer = draftText + "\t\n";
-		assert.equal(await editor.evaluate(node => node.value), expectedAnswer, "Unclaimed Enter edits the textarea instead of submitting");
+		assert.equal(await editor.evaluate(node => node.value), expectedAnswer, "Unclaimed Shift+Enter edits the textarea instead of submitting");
 		const hostThinking = "Host thinking stays separate from the exact answer.";
 		await page.locator(`${questionDock} [contenteditable="true"][aria-label="Your thinking"]`).fill(hostThinking);
 		await editor.focus();
@@ -1418,6 +1443,34 @@ export async function verifyPluginBrowser(url, options = {}) {
 		evidence.questions.push({ label: "verbatim public-editor answer, separate host thinking, genuine native teacher review; stale terminal submission rejected without another turn", submittedInput, result: answers[0], provider: reviewed, staleSubmission: { status: staleAnswer.status, text: staleAnswerText } });
 
 		evidence.stage = "native plugin question: check reading/reveal and thinking-off microphone";
+		// Fork: a teach check waits behind the "Check your understanding"
+		// reveal only when Settings → General → Reveal questions says so (the
+		// default reveals in cram mode only), and the reading-notes field is
+		// opt-in (default off). Turn both on through Settings, as a learner
+		// would, so the host reading/reveal pacing below is what is tested.
+		{
+			const generalSaved = () => page.waitForResponse(response => new URL(response.url()).pathname === "/api/settings/general" && response.request().method() === "PUT");
+			await chord(",");
+			await page.waitForSelector('[data-testid="settings-dialog"]', { visible: true });
+			await page.locator('[data-testid="settings-nav-general"]').click();
+			const readingSwitch = '[data-testid="row-reading-thinking"] [role="switch"]';
+			await page.waitForSelector(`${readingSwitch}:not(:disabled)`, { visible: true });
+			if (await page.$eval(readingSwitch, node => node.getAttribute("aria-checked")) !== "true") {
+				const saved = generalSaved();
+				await page.locator(readingSwitch).click();
+				assert.equal((await saved).status(), 200);
+				await page.waitForSelector(`${readingSwitch}[aria-checked="true"]:not(:disabled)`);
+			}
+			const revealSelect = '[data-testid="row-reveal-questions"] select';
+			if (await page.$eval(revealSelect, node => node.value) !== "always") {
+				const saved = generalSaved();
+				await page.select(revealSelect, "always");
+				assert.equal((await saved).status(), 200);
+				await page.waitForFunction(selector => document.querySelector(selector)?.value === "always" && !document.querySelector(selector)?.disabled, {}, revealSelect);
+			}
+			await closeSettings();
+			evidence.assertions.push("Fork General settings: Reveal questions = Always and Thinking while reading = on, set through Settings before the teach-check reveal stages");
+		}
 		const checkStream = page.waitForResponse(response => new URL(response.url()).pathname === questionRoute + "/stream");
 		await sendQuestionPrompt(QUESTION.checkPrompt);
 		assert.equal((await checkStream).status(), 200);
@@ -1479,7 +1532,14 @@ export async function verifyPluginBrowser(url, options = {}) {
 		await markdownAction("dialog", "formatted"); await assertStaticFormatted("dialog", 1);
 		const disabledMarkdownDialog = await page.$(markdownRoot("dialog"));
 		// Global Settings is independent of the plugin dialog being unloaded.
+		// Fork (owner-confirmed): global shortcuts are blocked while a modal is
+		// open, so Mod+, does nothing over the plugin dialog. Open Settings via
+		// the existing plugin-settings deep link instead, which any open
+		// surface may use, and disable the package from there.
 		await chord(",");
+		await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+		assert.equal(await page.$('[data-testid="settings-dialog"]'), null, "Mod+, is blocked while the plugin dialog (a modal) is open");
+		await page.evaluate(() => window.dispatchEvent(new CustomEvent("lh:open-plugin-settings", { detail: "native-smoke" })));
 		await page.waitForSelector('[data-testid="settings-dialog"]', { visible: true });
 		await page.locator('[data-testid="settings-nav-plugins"]').click();
 		await page.waitForSelector(`${TOGGLE}:not(:disabled)`, { visible: true });
@@ -1770,7 +1830,9 @@ async function verifySessionExtensions({ page, evidence, admissionCall: call, op
 			semanticDisplay: getComputedStyle(node.querySelector('[data-plugin-session-surface]')).display,
 			semanticBounds: box(node.querySelector('[data-plugin-session-surface]')),
 			topbar: box(document.querySelector("main header")), sidebar: box(document.querySelector("aside")),
-			visibleTitle: node.querySelector("h2")?.textContent, closeVisible: !!node.querySelector('button[aria-label="Close"]'),
+			// The shell no longer paints an <h2> title (upstream d90e804c-era
+			// shell); the title is the surface region's accessible name.
+			title: node.querySelector('[data-plugin-session-surface]')?.getAttribute("aria-label"), closeVisible: !!node.querySelector('button[aria-label="Close"]'),
 			composerCovered: !!document.querySelector('[data-testid="composer"]')?.closest("[inert]") };
 	});
 	evidence.sessionExtensions.push({ label: "surface body geometry", ...regionBounds });
@@ -1780,13 +1842,21 @@ async function verifySessionExtensions({ page, evidence, admissionCall: call, op
 		`Surface must fill the actual native session body boundary (${dimension}): ${JSON.stringify(regionBounds)}`);
 	assert.ok(regionBounds.region.y >= regionBounds.topbar.bottom - 1, "Surface must not cover native topbar");
 	assert.ok(regionBounds.region.x >= regionBounds.sidebar.right - 1, "Surface must not cover sidebar");
-	assert.equal(regionBounds.visibleTitle, "Session extension proof"); assert.equal(regionBounds.closeVisible, true);
+	assert.equal(regionBounds.title, "Session extension proof"); assert.equal(regionBounds.closeVisible, true);
 	assert.equal(regionBounds.composerCovered, true, "Covered native input must not remain interactive");
 	await action("nested");
 	await page.waitForSelector('[data-smoke-session-surface="1"]', { visible: true });
 	assert.equal(await parent.evaluate(input => input.isConnected && input.value === "Parent DOM draft survives nested coverage" && !!input.closest("[inert]")), true);
 	await chord(","); await page.waitForSelector('[data-testid="settings-dialog"]', { visible: true });
 	assert.equal(await page.$eval('[data-testid="settings-dialog"]', dialog => { const b = dialog.getBoundingClientRect(); return dialog.contains(document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2)); }), true, "Global Settings must paint above surfaces");
+	// Let the Providers section's own settings/status reads settle first: an
+	// immediate close aborts them on unmount (claude-code-status.tsx), which
+	// the network evidence would report as an unexpected failed request.
+	await page.waitForFunction(() => {
+		const toggle = document.querySelector('[data-testid="claude-code-installation"] [role="switch"]');
+		const again = document.querySelector('[data-testid="claude-code-check-again"]');
+		return !!toggle && !toggle.disabled && (!again || !again.disabled);
+	}, { timeout: timeoutMs });
 	await page.keyboard.press("Escape"); await page.waitForSelector('[data-testid="settings-dialog"]', { hidden: true });
 	assert.equal(await page.$$eval(nativeSurface, nodes => nodes.length), 2, "Settings Escape must not close either surface");
 	await page.keyboard.press("Escape"); await page.waitForSelector('[data-smoke-session-surface="1"]', { hidden: true });
@@ -1851,7 +1921,8 @@ async function verifySessionExtensions({ page, evidence, admissionCall: call, op
 	await page.locator('[data-testid="teach-check-reveal"]').click();
 	await page.waitForSelector('[data-smoke-question-editor]:not(:disabled)', { visible: true });
 	const original = '  function canvasAnswer() {\n\treturn "<svg> & PNG";\n}  \n';
-	await page.locator('[data-smoke-question-editor]').fill(original);
+	// No key events: a typed "\n" is the host's plain-Enter submit (see above).
+	await page.locator('[data-smoke-question-editor]').fill(original, { typingThreshold: 0 });
 	await page.locator('[data-testid="plugin-question-dock"] [aria-label="Your thinking"]').fill("Separate answer thinking.");
 	const answerArm = await arm(false);
 	const countBefore = hooks(await status()).length;
@@ -1866,16 +1937,27 @@ async function verifySessionExtensions({ page, evidence, admissionCall: call, op
 	const answerResult = (await read(SESSION.chatId)).messages.find(message => message.role === "toolResult" && message.details?.typeId === SESSION.typeId);
 	assert.ok(answerResult, "Native answer result must exist before provider response release");
 	assert.equal(answerResult.details.answer, original + SESSION.codeSuffix); assert.deepEqual(answerResult.details.images, answerInput.images);
-	assert.deepEqual(answerResult.content.filter(block => block.type === "image"), [answerArm.answer, answerArm.thinking, answerArm.reading], "Native tool result keeps ordered answer, thinking and reading image channels");
+	// Fork (73c31322): client chat reads omit tool-result image bytes; the
+	// ordered answer/thinking/reading channels stay in details.images (above).
+	assert.deepEqual(answerResult.content.filter(block => block.type === "image"), [], "Client chat reads omit tool-result image bytes (fork)");
+	assert.deepEqual(Object.keys(answerResult.details.images), ["answer", "thinking", "readingThinking"], "Native tool result keeps ordered answer, thinking and reading image channels");
 	assertProviderImages(state.requests.at(-1), [answerArm.answer, answerArm.thinking, answerArm.reading], "Genuine native answer continuation");
 	const modelContent = JSON.stringify(state.requests.at(-1).messages);
 	assert.ok(modelContent.includes("reading") && modelContent.includes("thinking"), "Provider projection labels separate thinking channels");
 	await release(SESSION.chatId);
+	// The answered card's in-card "Your thinking" row starts collapsed
+	// (thinking-block.tsx, no defaultOpen): open it to show its image.
+	const answeredThinking = '[data-testid="plugin-question-answered"] [data-testid="your-thinking-trigger"]';
+	await page.waitForSelector(answeredThinking, { visible: true });
+	if (await page.$eval(answeredThinking, node => node.getAttribute("aria-expanded")) !== "true") await page.locator(answeredThinking).click();
 	await page.waitForFunction(() => [...document.querySelectorAll('main img[alt="Submitted image"]')].length === 4);
+	// Both host thinking rows are labelled "YOUR THINKING" (answered-card /
+	// plugin-question-slots); the channels are told apart by their containers.
 	const channelPlacement = await page.$$eval('main img[alt="Submitted image"]', images => images.map(image => ({ src: image.src,
+		container: image.closest('[data-testid="reading-thinking-block"]') ? "reading-thinking-block" : image.closest('[data-testid="your-thinking"]') ? "your-thinking" : null,
 		thinkingLabel: (() => { let node = image.parentElement; while (node && node.tagName !== "MAIN") { const button = node.querySelector(':scope > button[aria-expanded]'); if (button) return button.textContent.trim(); node = node.parentElement; } return null; })() })));
-	assert.ok(channelPlacement.some(entry => entry.thinkingLabel?.includes("THINKING WHILE READING")), "Reading image has separate visible host container");
-	assert.ok(channelPlacement.some(entry => entry.thinkingLabel?.includes("YOUR THINKING")), "Question-thinking image has visible host thinking container");
+	assert.ok(channelPlacement.some(entry => entry.container === "reading-thinking-block" && entry.thinkingLabel?.includes("YOUR THINKING")), "Reading image has separate visible host container");
+	assert.ok(channelPlacement.some(entry => entry.container === "your-thinking" && entry.thinkingLabel?.includes("YOUR THINKING")), "Question-thinking image has visible host thinking container");
 	assert.equal(await page.$eval('[data-smoke-question-answered]', node => node.textContent), original + SESSION.codeSuffix, "Ordinary external renderer preserves transformed code verbatim while host owns images outside it");
 	evidence.sessionExtensions.push({ label: "genuine plugin JSON-string answer transform, code verbatim, three native image channels and actual adapter payload", answerInput, answerResult, channelPlacement, provider: state.requests.at(-1) });
 	await screenshot("session-native-answer-images");
