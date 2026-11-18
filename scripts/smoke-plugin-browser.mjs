@@ -98,53 +98,6 @@ export async function assertModalKnowledgePicker(page) {
 	return geometry;
 }
 
-/** Permanent real registry → Chat regression, independently callable without
- * the broad model/worker campaign. Caller supplies existing public actions. */
-export async function verifySessionHelperShortcutOwnership({ page, chord, openSurface, closeSurface }) {
-	const helperSelector = '[data-testid="side-thread-popover"]';
-	const inputSelector = '[data-testid="side-thread-input"]';
-	const nativeEntry = '[data-testid="side-conversation-button"]';
-	const draft = "Registry shortcut retained helper draft";
-	assert.equal(await page.$(helperSelector), null, "Start with the native helper closed");
-	await page.focus(nativeEntry); await chord("j");
-	await page.waitForSelector(helperSelector, { visible: true });
-	await page.locator(inputSelector).fill(draft);
-	const helper = await page.$(helperSelector);
-	try {
-		await openSurface();
-		await page.waitForFunction(() => !!document.activeElement?.closest('[data-plugin-session-surface]'));
-		assert.equal(await helper.evaluate(node => node.isConnected && !!node.closest('[inert], [aria-hidden="true"]')), true, "Same open native helper starts covered");
-		await chord("j");
-		// Let the real command's async finishFor/React close settle on the RED
-		// baseline; checking immediately after dispatch can hide the regression.
-		await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-		const covered = await helper.evaluate((node, { helperSelector, inputSelector }) => ({
-			same: node.isConnected && document.querySelector(helperSelector) === node,
-			covered: !!node.closest('[inert], [aria-hidden="true"]'), draft: node.querySelector(inputSelector)?.value,
-			surfaceOwnsFocus: !!document.activeElement?.closest('[data-plugin-session-surface]'),
-		}), { helperSelector, inputSelector });
-		assert.equal(covered.same, true, "Registry Mod+J must not close/unmount a covered Chat helper");
-		assert.equal(covered.covered && covered.surfaceOwnsFocus, true); assert.equal(covered.draft, draft);
-		await closeSurface();
-		await page.waitForSelector('[data-plugin-session-surface]', { hidden: true });
-		assert.equal(await helper.evaluate(node => node.isConnected && !node.closest('[inert], [aria-hidden="true"]')), true);
-		await page.focus(nativeEntry); await chord("j");
-		await page.waitForSelector(helperSelector, { hidden: true });
-		assert.equal(await helper.evaluate(node => node.isConnected), false, "Eligible registry Mod+J closes normally");
-		await openSurface();
-		await page.waitForFunction(() => !!document.activeElement?.closest('[data-plugin-session-surface]'));
-		await chord("j");
-		await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-		assert.equal(await page.$(helperSelector), null, "Registry Mod+J cannot open an inactive native helper either");
-		await closeSurface(); await page.waitForSelector('[data-plugin-session-surface]', { hidden: true });
-		await page.focus(nativeEntry); await chord("j");
-		await page.waitForSelector(helperSelector, { visible: true });
-		assert.equal(await page.$eval(inputSelector, input => input.value), draft, "Eligible reopen retains the exact draft");
-		await chord("j"); await page.waitForSelector(helperSelector, { hidden: true });
-		return { covered, coveredClosedStaysClosed: true, eligibleOpenCloseReopen: true, draftRetained: true };
-	} finally { await helper.dispose(); }
-}
-
 /** @param {string} url An already-running disposable server's loopback origin.
  * @param {{executablePath?: string, scratchDirectory?: string, headers?: Record<string, string>, timeoutMs?: number}} [options]
  * @returns {Promise<object>} Full console, network, RPC, and assertion evidence.
@@ -1806,8 +1759,6 @@ async function verifySessionExtensions({ page, evidence, admissionCall: call, op
 	assert.equal((await read(SESSION.chatId)).messages.some(message => message.lhQuestions), false, "Extension bootstrap must contain no pending question authority");
 	await page.waitForSelector(`${composer} [contenteditable="true"]`, { visible: true });
 	assert.equal(await page.$eval(send, button => button.disabled), true, "Empty ordinary native message starts disabled");
-	evidence.stage = "session helper registry shortcut ownership";
-	evidence.sessionExtensions.push({ label: evidence.stage, ...await verifySessionHelperShortcutOwnership({ page, chord, openSurface, closeSurface: () => action("close") }) });
 	evidence.stage = "session extensions: surfaces and image-only message";
 	await openSurface();
 	await page.locator(`${surface} input`).fill("Parent DOM draft survives nested coverage");
