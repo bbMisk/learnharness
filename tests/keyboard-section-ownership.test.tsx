@@ -77,7 +77,7 @@ afterEach(async () => {
 	cleanup?.(); cleanup = undefined;
 });
 
-it("a covered Settings recorder ignores child keys/Escape, and resumes recording Tab when its owner is active", async () => {
+it("a covered Settings recorder ignores child keys/Escape, and resumes receiving Tab when its owner is active", async () => {
 	const f = fixture(); let childCloses = 0, parentCloses = 0;
 	let openChild!: () => void;
 	function Harness() {
@@ -106,17 +106,22 @@ it("a covered Settings recorder ignores child keys/Escape, and resumes recording
 	await f.key("Escape"); assert.equal(childCloses, 2); assert.equal(parentCloses, 0);
 	assert.equal(isArmed(), true);
 	const tab = await f.key("Tab");
-	assert.equal(tab.defaultPrevented, true); assert.deepEqual(loadOverrides(), { find: "tab" });
+	// Fork: Tab is the question dock's fixed key (conflictFor), so the active
+	// recorder answers Tab with its refusal instead of recording it.
+	assert.equal(tab.defaultPrevented, true); assert.deepEqual(loadOverrides(), {});
+	assert.match(byTest("kbd-row-find").textContent!, /already used by Question/, "the active recorder, not the child, received Tab");
 	assert.equal(isArmed(), false); assert.equal(parentCloses, 0);
 });
 
-it("an active Settings recorder consumes Escape without dismissing Settings and still records Shift+Tab", async () => {
+it("an active Settings recorder consumes Escape without dismissing Settings and still receives Shift+Tab", async () => {
 	const f = fixture(); let closes = 0;
 	await f.render(<HostDialog open onClose={() => { closes++; return "blocked"; }}><h2>Settings</h2><KeyboardSection /></HostDialog>);
 	await arm(); const escape = await f.key("Escape");
 	assert.equal(escape.defaultPrevented, true); assert.equal(isArmed(), false); assert.equal(closes, 0);
 	assert.deepEqual(loadOverrides(), {});
 	await arm(); const tab = await f.key("Tab", true);
-	assert.equal(tab.defaultPrevented, true); assert.deepEqual(loadOverrides(), { find: "shift+tab" });
+	// Fork: Shift+Tab is Cycle thinking's binding, so the recorder refuses the conflict.
+	assert.equal(tab.defaultPrevented, true); assert.deepEqual(loadOverrides(), {});
+	assert.match(byTest("kbd-row-find").textContent!, /already used by Cycle thinking level/, "the recorder received Shift+Tab");
 	assert.equal(isArmed(), false); assert.equal(closes, 0);
 });

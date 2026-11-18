@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { afterEach, it } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
+import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
 
 const dom = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, {
@@ -38,7 +39,7 @@ it("the model pill fills in once the browser is back online", async () => {
 	const host = document.createElement("div");
 	document.body.append(host);
 	root = createRoot(host);
-	await act(async () => root!.render(<ModelControl />));
+	await act(async () => root!.render(<InteractionLayersProvider><ModelControl /></InteractionLayersProvider>));
 	await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 	const pill = () => document.querySelector<HTMLElement>('[data-testid="stats-model"]')!.textContent ?? "";
 	assert.doesNotMatch(pill(), /gpt/i, "the read failed while offline");

@@ -67,6 +67,7 @@ windowCaptureClicks(dom.window as unknown as Window & typeof globalThis);
 
 // react-dom reads the DOM's event support when it loads, so it loads after the setup above.
 const { createRoot } = await import("react-dom/client");
+const { InteractionLayersProvider } = await import("../components/interaction-layers.tsx");
 const { useDoubleClickGuard } = await import("../components/double-click-tail.ts");
 /** AppShell's app-wide guard: the second click of a double click never reaches a control. */
 function DoubleClickGuard() { useDoubleClickGuard(); return null; }
@@ -131,6 +132,7 @@ it("an input method's Esc leaves Find open", async () => {
 	const { SessionFind } = await import("../components/session-find.tsx");
 	mountHost();
 	const scope = document.createElement("div");
+	document.body.append(scope); // the session area: Find opens only over a live, visible one
 	hosts.push(scope);
 	await act(async () => { root!.render(<SessionFind scopeRef={{ current: scope as HTMLDivElement }} scrollContextRef={{ current: null }} />); });
 	await openFind();
@@ -159,7 +161,7 @@ it("a dialog's Esc (useEscapeClose) ignores an input method's Esc and claims a p
 	const { useEscapeClose } = await import("../components/open-modal.ts");
 	let closed = 0;
 	mountHost();
-	await act(async () => { root!.render(<DeleteNodeDialog nodes={[{ id: "n1", name: "Node" }]} onClose={() => { closed++; }} onDeleted={() => {}} />); });
+	await act(async () => { root!.render(<InteractionLayersProvider><DeleteNodeDialog nodes={[{ id: "n1", name: "Node" }]} onClose={() => { closed++; }} onDeleted={() => {}} /></InteractionLayersProvider>); });
 	const ime = imeEsc();
 	await act(async () => { document.body.dispatchEvent(ime); });
 	assert.equal(closed, 0, "the composition's Esc");
@@ -170,7 +172,7 @@ it("a dialog's Esc (useEscapeClose) ignores an input method's Esc and claims a p
 	assert.equal(plain.defaultPrevented, true, "claimed");
 	let captured = 0, busyClosed = 0;
 	function Capture() { useEscapeClose(true, () => { captured++; }, { capture: true }); useEscapeClose(true, () => { busyClosed++; }, { busy: true }); return null; }
-	await act(async () => { root!.render(<Capture />); });
+	await act(async () => { root!.render(<InteractionLayersProvider><Capture /></InteractionLayersProvider>); });
 	await act(async () => { window.dispatchEvent(imeEsc()); });
 	assert.equal(captured, 0, "the composition's Esc, at the window");
 	const busy = key("Escape");
@@ -188,6 +190,7 @@ it("phone drawer: Esc from a field behind it closes the drawer first, before Fin
 	let sidebar!: ReturnType<typeof useSidebar>;
 	function Probe() { sidebar = useSidebar(); return null; }
 	const scope = document.createElement("div");
+	document.body.append(scope); // the session area: Find opens only over a live, visible one
 	hosts.push(scope);
 	const host = mountHost();
 	await act(async () => {
@@ -343,6 +346,7 @@ it("Find and the side tutor both open: an Esc from outside both closes the one o
 		return <>{tutor && <SideTutor chatId="c1" selectedText="" onClose={() => set(false)} />}<SessionFind scopeRef={{ current: scope as HTMLDivElement }} scrollContextRef={{ current: null }} /></>;
 	}
 	const scope = document.createElement("div");
+	document.body.append(scope); // the session area: Find opens only over a live, visible one
 	hosts.push(scope);
 	mountHost();
 	await act(async () => { root!.render(<Page />); });
@@ -528,13 +532,17 @@ it("Find and the side tutor both open: an Esc from a field the user clicked into
 	const { kbdEventForAction } = await import("../src/core/keyboard.ts");
 	globalThis.fetch = (() => new Promise(() => {})) as unknown as typeof fetch;
 	const scope = document.createElement("div");
+	document.body.append(scope); // the session area: Find opens only over a live, visible one
 	hosts.push(scope);
+	// Stable across renders, as Chat's useRef is: Find re-runs its open effect
+	// (and refocuses its input) when the ref changes.
+	const scopeRef = { current: scope as HTMLDivElement }, scrollContextRef = { current: null };
 	function Page() {
 		const { sideTutor, closeSideTutor } = useSideTutor();
 		return <>
 			<textarea data-testid="thinking" />
 			{sideTutor && <SideTutor chatId="c1" selectedText="" onClose={closeSideTutor} />}
-			<SessionFind scopeRef={{ current: scope as HTMLDivElement }} scrollContextRef={{ current: null }} />
+			<SessionFind scopeRef={scopeRef} scrollContextRef={scrollContextRef} />
 		</>;
 	}
 	mountHost();
@@ -637,9 +645,14 @@ it("the setup dialog opens with focus on itself, not on ✕, so a second Enter c
 	globalThis.fetch = (async () => Response.json({ providers: [], models: [], slots: { strong: null, cheap: null, vision: null } })) as typeof fetch;
 	try {
 		mountHost();
-		await act(async () => { root!.render(<SetupDialog open onClose={() => assert.fail("closed")} onDone={() => {}} />); });
+		await act(async () => { root!.render(<InteractionLayersProvider><SetupDialog open onClose={() => assert.fail("closed")} onDone={() => {}} /></InteractionLayersProvider>); });
 		await frame();
-		assertSameNode(document.activeElement, document.querySelector('[data-testid="setup-dialog"]'), "focus is in the dialog");
+		// A HostDialog with no field to type in lands focus on its heading (the
+		// shared modal policy; the fork's frame focus before the merge): inside
+		// the dialog and never on ✕, so Enter activates nothing.
+		const dialog = document.querySelector('[data-testid="setup-dialog"]')!;
+		assert.ok(dialog.contains(document.activeElement), "focus is in the dialog");
+		assertSameNode(document.activeElement, dialog.querySelector("h2"), "on its heading, not ✕");
 	} finally {
 		globalThis.fetch = get;
 	}

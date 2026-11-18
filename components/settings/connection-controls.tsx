@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { useMemo, useRef, type RefObject } from "react";
 import { HostDialog } from "@/components/host-dialog";
 import type { CloseOutcome } from "@/components/interaction-layers";
 import { Button } from "@/components/ui/button";
@@ -24,11 +24,15 @@ export function ConnectionFooter({ leading, children, testid }: { leading?: Reac
  *  A busy dialog stays open (Esc and the backdrop are refused). */
 export function ConnectionDialog({ children, onClose, busy, label, testid, backdropTestid, initialFocus = "first" }: { children: React.ReactNode; onClose: () => CloseOutcome | void; busy: boolean; label: string; testid: string; backdropTestid: string; initialFocus?: "first" | "last" }) {
 	const ref = useRef<HTMLDivElement>(null);
-	useEffect(() => {
-		if (initialFocus !== "last") return;
-		[...(ref.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled])') ?? [])].at(-1)?.focus();
-	}, [initialFocus]);
-	return <HostDialog open onClose={() => (busy ? "blocked" : onClose() ?? "closed")} aria-label={label}
+	// HostDialog portals the frame a commit after mount, so a mount effect would
+	// find no buttons. Its explicit initial-focus seam reads the action instead.
+	const lastAction = useMemo<RefObject<HTMLElement | null>>(() => ({
+		get current() {
+			if (initialFocus !== "last") return null;
+			return [...(ref.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled])') ?? [])].at(-1) ?? null;
+		},
+	}), [initialFocus]);
+	return <HostDialog open onClose={() => (busy ? "blocked" : onClose() ?? "closed")} aria-label={label} initialFocusRef={lastAction}
 		backdropProps={{ className: "fixed inset-0 z-[60] flex items-center justify-center bg-background/80", "data-testid": backdropTestid }}
 		frame={<div ref={ref} data-lh-modal aria-busy={busy} data-testid={testid} onClick={(event) => event.stopPropagation()} className="settings-dialog-pop mx-4 max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-md border border-border bg-card p-5 shadow-xl" />}>
 		{children}

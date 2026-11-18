@@ -3,6 +3,7 @@ import React, { act } from "react";
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { parseHTML } from "linkedom";
+import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
 
 // An unsaved prompt-override draft survives closing and reopening Settings,
 // like the model-instruction and curation-guidance drafts.
@@ -36,8 +37,8 @@ const { AgentSection } = await import("../components/settings/agent-section.tsx"
 async function mount() {
 	const root = createRoot(document.getElementById("root")!);
 	await act(async () => {
-		root.render(<AgentSection agent={{}} models={undefined} graph={undefined} compaction={undefined}
-			onSectionChange={() => {}} onModelsChange={() => {}} onCompactionChange={() => {}} />);
+		root.render(<InteractionLayersProvider><AgentSection agent={{}} models={undefined} graph={undefined} compaction={undefined}
+			onSectionChange={() => {}} onModelsChange={() => {}} onCompactionChange={() => {}} /></InteractionLayersProvider>);
 	});
 	const show = [...document.querySelectorAll<HTMLButtonElement>(`[data-testid="prompt-segment-${segment.path}"] button`)].find((b) => b.textContent === "Show text")!;
 	assert.ok(show, "Show text");

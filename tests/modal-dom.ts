@@ -23,10 +23,28 @@ export function installModalDom(dom: ReturnType<typeof parseHTML>) {
 	// Chromium normalizes HTML attribute names; linkedom otherwise retains
 	// React's ariaHidden casing and makes visibility checks inaccurate.
 	prototype.setAttribute = function (name: string, value: string) { originalSetAttribute.call(this, name.toLowerCase(), value); };
+	const restoreApis = installModalBrowserApis(dom);
+	return () => {
+		prototype.focus = originalFocus; prototype.setAttribute = originalSetAttribute;
+		for (const [key, descriptor] of legacyEvents) {
+			if (descriptor) Object.defineProperty(prototype, key, descriptor);
+			else Reflect.deleteProperty(prototype, key);
+		}
+		if (activeDescriptor) Object.defineProperty(dom.document, "activeElement", activeDescriptor);
+		else Reflect.deleteProperty(dom.document, "activeElement");
+		restoreApis();
+	};
+}
+
+/** Only the browser APIs HostDialog/menus read (computed style, observers,
+ * animation frames), for fixtures that keep their own focus model. */
+export function installModalBrowserApis(dom: ReturnType<typeof parseHTML>) {
 	const style = (element: HTMLElement) => ({
 		display: element.style.display || "block", visibility: element.style.visibility || "visible",
 		position: element.style.position || "static", overflow: element.style.overflow || "visible",
 		paddingLeft: "0px", paddingRight: "0px", marginLeft: "0px", marginRight: "0px", borderLeftWidth: "0px", borderRightWidth: "0px",
+		// Custom properties (the fork's --lh-safe-* insets) are unset: zero insets.
+		getPropertyValue: () => "",
 	});
 	const globals = {
 		Node: dom.window.Node, HTMLInputElement: dom.window.HTMLInputElement, HTMLTextAreaElement: dom.window.HTMLTextAreaElement,
@@ -39,13 +57,6 @@ export function installModalDom(dom: ReturnType<typeof parseHTML>) {
 	Object.assign(globalThis, globals);
 	Object.assign(dom.window, { getComputedStyle: style, innerWidth: 1280, innerHeight: 800 });
 	return () => {
-		prototype.focus = originalFocus; prototype.setAttribute = originalSetAttribute;
-		for (const [key, descriptor] of legacyEvents) {
-			if (descriptor) Object.defineProperty(prototype, key, descriptor);
-			else Reflect.deleteProperty(prototype, key);
-		}
-		if (activeDescriptor) Object.defineProperty(dom.document, "activeElement", activeDescriptor);
-		else Reflect.deleteProperty(dom.document, "activeElement");
 		for (const [key, descriptor] of saved) {
 			if (descriptor) Object.defineProperty(globalThis, key, descriptor);
 			else Reflect.deleteProperty(globalThis, key);

@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, test } from "node:test";
 import { parseHTML } from "linkedom";
+import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
 import type { Root } from "react-dom/client";
 import { AUTH_KEYS, type AuthKeyStatus } from "../src/core/index.ts";
 
@@ -49,7 +50,7 @@ async function mount() {
 		return Response.json({});
 	}) as typeof fetch;
 	root = createRoot(document.getElementById("root")!);
-	await act(async () => { root!.render(<KeysSection />); });
+	await act(async () => { root!.render(<InteractionLayersProvider><KeysSection /></InteractionLayersProvider>); });
 }
 
 async function type(element: HTMLInputElement, value: string) {

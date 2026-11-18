@@ -62,9 +62,9 @@ it("a failed source rename reports once, under its row, and Esc clears it", asyn
 	const alerts = () => [...document.querySelectorAll('[role="alert"]')].filter((el) => el.textContent === "Could not rename.").length;
 	const key = (k: string) => { const event = new dom.window.Event("keydown", { bubbles: true, cancelable: true }); Object.defineProperty(event, "key", { value: k }); return event; };
 	try {
-		await act(async () => { root.render(<ServerEventsProvider connect={() => ({ close() {}, onOpen() {}, onEvent() {} })}>
+		await act(async () => { root.render(<InteractionLayersProvider><ServerEventsProvider connect={() => ({ close() {}, onOpen() {}, onEvent() {} })}>
 			<ChainTableOverlay open nodes={[]} chains={[]} sessions={{}} fileSources={{}} onClose={() => {}} />
-		</ServerEventsProvider>); });
+		</ServerEventsProvider></InteractionLayersProvider>); });
 		await act(async () => { (document.querySelector('button[title="Rename"]') as HTMLElement).click(); });
 		const input = document.querySelector<HTMLInputElement>('[data-testid="source-name-input"]')!;
 		input.setAttribute("type", "text");

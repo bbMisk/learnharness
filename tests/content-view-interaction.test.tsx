@@ -65,12 +65,17 @@ for (const kind of ["chains", "diagram", "plan"] as const) {
 		const frame = layer.rootRef.current!;
 		assert.match(frame.className, /absolute inset-0 z-40/);
 		assert.match(frame.className, /bg-background\/80/); assert.match(frame.className, /backdrop-blur-sm/);
-		assert.equal(frame.hasAttribute("aria-modal"), false);
-		assert.equal(frame.getAttribute("role"), kind === "chains" ? null : "region");
+		// Fork: the diagram and plan overlays keep their dialog marking (role,
+		// aria-modal, data-lh-modal) for the quiz dock's key guard; the layer
+		// is still a nonmodal content view, as asserted around this.
+		assert.equal(frame.getAttribute("aria-modal"), kind === "chains" ? null : "true");
+		assert.equal(frame.getAttribute("role"), kind === "chains" ? null : "dialog");
 		const sidebar = document.querySelector<HTMLElement>('[data-testid="sidebar"]')!;
 		assert.equal(controller.isElementEligible(sidebar), true);
 		assert.equal(sidebar.closest("[inert], [aria-hidden='true']"), null);
-		if (kind !== "chains") assertSameNode(document.activeElement, document.body, "views introduce no modal initial-focus default");
+		// Fork: the plan popup takes focus itself on open (plan-popup-focus.test.tsx).
+		if (kind === "diagram") assertSameNode(document.activeElement, document.body, "views introduce no modal initial-focus default");
+		if (kind === "plan") assertSameNode(document.activeElement, frame, "the plan popup's own focus policy");
 		sidebar.focus(); assertSameNode(document.activeElement, sidebar, "no focus containment");
 		const event = await escape(sidebar);
 		assert.equal(event.defaultPrevented, true); assert.equal(closes, 1);

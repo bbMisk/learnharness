@@ -30,20 +30,21 @@ globalThis.fetch = (async (url: string) => {
 }) as typeof fetch;
 const { createRoot } = await import("react-dom/client");
 const { AgentSection } = await import("../components/settings/agent-section.tsx");
+const { InteractionLayersProvider } = await import("../components/interaction-layers.tsx");
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Mounts the section the way the dialog does: a save takes `latency` ms, then the prop follows the stored record. */
 async function mount(initial: AgentSettings, latency: number, fail = false) {
 	let stored = initial;
 	const root = createRoot(document.getElementById("root")!);
-	const render = () => root.render(<AgentSection agent={stored} models={undefined} graph={undefined} compaction={undefined}
+	const render = () => root.render(<InteractionLayersProvider><AgentSection agent={stored} models={undefined} graph={undefined} compaction={undefined}
 		onSectionChange={async (next) => {
 			await sleep(latency);
 			if (fail) return false;
 			stored = next;
 			await act(async () => render());
 			return true;
-		}} onModelsChange={() => {}} onCompactionChange={() => {}} />);
+		}} onModelsChange={() => {}} onCompactionChange={() => {}} /></InteractionLayersProvider>);
 	await act(async () => render());
 	await act(async () => { await sleep(5); });
 	return { root, stored: () => stored };

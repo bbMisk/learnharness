@@ -149,7 +149,8 @@ describe("collapsed question inline preview", () => {
 			assert.equal(document.querySelectorAll("button").length, 1);
 			assert.equal(document.querySelectorAll("a, [data-testid=md-copy], pre").length, 0);
 			assert.ok(document.body.textContent.includes("the docs"));
-			assert.ok(!document.body.textContent.includes("BLOCK"));
+			// Fork: the bar keeps its own one-line KaTeX teaser (QuestionTeaser), not
+			// QuestionPreview, so a fence's text stays in that one truncated line.
 			assert.ok(document.body.textContent.includes(variant === "reveal" ? "Open" : "Answer"));
 		}
 	});
@@ -279,7 +280,9 @@ describe("collapsed question inline preview", () => {
 		}, 0);
 	});
 
-	it("each mounted preview and its styled link label invoke the same expand action", async () => {
+	// Fork: the bar's teaser is plain text plus KaTeX (no styled link label), so
+	// the click lands on the teaser's math; it still reaches the one expand button.
+	it("each mounted preview and its teaser text invoke the same expand action", async () => {
 		const document = parseHTML("<html><body></body></html>");
 		const globals = { window: document.window, document: document.document, IS_REACT_ACT_ENVIRONMENT: true };
 		const previous = Object.getOwnPropertyDescriptors(globalThis);
@@ -291,7 +294,7 @@ describe("collapsed question inline preview", () => {
 				const root = createRoot(host);
 				try {
 					await act(async () => root.render(<QuestionDockBar toolName="quiz" question="Read [the docs](https://example.com) and $x$." variant={variant} onExpand={() => { expands++; }} />));
-					const label = host.querySelector(".underline")!;
+					const label = host.querySelector(".katex")!;
 					await act(async () => { label.dispatchEvent(new document.window.Event("click", { bubbles: true })); });
 					assert.equal(expands, 1);
 					await act(async () => { host.querySelector("button")!.click(); });

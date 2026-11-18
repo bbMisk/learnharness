@@ -791,11 +791,18 @@ export function ChainTableOverlay({
 
 	// Closing hands focus back to whatever opened the table. A layout
 	// effect: it captures the opener before the table's own mount focus.
+	// The return waits a microtask and is dropped when the effect re-runs at
+	// once (StrictMode's replayed mount): moving focus mid-replay would revoke
+	// the picker's opening lease as a user focus change.
+	const pendingReturn = useRef<{ cancelled: boolean } | null>(null);
 	useLayoutEffect(() => {
 		if (!open) return;
+		if (pendingReturn.current) pendingReturn.current.cancelled = true;
 		const opener = document.activeElement as HTMLElement | null;
 		return () => {
-			if (opener?.isConnected) opener.focus?.();
+			const pending = { cancelled: false };
+			pendingReturn.current = pending;
+			queueMicrotask(() => { if (!pending.cancelled && opener?.isConnected) opener.focus?.(); });
 		};
 	}, [open]);
 	const rootRef = useRef<HTMLDivElement>(null);

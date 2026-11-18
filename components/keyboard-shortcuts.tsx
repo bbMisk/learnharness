@@ -105,7 +105,9 @@ export function KeyboardShortcuts() {
 
 	useEffect(() => {
 		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.defaultPrevented) return;
+			// A leaf's claim. Not for Tab under the provider: its window capture
+			// prevents every native Tab, so a claimed Tab stops propagation instead.
+			if (e.defaultPrevented && !(controller && e.key === "Tab")) return;
 			if (pluginQuestionKeySuppressed(e) || composingQuestionKey(e)) return;
 			// An open modal owns the keyboard: Tab stays inside it and no
 			// global shortcut acts on the page behind it.

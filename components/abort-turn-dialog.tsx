@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type ReactElement, type ReactNode } from "react";
+import { useEffect, useRef, type ReactElement, type ReactNode, type RefObject } from "react";
 import { HostDialog } from "@/components/host-dialog";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
 import { focusComposer, useFocusReturn } from "@/components/focus-return";
@@ -61,7 +61,8 @@ export function AbortTurnBody({
 	/** The dismiss doubles as the abort when a turn is still running
 	 * (owner, 2026-10-04): the line says so. */
 	busy?: boolean;
-	renderFrame?: (frame: ReactElement<{ children: ReactNode }>) => ReactNode;
+	/** Fork: `initialFocus` is the confirm, for a host that mounts the frame later (HostDialog). */
+	renderFrame?: (frame: ReactElement<{ children: ReactNode }>, initialFocus: RefObject<HTMLButtonElement | null>) => ReactNode;
 }) {
 	const backdropDismiss = useBackdropDismiss(onClose);
 	// Focus lands on the action so Enter confirms; closing hands it back to
@@ -107,7 +108,7 @@ export function AbortTurnBody({
 				</div>
 			</div>
 	);
-	if (renderFrame) return renderFrame(frame);
+	if (renderFrame) return renderFrame(frame, confirmRef);
 	return <div role="dialog" aria-modal="true" data-lh-modal aria-label={copy.title} data-testid="abort-turn-dialog"
 		className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm"
 		{...backdropDismiss}>{frame}</div>;
@@ -127,7 +128,7 @@ export function AbortTurnDialog({
 }) {
 	if (mode === null) return null;
 	return <AbortTurnBody mode={mode} onClose={onClose} onConfirm={() => onConfirm(mode)} busy={busy}
-		renderFrame={(frame) => <HostDialog open frame={frame} aria-label={COPY[mode].title}
+		renderFrame={(frame, initialFocus) => <HostDialog open frame={frame} aria-label={COPY[mode].title} initialFocusRef={initialFocus}
 			onClose={() => { onClose(); return "closed"; }}
 			backdropProps={{ className: "fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm", "data-testid": "abort-turn-dialog" }}>
 			{frame.props.children}

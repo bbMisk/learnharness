@@ -179,13 +179,20 @@ it("question's visible plain-Tab row/thinking cycle survives native Tab preventi
 	remove();
 });
 
-it("ReadingThinking intentionally claims Escape even with no callback, without closing its containing modal", async () => {
+// Fork (c2411333): ReadingThinking claims Escape only while it has a callback
+// (dictation running); otherwise Esc reaches the layered chain (fold, then dismiss).
+it("ReadingThinking claims Escape only with a callback, without closing its containing modal; otherwise the layer gets it", async () => {
 	const f = fixture();
-	await f.render(<div data-testid="modal"><ReadingThinkingField value="" revision={0} onChange={() => {}} claim={false} /></div>);
+	let stops = 0;
+	const field = (onEscape?: () => void) => <div data-testid="modal"><ReadingThinkingField value="" revision={0} onChange={() => {}} onEscape={onEscape} claim={false} /></div>;
+	await f.render(field());
 	let closes = 0;
 	f.controller().register({ id: "modal", kind: "modal", rootRef: { current: get("modal") }, onClose: () => { closes++; return "blocked"; } });
-	const field = document.querySelector<HTMLElement>("[data-file-path-input]")!;
-	const event = await f.key(field, "Escape"); assert.equal(event.defaultPrevented, true); assert.equal(closes, 0);
+	const input = () => document.querySelector<HTMLElement>("[data-file-path-input]")!;
+	const unclaimed = await f.key(input(), "Escape"); assert.equal(closes, 1, "no callback: the containing layer owns Esc");
+	assert.equal(unclaimed.defaultPrevented, true, "and the layer still claims it");
+	await f.render(field(() => { stops++; }));
+	const event = await f.key(input(), "Escape"); assert.equal(event.defaultPrevented, true); assert.equal(closes, 1); assert.equal(stops, 1);
 	assert.equal(f.controller().isEscapeOwned(event as unknown as KeyboardEvent), true);
 });
 

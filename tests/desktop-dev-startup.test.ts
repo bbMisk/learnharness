@@ -129,7 +129,8 @@ function boot() {
 				probes.push({ url, signal }); signal.addEventListener("abort", () => fail(signal.reason), { once: true }); return readiness;
 			} } : mainRequire(id),
 		process: Object.assign(new EventEmitter(), { platform: "darwin", argv: [], env: { LH_DEV_URL: "http://localhost:3000" } }),
-		__dirname: dirname(mainFile), AbortController,
+		// The fork's createWindow records the window's origin at once (shared-host sender checks).
+		__dirname: dirname(mainFile), AbortController, URL,
 		console: { log: (line: string) => logs.push(line) },
 	};
 	runInNewContext(mainSource, context, { filename: mainFile });

@@ -11,6 +11,9 @@ Object.assign(globalThis, {
 	document: dom.document,
 	Node: dom.window.Node,
 	HTMLElement: dom.window.HTMLElement,
+	// The delete dialog is a HostDialog: its focus scope needs these.
+	Element: dom.window.Element, Event: dom.window.Event, CustomEvent: dom.window.CustomEvent,
+	MutationObserver: dom.window.MutationObserver, NodeFilter: { SHOW_ELEMENT: 1, FILTER_ACCEPT: 1, FILTER_SKIP: 3 },
 	IS_REACT_ACT_ENVIRONMENT: true,
 	self: globalThis,
 	getComputedStyle: () => ({ getPropertyValue: () => "" }),
@@ -19,6 +22,7 @@ Object.assign(globalThis, {
 });
 const { ProjectPage } = await import("../components/project-page.tsx");
 const { ServerEventsProvider } = await import("../components/server-events.tsx");
+const { InteractionLayersProvider } = await import("../components/interaction-layers.tsx");
 const { AppRouterContext } = await import("next/dist/shared/lib/app-router-context.shared-runtime.js");
 const router = { push() {}, replace() {}, refresh() {}, back() {}, forward() {}, prefetch() {} };
 const quietChannel = () => ({ close() {}, onOpen() {}, onEvent() {} });
@@ -57,11 +61,11 @@ async function mount(chatsStatus: number, projectStatus = 200) {
 	root = createRoot(host);
 	await act(async () =>
 		root.render(
-			<AppRouterContext.Provider value={router as never}>
+			<InteractionLayersProvider><AppRouterContext.Provider value={router as never}>
 			<ServerEventsProvider connect={quietChannel}>
 				<ProjectPage initial={project} />
 			</ServerEventsProvider>
-			</AppRouterContext.Provider>,
+			</AppRouterContext.Provider></InteractionLayersProvider>,
 		),
 	);
 	await act(async () => {
@@ -107,11 +111,11 @@ it("keeps a newer successful list when an older request fails later", async () =
 	root = createRoot(host);
 	await act(async () =>
 		root.render(
-			<AppRouterContext.Provider value={router as never}>
+			<InteractionLayersProvider><AppRouterContext.Provider value={router as never}>
 			<ServerEventsProvider connect={channel}>
 				<ProjectPage initial={project} />
 			</ServerEventsProvider>
-			</AppRouterContext.Provider>,
+			</AppRouterContext.Provider></InteractionLayersProvider>,
 		),
 	);
 	await act(async () => {
@@ -162,11 +166,11 @@ async function mountWithChats(moveStatus: number) {
 	root = createRoot(host);
 	await act(async () =>
 		root.render(
-			<AppRouterContext.Provider value={router as never}>
+			<InteractionLayersProvider><AppRouterContext.Provider value={router as never}>
 			<ServerEventsProvider connect={quietChannel}>
 				<ProjectPage initial={project} />
 			</ServerEventsProvider>
-			</AppRouterContext.Provider>,
+			</AppRouterContext.Provider></InteractionLayersProvider>,
 		),
 	);
 	await act(async () => {
@@ -217,11 +221,11 @@ it("shows a failed project details refresh and clears it on the next success", a
 	root = createRoot(host);
 	await act(async () =>
 		root.render(
-			<AppRouterContext.Provider value={router as never}>
+			<InteractionLayersProvider><AppRouterContext.Provider value={router as never}>
 			<ServerEventsProvider connect={channel}>
 				<ProjectPage initial={project} />
 			</ServerEventsProvider>
-			</AppRouterContext.Provider>,
+			</AppRouterContext.Provider></InteractionLayersProvider>,
 		),
 	);
 	await act(async () => {
@@ -316,11 +320,11 @@ it("this tab's project delete goes home without flashing the deleted page, and E
 	root = createRoot(host);
 	await act(async () =>
 		root.render(
-			<AppRouterContext.Provider value={{ ...router, push: (url: string) => void pushed.push(url) } as never}>
+			<InteractionLayersProvider><AppRouterContext.Provider value={{ ...router, push: (url: string) => void pushed.push(url) } as never}>
 			<ServerEventsProvider connect={channel}>
 				<ProjectPage initial={project} />
 			</ServerEventsProvider>
-			</AppRouterContext.Provider>,
+			</AppRouterContext.Provider></InteractionLayersProvider>,
 		),
 	);
 	const tick = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -383,11 +387,11 @@ async function saveInstructions(put: () => Promise<Response>) {
 	root = createRoot(host);
 	await act(async () =>
 		root.render(
-			<AppRouterContext.Provider value={router as never}>
+			<InteractionLayersProvider><AppRouterContext.Provider value={router as never}>
 			<ServerEventsProvider connect={quietChannel}>
 				<ProjectPage initial={project} />
 			</ServerEventsProvider>
-			</AppRouterContext.Provider>,
+			</AppRouterContext.Provider></InteractionLayersProvider>,
 		),
 	);
 	const field = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Project instructions"]')!;

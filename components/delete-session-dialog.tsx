@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react";
 import { HostDialog } from "@/components/host-dialog";
 import type { ChatDeleteMode, ChatListItem } from "@/src/core";
 
@@ -108,7 +108,7 @@ export function DeleteSessionDialog({
 				onTraces={(next) => setTraces(next)}
 				onClose={onClose}
 				onRun={() => void run()}
-				renderFrame={(frame) => <HostDialog open frame={frame} onClose={() => {
+				renderFrame={(frame, initialFocus) => <HostDialog open frame={frame} initialFocusRef={initialFocus} onClose={() => {
 					if (busy) return "blocked";
 					onClose(); return "closed";
 				}} backdropProps={{ className: "fixed inset-0 z-50 flex items-center justify-center bg-background/80" }}>{frame.props.children}</HostDialog>}
@@ -135,7 +135,8 @@ export function DeleteSessionBody({
 	onTraces: (next: boolean) => void;
 	onClose: () => void;
 	onRun: () => void;
-	renderFrame?: (frame: ReactElement<{ children: ReactNode }>) => ReactNode;
+	/** Fork: `initialFocus` is Delete (Enter confirms), for a host that mounts the frame later (HostDialog), where autoFocus cannot land. */
+	renderFrame?: (frame: ReactElement<{ children: ReactNode }>, initialFocus: RefObject<HTMLButtonElement | null>) => ReactNode;
 }) {
 	const confirmRef = useRef<HTMLButtonElement>(null);
 	const frame = (
@@ -231,5 +232,5 @@ export function DeleteSessionBody({
 			</div>
 		</div>
 	);
-	return renderFrame ? renderFrame(frame) : frame;
+	return renderFrame ? renderFrame(frame, confirmRef) : frame;
 }

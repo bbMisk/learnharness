@@ -33,7 +33,7 @@ import {
 	type CustomModel,
 	type CustomModelOverride,
 } from "@/src/core";
-import { SettingsGroup } from "./controls.tsx";
+import { returnSettingsMenuFocus, SettingsGroup } from "./controls.tsx";
 import { SubscriptionConnections } from "./subscription-connections.tsx";
 import { ClaudeCodeInstallationStatus } from "./claude-code-status.tsx";
 import { ProviderMenuList } from "./model-menu.tsx";
@@ -352,6 +352,11 @@ function AddProviderRow({
 		document.addEventListener("pointerdown", onPointerDown);
 		return () => document.removeEventListener("pointerdown", onPointerDown);
 	}, [open, interactions]);
+	// A closed menu (Esc, or a pick whose editor did not take focus) hands focus back to the trigger.
+	useEffect(() => {
+		if (!open) return;
+		return returnSettingsMenuFocus(anchorRef);
+	}, [open]);
 
 	return (
 		<div ref={anchorRef} className="relative">
@@ -439,9 +444,13 @@ export function KeysSection({
 		onClose: () => {
 			const opener = addingCustom ? '[data-testid="custom-endpoint-row-btn"], [data-testid="add-provider"]' : adding ? '[data-testid="add-provider"]' : null;
 			if (opener) setTimeout(() => { if (focusLost()) document.querySelector<HTMLElement>(opener)?.focus(); }, 0);
+			// Fork (3958e658): folding an editor discards its draft, so a
+			// reopened editor starts empty and a new paste is not appended.
 			setOpenRow(null);
 			setAdding(null);
+			setAddingEditors([]);
 			setAddingCustom(false);
+			setCustomEditorMounted(false);
 			return "closed";
 		},
 	});
@@ -512,10 +521,9 @@ export function KeysSection({
 	async function disconnectCustom(revision: string): Promise<string | null> {
 		const res = await fetch("/api/custom-provider", { method: "DELETE", headers: { "content-type": "application/json", "if-match": revision }, body: JSON.stringify({}) }).catch(() => null);
 		if (!res?.ok) return res ? ((await res.json().catch(() => ({}))).error ?? "Disconnect failed.") : "Disconnect failed. Check your connection.";
-		discardCustomEditor();
 		await reload();
 		// Fold after the row has left, so the editor hands focus to "+ Add a provider".
-		setAddingCustom(false);
+		discardCustomEditor();
 		notifySettingsSaved("keys");
 		return null;
 	}
@@ -560,7 +568,7 @@ export function KeysSection({
 					<CustomEndpointRow
 						status={custom}
 						expanded={addingCustom}
-						onToggle={() => { setCustomEditorMounted(true); setAddingCustom((v) => !v); }}
+						onToggle={() => { if (addingCustom) discardCustomEditor(); else { setCustomEditorMounted(true); setAddingCustom(true); } }}
 					/>
 				)}
 				{customEditorMounted && (
@@ -596,13 +604,15 @@ export function KeysSection({
 						addable={custom?.baseUrl ? addable : [...addable, CUSTOM_PROVIDER_INFO]}
 						onPick={(p) => {
 							setAddError(null);
+							// Fork: one editor at a time; switching folds (discards) the other.
 							if (p.id === CUSTOM_PROVIDER.id) {
 								setAdding(null);
+								setAddingEditors([]);
 								setCustomEditorMounted(true);
 								setAddingCustom(true);
 							} else {
-								setAddingCustom(false);
-								setAddingEditors(editors => editors.some(provider => provider.id === p.id) ? editors : [...editors, p]);
+								discardCustomEditor();
+								setAddingEditors([p]);
 								setAdding(p);
 							}
 						}}

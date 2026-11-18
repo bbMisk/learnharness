@@ -1003,7 +1003,10 @@ function SessionsSidebar() {
 				    above). MenuShell owns placement/focus/arrow cycling; the
 				    dismissal effect above owns the contract. */}
 				{ctxChatId !== null && (
-					<MenuShell onClose={() => { setCtxChatId(null); return "closed"; }}
+					<MenuShell
+						// The open menu is the top layer, so its Esc lands here: hand
+						// focus back the way the dismissal contract above does.
+						onClose={(reason) => { setCtxChatId(null); if (reason === "escape") returnFocus(); return "closed"; }}
 						anchorRef={ctxAnchorRef}
 						testid="session-context-menu"
 						preferredSide="down"

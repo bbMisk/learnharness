@@ -116,7 +116,11 @@ async function fixture(run: (f: {
 	}
 }
 
-it("Escape claims its event, blurs normally, and accepts normalization to the SAME canonical value", async () => fixture(async f => {
+// Fork CommitInput (components/settings/controls.tsx): Escape on an edit in
+// progress REVERTS it (no write) and is the field's one action, focus kept;
+// blur/Enter commit. Upstream's Escape committed and blurred, so the tests
+// below that used Escape only as "commit and leave" commit by blur instead.
+it("Escape reverts an edit in progress and claims its event; a commit accepts normalization to the SAME canonical value", async () => fixture(async f => {
 	const commits: string[] = [];
 	let parentEscapes = 0;
 	const onKey = (e: Event) => { if ((e as KeyboardEvent).key === "Escape") parentEscapes++; };
@@ -126,9 +130,11 @@ it("Escape claims its event, blurs normally, and accepts normalization to the SA
 		const input = f.input(); await f.type(input, "-5");
 		const event = await f.key(input, "Escape");
 		assert.equal(event.defaultPrevented, true);
-		assertSameNode(document.activeElement, document.body);
-		assert.deepEqual(commits, ["-5"]); assert.equal(input.value, "12");
+		assertSameNode(document.activeElement, input, "Escape keeps focus in the field");
+		assert.deepEqual(commits, [], "Escape never writes"); assert.equal(input.value, "12");
 		assert.equal(parentEscapes, 0);
+		await f.type(input, "-5"); await f.blur(input);
+		assert.deepEqual(commits, ["-5"]); assert.equal(input.value, "12");
 		await f.key(document.body, "Escape"); assert.equal(parentEscapes, 1);
 	} finally { document.removeEventListener("keydown", onKey); }
 }));
@@ -156,7 +162,7 @@ for (const outcome of ["false", "throw", "reject"] as const) {
 			return false;
 		};
 		await f.render(<CommitInput value="stored" ariaLabel="Text" onCommit={onCommit} />);
-		const input = f.input(); await f.type(input, "unsaved"); await f.key(input, "Escape");
+		const input = f.input(); await f.type(input, "unsaved"); await f.blur(input);
 		assert.equal(input.value, "unsaved");
 		await f.render(<CommitInput value="external" ariaLabel="Text" onCommit={onCommit} />);
 		assert.equal(input.value, "unsaved");
@@ -198,19 +204,26 @@ it("clean fields follow external values and unchanged trimmed drafts do not writ
 	assert.equal(writes, 0); assert.equal(input.value, "new");
 }));
 
-it("badInput is not an empty/unset write and rerenders do not overwrite the native editing buffer", async () => fixture(async f => {
+// Fork: letters in a number field (badInput) are refused with "Enter a
+// number." and the field shows the stored value again (controls.tsx), rather
+// than upstream's keep-the-native-buffer. Never an empty/unset write.
+it("badInput is not an empty/unset write: it is refused and the stored value shows again", async () => fixture(async f => {
 	let writes = 0;
 	const callback = () => { writes++; return true; };
 	await f.render(<CommitInput value="8" ariaLabel="Number" type="number" min={1} step={1} onCommit={callback} />);
 	const input = f.input(); await f.type(input, "");
 	Object.defineProperty(input, "validity", { configurable: true, value: { badInput: true } });
-	let assignments = 0;
-	// linkedom cannot model the separate visible numeric token. This seam
-	// pins the no-assignment guarantee; Chromium must verify actual "1e".
-	Object.defineProperty(input, "value", { configurable: true, get: () => "", set: () => { assignments++; } });
-	await f.key(input, "Escape");
+	const assigned: string[] = [];
+	// linkedom cannot model the separate visible numeric token: record the
+	// writes the revert makes instead.
+	Object.defineProperty(input, "value", { configurable: true, get: () => "", set: (next: string) => { assigned.push(next); } });
+	await f.blur(input);
+	assert.equal(writes, 0); assert.ok(assigned.length > 0 && assigned.every(next => next === "8"), "the stored value shows again");
+	assert.ok(document.querySelector('[role="alert"]')?.textContent?.includes("Enter a number."));
+	await f.type(input, ""); await f.key(input, "Escape");
+	assert.equal(writes, 0, "Escape reverts badInput without a write");
 	await f.render(<CommitInput value="9" ariaLabel="Number" type="number" min={1} step={1} onCommit={callback} />);
-	assert.equal(writes, 0); assert.equal(assignments, 0);
+	assert.equal(writes, 0);
 	assert.equal(input.type, "number"); assert.equal(input.getAttribute("min"), "1"); assert.equal(input.getAttribute("step"), "1");
 }));
 
@@ -239,7 +252,9 @@ it("all built-in number adapters preserve normalization and empty/unset acknowle
 	await f.render(<Graph />);
 	input = f.input('[data-testid="input-chunk-tokens"]');
 	await f.type(input, "1"); await f.blur(input); assert.equal(graph.at(-1)?.extractionChunkTokens, 500);
-	await f.type(input, "0"); await f.blur(input); assert.equal(graph.length, 1); assert.equal(input.value, "0");
+	// Fork: a refusal with a message shows the stored value again, message below.
+	await f.type(input, "0"); await f.blur(input); assert.equal(graph.length, 1); assert.equal(input.value, "500");
+	assert.ok(document.querySelector('[role="alert"]')?.textContent?.includes("Enter a number of tokens"));
 	await f.type(input, ""); await f.blur(input); assert.equal(graph.at(-1)?.extractionChunkTokens, undefined);
 }));
 
@@ -257,14 +272,15 @@ it("worker/compaction adapters acknowledge invalid, accepted and unset outcomes"
 	let input = f.input('[data-testid="input-worker-request-concurrency"]');
 	// linkedom has no native ValidityState.
 	Object.defineProperty(input, "validity", { value: { badInput: false } });
-	await f.type(input, "1.5"); await f.key(input, "Escape");
+	await f.type(input, "1.5"); await f.blur(input);
 	assert.equal(agent.length, 0); assert.equal(input.value, "1.5");
 	assert.ok(document.querySelector('[role="alert"]')?.textContent?.includes("positive, safely representable whole number"));
 	await f.type(input, "9"); await f.blur(input); assert.equal(agent.at(-1)?.workerRequestConcurrency, 9);
 	await f.type(input, ""); await f.blur(input); assert.equal(agent.at(-1)?.workerRequestConcurrency, undefined);
 	input = f.input('[data-testid="input-compaction-threshold"]');
 	await f.type(input, "1"); await f.blur(input); assert.equal(compaction.at(-1)?.thresholdTokens, 32000);
-	await f.type(input, "0"); await f.blur(input); assert.equal(compaction.length, 1); assert.equal(input.value, "0");
+	// Fork: a refusal with a message shows the stored value again, message below.
+	await f.type(input, "0"); await f.blur(input); assert.equal(compaction.length, 1); assert.equal(input.value, "32000");
 	await f.type(input, ""); await f.blur(input); assert.equal(compaction.at(-1)?.thresholdTokens, undefined);
 }));
 
@@ -283,10 +299,11 @@ for (const failure of ["http", "network", "missing", "malformed"] as const) {
 		});
 		await f.render(<SettingsDialogBody initialSection="appearance" onClose={() => { closed++; }} />);
 		const input = f.input('[data-testid="input-background"]');
-		await f.type(input, "#ABCDEF"); await f.key(input, "Escape");
+		await f.type(input, "#ABCDEF"); await f.blur(input);
 		assert.equal(closed, 0); assert.equal(input.value, "#ABCDEF"); assert.equal(writes, 1);
 		const text = document.querySelector('[data-testid="settings-dialog"]')?.textContent;
-		assert.ok(text?.includes(failure === "http" ? "appearance: Invalid color" : failure === "network" ? "appearance: Network unavailable" : "appearance: Could not confirm saved settings. Your input has been kept."));
+		// Fork copy: the server's line verbatim, or a plain "could not be saved".
+		assert.ok(text?.includes(failure === "http" ? "Invalid color" : failure === "network" ? "appearance settings could not be saved. Try again." : "appearance: Could not confirm saved settings. Your input has been kept."));
 		accept = true; input.focus(); await f.blur(input);
 		assert.equal(writes, 2); assert.equal(input.value, "#abcdef");
 		await f.key(document.body, "Escape"); assert.equal(closed, 1);
@@ -298,7 +315,7 @@ it("Settings PUT keeps an unfocused draft until server acknowledgement and does 
 	f.setFetch(async (_url, init) => init?.method === "PUT" ? saved.promise : Response.json({ settings: { version: 1, appearance: { proseFontSize: 12 } } }));
 	await f.render(<SettingsDialogBody initialSection="appearance" onClose={() => {}} />);
 	const input = f.input('[data-testid="input-prose-size"]');
-	await f.type(input, "-5"); await f.key(input, "Escape");
+	await f.type(input, "-5"); await f.blur(input);
 	assert.equal(input.value, "-5"); assert.equal(input.disabled, false);
 	await act(async () => { saved.resolve(Response.json({ settings: { version: 1, appearance: { proseFontSize: 12 } } })); });
 	assert.equal(input.value, "12");
@@ -314,7 +331,7 @@ it("plugin validation and callback failures retain drafts; successful callbacks 
 	] };
 	const render = () => f.render(<PluginSettingsRows schema={schema} onError={error => { errors.push(error); }} />);
 	await render(); const input = f.input('[data-plugin-setting="text"] input');
-	await f.type(input, "invalid"); await f.key(input, "Escape");
+	await f.type(input, "invalid"); await f.blur(input);
 	assert.equal(input.value, "invalid"); assert.equal(changes.length, 0);
 	assert.ok(document.body.textContent?.includes("Invalid preference"));
 	await f.type(input, "candidate"); await f.blur(input);
@@ -351,8 +368,8 @@ it("a late older Settings record cannot roll back a newer acknowledged field", a
 	});
 	await f.render(<SettingsDialogBody initialSection="appearance" onClose={() => {}} />);
 	const input = f.input('[data-testid="input-prose-size"]');
-	await f.type(input, "16"); await f.key(input, "Escape");
-	await f.type(input, "20"); await f.key(input, "Escape");
+	await f.type(input, "16"); await f.blur(input);
+	await f.type(input, "20"); await f.blur(input);
 	assert.equal(writes, 2);
 	await act(async () => second.resolve(Response.json({ settings: { version: 1, appearance: { proseFontSize: 20 } } })));
 	assert.equal(input.value, "20");
@@ -369,8 +386,8 @@ it("an older Settings failure cannot add a stale error after a newer accepted sa
 	});
 	await f.render(<SettingsDialogBody initialSection="appearance" onClose={() => {}} />);
 	const input = f.input('[data-testid="input-prose-size"]');
-	await f.type(input, "16"); await f.key(input, "Escape");
-	await f.type(input, "20"); await f.key(input, "Escape");
+	await f.type(input, "16"); await f.blur(input);
+	await f.type(input, "20"); await f.blur(input);
 	await act(async () => second.resolve(Response.json({ settings: { version: 1, appearance: { proseFontSize: 20 } } })));
 	await act(async () => first.resolve(Response.json({ error: "Old save failed" }, { status: 400 })));
 	assert.equal(input.value, "20");
@@ -392,11 +409,11 @@ it("Settings ACK authority survives close/reopen and protects the live appearanc
 	await f.render(<AppearanceProvider initialAppearance={stored.appearance} initialTheme={DEFAULT_THEME}><SettingsDialogProvider><Probe /></SettingsDialogProvider></AppearanceProvider>);
 	await act(async () => settings.open("appearance"));
 	let input = f.input('[data-testid="input-prose-size"]');
-	await f.type(input, "16"); await f.key(input, "Escape");
+	await f.type(input, "16"); await f.blur(input);
 	await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="settings-close"]')!.click());
 	await act(async () => settings.open("appearance"));
 	input = f.input('[data-testid="input-prose-size"]'); assert.equal(input.value, "16");
-	await f.type(input, "20"); await f.key(input, "Escape");
+	await f.type(input, "20"); await f.blur(input);
 	await act(async () => second.resolve(Response.json({ settings: stored })));
 	assert.equal(input.value, "20"); assert.equal(liveSize, 20);
 	await act(async () => first.resolve(Response.json({ settings: { version: 1, appearance: { proseFontSize: 16 } } })));
@@ -422,7 +439,7 @@ it("a newer nonappearance acknowledgement applies its full canonical live appear
 	await f.render(<AppearanceProvider initialAppearance={stored.appearance} initialTheme={DEFAULT_THEME}><SettingsDialogProvider><Probe /></SettingsDialogProvider></AppearanceProvider>);
 	await act(async () => settings.open("appearance"));
 	const input = f.input('[data-testid="input-prose-size"]');
-	await f.type(input, "16"); await f.key(input, "Escape");
+	await f.type(input, "16"); await f.blur(input);
 	await act(async () => settings.open("general"));
 	await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="toggle-auto-update"]')!.click());
 	await act(async () => generalSave.resolve(Response.json({ settings: stored })));
@@ -449,7 +466,7 @@ for (const arrival of ["before", "after", "failure-after"] as const) {
 		await f.render(<AppearanceProvider initialAppearance={old.appearance} initialTheme={DEFAULT_THEME}><SettingsDialogProvider><Probe /></SettingsDialogProvider></AppearanceProvider>);
 		await act(async () => settings.open("appearance"));
 		const input = f.input('[data-testid="input-prose-size"]');
-		await f.type(input, "20"); await f.key(input, "Escape");
+		await f.type(input, "20"); await f.blur(input);
 		await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="settings-close"]')!.click());
 		await act(async () => settings.open("appearance"));
 		assert.equal(reads, 2, "provider is seeded by SSR, only the dialogs read settings");
@@ -482,7 +499,7 @@ it("server appearance refresh cannot undo a newer canonical live save", async ()
 	assert.equal(reads, 0, "no startup settings GET can race a canonical save");
 	await act(async () => settings.open("appearance"));
 	const input = f.input('[data-testid="input-prose-size"]');
-	await f.type(input, "20"); await f.key(input, "Escape");
+	await f.type(input, "20"); await f.blur(input);
 	assert.equal(input.value, "20"); assert.equal(liveSize, 20);
 	await f.render(<AppearanceProvider initialAppearance={{ proseFontSize: 12 }} initialTheme={DEFAULT_THEME}><SettingsDialogProvider><Probe /></SettingsDialogProvider></AppearanceProvider>);
 	assert.equal(input.value, "20"); assert.equal(liveSize, 20);

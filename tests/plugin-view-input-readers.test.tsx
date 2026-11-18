@@ -15,10 +15,14 @@ for (const toolName of ["quiz", "ask_user_question"] as const) test(`view reads 
   let changes = 0; const reader: ViewReaderRef<NativeQuestionViewState> = { current: null, changed() { changes++; } };
   const input = { question: "Question", details: "Visible **context**", options: [{ label: "Alpha", value: "a", description: "**Detail A**" }, { label: "Beta", value: "b", description: "Detail B" }, { label: "Gamma", value: "c" }], correctAnswer: "a", explanation: "PRIVATE" };
   const fail = () => assert.fail("A view read must not save or submit");
-  const render = async (expanded: boolean) => { await act(async () => root.render(<QuestionDock toolName={toolName} toolCallId="display-order" input={input} viewReader={reader} expanded={expanded} onExpand={() => {}} onSubmit={fail} onSaveDraft={fail} dictationClaim={false} />)); };
+  // Fork: the dock autosaves its open draft on every change (it survives
+  // reloads), so saves are counted around each read instead of forbidden.
+  let saves = 0;
+  const read = () => { const before = saves; const state = reader.current!(); assert.equal(saves, before, "A view read must not save"); return state; };
+  const render = async (expanded: boolean) => { await act(async () => root.render(<QuestionDock toolName={toolName} toolCallId="display-order" input={input} viewReader={reader} expanded={expanded} onExpand={() => {}} onSubmit={fail} onSaveDraft={() => { saves++; }} dictationClaim={false} />)); };
   try {
     await render(true); assert.ok(reader.current);
-    const first = reader.current!();
+    const first = read();
     const labels = Array.from(host.querySelectorAll('[role="radio"]')).slice(0, first.question.options.length).map(button => (button.textContent ?? "").trim());
     assert.deepEqual(labels, first.question.options.map(option => option.label + (toolName === "ask_user_question" && option.description ? option.description.replaceAll("*", "") : "")));
     assert.equal(first.question.context, input.details);
@@ -28,10 +32,10 @@ for (const toolName of ["quiz", "ask_user_question"] as const) test(`view reads 
       const editor = host.querySelector<HTMLElement>('[data-testid="thinking-field"] [data-file-path-input]')!;
       editor.textContent = "  untrimmed thinking\n"; editor.dispatchEvent(new window.Event("input", { bubbles: true }));
     });
-    const current = reader.current!(); assert.deepEqual(current.draft.values, [current.question.options[0]!.value]);
+    const current = read(); assert.deepEqual(current.draft.values, [current.question.options[0]!.value]);
     assert.equal(current.draft.thinking, "  untrimmed thinking\n");
     if (toolName === "quiz") assert.equal(current.draft.confidence, 50);
-    await render(false); assert.equal(reader.current!().draft.thinking, "  untrimmed thinking\n");
+    await render(false); assert.equal(read().draft.thinking, "  untrimmed thinking\n");
     assert.ok(changes > 1 && changes < 20, "Owner changes invalidate disabled predicates without a render loop");
   } finally { await act(async () => root.unmount()); host.remove(); }
   assert.equal(reader.current, null);

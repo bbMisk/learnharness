@@ -380,8 +380,13 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 		}
 	}, [stage, closeAfterConnection, onClose]);
 	// A saved key swaps the key form for the pickers: focus moves to the first.
+	// The key form leaving drops focus to the body, or HostDialog's focus scope
+	// parks it on the dialog boundary itself: neither is a control the user chose.
 	useEffect(() => {
-		if (stage === "pickers" && document.activeElement === document.body) document.querySelector<HTMLElement>(`[data-testid="setup-trigger-${SLOT_ORDER[0]}"]`)?.focus();
+		if (stage !== "pickers") return;
+		const first = document.querySelector<HTMLElement>(`[data-testid="setup-trigger-${SLOT_ORDER[0]}"]`);
+		const active = document.activeElement;
+		if (first && (active === document.body || (active?.hasAttribute("data-interaction-layer") && active.contains(first)))) first.focus();
 	}, [stage]);
 
 	// Keep setup's existing outside-pointer policy; MenuShell and HostDialog
@@ -491,7 +496,8 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 		isCustom={keyProvider?.id === CUSTOM_PROVIDER.id}
 		onCustomSaved={() => { setKeyProvider(null); notifySettingsSaved("keys"); }}
 		onToggleMenu={() => setKeyMenuOpen((v) => !v)}
-		onCloseMenu={() => setKeyMenuOpen(false)}
+		// Fork: an Esc-closed provider menu hands focus back to its trigger.
+		onCloseMenu={() => { setKeyMenuOpen(false); document.querySelector<HTMLElement>('[data-testid="setup-key-provider"]')?.focus(); }}
 		onPick={(p) => { setKeyProvider(p); setKeyMenuOpen(false); setKeyError(null); }}
 		onValue={setKeyValue}
 		onSave={() => void saveKey()}

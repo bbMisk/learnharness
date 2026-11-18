@@ -215,8 +215,15 @@ export function SettingsDialogBody({
 				setRecord(unchanged ? body.settings ?? { version: CURRENT_SETTINGS_VERSION } : authority.record ?? body.settings ?? { version: CURRENT_SETTINGS_VERSION });
 				setFileAccessError(unchanged ? body.fileAccessError ?? null : authority.fileAccessError ?? null);
 			})
-			// A failed refresh keeps the record already shown.
-			.catch(() => { if (alive) setRecord((prev) => (loads === 0 ? null : prev)); });
+			// A failed refresh keeps the record already shown; a save acknowledged
+			// while this read was in flight is canonical even when the read fails.
+			.catch(() => {
+				if (!alive) return;
+				if (authority.acknowledged !== acknowledgedAtRead && authority.record) {
+					setRecord(authority.record);
+					setFileAccessError(authority.fileAccessError ?? null);
+				} else setRecord((prev) => (loads === 0 ? null : prev));
+			});
 		return () => { alive = false; };
 	}, [loads, writeOrder]);
 

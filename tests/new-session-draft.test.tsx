@@ -24,6 +24,7 @@ globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) =>
 	String(url) === "/api/chats" && init?.method === "POST" ? Response.json({ id: "c_new" }) : new Response("", { status: 404 })) as typeof fetch;
 const { AppRouterContext } = await import("next/dist/shared/lib/app-router-context.shared-runtime.js");
 const { createRoot } = await import("react-dom/client");
+const { InteractionLayersProvider } = await import("../components/interaction-layers.tsx");
 const { NewSession } = await import("../components/new-session.tsx");
 
 /** The new-session composer autosaves its unsent text like a chat's
@@ -39,9 +40,9 @@ it("the /chat/new draft survives a remount and is cleared on send", async () => 
 	const box = () => host.querySelector('[role="textbox"]') as HTMLElement;
 	try {
 		await act(async () => root.render(
-			<AppRouterContext.Provider value={router as never}>
+			<InteractionLayersProvider><AppRouterContext.Provider value={router as never}>
 				<NewSession initialConfigured projectId="p1" />
-			</AppRouterContext.Provider>,
+			</AppRouterContext.Provider></InteractionLayersProvider>,
 		));
 		assert.equal(box().textContent, "saved opening");
 		await act(async () => {
@@ -74,9 +75,9 @@ it("the home composer's draft survives a remount and is cleared on send", async 
 	const box = () => host.querySelector('[role="textbox"]') as HTMLElement;
 	try {
 		await act(async () => root.render(
-			<AppRouterContext.Provider value={router as never}>
+			<InteractionLayersProvider><AppRouterContext.Provider value={router as never}>
 				<Home initialConfigured rendering={false} />
-			</AppRouterContext.Provider>,
+			</AppRouterContext.Provider></InteractionLayersProvider>,
 		));
 		assert.equal(box().textContent, "saved topic");
 		await act(async () => {

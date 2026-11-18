@@ -118,13 +118,14 @@ test("current-owner acceptance still invalidates a canonical read begun while it
 
 test("a legitimately invalidated current terminal GET exposes reconciliation-only retry instead of staying syncing", async () => {
 	const canonical = deferred<Response>(), reading = deferred<void>(); let reads = 0;
-	const model = new SessionModel({ chatId: "fixture", initialMessages: older, fetch: async url => {
-		if (String(url).endsWith("/steer")) return Response.json({ ok: true });
+	const model = new SessionModel({ chatId: "fixture", initialMessages: older, fetch: async () => {
 		if (++reads === 1) { reading.resolve(); return canonical.promise; }
 		return saved();
 	} });
 	const terminal = model.consumeStream(done()); await reading.promise;
-	await model.steer("in-flight steer");
+	// Fork: steer interrupts and resends (no parked /steer POST), so the
+	// in-flight invalidation here is a server-written append-only adoption.
+	model.adoptRecord(older);
 	canonical.resolve(saved()); await terminal;
 	assert.equal(model.getState().status, "ready"); assert.equal(model.getState().reconciliation, "failed"); assert.equal(model.readyRef, false);
 	assert.equal(await model.reconcile(), true); assert.equal(model.getState().reconciliation, "ready"); assert.equal(model.readyRef, true);

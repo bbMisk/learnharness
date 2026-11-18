@@ -180,15 +180,16 @@ describe("session-scoped overlays (chrome-melt wave, 2026-09-19)", () => {
 		assert.ok(html.includes("backdrop-blur"), "blur surface");
 		assert.ok(!html.includes("fixed inset-0"), "never fixed — the drag bar stays uncovered");
 		assert.ok(html.includes('data-testid="mermaid-overlay-close"'), "the close X is present");
-		assert.match(html, /role="region"/, "nonmodal content-area semantics");
-		assert.ok(!html.includes("aria-modal"), "does not claim viewport-modal isolation");
+		// Fork: the session overlays stay marked dialogs (data-lh-modal keeps keys
+		// off the quiz dock behind them) while their interaction layer is a
+		// content-area view (see content-view-interaction.test.tsx).
+		assert.match(html, /role="dialog" aria-modal="true" data-lh-modal="true"/, "the fork's modal marking");
 	});
 
 	it("the plan popup is session-scoped the same way, and its chart is hidden until the first fit (no top-left flash)", () => {
 		const html = renderToStaticMarkup(<PlanPopup messages={[]} onClose={() => {}} />);
 		assert.match(html, /data-testid="plan-popup"/);
-		assert.match(html, /role="region"/);
-		assert.ok(!html.includes("aria-modal"));
+		assert.match(html, /role="dialog" aria-modal="true" data-lh-modal="true"/, "the fork's modal marking, as the diagram's");
 		assert.match(html, /class="[^"]*absolute inset-0[^"]*z-40/, "absolute inset-0 — scoped, not fullscreen");
 		assert.match(html, /style="z-index:100"/, "plan views share the ordered local paint stack");
 		assert.ok(html.includes("pointer-events-auto"), "the frame remains interactive inside the transparent stack");

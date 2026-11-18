@@ -6,6 +6,8 @@ import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, describe, it } from "node:test";
 import type { Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
+import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
+import { installModalBrowserApis } from "./modal-dom.ts";
 
 // A modal (Settings, setup) owns the keyboard: Tab cycles inside it and the
 // global shortcuts never act on the page behind it.
@@ -24,6 +26,8 @@ dom.window.HTMLElement.prototype.focus = function (this: Element) { focused = th
 Object.defineProperty(dom.document, "activeElement", { get: () => focused, configurable: true });
 let keymap: string | null = null;
 Object.assign(dom.window, { localStorage: { getItem: () => keymap, setItem: () => {}, removeItem: () => {} } });
+// The cheat sheet is a HostDialog: it reads computed style like a browser.
+installModalBrowserApis(dom);
 const { AppRouterContext } = await import("next/dist/shared/lib/app-router-context.shared-runtime.js");
 const { PathnameContext } = await import("next/dist/shared/lib/hooks-client-context.shared-runtime.js");
 const { createRoot } = await import("react-dom/client");
@@ -56,11 +60,21 @@ async function mount(modalHtml: string) {
 		root!.render(
 			<AppRouterContext.Provider value={router as never}>
 				<PathnameContext.Provider value="/chat/x">
-					<KeyboardShortcuts />
+					<InteractionLayersProvider><KeyboardShortcuts /></InteractionLayersProvider>
 				</PathnameContext.Provider>
 			</AppRouterContext.Provider>,
 		);
 	});
+}
+
+/** A browser keydown targets the focused element and bubbles through the
+ *  document (where the interaction layers own Escape) to the window. */
+function pressFocused(init: Record<string, unknown>) {
+	const event = Object.assign(new dom.window.Event("keydown", { bubbles: true, cancelable: true }), {
+		ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, code: "", ...init,
+	});
+	(document.activeElement ?? document.body).dispatchEvent(event);
+	return event;
 }
 
 function press(init: Record<string, unknown>) {
@@ -207,7 +221,8 @@ describe("the shortcut cheat sheet is a modal", () => {
 		await mount("");
 		await act(async () => { press({ key: "?", code: "Slash", shiftKey: true }); });
 		const sheet = document.querySelector<HTMLElement>('[data-testid="cheat-sheet"]');
-		assert.ok(sheet?.hasAttribute("data-lh-modal"));
+		// A HostDialog now: the testid rides the backdrop, data-lh-modal its frame.
+		assert.ok(sheet?.querySelector("[data-lh-modal]"), "its frame is marked modal");
 		const picked: string[] = [];
 		const onPicker = () => picked.push("picker");
 		window.addEventListener("lh:kbd-open-model-picker", onPicker);
@@ -223,7 +238,7 @@ describe("the shortcut cheat sheet is a modal", () => {
 		window.addEventListener("lh:kbd-abort-turn", onAbort);
 		try {
 			let esc: Event | null = null;
-			await act(async () => { esc = press({ key: "Escape", code: "Escape" }); });
+			await act(async () => { esc = pressFocused({ key: "Escape", code: "Escape" }); });
 			assert.equal(esc!.defaultPrevented, true);
 			assertSameNode(document.querySelector('[data-testid="cheat-sheet"]'), null, "Esc closes it");
 			assert.deepEqual(aborts, [], "the Esc never reaches the abort chain");
@@ -244,11 +259,12 @@ describe("the shortcut cheat sheet is a modal", () => {
 		await act(async () => { press({ key: "?", code: "Slash", shiftKey: true }); });
 		const sheet = document.querySelector<HTMLElement>('[data-testid="cheat-sheet"]')!;
 		assert.ok(sheet.contains(document.activeElement), "focus moves into the sheet");
-		assertSameNode(document.body.lastElementChild, sheet, "portaled after the update band and the offline strip");
+		assertSameNode(document.body.lastElementChild, sheet.closest("[data-interaction-layer]"), "portaled after the update band and the offline strip");
 		const row = [...sheet.querySelectorAll("div")].find((d) => d.firstElementChild?.textContent === "Toggle dictation")!;
 		assert.equal(row.querySelector("kbd")?.textContent, "Not bound");
-		await act(async () => { press({ key: "Escape", code: "Escape" }); });
+		await act(async () => { pressFocused({ key: "Escape", code: "Escape" }); });
 		assertSameNode(document.querySelector('[data-testid="cheat-sheet"]'), null);
+		await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); }); // HostDialog returns focus after its close commits
 		assertSameNode(document.activeElement, table, "focus goes back to what had it");
 	});
 });

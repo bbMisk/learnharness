@@ -30,6 +30,8 @@ function lifecycleFixture() {
 		});
 		const page = Object.assign(new EventEmitter(), {
 			target: () => ({ type: () => "page" }), url: () => "about:blank",
+			// Fork: every demo sets its viewport first (responsive viewportWidth check).
+			setViewport: async () => {},
 			setRequestInterception: async (enabled: boolean) => { guarded = enabled; },
 			setContent: async () => {
 				assert.equal(owner.alive, true);

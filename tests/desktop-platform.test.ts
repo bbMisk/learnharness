@@ -76,7 +76,8 @@ describe("desktop development startup", () => {
 				return mainRequire(id);
 			},
 			process: { platform: "linux", argv: [], env: { LH_DEV_URL: devUrl }, on() {} },
-			AbortController,
+			// The fork's createWindow records the window's origin at once (shared-host sender checks).
+			AbortController, URL,
 			__dirname: dirname(mainFile),
 		};
 		runInNewContext(mainSource, context, { filename: mainFile });

@@ -95,7 +95,9 @@ describe("default plugin worker transcript presentation", () => {
 		for (const status of ["running", "done", "error"] as const) {
 			const html = renderToStaticMarkup(<JobsContext.Provider value={[{ ...job, status, activity: "Checking sources" }]}><ToolPartRenderer part={{ ...ack, result: undefined }} /></JobsContext.Provider>);
 			assert.match(html, /Source checker/); assert.doesNotMatch(html, /tool-call-card/);
-			assert.match(html, status === "running" ? /Checking sources/ : status === "done" ? /finished/ : /failed/);
+			// Fork: a settled dispatch is the expandable summary with the job's
+			// delivery label (jobDisplay), not upstream's "finished"/"failed" one-liner.
+			assert.match(html, status === "running" ? /Checking sources/ : status === "done" ? /dispatch-activity-line">Delivered</ : /dispatch-activity-line">Failed</);
 		}
 		const unrelated = renderToStaticMarkup(<JobsContext.Provider value={[{ ...job, toolCallId: "another-call" }]}><ToolPartRenderer part={{ ...ack, result: undefined }} /></JobsContext.Provider>);
 		assert.match(unrelated, /tool-call-card/); assert.doesNotMatch(unrelated, /dispatch-card/);
@@ -154,8 +156,9 @@ describe("plugin background job labels", () => {
 		assert.match(active, /Source checker/);
 		for (const status of ["pending", "delivered"] as const) {
 			const done = renderToStaticMarkup(<JobsContext.Provider value={[{ ...job, status: "done", result, delivery: { kind: "result", status } }]}><DispatchCard kind="plugin" toolCallId="original-call" /></JobsContext.Provider>);
-			assert.match(done, /Source checker/); assert.match(done, /finished/);
-			assert.doesNotMatch(done, /delivered|dispatch-card/);
+			assert.match(done, /Source checker/);
+			assert.match(done, status === "pending" ? /dispatch-activity-line">Ready</ : /dispatch-activity-line">Delivered</, "fork: the settled summary shows the delivery state");
+			assert.doesNotMatch(done, /data-testid="dispatch-card"/);
 		}
 	});
 });

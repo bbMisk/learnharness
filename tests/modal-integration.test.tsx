@@ -67,8 +67,16 @@ for (const kind of ["source", "session", "node"] as const) it(`${kind} deletion 
 	}
 	await f.render(<Harness />);
 	const heading = byTest(`delete-${kind}-dialog`).querySelector("h2");
-	assertSameNode(document.activeElement, heading, "confirmations focus their heading, not an action or checkbox");
-	await click(byTest(kind === "source" ? "source-delete-confirm" : kind === "session" ? "delete-confirm" : "node-delete-confirm"));
+	// Fork: session deletion lands focus on Delete so Enter confirms (its
+	// 500 ms opening guard absorbs the opening double click's tail).
+	if (kind === "session") assertSameNode(document.activeElement, byTest("delete-confirm"));
+	else assertSameNode(document.activeElement, heading, "confirmations focus their heading, not an action or checkbox");
+	// Fork: session Delete ignores an activation within 500 ms of opening (the
+	// opening double click's tail); confirm as a deliberate later click.
+	const realNow = Date.now;
+	Date.now = () => realNow() + 1000;
+	try { await click(byTest(kind === "source" ? "source-delete-confirm" : kind === "session" ? "delete-confirm" : "node-delete-confirm")); }
+	finally { Date.now = realNow; }
 	const event = await f.escape();
 	assert.equal(event.defaultPrevented, true); assert.equal(childClosed, 0); assert.equal(parentClosed, 0);
 	assert.equal(f.controller().popTo("parent"), "blocked");
@@ -84,7 +92,8 @@ it("abort confirmation busy is informational and does not lock dismissal", async
 		return <AbortTurnDialog mode={open ? "question" : null} busy onClose={() => { closed++; setOpen(false); }} onConfirm={() => assert.fail("dismiss must not confirm")} />;
 	}
 	await f.render(<Harness />);
-	assertSameNode(document.activeElement, byTest("abort-turn-title"));
+	// Fork: the abort confirmation lands focus on its action so Enter confirms.
+	assertSameNode(document.activeElement, byTest("abort-turn-confirm"));
 	assert.equal((byTest("abort-turn-cancel") as HTMLButtonElement).disabled, false);
 	await f.escape(); assert.equal(closed, 1); assertSameNode(document.querySelector('[role="dialog"]'), null);
 });

@@ -5,9 +5,12 @@ import React, { act } from "react";
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { parseHTML } from "linkedom";
+import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
+import { installModalBrowserApis } from "./modal-dom.ts";
 
 // At phone width the section nav is a row above the content, not a fixed
-// 176px column beside it; from `sm` up the desktop column is unchanged.
+// 192px column beside it (upstream widened 176px -> 192px for the plugins
+// label); from `sm` up the desktop column is unchanged.
 const dom = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, {
 	window: dom.window, document: dom.document, Element: dom.window.Element, HTMLElement: dom.window.HTMLElement,
@@ -16,23 +19,25 @@ Object.assign(globalThis, {
 	cancelAnimationFrame: clearTimeout,
 });
 dom.window.HTMLElement.prototype.focus = () => {};
+// HostDialog reads computed style and observes its portal like a browser.
+installModalBrowserApis(dom);
 const { createRoot } = await import("react-dom/client");
 const { AppearanceProvider } = await import("../components/settings/appearance.tsx");
 const { SettingsDialog } = await import("../components/settings/settings-dialog-body.tsx");
 
-it("Settings nav: a row above the content below sm, the 176px column from sm up", async () => {
+it("Settings nav: a row above the content below sm, the 192px column from sm up", async () => {
 	const realFetch = globalThis.fetch;
 	globalThis.fetch = (async () => Response.json({ settings: null })) as typeof fetch;
 	const host = document.createElement("div");
 	document.body.append(host);
 	const root = createRoot(host);
 	try {
-		await act(async () => { root.render(<AppearanceProvider initialAppearance={undefined} initialTheme={DEFAULT_THEME}><SettingsDialog onClose={() => "closed"} initialSection="general" initialRow={null} navigationRequest={0} layerId="settings" /></AppearanceProvider>); });
+		await act(async () => { root.render(<InteractionLayersProvider><AppearanceProvider initialAppearance={undefined} initialTheme={DEFAULT_THEME}><SettingsDialog onClose={() => "closed"} initialSection="general" initialRow={null} navigationRequest={0} layerId="settings" /></AppearanceProvider></InteractionLayersProvider>); });
 		const nav = document.querySelector('[data-testid="settings-nav"]')!;
 		const navClasses = nav.getAttribute("class")!.split(/\s+/);
 		const frameClasses = nav.parentElement!.getAttribute("class")!.split(/\s+/);
-		for (const phoneOnly of ["w-44", "flex-col", "border-r"]) assert.ok(!navClasses.includes(phoneOnly), `no unprefixed ${phoneOnly} on the nav`);
-		for (const desktop of ["sm:w-44", "sm:flex-col", "sm:border-r"]) assert.ok(navClasses.includes(desktop), `nav keeps ${desktop}`);
+		for (const phoneOnly of ["w-48", "flex-col", "border-r"]) assert.ok(!navClasses.includes(phoneOnly), `no unprefixed ${phoneOnly} on the nav`);
+		for (const desktop of ["sm:w-48", "sm:flex-col", "sm:border-r"]) assert.ok(navClasses.includes(desktop), `nav keeps ${desktop}`);
 		assert.ok(navClasses.includes("flex-wrap"), "the phone row wraps instead of overflowing");
 		assert.ok(frameClasses.includes("flex-col") && frameClasses.includes("sm:flex-row"), "nav above content below sm, beside it from sm up");
 	} finally {

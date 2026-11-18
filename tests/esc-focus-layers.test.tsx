@@ -101,6 +101,7 @@ async function mountFind(extra: React.ReactNode = null) {
 	const { SessionFind } = await import("../components/session-find.tsx");
 	const { kbdEventForAction } = await import("../src/core/keyboard.ts");
 	const scope = document.createElement("div");
+	document.body.append(scope); // the session area: Find opens only over a live, visible one
 	hosts.push(scope);
 	mountHost();
 	await act(async () => { root!.render(<><SessionFind scopeRef={{ current: scope as HTMLDivElement }} scrollContextRef={{ current: null }} />{extra}</>); });
@@ -252,13 +253,14 @@ it("the offline strip and update band sit below the dialog tier (z-50)", async (
 
 it("Esc out of the empty graph node search hands focus back", async () => {
 	const { GraphChromeRow } = await import("../components/graph-view.tsx");
+	const { InteractionLayersProvider } = await import("../components/interaction-layers.tsx");
 	const { DEFAULT_RENDER_SETTINGS } = await import("../src/core/render-settings.ts");
 	let left = 0;
 	const host = mountHost();
 	await act(async () => {
-		root!.render(<GraphChromeRow isEmpty={false} query="" onQuery={() => {}} noMatch={false} importing={false}
+		root!.render(<InteractionLayersProvider><GraphChromeRow isEmpty={false} query="" onQuery={() => {}} noMatch={false} importing={false}
 			searchInputRef={{ current: null }} onImportFiles={() => {}} settings={DEFAULT_RENDER_SETTINGS as never}
-			changeSettings={() => {}} onOpenChains={() => {}} onFit={() => {}} onLeaveSearch={() => { left++; }} />);
+			changeSettings={() => {}} onOpenChains={() => {}} onFit={() => {}} onLeaveSearch={() => { left++; }} /></InteractionLayersProvider>);
 	});
 	await escape(host.querySelector('input[aria-label="Search nodes"]')!);
 	assert.equal(left, 1);

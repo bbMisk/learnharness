@@ -65,8 +65,6 @@ function withPayload(test: (fixture: {
 		for (const asset of ["jbig2.wasm", "openjpeg.wasm", "qcms_bg.wasm"]) write(path.join(STANDALONE, "node_modules", "pdfjs-dist", "wasm", asset));
 		write(path.join(STANDALONE, PROMPT));
 		write(path.join(STANDALONE, "src", "agent", "prompts", "teacher", "20-teaching.md"));
-		write(path.join(STANDALONE, "src", "agent", "prompts", "side-chat", "00-base.md"));
-		write(path.join(STANDALONE, "src", "agent", "prompts", "side-chat", "90-style.md"));
 		test({ root, write, run: () => spawnSync(process.execPath, [path.join(root, "scripts", "build-server.mjs")], {
 			cwd: root, encoding: "utf8", timeout: 10_000,
 		}) });
@@ -211,12 +209,25 @@ describe("desktop standalone payload", () => {
 		});
 	});
 
-	it("still refuses missing runtime prompt assets, including the side brevity fragment", () => {
-		for (const asset of [PROMPT, path.join("src", "agent", "prompts", "side-chat", "90-style.md")]) withPayload(({ root, run }) => {
-			fs.rmSync(path.join(root, STANDALONE, asset));
+	// Fork: side questions are not merged, so there are no side-chat prompt assets to require.
+	it("still refuses a missing runtime prompt asset", () => {
+		withPayload(({ root, run }) => {
+			fs.rmSync(path.join(root, STANDALONE, PROMPT));
 			const result = run();
 			assert.equal(result.status, 1);
 			assert.match(String(result.stderr), /runtime asset missing.*system-prompt/);
+		});
+	});
+
+	it("drops a stale retired offline review shell instead of shipping it", () => {
+		withPayload(({ root, write, run }) => {
+			write(path.join("public", "review", "index.html"));
+			write(path.join(STANDALONE, "public", "review", "old.js"));
+			const result = run();
+			assert.equal(result.status, 0, String(result.stderr));
+			assert.equal(fs.existsSync(path.join(root, STANDALONE, "public", "review")), false);
+			assert.ok(fs.existsSync(path.join(root, "public", "review", "index.html")), "the checkout copy is never touched");
+			assert.ok(fs.existsSync(path.join(root, STANDALONE, "public", "asset.txt")));
 		});
 	});
 });

@@ -67,7 +67,7 @@ import {
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { prettyModel } from "@/components/usage-format";
 import { cn } from "@/lib/utils";
-import { SettingsGroup, SettingsRow, SettingsMenuTrigger, Toggle, CommitInput } from "./controls.tsx";
+import { returnSettingsMenuFocus, SettingsGroup, SettingsRow, SettingsMenuTrigger, Toggle, CommitInput } from "./controls.tsx";
 import { ModelInstructionsSection } from "./model-instructions-section";
 import { ModelMenuList, ThinkingMenuList } from "./model-menu";
 import { ChatGPTBackgroundAccess } from "./chatgpt-connection";
@@ -521,6 +521,11 @@ export function AgentSection({
 		document.addEventListener("pointerdown", onPointerDown);
 		return () => document.removeEventListener("pointerdown", onPointerDown);
 	}, [openMenu, interactions]);
+	// A closed menu (pick or Esc) hands focus back to its trigger.
+	useEffect(() => {
+		if (openMenu === null) return;
+		return returnSettingsMenuFocus(menuAnchorRef);
+	}, [openMenu]);
 
 	async function saveSegment(path: string, text: string) {
 		setSegmentStatus(null);

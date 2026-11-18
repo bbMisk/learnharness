@@ -241,7 +241,9 @@ it("a focused menu action's tooltip never intercepts the menu's first physical E
 	assert.equal(menuCloses, 1); assert.equal(modalCloses, 0); assertSameNode(document.querySelector("[data-testid='menu']"), null);
 });
 
-it("a visible tooltip cannot preempt CommitInput Escape's field blur/save path or close the dialog", async () => {
+// Fork: CommitInput's Escape reverts an edit in progress (no write) and is
+// the field's one action; upstream's Escape blurred and saved.
+it("a visible tooltip cannot preempt CommitInput Escape's field revert path or close the dialog", async () => {
 	const f = fixture(); const commits: string[] = []; let closes = 0;
 	await f.render(<HostDialog open onClose={() => { closes++; return "blocked"; }}><h2>Settings</h2>
 		<CommitInput value="before" ariaLabel="Field" testid="commit-field" onCommit={next => { commits.push(next); return true; }} />
@@ -250,5 +252,5 @@ it("a visible tooltip cannot preempt CommitInput Escape's field blur/save path o
 	const field = element("[data-testid='commit-field']") as HTMLInputElement;
 	await f.focus(field); assert.ok(document.querySelector("[data-slot='tooltip-content']"));
 	field.value = "retained"; await f.event(field, "input"); await f.event(field, "keydown", { key: "Escape" });
-	assert.deepEqual(commits, ["retained"]); assert.equal(closes, 0); assert.ok(document.querySelector("[role='dialog']"));
+	assert.deepEqual(commits, []); assert.equal(field.value, "before"); assert.equal(closes, 0); assert.ok(document.querySelector("[role='dialog']"));
 });

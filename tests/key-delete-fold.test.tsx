@@ -4,6 +4,7 @@ import React, { act } from "react";
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { parseHTML } from "linkedom";
+import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
 import type { Root } from "react-dom/client";
 import { AUTH_KEYS, type AuthKeyStatus } from "../src/core/index.ts";
 import { windowCaptureClicks } from "./helpers/window-capture-click.ts";
@@ -70,7 +71,7 @@ async function mount(initial: string[]) {
 		return Response.json({});
 	}) as typeof fetch;
 	root = createRoot(document.getElementById("root")!);
-	await act(async () => { root!.render(<><DoubleClickGuard /><KeysSection /></>); await settle(); });
+	await act(async () => { root!.render(<InteractionLayersProvider><DoubleClickGuard /><KeysSection /></InteractionLayersProvider>); await settle(); });
 }
 
 test("an armed Delete is disarmed when the row folds by Esc or by opening another row", async () => {

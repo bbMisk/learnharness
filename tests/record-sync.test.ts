@@ -29,13 +29,20 @@ it("idle but the local record advanced: fetch again rather than apply the older 
 });
 
 it("the chat view gates its full refresh on it, snapshotting before the fetch", () => {
+	// Merge with upstream 0.6.1: the full refresh goes through the session's
+	// canonical read (session-core readRecord), whose isCurrent runs after the
+	// fetched body and right before adoption. The verdict is that isCurrent.
 	const chat = fs.readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
 	const sync = chat.slice(chat.indexOf("const syncFromServer = useCallback"), chat.indexOf("// The settled terminal's other half"));
 	const start = sync.indexOf("const start = moment();");
-	const fetched = sync.indexOf("await fetch(`/api/chats/${chatId}`)");
-	const verdict = sync.indexOf("recordSyncVerdict(start, moment())");
-	const apply = sync.indexOf("setMessages(record.messages");
-	assert.ok(start >= 0 && start < fetched && fetched < verdict && verdict < apply, "snapshot → fetch → verdict → apply");
-	assert.match(sync, /if \(verdict === "skip"\) return false;/);
+	const read = sync.indexOf("await readRecord({ isCurrent: () => (gate.verdict = recordSyncVerdict(start, moment())) === \"apply\" })");
+	assert.ok(start >= 0 && start < read, "snapshot → fetch+verdict → apply");
+	assert.match(sync, /if \(!record\) return gate\.verdict === "retry" && retries > 0 \? syncFromServer\(retries - 1\) : false;/, "skip applies nothing; retry fetches again");
 	assert.match(sync, /const moment = \(\) => \(\{ busy: busyRef\.current, messages: nativeMessagesRef\.current \}\);/);
+	const core = fs.readFileSync(new URL("../components/session-core.ts", import.meta.url), "utf8");
+	const body = core.slice(core.indexOf("async readRecord("), core.indexOf("/** Read-only canonical adoption"));
+	const fetched = body.indexOf("await this.fetchView(");
+	const verdict = body.indexOf("options.isCurrent?.() === false) return undefined;");
+	const apply = body.indexOf("this.replaceMessages(record.messages");
+	assert.ok(fetched >= 0 && fetched < verdict && verdict < apply, "the canonical read: fetch → verdict → apply");
 });

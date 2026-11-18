@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { assertSameNode } from "./helpers/same-node.ts";
 import { it } from "node:test";
 import { parseHTML } from "linkedom";
+import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
 import type { AgentSettings } from "../src/core";
 
 // Adding a file-access folder asks the server first: a refusal shows in the
@@ -41,8 +42,8 @@ it("the server's refusal and warning show in the field", async () => {
 	const writes: AgentSettings[] = [];
 	const root = createRoot(document.getElementById("root")!);
 	await act(async () => {
-		root.render(<AgentSection agent={{ fileAccess: { restricted: true, folders: [] } }} models={undefined} graph={undefined} compaction={undefined}
-			onSectionChange={(next) => { writes.push(next); }} onModelsChange={() => {}} onCompactionChange={() => {}} />);
+		root.render(<InteractionLayersProvider><AgentSection agent={{ fileAccess: { restricted: true, folders: [] } }} models={undefined} graph={undefined} compaction={undefined}
+			onSectionChange={(next) => { writes.push(next); }} onModelsChange={() => {}} onCompactionChange={() => {}} /></InteractionLayersProvider>);
 	});
 	const add = async (folder: string) => {
 		const input = document.querySelector<HTMLInputElement>('[data-testid="file-access-add"]')!;
@@ -70,8 +71,8 @@ it("on a slow server, quick adds all land and newer typing survives the check", 
 	const writes: AgentSettings[] = [];
 	const root = createRoot(document.getElementById("root")!);
 	await act(async () => {
-		root.render(<AgentSection agent={{ fileAccess: { restricted: true, folders: [] } }} models={undefined} graph={undefined} compaction={undefined}
-			onSectionChange={(next) => { writes.push(next); }} onModelsChange={() => {}} onCompactionChange={() => {}} />);
+		root.render(<InteractionLayersProvider><AgentSection agent={{ fileAccess: { restricted: true, folders: [] } }} models={undefined} graph={undefined} compaction={undefined}
+			onSectionChange={(next) => { writes.push(next); }} onModelsChange={() => {}} onCompactionChange={() => {}} /></InteractionLayersProvider>);
 	});
 	const input = () => document.querySelector<HTMLInputElement>('[data-testid="file-access-add"]')!;
 	const type = async (text: string) => {
@@ -103,8 +104,8 @@ it("a folder add that fails to save is not kept: the text stays, a retry adds it
 	let fail = true;
 	const root = createRoot(document.getElementById("root")!);
 	await act(async () => {
-		root.render(<AgentSection agent={{ fileAccess: { restricted: true, folders: ["/tmp"] } }} models={undefined} graph={undefined} compaction={undefined}
-			onSectionChange={async (next) => { writes.push(next); return !fail; }} onModelsChange={() => {}} onCompactionChange={() => {}} />);
+		root.render(<InteractionLayersProvider><AgentSection agent={{ fileAccess: { restricted: true, folders: ["/tmp"] } }} models={undefined} graph={undefined} compaction={undefined}
+			onSectionChange={async (next) => { writes.push(next); return !fail; }} onModelsChange={() => {}} onCompactionChange={() => {}} /></InteractionLayersProvider>);
 	});
 	const input = () => document.querySelector<HTMLInputElement>('[data-testid="file-access-add"]')!;
 	const add = async (text: string) => {
@@ -128,8 +129,8 @@ it("a folder add that fails to save is not kept: the text stays, a retry adds it
 	writes.length = 0;
 	fail = true;
 	await act(async () => {
-		root2.render(<AgentSection agent={{ fileAccess: { restricted: true, folders: ["/tmp"] } }} models={undefined} graph={undefined} compaction={undefined}
-			onSectionChange={async (next) => { writes.push(next); return !fail; }} onModelsChange={() => {}} onCompactionChange={() => {}} />);
+		root2.render(<InteractionLayersProvider><AgentSection agent={{ fileAccess: { restricted: true, folders: ["/tmp"] } }} models={undefined} graph={undefined} compaction={undefined}
+			onSectionChange={async (next) => { writes.push(next); return !fail; }} onModelsChange={() => {}} onCompactionChange={() => {}} /></InteractionLayersProvider>);
 	});
 	await add("/usr/local");
 	fail = false;
@@ -143,9 +144,9 @@ it("on a slow server, quick Agent changes all land, each on top of the last", as
 	const pending: (() => void)[] = [];
 	const root = createRoot(document.getElementById("root")!);
 	await act(async () => {
-		root.render(<AgentSection agent={{ fileAccess: { restricted: true, folders: ["/tmp", "/usr/local", "/opt"] } }} models={undefined} graph={undefined} compaction={undefined}
+		root.render(<InteractionLayersProvider><AgentSection agent={{ fileAccess: { restricted: true, folders: ["/tmp", "/usr/local", "/opt"] } }} models={undefined} graph={undefined} compaction={undefined}
 			onSectionChange={(next) => { writes.push(next); return new Promise<boolean>((resolve) => pending.push(() => resolve(true))); }}
-			onModelsChange={() => {}} onCompactionChange={() => {}} />);
+			onModelsChange={() => {}} onCompactionChange={() => {}} /></InteractionLayersProvider>);
 	});
 	const click = async (selector: string) => {
 		await act(async () => { document.querySelector<HTMLButtonElement>(selector)!.click(); });

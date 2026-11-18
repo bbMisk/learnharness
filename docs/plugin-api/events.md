@@ -240,11 +240,9 @@ section: string;
 
 ### ServerEvents "compaction-changed"
 
-A compaction started/finished for the chat (owner round 14,
-2026-10-05). running=true is the SEND GATE: while a compaction is
-in flight the server structurally refuses model interaction for
-the chat; the client mirrors it by disabling the composer/dock
-submit.
+Context compaction started or finished for this chat. While running is
+true, the server gates model interaction and the client disables related
+composer/dock submission. This is live state, not a persisted marker.
 
 ```ts
 "compaction-changed": {

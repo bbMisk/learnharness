@@ -13,6 +13,15 @@ import { cn } from "@/lib/utils";
 import { isComposing } from "@/components/ime";
 import { focusLost } from "@/components/focus-return";
 
+/** Fork: bound while a Settings menu is open; the returned cleanup hands
+ *  focus back to the menu's trigger when the close (a pick, or Esc via the
+ *  menu's interaction layer) took the focused search box with it. Focus
+ *  that already moved somewhere real (a newly opened field) is left alone. */
+export function returnSettingsMenuFocus(anchorRef: RefObject<Element | null>): () => void {
+	const trigger = anchorRef.current?.querySelector<HTMLElement>('[aria-expanded="true"]') ?? anchorRef.current?.querySelector<HTMLElement>("button");
+	return () => { if (trigger?.isConnected && focusLost()) trigger.focus(); };
+}
+
 /** The settings dropdown dismissal, bound while a menu is open; returns
  *  the cleanup. A pointerdown inside the anchor or a portaled menu
  *  ([data-lh-menu]) is ignored; one elsewhere inside the dialog closes the

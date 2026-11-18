@@ -5,6 +5,7 @@ import React, { act } from "react";
 import assert from "node:assert/strict";
 import { after, it } from "node:test";
 import { createRoot } from "react-dom/client";
+import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
 import { parseHTML } from "linkedom";
 
 const dom = parseHTML("<!doctype html><html><body></body></html>");
@@ -15,7 +16,18 @@ Object.assign(globalThis, {
 	HTMLElement: dom.window.HTMLElement,
 	IS_REACT_ACT_ENVIRONMENT: true,
 	self: globalThis,
+	Element: dom.window.Element,
+	Event: dom.window.Event,
+	CustomEvent: dom.window.CustomEvent,
+	MutationObserver: dom.window.MutationObserver,
+	NodeFilter: { SHOW_ELEMENT: 1, FILTER_ACCEPT: 1, FILTER_SKIP: 3 },
 });
+// HostDialog's scroll lock and focus trap read styles; linkedom has no layout.
+Object.assign(dom.window, { getComputedStyle: (element: HTMLElement) => ({
+	display: element.style.display || "block", visibility: element.style.visibility || "visible",
+	paddingLeft: "0px", paddingRight: "0px", marginLeft: "0px", marginRight: "0px", borderLeftWidth: "0px", borderRightWidth: "0px",
+	getPropertyValue: () => "",
+}) });
 const { DeleteSessionDialog } = await import("../components/delete-session-dialog.tsx");
 
 let finish: (response: Response) => void = () => {};
@@ -31,7 +43,7 @@ it("Esc is ignored while deleting; a failure shows in the dialog with Delete sti
 	document.body.append(host);
 	const root = createRoot(host);
 	await act(async () =>
-		root.render(<DeleteSessionDialog chat={{ id: "chat_x", title: "Waves" }} onClose={() => closes++} onDeleted={() => {}} />),
+		root.render(<InteractionLayersProvider><DeleteSessionDialog chat={{ id: "chat_x", title: "Waves" }} onClose={() => closes++} onDeleted={() => {}} /></InteractionLayersProvider>),
 	);
 	const confirm = () => document.querySelector('[data-testid="delete-confirm"]')!;
 	await act(async () => (confirm() as HTMLElement).click());

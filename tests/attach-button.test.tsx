@@ -33,6 +33,7 @@ Object.assign(globalThis, {
 const { createRoot } = await import("react-dom/client");
 const { useFileDrop } = await import("../components/file-drop.ts");
 const { AttachButton } = await import("../components/attach-button.tsx");
+const { InteractionLayersProvider } = await import("../components/interaction-layers.tsx");
 
 let root: ReturnType<typeof createRoot> | undefined;
 afterEach(async () => {
@@ -52,7 +53,7 @@ async function mount(lh: unknown) {
 	Object.defineProperty(dom.window, "lh", { configurable: true, value: lh });
 	draft = "";
 	root = createRoot(document.getElementById("root")!);
-	await act(async () => root!.render(<Field />));
+	await act(async () => root!.render(<InteractionLayersProvider><Field /></InteractionLayersProvider>));
 	const input = document.querySelector('input[type="file"]') as HTMLInputElement;
 	let chooserOpened = 0;
 	input.click = () => { chooserOpened++; };

@@ -16,6 +16,7 @@ Object.assign(globalThis, {
 	requestAnimationFrame: (f: FrameRequestCallback) => setTimeout(() => f(0), 0), cancelAnimationFrame: clearTimeout,
 });
 const { createRoot } = await import("react-dom/client");
+const { InteractionLayersProvider } = await import("../components/interaction-layers.tsx");
 const { PlanPopup } = await import("../components/plan-block.tsx");
 const { openModal } = await import("../components/open-modal.ts");
 const { trapTab } = await import("../components/keyboard-shortcuts.tsx");
@@ -28,17 +29,17 @@ it("focus moves into the plan popup, Tab stays inside it, and closing returns fo
 		return <><button data-testid="chip">Plan</button>{open && <PlanPopup messages={[]} onClose={() => {}} />}</>;
 	}
 	try {
-		await act(async () => root.render(<Page open={false} />));
+		await act(async () => root.render(<InteractionLayersProvider><Page open={false} /></InteractionLayersProvider>));
 		const chip = host.querySelector('[data-testid="chip"]') as unknown as HTMLElement;
 		chip.focus();
-		await act(async () => root.render(<Page open />));
+		await act(async () => root.render(<InteractionLayersProvider><Page open /></InteractionLayersProvider>));
 		const popup = host.querySelector('[data-testid="plan-popup"]') as unknown as HTMLElement;
 		assert.ok(dom.document.activeElement === popup, "initial focus is in the popup");
 		assert.ok(openModal() === popup, "a modal: the shortcuts trap Tab in it");
 		const tab = Object.assign(new dom.window.Event("keydown", { cancelable: true }), { key: "Tab", shiftKey: false }) as unknown as KeyboardEvent;
 		trapTab(tab, popup);
 		assert.ok(popup.contains(dom.document.activeElement), "Tab lands inside the popup");
-		await act(async () => root.render(<Page open={false} />));
+		await act(async () => root.render(<InteractionLayersProvider><Page open={false} /></InteractionLayersProvider>));
 		assert.ok(dom.document.activeElement === chip, "focus is back on the opener");
 	} finally {
 		await act(async () => root.unmount());
@@ -53,10 +54,10 @@ it("opened by a pointer click (the chip blurs itself), closing falls back to the
 		return <><div data-testid="composer"><textarea data-file-path-input="" /></div>{open && <PlanPopup messages={[]} onClose={() => {}} />}</>;
 	}
 	try {
-		await act(async () => root.render(<Page open={false} />));
+		await act(async () => root.render(<InteractionLayersProvider><Page open={false} /></InteractionLayersProvider>));
 		focused = null; // the chip's blurAfterPointerClick left focus on the body
-		await act(async () => root.render(<Page open />));
-		await act(async () => root.render(<Page open={false} />));
+		await act(async () => root.render(<InteractionLayersProvider><Page open /></InteractionLayersProvider>));
+		await act(async () => root.render(<InteractionLayersProvider><Page open={false} /></InteractionLayersProvider>));
 		const field = host.querySelector("textarea");
 		assert.ok(dom.document.activeElement === field, "focus is in the typing field");
 	} finally {

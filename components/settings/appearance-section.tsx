@@ -41,7 +41,7 @@ import { Hint } from "@/components/ui/hint";
 import { BUNDLED_READING_FONTS, useAppearance } from "./appearance.tsx";
 import { FontMenuList } from "./model-menu";
 import { ThemeCards } from "./theme-cards.tsx";
-import { CommitInput, SettingsMenuTrigger, SettingsRow, Toggle } from "./controls.tsx";
+import { CommitInput, returnSettingsMenuFocus, SettingsMenuTrigger, SettingsRow, Toggle } from "./controls.tsx";
 
 /** The factory reading family — the DEFAULT row's identity (unset =
  *  this). Exported for tests. */
@@ -272,6 +272,11 @@ export function AppearanceSection({
 		document.addEventListener("pointerdown", onPointerDown);
 		return () => document.removeEventListener("pointerdown", onPointerDown);
 	}, [fontMenuOpen, interactions]);
+	// A closed font menu (pick or Esc) hands focus back to its trigger.
+	useEffect(() => {
+		if (!fontMenuOpen) return;
+		return returnSettingsMenuFocus(menuAnchorRef);
+	}, [fontMenuOpen]);
 
 	return (
 		<>

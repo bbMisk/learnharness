@@ -3,6 +3,8 @@ import React, { act } from "react";
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { parseHTML } from "linkedom";
+import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
+import { installModalBrowserApis } from "./modal-dom.ts";
 
 const dom = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, {
@@ -14,6 +16,8 @@ Object.assign(globalThis, {
 	matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
 	requestAnimationFrame: (cb: () => void) => setTimeout(cb, 0), cancelAnimationFrame: (id: number) => clearTimeout(id),
 });
+// HostDialog reads computed style and observes its portal like a browser.
+installModalBrowserApis(dom);
 globalThis.fetch = (async () => new Response("{}", { status: 404 })) as typeof fetch;
 const { AppRouterContext } = await import("next/dist/shared/lib/app-router-context.shared-runtime.js");
 const { createRoot } = await import("react-dom/client");
@@ -29,7 +33,7 @@ it("/settings opens the Settings dialog and leaves the URL for the draft view", 
 	try {
 		await act(async () => root.render(
 			<AppRouterContext.Provider value={router as never}>
-				<SettingsDialogProvider><SettingsPage /></SettingsDialogProvider>
+				<InteractionLayersProvider><SettingsDialogProvider><SettingsPage /></SettingsDialogProvider></InteractionLayersProvider>
 			</AppRouterContext.Provider>,
 		));
 		for (let i = 0; i < 50 && !document.querySelector('[data-testid="settings-dialog"]'); i++) await act(async () => new Promise((r) => setTimeout(r, 20)));

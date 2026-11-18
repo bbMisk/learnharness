@@ -217,7 +217,12 @@ function mockKeys() {
 	return { writes, restore: () => { globalThis.fetch = original; } };
 }
 
-test("Keys popup precedes editor Escape; per-provider drafts last until Settings closes, with explicit Save/Cancel unchanged", async () => withDom(async (controller, render) => {
+// Fork (3958e658): folding a key editor (Escape, Cancel, switching to another
+// provider) discards its draft, so a reopened editor starts empty and a new
+// paste is never appended to stale text. Upstream's hidden per-provider draft
+// cache is not kept; the layering assertions (popup Escape first, the editor
+// owns Escape even with focus elsewhere, Escape never saves) are.
+test("Keys popup precedes editor Escape; a folded editor's draft is discarded, with explicit Save/Cancel unchanged", async () => withDom(async (controller, render) => {
 	const mock = mockKeys();
 	try {
 		await render(<KeysSettings />);
@@ -230,21 +235,21 @@ test("Keys popup precedes editor Escape; per-provider drafts last until Settings
 		assertSameNode(document.querySelector('[data-testid="add-provider-menu"]'), null);
 		assert.equal(byTest("key-alpha-editor").hidden, false, "child popup closes before the editor folds");
 		await key(controller(), alpha, "Escape");
-		assert.equal(byTest("key-alpha-editor").hidden, true);
+		assertSameNode(document.querySelector('[data-testid="key-alpha-editor"]'), null, "Escape folds the editor and discards its draft");
 		assert.equal(controller().isElementEligible(alpha), false);
-		assert(document.querySelector('[role="dialog"]'));
+		assert(document.querySelector('[role="dialog"]'), "editor Escape never closes Settings");
 		await chooseProvider("beta");
 		const beta = byTest("key-beta-input") as HTMLInputElement;
 		assert.equal(beta.value, "", "provider A's typing never leaks to B");
 		assertSameNode(document.activeElement, beta);
 		await type("key-beta-input", "draft-beta");
 		await chooseProvider("alpha");
-		assert.equal(byTest("key-alpha-input"), alpha, "same cached editor/input instance");
-		assert.equal(alpha.value, "draft-alpha");
-		assert.equal(beta.value, "draft-beta");
-		assert.equal(byTest("key-beta-editor").hidden, true);
-		assertSameNode(document.activeElement, alpha, "only the explicitly reopened editor regains typing focus");
+		assertSameNode(document.querySelector('[data-testid="key-beta-editor"]'), null, "switching providers folds (discards) the other editor");
+		const reopened = byTest("key-alpha-input") as HTMLInputElement;
+		assert.equal(reopened.value, "", "a reopened editor starts empty");
+		assertSameNode(document.activeElement, reopened, "the reopened editor regains typing focus");
 		assert.equal(mock.writes.length, 0, "Escape, provider switches and reopening cannot save credentials");
+		await type("key-alpha-input", "draft-alpha");
 		await click('[data-testid="key-alpha-cancel"]');
 		assertSameNode(document.querySelector('[data-testid="key-alpha-input"]'), null, "Add-provider Cancel keeps its old discard behavior");
 		await chooseProvider("alpha");
@@ -254,17 +259,14 @@ test("Keys popup precedes editor Escape; per-provider drafts last until Settings
 		assert.deepEqual(mock.writes, [{ path: "/api/keys/ALPHA_API_KEY", body: { value: "saved-alpha" } }]);
 		assertSameNode(document.querySelector('[data-testid="key-alpha-input"]'), null);
 		await chooseProvider("beta");
-		assert.equal((byTest("key-beta-input") as HTMLInputElement).value, "draft-beta");
+		assert.equal((byTest("key-beta-input") as HTMLInputElement).value, "");
 		await key(controller(), byTest("key-beta-input"), "Escape");
 		await key(controller(), document.body, "Escape");
 		assertSameNode(document.querySelector('[role="dialog"]'), null);
-		await render(<KeysSettings key="fresh-settings" />);
-		await chooseProvider("beta");
-		assert.equal((byTest("key-beta-input") as HTMLInputElement).value, "", "Settings unmount destroys the draft cache");
 	} finally { mock.restore(); }
 }));
 
-test("Keys custom and ordinary row drafts survive editor-first Escape even with focus elsewhere", async () => withDom(async (controller, render) => {
+test("Keys custom and ordinary row editors own Escape even with focus elsewhere, and folding discards their drafts", async () => withDom(async (controller, render) => {
 	const mock = mockKeys();
 	try {
 		await render(<KeysSettings />);
@@ -279,29 +281,22 @@ test("Keys custom and ordinary row drafts survive editor-first Escape even with 
 		await type("custom-key-input", "unsaved-custom-key");
 		const customInput = byTest("custom-baseurl-input");
 		await key(controller(), document.querySelector('[data-testid="group-search"]')!, "Escape");
-		assert(customInput.closest("[hidden][inert]"));
+		assertSameNode(document.querySelector('[data-testid="custom-endpoint-editor"]'), null, "Escape folds the custom editor");
 		assert(document.querySelector('[role="dialog"]'), "an open editor owns Escape even when focus is elsewhere in Settings");
-		await chooseProvider("beta");
 		assert.equal(controller().isElementEligible(customInput), false);
+		await chooseProvider("beta");
 		await key(controller(), byTest("key-beta-input"), "Escape");
 		await click('[data-testid="custom-endpoint-row-btn"]');
-		assert.equal(byTest("custom-baseurl-input"), customInput);
-		assert.equal((customInput as HTMLInputElement).value, "http://draft.invalid/v1");
-		assert.equal((byTest("custom-models-input") as HTMLInputElement).value, "draft-model");
-		assert.equal((byTest("custom-key-input") as HTMLInputElement).value, "unsaved-custom-key");
-		assertSameNode(document.activeElement, customInput);
+		assert.equal((byTest("custom-baseurl-input") as HTMLInputElement).value, "http://fixture.invalid/v1", "a reopened custom editor shows the saved endpoint, not the draft");
+		assert.equal((byTest("custom-models-input") as HTMLInputElement).value, "");
 		assert.equal(mock.writes.length, 0);
 		await click('[data-testid="custom-cancel"]');
 		assertSameNode(document.querySelector('[data-testid="custom-endpoint-editor"]'), null);
-		await click('[data-testid="custom-endpoint-row-btn"]');
-		assert.equal((byTest("custom-baseurl-input") as HTMLInputElement).value, "http://fixture.invalid/v1");
-		assert.equal((byTest("custom-models-input") as HTMLInputElement).value, "");
-		await key(controller(), byTest("custom-baseurl-input"), "Escape");
 		await click('[data-testid="key-deepgram_api_key-row"]');
 		await type("key-deepgram_api_key-input", "ordinary-row-draft");
 		await click('[data-testid="key-deepgram_api_key-cancel"]');
 		await click('[data-testid="key-deepgram_api_key-row"]');
-		assert.equal((byTest("key-deepgram_api_key-input") as HTMLInputElement).value, "ordinary-row-draft", "ordinary row Cancel still folds without clearing its existing local state");
+		assert.equal((byTest("key-deepgram_api_key-input") as HTMLInputElement).value, "", "ordinary row Cancel folds and discards its draft");
 		assert.equal(mock.writes.length, 0);
 	} finally { mock.restore(); }
 }));

@@ -92,7 +92,8 @@ function question(kind: QuestionData["kind"] = "quiz"): QuestionData {
 const quizBadges: Array<[string, Parameters<typeof buildAnswer>[1], string | undefined]> = [
 	["correct", { values: ["a"] }, "var(--lh-success)"],
 	["incorrect", { values: ["b"] }, "var(--lh-error)"],
-	["didn't know", { dontKnow: true }, undefined],
+	// Fork (f9ae9f10, "visible didn't-know badge"): a muted-foreground tint, not the neutral bg-muted.
+	["didn't know", { dontKnow: true }, "var(--muted-foreground)"],
 ];
 for (const [label, submission, color] of quizBadges) {
 	it(`AnsweredCard preserves the ${label} badge label and color`, () => {

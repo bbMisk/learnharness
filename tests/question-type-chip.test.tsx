@@ -40,6 +40,7 @@ const { QuestionTypeChip, showsQuestionTypeChip, useLessonQuestionType } = await
 const { ServerEventsProvider } = await import("../components/server-events.tsx");
 const { CramToggle, useLessonCram } = await import("../components/cram-toggle.tsx");
 const { notifySettingsSaved } = await import("../components/settings-signal.ts");
+const { InteractionLayersProvider } = await import("../components/interaction-layers.tsx");
 type QuestionType = "mcq" | "saq" | "mixed";
 
 let root: Root | undefined;
@@ -86,7 +87,7 @@ async function mount(element: React.ReactNode) {
 	const host = document.createElement("div");
 	document.body.append(host);
 	root = createRoot(host);
-	await act(async () => root!.render(element));
+	await act(async () => root!.render(<InteractionLayersProvider>{element}</InteractionLayersProvider>));
 	return host;
 }
 
@@ -119,18 +120,18 @@ it("labels: the stored type, else cram Mixed, else the app-wide mechanic", async
 	const host = await mount(<Harness initial="saq" />);
 	assert.equal(chip().textContent, "Qs: SAQ");
 	fakeApi({ questionType: "mcq" });
-	await act(async () => root!.render(<Harness key="mcq" initial="mcq" cram />));
+	await act(async () => root!.render(<InteractionLayersProvider><Harness key="mcq" initial="mcq" cram /></InteractionLayersProvider>));
 	assert.equal(chip().textContent, "Qs: MCQ", "an explicit choice wins over cram");
 	fakeApi({ questionType: "mixed" });
-	await act(async () => root!.render(<Harness key="mixed" initial="mixed" />));
+	await act(async () => root!.render(<InteractionLayersProvider><Harness key="mixed" initial="mixed" /></InteractionLayersProvider>));
 	assert.equal(chip().textContent, "Qs: Mixed");
 	fakeApi({});
-	await act(async () => root!.render(<Harness key="cram" cram />));
+	await act(async () => root!.render(<InteractionLayersProvider><Harness key="cram" cram /></InteractionLayersProvider>));
 	assert.equal(chip().textContent, "Qs: Mixed", "unset cram lesson");
-	await act(async () => root!.render(<Harness key="teach" />));
+	await act(async () => root!.render(<InteractionLayersProvider><Harness key="teach" /></InteractionLayersProvider>));
 	assert.equal(chip().textContent, "Qs: MCQ", "unset lesson, multiple choice app-wide");
 	fakeApi({}, { tools: { explain: true } });
-	await act(async () => root!.render(<Harness key="free" agentTools={{ explain: true }} />));
+	await act(async () => root!.render(<InteractionLayersProvider><Harness key="free" agentTools={{ explain: true }} /></InteractionLayersProvider>));
 	assert.equal(chip().textContent, "Qs: SAQ", "unset lesson, free recall app-wide");
 	assert.ok(host.contains(chip()));
 });

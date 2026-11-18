@@ -127,10 +127,9 @@ export function QuestionTypeChip({
 
 	// The dropdown contract (model-picker's): a click outside the menu or Esc
 	// closes it; the menu body lives in a portal, carved out via [data-lh-menu].
-	usePopoverDismiss(triggerRef, open, useCallback(() => setOpen(false), []), {
-		inside: "[data-lh-menu]",
-		onEscape: useCallback(() => { refocus.current = true; setOpen(false); }, []),
-	});
+	const close = useCallback(() => setOpen(false), []);
+	const escape = useCallback(() => { refocus.current = true; setOpen(false); }, []);
+	usePopoverDismiss(triggerRef, open, close, { inside: "[data-lh-menu]", onEscape: escape });
 
 	const pick = async (next: QuestionType) => {
 		if (saving) return;
@@ -188,6 +187,9 @@ export function QuestionTypeChip({
 					anchorRef={triggerRef}
 					testid="question-type-menu"
 					preferredSide="down"
+					// The menu is the top interaction layer while open: its Esc
+					// hands focus back to the chip, like the trigger's own.
+					onClose={(reason) => { if (reason === "escape") escape(); else close(); return "closed"; }}
 					menuClass="flex w-36 flex-col gap-0.5 rounded-xl border bg-card p-2 text-xs shadow-xl"
 				>
 					{QUESTION_TYPES.map((type) => (
