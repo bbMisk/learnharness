@@ -2,6 +2,7 @@ import type { Agent, AgentEvent, AgentMessage } from "@earendil-works/pi-agent-c
 import { clientMessage } from "../../core/client-messages.ts";
 import { ToolCallIdUniquifier } from "./call-ids.ts";
 import type { ChatGPTRequestCycle } from "../../agent/chatgpt-request-cycle.ts";
+import { pluginQuestionLedgerFor } from "../../agent/plugin-question-tools.ts";
 
 /** The SSE frame for one event. A live fan-out serializes once and hands the
  *  same frame to every view (a second device, a reattached tab); a replay
@@ -33,11 +34,14 @@ function sseFrame(event: unknown): string {
  *   carries the same full partial a SECOND time as `assistantMessageEvent`
  *   — nothing in this app ever reads it, and re-serializing it per chunk
  *   doubled every stream frame. Client reads `event.message`, always.
- * - Question tools (quiz / ask_user_question): NO suppression (owner ruling,
+ * - Builtin question tools (quiz / ask_user_question): NO suppression (owner ruling,
  *   Wave D fork 2) — the closing `tool_execution_end` with the in-memory
  *   "Question posed" placeholder flows to the client, which ignores it
  *   (question tools are client-owned; the answer arrives as the input event).
  *   The placeholder still never persists and never reaches the model.
+ *   Plugin questions instead suppress only private-ledger-attested pose ACKs
+ *   from every carrier, after ID correlation; admitted assistant copies carry
+ *   visibility-only attempts until canonical settlement creates authority.
  * - Tool-call validation gating survives by construction: `tool_execution_end`
  *   only fires after the call cleared the boundary (an invalid call arrives
  *   as isError — never a clean end), so the dock's mount rule keys on it.
@@ -155,6 +159,7 @@ export interface PiTurnHandle {
 export function runPiTurn(spec: PiTurnSpec): PiTurnHandle {
 	const { agent, onError, onFinish, onSettleError, onSettleFailure, usedToolCallIds, updateFlushMs = 100, requestCycle } = spec;
 	const uniquifier = usedToolCallIds ? new ToolCallIdUniquifier(usedToolCallIds) : undefined;
+	const questions = pluginQuestionLedgerFor(agent);
 
 	// pi refuses continue() on an assistant tail, even a failed response.
 	// Replay from the last successful step, but retain the original prefix
@@ -276,7 +281,8 @@ export function runPiTurn(spec: PiTurnSpec): PiTurnHandle {
 		try {
 			const restored = replayCount === original.length ? [...agent.state.messages] : [...original, ...agent.state.messages.slice(replayCount)];
 			const settled_ = restored.filter((m) => (m as { role?: string }).role !== "system");
-			onFinish((uniquifier?.remapSettled(settled_) as AgentMessage[]) ?? settled_, sawAbort);
+			const mapped = (uniquifier?.remapSettled(settled_) as AgentMessage[]) ?? settled_;
+			onFinish(questions?.settled(settled_, mapped) ?? mapped, sawAbort);
 		} catch (err) {
 			console.error("[turn] settlement failed:", err);
 			try { onSettleFailure?.(err, reportedErrorText); }
@@ -292,14 +298,15 @@ export function runPiTurn(spec: PiTurnSpec): PiTurnHandle {
 		if (settled) return;
 		// THE LACAN FIX: ids uniquify HERE, before any view — the one seam
 		// every consumer downstream shares. No uniquifier → verbatim.
-		const uniqued = uniquifier ? uniquifier.event(event) : event;
+		const mapped = uniquifier ? uniquifier.event(event) : event;
+		const uniqued = questions ? questions.wire(event, mapped) : mapped;
 		// WIRE DIET: slim the one event pi double-stuffs — our views read
 		// `message`, never `assistantMessageEvent` (same full partial twice).
-		const wire: TurnWireEvent =
-			uniqued.type === "message_update"
-				? { type: "message_update", message: uniqued.message }
-				: uniqued;
-		send(clientEvent(wire));
+		if (uniqued) {
+			const wire: TurnWireEvent = uniqued.type === "message_update"
+				? { type: "message_update", message: uniqued.message } : uniqued;
+			send(clientEvent(wire));
+		}
 		if (event.type === "message_end") {
 			const m = event.message as { role?: string; stopReason?: string } | undefined;
 			if (m?.role === "assistant" && m.stopReason === "aborted") sawAbort = true;

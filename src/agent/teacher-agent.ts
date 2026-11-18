@@ -12,19 +12,22 @@ import {
 	type ProberToolContext,
 	type TeacherToolContext,
 } from "./tools.ts";
-import { practiceTools, type PracticeToolContext } from "./tools/practice.ts";
+import { practiceTools, createPracticeGate, type PracticeGate, type PracticeToolContext } from "./tools/practice.ts";
+import { pluginProblemTools, isPluginProblemPoseAcknowledgment, type NativePluginProblemContribution } from "./plugin-problem-tools.ts";
 import { healToolRecord, withArgumentHeal } from "./tools/heal.ts";
 import { sendToUserApplies, sendToUserTool } from "./tools/send-to-user.ts";
 import { makeNarrationGuard, narrationGuardApplies, SEND_TO_USER_DELIVERY_RULE } from "./narration-guard.ts";
 import { createReadTool, readTool } from "./tools/read.ts";
 import { quizInputObject, quizInputProblems } from "../core/question-core.ts";
-import { QUESTION_TOOLS, type EnabledTools } from "../core/pending.ts";
+import { QUESTION_TOOLS, TOGGLEABLE_TOOLS, type EnabledTools } from "../core/pending.ts";
+import type { PluginToolContext } from "../core/plugins.ts";
 import { toLlmMessages, nativeInputCause, PRACTICE_PROBLEM_TOOL } from "../core/native-messages.ts";
 import type { ChatGPTRequestCycle } from "./chatgpt-request-cycle.ts";
 import { usageWasAdmitted } from "./subscription-request-cycle.ts";
 import { withRequestFingerprint } from "./request-fingerprint.ts";
 import type { QuestionType, RequestFingerprint } from "../core/contracts.ts";
 import { sharedHandoffMessages, sharedHandoffSupported, type AgentLoadout } from "./shared-handoff.ts";
+import { PluginQuestionLedger, type NativePluginQuestionContribution } from "./plugin-question-tools.ts";
 
 /**
  * The session agents (docs/archive/probe-teach-split.md): the PROBER, the
@@ -53,6 +56,13 @@ import { sharedHandoffMessages, sharedHandoffSupported, type AgentLoadout } from
 /** Which agent's prompt directory to compose. Practice composes only its
  *  own directory (see prompt-segments.ts). */
 export type AgentKind = "prober" | "teacher" | "practice";
+
+/** Reserve conversation builtins even when role/mechanics/settings gates hide them.
+ * New builtin names must join this catalog; actual turn tools are reserved too. */
+export const CONVERSATION_TOOL_NAMES = Object.freeze([
+	...QUESTION_TOOLS, ...TOGGLEABLE_TOOLS, "probe_done", "read", "ls", "find", "grep",
+	"plan_init", "list_sessions", "list_propositions", "problem", "conclude", sendToUserTool.name,
+] as const);
 
 // Segment discovery + override resolution live in one place:
 // src/agent/prompt-segments.ts (effectivePromptSegments).
@@ -106,6 +116,14 @@ export interface AgentBuildOptions {
 	/** Tests may pass a bare tool registry to drive deterministic flows.
 	 *  An explicit registry is NEVER toggle-filtered — the caller owns it. */
 	tools?: Record<string, AgentTool<any>>;
+	/** Server-owned per-turn resolver. Additive only; explicit tools test overrides
+	 * bypass contributions entirely. No conversation identity means no factory call. */
+	pluginContributions?: (context: PluginToolContext, reservedToolNames: readonly string[]) => {
+		instructions: readonly string[];
+		tools: readonly AgentTool<any>[];
+		questionTypes?: readonly NativePluginQuestionContribution[];
+		problemTypes?: readonly NativePluginProblemContribution[];
+	};
 	/** The resolved per-user tool toggles (core/pending EnabledTools): the
 	 *  chat-handler passes effective.agent.tools; the factories drop any tool
 	 *  explicitly false. The toggleable set is TOGGLEABLE_TOOLS (job tools
@@ -191,6 +209,52 @@ function makeQuestionStopper(kind: AgentKind) {
 	};
 }
 
+/** Plugin additions to one agent's loadout: instructions after the builtin
+ *  prompt and tools after the builtin registry — never a replacement. */
+interface PluginLoadout {
+	instructions: readonly string[];
+	tools: readonly AgentTool<any>[];
+}
+
+/** The builtin registry as the model sees it: native read bound to the
+ *  model, plus the kind/model-aware Claude output gate. */
+function builtinToolsFor(kind: AgentKind, opts: AgentBuildOptions, tools: readonly AgentTool<any, any>[], model: PiEngine["model"]): AgentTool<any>[] {
+	// Conditional registry inclusion, like the graph-tool gates: when
+	// closed, neither the tool nor its usage instructions reach the model.
+	// Match Claude across providers (including OpenRouter), not the API
+	// transport. Explicit test registries remain caller-owned.
+	return [
+		...tools.map((tool) => tool.name === "read" && tool.execute === readTool.execute
+			? { ...tool, execute: createReadTool(model).execute as AgentTool<any>["execute"] }
+			: tool),
+		...(sendToUserApplies(kind, model, opts.tools !== undefined)
+			? [withArgumentHeal(sendToUserTool)]
+			: []),
+	];
+}
+
+/** Resolve one agent's additive plugin contributions. Explicit test
+ *  registries bypass them; no conversation identity means no factory call. */
+function pluginContributionsFor(
+	kind: AgentKind,
+	opts: AgentBuildOptions,
+	builtinTools: readonly AgentTool<any>[],
+	nodeExists?: (nodeId: string) => boolean,
+	practice?: { gate: PracticeGate; graphNodes: PracticeToolContext["graphNodes"] },
+) {
+	const contributions = opts.tools === undefined && opts.chatId && opts.pluginContributions
+		? opts.pluginContributions({ chatId: opts.chatId, agent: kind }, [...CONVERSATION_TOOL_NAMES, ...builtinTools.map(tool => tool.name)])
+		: undefined;
+	const questionLedger = contributions?.questionTypes?.length && opts.chatId
+		? new PluginQuestionLedger(contributions.questionTypes, opts.chatId, nodeExists) : undefined;
+	const problemTools = kind === "practice" && practice && opts.chatId
+		? pluginProblemTools(contributions?.problemTypes ?? [], opts.chatId, practice.gate, practice.graphNodes) : [];
+	const loadout: PluginLoadout | undefined = contributions
+		? { instructions: contributions.instructions, tools: [...contributions.tools, ...(questionLedger?.tools ?? []), ...problemTools] }
+		: undefined;
+	return { loadout, questionLedger };
+}
+
 /** An agent's model-facing loadout: the composed system prompt and the tool
  *  registry as the model sees it. One function for both the agent's own request
  *  and the shared handoff's rebuild of the prober's prefix, so they cannot drift. */
@@ -200,40 +264,36 @@ function agentLoadout(
 	tools: readonly AgentTool<any, any>[],
 	model: PiEngine["model"],
 	projectContext: string | undefined,
+	plugins?: PluginLoadout,
 ): AgentLoadout & { tools: AgentTool<any>[] } {
 	const composedPrompt = opts.promptSwitches
 		? composeInstructions(kind, opts.promptSwitches)
 		: composedInstructions[kind]!;
-	const basePrompt = narrationGuardApplies(kind, model, opts.tools !== undefined)
+	const builtinPrompt = narrationGuardApplies(kind, model, opts.tools !== undefined)
 		? `${composedPrompt}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}`
 		: composedPrompt;
+	// Never replace the builtin prompt or tools, or mutate an already-running Agent.
+	const basePrompt = plugins?.instructions.length
+		? [builtinPrompt, ...plugins.instructions].join("\n\n---\n\n")
+		: builtinPrompt;
 	return {
 		systemPrompt: [basePrompt, projectContext].filter(Boolean).join("\n\n"),
-		// Conditional registry inclusion, like the graph-tool gates: when
-		// closed, neither the tool nor its usage instructions reach the model.
-		// Match Claude across providers (including OpenRouter), not the API
-		// transport. Explicit test registries remain caller-owned.
-		tools: [
-			...tools.map((tool) => tool.name === "read" && tool.execute === readTool.execute
-				? { ...tool, execute: createReadTool(model).execute as AgentTool<any>["execute"] }
-				: tool),
-			...(sendToUserApplies(kind, model, opts.tools !== undefined)
-				? [withArgumentHeal(sendToUserTool)]
-				: []),
-		],
+		tools: [...builtinToolsFor(kind, opts, tools, model), ...(plugins?.tools ?? [])],
 	};
 }
 
 /** The run's opening history: the shared handoff's layout when it applies,
  *  else none (pi seeds the leading system message from the loadout). */
 function handoffSeed(kind: AgentKind, opts: AgentBuildOptions, history: readonly AgentMessage[], loadout: AgentLoadout, model: PiEngine["model"]): AgentMessage[] | null {
-	return kind === "teacher" && opts.sharedHandoff && sharedHandoffSupported(model)
-		? sharedHandoffMessages(
-				history,
-				agentLoadout("prober", opts, opts.sharedHandoff.proberTools, model, opts.sharedHandoff.proberProjectContext),
-				loadout,
-			)
-		: null;
+	if (kind !== "teacher" || !opts.sharedHandoff || !sharedHandoffSupported(model)) return null;
+	// The prober's prefix as it was sent, plugin contributions included.
+	const proberTools = opts.sharedHandoff.proberTools;
+	const proberPlugins = pluginContributionsFor("prober", opts, builtinToolsFor("prober", opts, proberTools, model)).loadout;
+	return sharedHandoffMessages(
+		history,
+		agentLoadout("prober", opts, proberTools, model, opts.sharedHandoff.proberProjectContext, proberPlugins),
+		loadout,
+	);
 }
 
 function baseAgentOptions(
@@ -242,11 +302,17 @@ function baseAgentOptions(
 	tools: AgentTool<any, any>[],
 	/** The teacher's registry for another question type (the live swap). */
 	retool?: (questionType: QuestionType) => AgentTool<any, any>[],
+	nodeExists?: (nodeId: string) => boolean,
+	practice?: { gate: PracticeGate; graphNodes: PracticeToolContext["graphNodes"] },
 ) {
 	const { engine } = opts;
 	const stopper = makeQuestionStopper(kind);
-	const loadout = agentLoadout(kind, opts, tools, engine.model, opts.projectContext);
 	const narrationGuard = narrationGuardApplies(kind, engine.model, opts.tools !== undefined);
+	const narrationHooks = narrationGuard ? makeNarrationGuard() : undefined;
+	// Bind native read and preserve the kind/model-aware Claude output gate
+	// before resolving additive plugins. Explicit registries remain caller-owned.
+	const { loadout: plugins, questionLedger } = pluginContributionsFor(kind, opts, builtinToolsFor(kind, opts, tools, engine.model), nodeExists, practice);
+	const loadout = agentLoadout(kind, opts, tools, engine.model, opts.projectContext, plugins);
 	// SHARED HANDOFF PREFIX (opt-in): the teacher's history leads with the
 	// prober's system message and carries its own as a mid-conversation
 	// update; null (unsupported model, no concluded probe, compacted past the
@@ -257,6 +323,7 @@ function baseAgentOptions(
 	// request's system messages and executable tools exactly as a fresh run
 	// would (the record never holds system messages, so the history is every
 	// non-system message). Unchanged → no update, the request is untouched.
+	// Plugin contributions are resolved once per run and carried unchanged.
 	let questionTypeInUse = opts.questionType;
 	const questionTypeSwap = (request: PrepareRequestContext): AgentRequestUpdate | undefined => {
 		if (!retool || !opts.liveQuestionType) return undefined;
@@ -264,7 +331,7 @@ function baseAgentOptions(
 		if (next === questionTypeInUse) return undefined;
 		questionTypeInUse = next;
 		const nextOpts = { ...opts, questionType: next, projectContext: opts.liveQuestionType.projectContextFor(next) };
-		const nextLoadout = agentLoadout(kind, nextOpts, retool(next), request.model, nextOpts.projectContext);
+		const nextLoadout = agentLoadout(kind, nextOpts, retool(next), request.model, nextOpts.projectContext, plugins);
 		const history = request.context.messages.filter((m) => m.role !== "system");
 		const leading = createInitialSystemMessage(nextLoadout.systemPrompt, nextLoadout.tools.map(toToolDeclaration));
 		const messages = handoffSeed(kind, nextOpts, history, nextLoadout, request.model) ?? [...(leading ? [leading] : []), ...history];
@@ -304,12 +371,22 @@ function baseAgentOptions(
 		...(providerEvents ? { onProviderStreamEvent: providerEvents } : {}),
 		// Narration-marked thinking is not learner-facing delivery. The
 		// paired hooks track successful output before allowing its question.
-		...(narrationGuard ? makeNarrationGuard() : {}),
+		// Both policies share the SDK hook: preserve delivered-prose tracking
+		// and exact plugin occurrence binding rather than overwriting either.
+		...(questionLedger || narrationHooks ? {
+			...narrationHooks,
+			beforeToolCall: async (context: import("@earendil-works/pi-agent-core").BeforeToolCallContext) => {
+				const guarded = await narrationHooks?.beforeToolCall?.(context);
+				if (guarded?.block) return guarded;
+				questionLedger?.validatedCall(context);
+				return undefined;
+			},
+		} : {}),
 		// finishTurn runs after tool results attach, before turn_end, and
 		// `{ action: "end" }` exits BEFORE the steering poll: the parked-marker
 		// stranding the registerLiveAgent-before-runPiTurn design depends on.
 		// undefined preserves normal scheduling.
-		finishTurn: (turn) => (stopper(turn) ? { action: "end" } : undefined),
+		finishTurn: (turn) => (turn.toolResults.some(result => questionLedger?.isAcknowledgment(result) || (kind === "practice" && isPluginProblemPoseAcknowledgment(result))) || stopper(turn) ? { action: "end" } : undefined),
 		// Markers handed to a live run drain from pi's steering queue: the
 		// lesson loop is one continuous teach→quiz→teach run, so delivery must
 		// inject at turn boundaries inside the run, not wait for it to stop.
@@ -346,6 +423,7 @@ function baseAgentOptions(
 			return update;
 		},
 	});
+	questionLedger?.bind(agent);
 	if (opts.onUsage) {
 		agent.subscribe((event: AgentEvent) => {
 			if (event.type === "message_end" && event.message.role === "assistant" && "usage" in event.message) {
@@ -392,7 +470,9 @@ export function createTeacherAgent(
 	const retool = !opts.tools && ctx
 		? (questionType: QuestionType) => Object.values(createTeacherTools(ctx, opts.toolToggles, questionType, opts.cram))
 		: undefined;
-	return baseAgentOptions("teacher", opts, Object.values(tools), retool);
+	return baseAgentOptions("teacher", opts, Object.values(tools), retool, ctx
+		? nodeId => ctx.chatStore.getChat(ctx.chatId)?.tree?.nodes.some(node => node.id === nodeId) ?? false
+		: undefined);
 }
 
 /** The bare teach question set (tests, bare agents): quiz with the shared
@@ -434,8 +514,10 @@ export function bareQuestionTools(): Record<string, AgentTool<any>> {
  * Practice uses ordinary final prose, not the explicit output tool.
  */
 export function createPracticeAgent(ctx: PracticeToolContext, opts: AgentBuildOptions) {
-	const tools = opts.tools ?? practiceTools(ctx);
-	return baseAgentOptions("practice", opts, Object.values(tools));
+	// Explicit test registries bypass all builtin construction and contributions.
+	if (opts.tools !== undefined) return baseAgentOptions("practice", opts, Object.values(opts.tools));
+	const gate = createPracticeGate(ctx);
+	return baseAgentOptions("practice", opts, Object.values(practiceTools(ctx, gate)), undefined, undefined, { gate, graphNodes: ctx.graphNodes });
 }
 
 export type ProberAgent = ReturnType<typeof createProberAgent>;

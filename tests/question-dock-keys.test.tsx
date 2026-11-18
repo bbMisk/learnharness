@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { assertSameNode, assertNotSameNode } from "./helpers/same-node.ts";
 import { afterEach, describe, it } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
+import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
 import { parseHTML } from "linkedom";
 
 /** The question dock's keys: a folded check never submits on Enter, and an
@@ -12,7 +13,14 @@ const dom = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, {
 	window: dom.window, document: dom.document, Element: dom.window.Element, HTMLElement: dom.window.HTMLElement,
 	Node: dom.window.Node, CustomEvent: dom.window.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true,
+	// The confirms are HostDialogs: their focus scope and scroll lock need these.
+	Event: dom.window.Event, MutationObserver: dom.window.MutationObserver, NodeFilter: { SHOW_ELEMENT: 1, FILTER_ACCEPT: 1, FILTER_SKIP: 3 },
 });
+Object.assign(dom.window, { getComputedStyle: (element: HTMLElement) => ({
+	display: element.style.display || "block", visibility: element.style.visibility || "visible",
+	paddingLeft: "0px", paddingRight: "0px", marginLeft: "0px", marginRight: "0px", borderLeftWidth: "0px", borderRightWidth: "0px",
+	getPropertyValue: () => "",
+}) });
 let focused: Element | null = null;
 dom.window.HTMLElement.prototype.focus = function (this: Element) { focused = this; };
 dom.window.HTMLElement.prototype.scrollIntoView = function () {};
@@ -36,10 +44,15 @@ afterEach(async () => {
 	await act(async () => { root?.unmount(); });
 	root = null;
 	for (const h of hosts.splice(0)) h.remove();
+	// A closed HostDialog returns focus a tick later: let it land here, not in the next test.
+	await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
 	focused = null;
 });
 
-async function mount(expanded: boolean, extra = "") {
+/** The dock alone (its fallback reads the raw data-lh-modal markers in
+ *  `extra`), or with `overlay` beside it under one interaction-layer
+ *  provider, as AppShell mounts them. */
+async function mount(expanded: boolean, extra = "", overlay?: React.ReactElement) {
 	const host = document.createElement("div");
 	const modal = document.createElement("div");
 	modal.innerHTML = extra;
@@ -47,11 +60,12 @@ async function mount(expanded: boolean, extra = "") {
 	hosts.push(host, modal);
 	const submits: unknown[] = [];
 	root = createRoot(host);
-	await act(async () => root!.render(
-		<QuestionDock toolName="quiz" toolCallId="q1" input={input as never} expanded={expanded} onExpand={() => {}}
-			onSubmit={(a) => submits.push(a)} initialDraft={draft} dictationClaim={false} />,
-	));
-	return { host, modal, submits };
+	const dock = <QuestionDock toolName="quiz" toolCallId="q1" input={input as never} expanded={expanded} onExpand={() => {}}
+		onSubmit={(a) => submits.push(a)} initialDraft={draft} dictationClaim={false} />;
+	const show = (next?: React.ReactElement) => act(async () => root!.render(<InteractionLayersProvider>{dock}{next}</InteractionLayersProvider>));
+	if (overlay) await show(overlay);
+	else await act(async () => root!.render(dock));
+	return { host, modal, submits, show };
 }
 
 function press(target: EventTarget, init: Record<string, unknown>) {
@@ -95,6 +109,21 @@ describe("an open modal keeps keys away from the quiz", () => {
 		assert.equal(submits.length, 0);
 	});
 
+	it("under the app's interaction layers too, an unregistered data-lh-modal (a Radix dialog) keeps every key off the dock", async () => {
+		// The provider's capture prevents every native Tab (Tab is dead app-wide),
+		// so only the dock's own state is asserted here.
+		const { host, modal, submits } = await mount(true, MODAL, <></>);
+		const nav = modal.querySelector<HTMLElement>('[data-testid="nav"]')!;
+		nav.focus();
+		const before = host.innerHTML;
+		for (const target of [nav, document.body]) {
+			for (const key of ["ArrowDown", "Tab", "ArrowRight", " ", "Enter"]) await act(async () => { press(target, { key }); });
+		}
+		assertSameNode(focused, nav, "focus stays in the modal");
+		assert.equal(host.innerHTML, before, "the dock is unchanged");
+		assert.equal(submits.length, 0);
+	});
+
 	it("Enter from the page behind a modal submits nothing", async () => {
 		const { submits } = await mount(true, MODAL);
 		await act(async () => { press(document.body, { key: "Enter" }); });
@@ -109,9 +138,12 @@ describe("the dismiss and delete confirms are modals", () => {
 		document.body.append(host);
 		hosts.push(host);
 		root = createRoot(host);
-		await act(async () => root!.render(<AbortTurnDialog mode="question" onClose={() => {}} onConfirm={() => {}} />));
+		await act(async () => root!.render(<InteractionLayersProvider><AbortTurnDialog mode="question" onClose={() => {}} onConfirm={() => {}} /></InteractionLayersProvider>));
 		const dialog = document.querySelector<HTMLElement>('[data-testid="abort-turn-dialog"]')!;
-		assert.ok(dialog.hasAttribute("data-lh-modal"));
+		// A HostDialog: its boundary is the modal marker (open-modal's
+		// openModal() and the layer controller read it), not data-lh-modal.
+		const { openModal } = await import("../components/open-modal.ts");
+		assert.ok(openModal()?.contains(dialog), "the confirm is the open modal");
 		assert.ok(focused && dialog.contains(focused), "focus moves into the confirm");
 		await act(async () => root!.unmount());
 		root = null;
@@ -123,7 +155,7 @@ describe("the dismiss and delete confirms are modals", () => {
 		document.body.append(host);
 		hosts.push(host);
 		root = createRoot(host);
-		await act(async () => root!.render(<DeleteSessionDialog chat={{ id: "c1", title: "DRW" }} onClose={() => {}} onDeleted={() => {}} />));
+		await act(async () => root!.render(<InteractionLayersProvider><DeleteSessionDialog chat={{ id: "c1", title: "DRW" }} onClose={() => {}} onDeleted={() => {}} /></InteractionLayersProvider>));
 		const dialog = document.querySelector<HTMLElement>('[data-testid="delete-session-dialog"]')!;
 		assert.ok(dialog.hasAttribute("data-lh-modal"));
 		assert.ok(focused && dialog.contains(focused), "focus moves into the dialog");
@@ -136,12 +168,7 @@ describe("every overlay over the dock is a modal", () => {
 	// Each overlay mounted beside an open check: arrows, Space and Enter
 	// from the page change nothing behind it.
 	async function keysBehind(overlay: React.ReactElement, testid: string) {
-		const { host, submits } = await mount(true);
-		const layer = document.createElement("div");
-		document.body.append(layer);
-		hosts.push(layer);
-		const overlayRoot = createRoot(layer);
-		await act(async () => overlayRoot.render(overlay));
+		const { host, submits, show } = await mount(true, "", overlay);
 		const el = document.querySelector<HTMLElement>(`[data-testid="${testid}"]`);
 		assert.ok(el?.hasAttribute("data-lh-modal"), `${testid} is marked modal`);
 		const before = host.innerHTML;
@@ -150,7 +177,7 @@ describe("every overlay over the dock is a modal", () => {
 		}
 		assert.equal(host.innerHTML, before, `${testid}: the dock is unchanged`);
 		assert.equal(submits.length, 0, `${testid}: nothing submitted`);
-		await act(async () => overlayRoot.unmount());
+		await show();
 	}
 
 	it("the Diagram and figure focus", async () => {
@@ -175,7 +202,7 @@ describe("cancelling the Dismiss confirm", () => {
 		hosts.push(field, host);
 		field.focus();
 		root = createRoot(host);
-		const render = (mode: "question" | null) => act(async () => root!.render(<AbortTurnDialog mode={mode} onClose={() => {}} onConfirm={() => {}} />));
+		const render = (mode: "question" | null) => act(async () => root!.render(<InteractionLayersProvider><AbortTurnDialog mode={mode} onClose={() => {}} onConfirm={() => {}} /></InteractionLayersProvider>));
 		await render("question");
 		assertNotSameNode(focused, field, "the confirm took focus");
 		await render(null);
@@ -206,7 +233,7 @@ describe("cancelling the Dismiss confirm", () => {
 		try {
 			field.focus();
 			root = createRoot(host);
-			const render = (mode: "question" | null) => act(async () => root!.render(<AbortTurnDialog mode={mode} onClose={() => {}} onConfirm={() => {}} />));
+			const render = (mode: "question" | null) => act(async () => root!.render(<InteractionLayersProvider><AbortTurnDialog mode={mode} onClose={() => {}} onConfirm={() => {}} /></InteractionLayersProvider>));
 			await render("question");
 			range = at(document.body, 0); // the backdrop's mousedown moved the selection
 			await render(null);

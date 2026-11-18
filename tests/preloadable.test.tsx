@@ -10,12 +10,24 @@ import { createRoot, type Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
 
 const dom = parseHTML("<html><body></body></html>");
-Object.assign(globalThis, { window: dom.window, document: dom.document, Node: dom.window.Node, CustomEvent: dom.window.CustomEvent });
+Object.assign(globalThis, {
+	window: dom.window, document: dom.document, Node: dom.window.Node, CustomEvent: dom.window.CustomEvent,
+	// The settings dialog is a HostDialog: its focus scope and scroll lock need these.
+	Element: dom.window.Element, HTMLElement: dom.window.HTMLElement, Event: dom.window.Event,
+	MutationObserver: dom.window.MutationObserver, NodeFilter: { SHOW_ELEMENT: 1, FILTER_ACCEPT: 1, FILTER_SKIP: 3 },
+});
+// linkedom has no layout.
+Object.assign(dom.window, { getComputedStyle: (element: HTMLElement) => ({
+	display: element.style.display || "block", visibility: element.style.visibility || "visible",
+	paddingLeft: "0px", paddingRight: "0px", marginLeft: "0px", marginRight: "0px", borderLeftWidth: "0px", borderRightWidth: "0px",
+	getPropertyValue: () => "",
+}) });
 const { preloadable } = await import("../components/preloadable.tsx");
 const { ChainTableOverlay } = await import("../components/chain-table-lazy.tsx");
 const { SetupDialog } = await import("../components/setup-dialog-lazy.tsx");
 const { SettingsDialogProvider, useSettingsDialog } = await import("../components/settings/settings-dialog.tsx");
 const { ServerEventsProvider } = await import("../components/server-events.tsx");
+const { InteractionLayersProvider } = await import("../components/interaction-layers.tsx");
 
 const roots: Root[] = [];
 const originalFetch = globalThis.fetch;
@@ -24,7 +36,7 @@ async function mount(element: React.ReactElement) {
 	document.body.append(host);
 	const root = createRoot(host, { onCaughtError() {} });
 	roots.push(root);
-	await act(async () => root.render(element));
+	await act(async () => root.render(<InteractionLayersProvider>{element}</InteractionLayersProvider>));
 	return { host, root };
 }
 afterEach(async () => {
@@ -95,16 +107,16 @@ describe("split dialogs and overlays", () => {
 		const overlay = () => document.querySelector('[data-testid="chain-table-overlay"]');
 		const { host, root } = await mount(view(false));
 		assert.equal(host.innerHTML, "");
-		await act(async () => root.render(view(true)));
+		await act(async () => root.render(<InteractionLayersProvider>{view(true)}</InteractionLayersProvider>));
 		await act(async () => {});
 		assert.ok(overlay());
 		const sortName = () => host.querySelector<HTMLElement>('[data-testid="sort-name"]')!;
 		assert.equal(sortName().getAttribute("aria-sort"), "ascending");
 		await act(async () => sortName().click());
 		assert.equal(sortName().getAttribute("aria-sort"), "descending");
-		await act(async () => root.render(view(false)));
+		await act(async () => root.render(<InteractionLayersProvider>{view(false)}</InteractionLayersProvider>));
 		assertSameNode(overlay(), null);
-		await act(async () => root.render(view(true)));
+		await act(async () => root.render(<InteractionLayersProvider>{view(true)}</InteractionLayersProvider>));
 		assert.ok(overlay(), "a reopen renders on the first frame");
 		assert.equal(sortName().getAttribute("aria-sort"), "descending", "the table's state survives closing");
 	});

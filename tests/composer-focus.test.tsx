@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, it } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
+import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
 import { parseHTML } from "linkedom";
 
 // Focus that falls back to the page's composer lands with the caret at the
@@ -14,11 +15,18 @@ const dom = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, {
 	window: dom.window, document: dom.document, Element: dom.window.Element, HTMLElement: dom.window.HTMLElement,
 	HTMLInputElement: dom.window.HTMLInputElement, Node: dom.window.Node, CustomEvent: dom.window.CustomEvent,
+	MutationObserver: dom.window.MutationObserver, NodeFilter: { SHOW_ELEMENT: 1, FILTER_ACCEPT: 1, FILTER_SKIP: 3 },
 	IS_REACT_ACT_ENVIRONMENT: true,
 	requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0),
 	cancelAnimationFrame: (id: number) => clearTimeout(id),
 });
 Object.assign(dom.window, { innerWidth: 1280, innerHeight: 800 });
+// HostDialog's scroll lock and focus trap read styles; linkedom has no layout.
+Object.assign(dom.window, { getComputedStyle: (element: HTMLElement) => ({
+	display: element.style.display || "block", visibility: element.style.visibility || "visible",
+	paddingLeft: "0px", paddingRight: "0px", marginLeft: "0px", marginRight: "0px", borderLeftWidth: "0px", borderRightWidth: "0px",
+	getPropertyValue: () => "",
+}) });
 dom.window.HTMLElement.prototype.scrollIntoView = () => {};
 Object.assign(dom.window.HTMLElement.prototype, { select() {} });
 
@@ -107,7 +115,7 @@ it("saving setup hands focus to the composer, caret at the end", async () => {
 		const [open, setOpen] = React.useState(true);
 		return <SetupDialog open={open} onClose={() => setOpen(false)} onDone={() => setOpen(false)} />;
 	}
-	await act(async () => { root!.render(<Harness />); });
+	await act(async () => { root!.render(<InteractionLayersProvider><Harness /></InteractionLayersProvider>); });
 	await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
 	const save = document.querySelector<HTMLButtonElement>('[data-testid="setup-save"]');
 	assert.ok(save && !save.disabled, "the prefilled slots can be saved");
@@ -135,7 +143,7 @@ it("closing the header rename by key hands focus back to the composer", async ()
 	document.body.append(host);
 	hosts.push(host);
 	root = createRoot(host);
-	await act(async () => { root!.render(<Title />); });
+	await act(async () => { root!.render(<InteractionLayersProvider><Title /></InteractionLayersProvider>); });
 	for (const key of ["Enter", "Escape"]) {
 		await act(async () => { window.dispatchEvent(new dom.window.CustomEvent("lh:kbd-rename-session")); });
 		const input = host.querySelector("input")!;
@@ -184,7 +192,7 @@ it("a failed header rename keeps the field open with the typed name and says so"
 	};
 	const open = () => act(async () => { window.dispatchEvent(new dom.window.CustomEvent("lh:kbd-rename-session")); });
 	try {
-		await act(async () => { root!.render(<Title />); });
+		await act(async () => { root!.render(<InteractionLayersProvider><Title /></InteractionLayersProvider>); });
 		await open();
 		await press("Enter");
 		const input = host.querySelector("input");

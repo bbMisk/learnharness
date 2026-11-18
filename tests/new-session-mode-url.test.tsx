@@ -19,6 +19,7 @@ Object.assign(dom.window, { history: { replaceState: (_: unknown, __: string, hr
 const { AppRouterContext } = await import("next/dist/shared/lib/app-router-context.shared-runtime.js");
 const { SearchParamsContext } = await import("next/dist/shared/lib/hooks-client-context.shared-runtime.js");
 const { createRoot } = await import("react-dom/client");
+const { InteractionLayersProvider } = await import("../components/interaction-layers.tsx");
 const { NewSession } = await import("../components/new-session.tsx");
 
 /** The draft's in-page mode switch writes the URL, so the sidebar's
@@ -31,9 +32,9 @@ it("the draft's mode switch writes ?mode= to the URL", async () => {
 	const root = createRoot(host);
 	try {
 		await act(async () => root.render(
-			<AppRouterContext.Provider value={router as never}>
+			<InteractionLayersProvider><AppRouterContext.Provider value={router as never}>
 				<NewSession initialConfigured projectId="p1" />
-			</AppRouterContext.Provider>,
+			</AppRouterContext.Provider></InteractionLayersProvider>,
 		));
 		const chip = (m: string) => host.querySelector(`[data-testid="draft-mode-${m}"]`) as HTMLButtonElement;
 		await act(async () => chip("practice").click());
@@ -53,11 +54,11 @@ it("the mode follows ?mode= after a chip click, so a push to /chat/new resets it
 	document.body.append(host);
 	const root = createRoot(host);
 	const at = (query: string) => root.render(
-		<AppRouterContext.Provider value={router as never}>
+		<InteractionLayersProvider><AppRouterContext.Provider value={router as never}>
 			<SearchParamsContext.Provider value={new URLSearchParams(query) as never}>
 				<NewSession initialConfigured mode="teach" />
 			</SearchParamsContext.Provider>
-		</AppRouterContext.Provider>,
+		</AppRouterContext.Provider></InteractionLayersProvider>,
 	);
 	const chip = (m: string) => host.querySelector(`[data-testid="draft-mode-${m}"]`) as HTMLButtonElement;
 	const pressed = () => ["teach", "practice", "cram"].find((m) => chip(m).getAttribute("aria-pressed") === "true");

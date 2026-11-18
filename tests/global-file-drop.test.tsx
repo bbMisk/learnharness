@@ -10,7 +10,7 @@ afterEach(async () => { await cleanup?.(); cleanup = undefined; });
 
 /** linkedom has no layout, DataTransfer or hit testing. These shims let the
  * real window-level GlobalFileDrop listeners and useFileDrop targets run. */
-async function fixture({ desktop = true, fields = true } = {}) {
+async function fixture({ desktop = true, fields = true, layers = false } = {}) {
 	const { window: win, document: doc } = parseHTML("<html><body><aside data-testid='sidebar'>Sidebar</aside><div id='root'></div></body></html>");
 	let underPointer: Element[] = [];
 	let laidOut = true;
@@ -41,6 +41,7 @@ async function fixture({ desktop = true, fields = true } = {}) {
 	const { GlobalFileDrop } = await import("../components/global-file-drop.tsx");
 	const { useFileDrop } = await import("../components/file-drop.ts");
 	const { FileDropFeedback } = await import("../components/file-drop-feedback.tsx");
+	const { InteractionLayersProvider, useInteractionLayer } = await import("../components/interaction-layers.tsx");
 	const drafts: Record<string, string> = { message: "", thinking: "" };
 	function Field({ name, priority }: { name: string; priority: number }) {
 		const [value, setValue] = useState("");
@@ -50,11 +51,29 @@ async function fixture({ desktop = true, fields = true } = {}) {
 			<FileDropFeedback files={files} />
 		</div>;
 	}
-	const root = createRoot(doc.getElementById("root")!);
-	await act(async () => root.render(<>
+	/** A session plugin view over the chat (the plugin surface shell's layer):
+	 * a plain plugin composer with file insertion off, or a drop field of its own. */
+	let setView: (next: "closed" | "plain" | "field") => void = () => {};
+	function PluginView() {
+		const [view, set] = useState<"closed" | "plain" | "field">("closed");
+		setView = set;
+		return view === "closed" ? null : <ViewLayer field={view === "field"} />;
+	}
+	function ViewLayer({ field }: { field: boolean }) {
+		const rootRef = React.useRef<HTMLDivElement>(null);
+		useInteractionLayer({ kind: "view", enabled: true, rootRef });
+		return <div ref={rootRef} data-testid="plugin-view">
+			<textarea data-testid="plugin-composer" />
+			{field && <Field name="plugin" priority={5} />}
+		</div>;
+	}
+	const tree = <>
 		<GlobalFileDrop />
 		{fields && <><Field name="message" priority={10} /><Field name="thinking" priority={30} /></>}
-	</>));
+		{layers && <PluginView />}
+	</>;
+	const root = createRoot(doc.getElementById("root")!);
+	await act(async () => root.render(layers ? <InteractionLayersProvider>{tree}</InteractionLayersProvider> : tree));
 	cleanup = async () => {
 		await act(async () => root.unmount());
 		for (const [name, descriptor] of previous) {
@@ -87,7 +106,8 @@ async function fixture({ desktop = true, fields = true } = {}) {
 		input: (name: string) => doc.querySelector<HTMLElement>(`[data-testid="${name}-input"]`)!,
 		// Focus enters the field's wrapper, which owns onFocusCapture.
 		focus: async (name: string) => act(async () => { doc.querySelector(`[data-testid="${name}"]`)!.dispatchEvent(new win.Event("focusin", { bubbles: true })); }),
-		pointAt: (element: Element | null) => { underPointer = element ? [element] : []; },
+		pointAt: (...elements: (Element | null)[]) => { underPointer = elements.filter((element): element is Element => !!element); },
+		openView: (next: "closed" | "plain" | "field") => act(async () => setView(next)),
 		setLaidOut: (next: boolean) => { laidOut = next; },
 		get overlay() { return doc.querySelector('[data-testid="app-file-drop-overlay"]')?.textContent ?? null; },
 		get alert() { return doc.querySelector('[role="alert"]')?.textContent ?? ""; },
@@ -232,5 +252,30 @@ test("a dropped folder attaches its own path once with a trailing separator; unk
 	];
 	await f.event("drop", { ...f.transfer([folder, plain, unknown]), items });
 	assert.equal(f.drafts.message, ["/actual/course/", "/actual/README", "/actual/unknown"].map((p) => JSON.stringify(p)).join("\n"));
+	f.assertPathOnly();
+});
+
+test("a plugin view over a chat owns the drop: the covered chat fields never receive it, by pointer or by focus", async () => {
+	const f = await fixture({ layers: true });
+	await f.focus("message");
+	await f.openView("plain");
+	// The shield looks through the plugin's own composer (file insertion off)
+	// to the chat composer painted underneath it.
+	f.pointAt(f.doc.querySelector('[data-testid="plugin-composer"]'), f.input("message"));
+	await f.event("dragenter", f.transfer([f.file("a.pdf", "/existing/a.pdf")]));
+	assert.equal(f.overlay, "Add files to a chat", "the covered chat is never offered as the destination");
+	await f.event("drop", f.transfer([f.file("a.pdf", "/existing/a.pdf")]));
+	f.pointAt(null);
+	await f.event("drop", f.transfer([f.file("b.pdf", "/existing/b.pdf")]));
+	assert.deepEqual({ ...f.drafts }, { message: "", thinking: "" }, "neither the pointer nor the focused/priority fallback reaches the hidden chat");
+	assert.match(f.alert, /Open a chat or project to add files\./);
+	await f.openView("field");
+	f.pointAt(f.doc.querySelector('[data-testid="plugin-composer"]'), f.input("message"));
+	await f.event("drop", f.transfer([f.file("c.pdf", "/existing/c.pdf")]));
+	assert.equal(f.drafts.plugin, '"/existing/c.pdf"', "a drop field inside the foreground view still receives the fallback drop");
+	assert.deepEqual([f.drafts.message, f.drafts.thinking], ["", ""]);
+	await f.openView("closed");
+	await f.event("drop", f.transfer([f.file("d.pdf", "/existing/d.pdf")]));
+	assert.equal(f.drafts.message, '"/existing/d.pdf"', "once the view closes the chat owns the drop again");
 	f.assertPathOnly();
 });

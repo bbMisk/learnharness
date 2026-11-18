@@ -1,4 +1,3 @@
-import { readReviewArchive } from "../store/review.ts";
 import { chatStore, captureChatLearningHistory } from "../store/chats.ts";
 import { graphStore } from "../store/graph.ts";
 import { getGraph } from "../core/graph.ts";
@@ -8,14 +7,7 @@ import { mergeLearningEvents } from "../core/learning-history.ts";
 export function learningHistory(chatId?: string | null) {
 	const records = chatId ? [chatStore.getChat(chatId)] : chatStore.listChats().map((chat) => chatStore.getChat(chat.id));
 	if (chatId && !records[0]) return null;
-	let flashcards: unknown;
-	try {
-		flashcards = readReviewArchive();
-	} catch (error) {
-		flashcards = { error: error instanceof Error ? error.message : "Flashcard archive could not be read; it has not been reset." };
-	}
 	return {
-		flashcards,
 		version: 1,
 		exportedAt: new Date().toISOString(),
 		timestampSource: "Native message timestamps; not measured viewing or active study time.",

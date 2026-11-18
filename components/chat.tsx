@@ -1,13 +1,31 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { useChatSession } from "@/components/session";
+import { usePlugins } from "@/components/plugins";
+import { PluginSubmissionRunner, SubmissionModelEpoch, type SubmissionAttempt } from "@/components/plugin-submission-runner";
+import { submissionImages, type BuiltinSubmissionCapture, type PrepareBuiltinSubmission, type PrepareThinkingSubmission, type PreparePluginQuestionSubmission, type PreparePluginProblemSubmission } from "@/components/plugin-submission-adapters";
+import { usePageSurfaceBoundary, SurfaceRegion } from "@/components/plugin-surfaces";
+import { findSurfaceBoundary } from "@/components/plugin-surface-targets";
+import { scheduleOpeningSubmission } from "@/components/plugin-submission-opening";
+import { capturePluginQuestionDismissal, confirmPluginQuestionDismissal, type PluginQuestionDismissalTarget } from "@/components/plugin-question-dismissal";
+import { PluginSessionTopBarActions } from "@/components/plugin-chrome";
+import { usePluginShortcutPage } from "@/components/plugin-shortcuts";
+import type { SessionInputViewReader } from "@/components/session-view-readers";
+import { useOptionalInteractionLayers } from "@/components/interaction-layers";
+import { isInteractionScopeEligible } from "@/components/plugin-input-focus";
+import { SelectionToolbar } from "@/components/selection-toolbar";
+import { createCiteAction, type CitationEditTarget } from "@/components/citation-actions";
+import { CitationActionsContext, type CitationActions } from "@/components/citation-chip";
+import { CitationCommentPopover } from "@/components/citation-comment-popover";
+import { revealCitationSource } from "@/components/citation-source";
 import { visibleQueuedSteers } from "@/components/session-core";
 import { SetupDialog } from "@/components/setup-dialog-lazy";
 import { ChatActionsContext } from "@/components/chat-actions";
 import { Hint } from "@/components/ui/hint";
 import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
-import type { StickToBottomContext } from "use-stick-to-bottom";
+import { useStickToBottomContext, type StickToBottomContext } from "use-stick-to-bottom";
 import {
 	Conversation,
 	ConversationContent,
@@ -21,8 +39,7 @@ import { useEnterSubmits } from "@/components/enter-submits";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { clearOpeningPrompt, readOpeningPromptEntry, stashOpeningPrompt, OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { SessionStarter, startWeakSpotsPractice } from "@/components/start-session";
-import { useRouter } from "next/navigation";
-import { DictationBar, joinDictation, useDictation } from "@/components/dictation";
+import { DictationBar, finishDictation, joinDictation, useDictation, type Dictation } from "@/components/dictation";
 import { useFieldCycle } from "@/components/field-cycle";
 import { JobsContext, JobsFeedIdleContext } from "@/components/jobs-context";
 import { useServerDown, useServerEvent, useServerResync } from "@/components/server-events";
@@ -31,6 +48,19 @@ import {
 	capName,
 	cliContextWindowOf,
 	kbdEventForAction as kbdEventForChat,
+	activeProblemOccurrenceOf,
+	buildAnswer,
+	toClientQuestion,
+	validatePluginBuiltinSubmissionAnswer,
+	pendingPluginQuestionOf,
+	pluginQuestionCallsOf,
+	pluginQuestionOccurrenceKey,
+	practiceProblemForCall,
+	createPluginSessionActionContext,
+	type PluginSessionViewInput,
+	type PluginSubmission,
+	type PluginSubmissionTarget,
+	type QuestionData,
 	type ChatInput,
 	type EnabledTools,
 	type LhMessage,
@@ -39,7 +69,7 @@ import {
 } from "@/src/core";
 import { PlanPopup, latestTree } from "@/components/plan-block";
 import { PlanMarginalia, planExists } from "@/components/plan-window";
-import { MermaidOverlay, SessionOverlayContext } from "@/components/session-overlay";
+import { MermaidOverlay, SessionOverlayContext, type SessionImage } from "@/components/session-overlay";
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
 import { DumbbellIcon, MessageCircleQuestionIcon, WaypointsIcon } from "lucide-react";
 import { SessionFind } from "@/components/session-find";
@@ -141,6 +171,17 @@ export function isNetworkFailure(message: string): boolean {
 	return /^(Failed to fetch|Load failed|NetworkError when attempting to fetch resource\.?)$/.test(message);
 }
 
+/** One immediate optimistic placeholder; only its wording changes during
+ * host-managed submission evaluation. The spinner keeps its identity. */
+export function PendingTurnIndicator({ evaluating }: { evaluating: boolean }) {
+	return (
+		<span className="flex items-center gap-2 font-ui text-xs font-medium uppercase tracking-wide text-muted-foreground">
+			<BrailleSpinner label={evaluating ? "Evaluating" : "Thinking"} />
+			<Shimmer duration={1}>{evaluating ? "EVALUATING…" : "THINKING…"}</Shimmer>
+		</span>
+	);
+}
+
 /** Keep a rejected prompt even when the learner has already started another draft. */
 export function restoreInterruptedDraft(current: string, rejected: string): string {
 	return current ? `${current}\n\n${rejected}` : rejected;
@@ -208,11 +249,56 @@ export function Chat({
 	// client-side (core/view.ts projectView); each send is one explicit input
 	// event ({chatId, input}); the turn stream is the server's AgentEvent
 	// passthrough.
-	const { messages, nativeMessages, hasConfirmedConversation, contextTokens, lessonTracking: tracking, tutorPin, send, continueIfOwed, steer, steerQueue, submitAnswer, dismissQuestion, dismissProblem, questionDraft, saveQuestionDraft, setMessages, adoptRecord, status, error, abortTurn, clearError, resumeStream, setReattachSettled } =
+	const { canonicalMessages, reconciliation, reconcile, pluginQuestionAvailability, pluginQuestionDraft, pluginProblemAvailability, pluginProblemDraft, dismissPluginQuestion, readRecord, messages, nativeMessages, hasConfirmedConversation, contextTokens, lessonTracking: tracking, tutorPin, send, continueIfOwed, steer, steerQueue, submitAnswer, dismissQuestion, dismissProblem, questionDraft, saveQuestionDraft, status, evaluating, error, stop, abortTurn, clearError, resumeStream, setReattachSettled } =
 		useChatSession({ chatId, initialMessages, initialError, initiallyInFlight });
 
+	const controller = useOptionalInteractionLayers();
 	const sessionFindScopeRef = useRef<HTMLDivElement | null>(null);
 	const scrollContextRef = useRef<StickToBottomContext | null>(null);
+
+	// ── The plugin submission seam ──
+	// Every learner submission (text, a check answer, practice thinking, a
+	// plugin question or problem) runs through one runner: plugin
+	// interceptors may prepare it first, and the delivery only goes out while
+	// this page's surface is still the one the learner acted on.
+	const pathname = usePathname();
+	const surfaceTarget = usePageSurfaceBoundary({ active: pathname === `/chat/${encodeURIComponent(chatId)}`, viewKey: chatId, bodyRef: sessionFindScopeRef });
+	const { manager: pluginManager } = usePlugins();
+	const [, submissionChanged] = useState(0);
+	const [preparationError, setPreparationError] = useState<string>();
+	const [submissionRunner] = useState(() => new PluginSubmissionRunner(() => submissionChanged(n => n + 1)));
+	const [submissionModel] = useState(() => new SubmissionModelEpoch());
+	const submissionMounted = useRef(true);
+	useEffect(() => { submissionMounted.current = true; return () => { submissionMounted.current = false; submissionRunner.dispose(); }; }, [submissionRunner]);
+	useEffect(() => () => submissionRunner.dispose(), [surfaceTarget, submissionRunner]);
+	// A plain object, not useRef: it carries a `changed` hook too, and a
+	// dev-mode server-rendered ref object is sealed.
+	const [inputViewReader] = useState<SessionInputViewReader>(() => ({ current: null }));
+	const refreshPluginActions = useRef<(() => void) | null>(null);
+	const notifyViewChanged = useCallback(() => { if (submissionMounted.current) refreshPluginActions.current?.(); }, []);
+	inputViewReader.changed = notifyViewChanged;
+	const submissionLive = useRef({ nativeMessages, surfaceTarget, ready: true });
+	submissionLive.current = { nativeMessages, surfaceTarget, ready: true };
+	const runSubmission = async (target: PluginSubmissionTarget, capture: () => PluginSubmission | Promise<PluginSubmission>, current: () => boolean, deliver: (prepared: PluginSubmission, attempt: SubmissionAttempt) => Promise<boolean>): Promise<boolean> => {
+		const modelRevision = submissionModel.capture();
+		const attempt = submissionRunner.begin(target, pluginManager?.captureSubmissionInterceptors() ?? [], () => submissionMounted.current && submissionModel.isCurrent(modelRevision) && submissionLive.current.surfaceTarget === target.surfaceTarget && !!findSurfaceBoundary(target.surfaceTarget) && current());
+		if (!attempt) return false;
+		setPreparationError(undefined);
+		try {
+			// Finish dictation first: a learner who talks right through Enter
+			// must not lose the tail.
+			const input = await attempt.finalize(async () => { await finishDictation(); return capture(); });
+			const prepared = await attempt.prepare(input, submissionLive.current.nativeMessages);
+			if (!prepared) return false;
+			attempt.check();
+			return await deliver(prepared, attempt);
+		} catch (error) {
+			attempt.cancel(); attempt.refused();
+			if (!(error instanceof DOMException && error.name === "AbortError")) setPreparationError(attempt.preparationFailure(error).message);
+			return false;
+		}
+	};
+	const textTarget = (): Extract<PluginSubmissionTarget, { type: "text" }> | undefined => surfaceTarget ? { type: "text", sessionId: chatId, sessionKind: kind === "practice" ? "practice" : "teaching", surfaceTarget, channels: ["content"] } : undefined;
 
 	// The reattach settled terminal → the sync-and-continue seam (below).
 	setReattachSettled(() => reattachSettledRef.current());
@@ -225,7 +311,7 @@ export function Chat({
 	// or turn-settled arrives.
 	const [turnInFlight, setTurnInFlight] = useState(initiallyInFlight ?? false);
 
-	const { titleText, renaming, setRenaming, titleDraft, setTitleDraft, titleInputRef, commitRename, renameError } = useSessionRename(chatId, title);
+	const { titleText, renaming, setRenaming, titleDraft, setTitleDraft, titleInputRef, commitRename, renameError } = useSessionRename(chatId, title, sessionFindScopeRef);
 
 	// Explicit Stop shares the pending-send fence with composer interruptions.
 	const abortInFlightTurn = useCallback(() => { void abortTurn(); }, [abortTurn]);
@@ -240,8 +326,15 @@ export function Chat({
 	// The pinned demo/diagram's Esc inputs (assigned once the pin hook runs, below).
 	const pinEscRef = useRef<ReturnType<typeof usePinnedVisual> | null>(null);
 	const checkEscRef = useRef<(() => void) | null>(null);
+	// A plugin question's dismissal identity, captured when the confirm opens.
+	const pluginAbortTarget = useRef<PluginQuestionDismissalTarget | null>(null);
+	const pluginDismissal = useRef({ canonicalMessages, reconciliation, stop, dismissPluginQuestion });
+	pluginDismissal.current = { canonicalMessages, reconciliation, stop, dismissPluginQuestion };
+	const closeAbortAsk = useCallback(() => { pluginAbortTarget.current = null; setAbortAsk(null); }, []);
 	useEffect(() => {
 		const onAbort = () => {
+			if (!isInteractionScopeEligible(sessionFindScopeRef.current, controller)) return;
+			const pluginQuestion = capturePluginQuestionDismissal(pluginDismissal.current.canonicalMessages);
 			const pinned = pinEscRef.current;
 			const target = escAbortTarget({
 				abortAsk: abortAskRef.current !== null,
@@ -251,11 +344,11 @@ export function Chat({
 				checkOpen: checkEscRef.current !== null,
 				planOpen: planOpenRef.current,
 				setupOpen: setupOpenRef.current,
-				pending: pendingRef.current !== null,
+				pending: pendingRef.current !== null || pluginQuestion !== null,
 				problem: activeProblemRef.current !== null,
 				busy: busyRef.current,
 			});
-			if (target === "question") setAbortAsk("question");
+			if (target === "question") { pluginAbortTarget.current = pluginQuestion; setAbortAsk("question"); }
 			else if (target === "problem") setAbortAsk("problem");
 			else if (target === "turn") setAbortAsk("turn");
 			else if (target === "mermaid") setMermaidFocus(null);
@@ -267,10 +360,15 @@ export function Chat({
 		};
 		window.addEventListener("lh:kbd-abort-turn", onAbort);
 		return () => window.removeEventListener("lh:kbd-abort-turn", onAbort);
-	}, []);
+	}, [controller]);
 	const confirmAbort = useCallback(
 		(mode: AbortMode) => {
-			setAbortAsk(null);
+			const pluginQuestion = pluginAbortTarget.current;
+			closeAbortAsk();
+			if (mode === "question" && pluginQuestion) {
+				confirmPluginQuestionDismissal(pluginQuestion, pluginDismissal.current);
+				return;
+			}
 			if (mode === "turn") {
 				abortInFlightTurn();
 				return;
@@ -303,7 +401,7 @@ export function Chat({
 				if (busyRef.current) abortInFlightTurn();
 			}
 		},
-		[abortInFlightTurn, dismissQuestion, dismissProblem],
+		[abortInFlightTurn, dismissQuestion, dismissProblem, closeAbortAsk],
 	);
 	// Mount continuation: if the stored transcript ends with a fulfilled tool
 	// (a job result landed while no client was open), resume the lesson. Once
@@ -318,6 +416,20 @@ export function Chat({
 		// mount-only by design (turnInFlight read at initial value)
 	}, []);
 
+	const pendingPlugin = pendingPluginQuestionOf(canonicalMessages);
+	const unreadablePlugin = pluginQuestionCallsOf(canonicalMessages).find(call => call.status === "unreadable");
+	const pluginOwnsDock = !!pendingPlugin || !!unreadablePlugin;
+	const [pluginMicAvailable, setPluginMicAvailable] = useState(false);
+	const pluginProblemIdentity = activeProblemOf(canonicalMessages)?.pluginProblem?.problemId;
+	const pluginCanonicalIdentity = pendingPlugin?.questionId ?? (unreadablePlugin ? pluginQuestionOccurrenceKey(unreadablePlugin.occurrence) : pluginProblemIdentity ?? null);
+	useEffect(() => {
+		// Effect reconnection (including StrictMode replay) must renew the
+		// canonical read; a retained identity ref cannot certify a connection.
+		if (pluginCanonicalIdentity) void reconcile();
+	}, [pluginCanonicalIdentity, reconcile]);
+	useServerEvent("plugins-changed", () => {
+		if ((pluginOwnsDock || pluginProblemIdentity) && status !== "submitted" && status !== "streaming") void reconcile();
+	});
 	const pending = findPendingToolCall(messages, pendingQuestionOf(nativeMessages));
 	const malformedQuestions = useMemo(() => malformedQuestionsOf(nativeMessages), [nativeMessages]);
 	// The abort handler reads the pending question from a ref (the window
@@ -329,11 +441,12 @@ export function Chat({
 	// replaces the composer). Read from the native record, the same fold the
 	// tools gate on, not the projected view.
 	const activeProblem = activeProblemOf(nativeMessages);
+	const activeProblemOccurrence = activeProblemOccurrenceOf(nativeMessages);
 	const activeProblemRef = useRef(activeProblem);
 	activeProblemRef.current = activeProblem;
 
 	const localStream = status === "submitted" || status === "streaming";
-	const busy = localStream || turnInFlight;
+	const busy = localStream || turnInFlight || reconciliation !== "ready";
 	const busyRef = useRef(busy);
 	busyRef.current = busy;
 	// The full record refresh's freshness snapshot (record-sync.ts).
@@ -378,7 +491,10 @@ export function Chat({
 	// in cram mode (the default), always, or never. The
 	// session's current phase IS the pending question's phase (the
 	// teacher's turn ends at the question call).
-	const teachingCheck = pending !== null && isTeachingCheck(pending.tool, pending.input, phaseAt3(messages));
+	// A plugin-posed teach check follows the same rules as a built-in one.
+	const teachingCheck = pendingPlugin
+		? pendingPlugin.variant === "teach" && pendingPlugin.input.type === "check"
+		: pending !== null && isTeachingCheck(pending.tool, pending.input, phaseAt3(messages));
 	// Cram is chat metadata another window can switch: re-read on
 	// chats-changed and reconnects, newest confirmed value first.
 	const { cram, begin: beginCramSave } = useLessonCram(chatId, style === "cram");
@@ -402,10 +518,12 @@ export function Chat({
 	// ⌘T (toggle-user-thinking): sets every user thinking row to one state.
 	// Rows default open, so the first press collapses all, the second expands.
 	useEffect(() => {
-		const onToggle = () => setAllUserThinkingOpen(!currentUserThinkingOpen());
+		const onToggle = () => {
+			if (isInteractionScopeEligible(sessionFindScopeRef.current, controller)) setAllUserThinkingOpen(!currentUserThinkingOpen());
+		};
 		window.addEventListener(kbdEventForChat("toggle-user-thinking"), onToggle);
 		return () => window.removeEventListener(kbdEventForChat("toggle-user-thinking"), onToggle);
-	}, []);
+	}, [controller]);
 	const pendingKeyRef = useRef<string | null>(null);
 	pendingKeyRef.current = pending?.key ?? null;
 	const applyReadingThinking = useCallback((v: string) => {
@@ -416,18 +534,18 @@ export function Chat({
 		readingThinkingRef.current = "";
 		setReadingThinkingSeed((previous) => ({ ...previous, value: "", revision: previous.revision + 1 }));
 	}, []);
-	const pendingQuestionId = pending?.key ?? null;
+	const pendingQuestionId = pendingPlugin ? pluginQuestionOccurrenceKey(pendingPlugin.occurrence) : pending?.key ?? null;
 	useLayoutEffect(() => {
 		// Different calls never share a draft; a failed submission of THIS
 		// call restores the reading channel alongside the form's snapshot.
-		const value = pendingQuestionId ? questionDraft(pendingQuestionId)?.readingThinking ?? "" : "";
+		const value = pendingPlugin ? pluginQuestionDraft(pendingPlugin).readingThinking : pendingQuestionId ? questionDraft(pendingQuestionId)?.readingThinking ?? "" : "";
 		readingThinkingRef.current = value;
 		setReadingThinkingSeed((previous) =>
 			previous.questionId === pendingQuestionId && previous.value === value
 				? previous
 				: { questionId: pendingQuestionId, value, revision: previous.revision + 1 },
 		);
-	}, [pendingQuestionId, questionDraft]);
+	}, [pendingQuestionId, questionDraft, pluginQuestionDraft]);
 
 	// The phase at every message (one linear fold): the transcript draws a
 	// color-coded dotted divider at each boundary; the header chip reads the
@@ -441,6 +559,9 @@ export function Chat({
 	 * resets still bump a revision so the local field can sync. The draft
 	 * autosaves per chat (components/draft-store.ts). */
 	const textRef = useRef("");
+	// Bumped on every edit: an accepted send clears the composer only if the
+	// learner has not typed since the text was captured.
+	const composerEditRevision = useRef(0);
 	const composerDraftKey = `c:${chatId}`;
 	useLayoutEffect(() => {
 		const saved = readDraft<string>(composerDraftKey);
@@ -450,12 +571,12 @@ export function Chat({
 		}
 	}, [composerDraftKey]);
 	const applyText = useCallback((v: string) => {
-		textRef.current = v;
+		textRef.current = v; composerEditRevision.current++;
 		writeDraft(composerDraftKey, v);
 		setComposerDraftRevision((revision) => revision + 1);
 	}, [composerDraftKey]);
 	const recordComposerText = useCallback((v: string) => {
-		textRef.current = v;
+		textRef.current = v; composerEditRevision.current++;
 		writeDraft(composerDraftKey, v);
 	}, [composerDraftKey]);
 	// Saved slot completeness is live, but the session's selected route
@@ -466,6 +587,7 @@ export function Chat({
 	const catalogRef = useRef(catalog);
 	catalogRef.current = catalog;
 	const [selectedModel, setSelectedModel] = useState<string | undefined>();
+	const recordSelectedModel = useCallback((model: string | undefined) => { submissionModel.observe(model); setSelectedModel(model); }, [submissionModel]);
 	const settingsRefreshError = useReadingThinkingRefresh(setShowReadingThinking);
 	const [setupOpen, setSetupOpen] = useState(false);
 	/** The last explicitly-sent composer draft: the refusal flow restores it
@@ -481,7 +603,135 @@ export function Chat({
 		return () => { openingMountedRef.current = false; };
 	}, []);
 
-	const deliverOpeningPrompt = useCallback((prompt: string) => {
+	const builtinTarget = (question: QuestionData): Extract<PluginSubmissionTarget, { type: "answer" }> | undefined => {
+		if (!surfaceTarget || !pending) return;
+		return { type: "answer", sessionId: chatId, sessionKind: kind === "practice" ? "practice" : "teaching", surfaceTarget,
+			// The reading notes ride every teach check (the field shows per
+			// Settings, the reveal is separate: requiresReveal).
+			channels: ["answer", "thinking", ...(teachingCheck ? ["readingThinking" as const] : [])],
+			question: { ...toClientQuestion(question), occurrence: { messageId: pending.messageId, contentIndex: pending.contentIndex, toolCallId: pending.toolCallId, toolName: pending.tool }, ...(question.questionType ? { questionType: question.questionType } : {}) },
+		};
+	};
+	const prepareBuiltin: PrepareBuiltinSubmission = ({ question, capture, isCurrent }: BuiltinSubmissionCapture) => {
+		const target = builtinTarget(question), original = pending;
+		if (!target || !original || busyRef.current || compacting) return;
+		void runSubmission(target, () => {
+			const raw = capture();
+			saveQuestionDraft(original.key, { readingThinking: readingThinkingRef.current });
+			return { type: "answer", answer: {
+				...(raw.dontKnow !== undefined ? { dontKnow: raw.dontKnow } : {}), ...(raw.values !== undefined ? { values: raw.values } : {}),
+				...(raw.other !== undefined ? { other: raw.other } : {}), ...(raw.text !== undefined ? { text: raw.text } : {}),
+				...(raw.confidence !== undefined ? { confidence: raw.confidence } : {}), images: [],
+			}, thinking: { text: raw.thinking ?? "", images: [] }, readingThinking: { text: teachingCheck ? readingThinkingRef.current : "", images: [] } };
+		}, () => {
+			const now = pendingQuestionOf(submissionLive.current.nativeMessages);
+			return isCurrent() && !busyRef.current && now?.messageId === original.messageId && now.contentIndex === original.contentIndex && now.toolCallId === original.toolCallId && now.tool === original.tool;
+		}, async (prepared, attempt) => {
+			if (prepared.type !== "answer") return false;
+			const raw = validatePluginBuiltinSubmissionAnswer(question, prepared.answer);
+			const answer = buildAnswer(question, { ...raw, ...(prepared.thinking.text ? { thinking: prepared.thinking.text } : {}), ...(teachingCheck && prepared.readingThinking.text ? { readingThinking: prepared.readingThinking.text } : {}) }, original.tool);
+			const images = submissionImages(prepared, target.channels);
+			// Save newer native edits without changing the prepared payload.
+			capture(); saveQuestionDraft(original.key, { readingThinking: readingThinkingRef.current });
+			attempt.deliver();
+			return send({ type: "answer", toolCallId: original.toolCallId, occurrence: target.question.occurrence, answer: { ...answer, ...(images ? { images } : {}) } }, attempt.accepted, original.key, attempt.refused);
+		});
+	};
+	const thinkingTarget = (): Extract<PluginSubmissionTarget, { type: "thinking" }> | undefined => {
+		const occurrence = activeProblemOccurrenceOf(nativeMessages);
+		if (!surfaceTarget || !activeProblem || activeProblem.pluginProblem || !occurrence) return;
+		return { type: "thinking", sessionId: chatId, sessionKind: kind === "practice" ? "practice" : "teaching", surfaceTarget, channels: ["content"], problem: { occurrence, statement: (activeProblem.input as { statement: string }).statement } };
+	};
+	const prepareThinking: PrepareThinkingSubmission = (capture, clear) => {
+		const target = thinkingTarget();
+		if (!target || busyRef.current || compacting) return;
+		let captured = "";
+		void runSubmission(target, () => ({ type: "thinking", content: { text: captured = capture(), images: [] } }), () => !busyRef.current && JSON.stringify(activeProblemOccurrenceOf(submissionLive.current.nativeMessages)) === JSON.stringify(target.problem.occurrence), async (prepared, attempt) => {
+			if (prepared.type !== "thinking") return false;
+			if (!prepared.content.text.trim() && !prepared.content.images.length) throw new Error("Thinking text or images are required. Your input has been kept.");
+			attempt.deliver();
+			return send({ type: "thinking", problemCallId: target.problem.occurrence.toolCallId, occurrence: target.problem.occurrence, text: prepared.content.text, ...(prepared.content.images.length ? { images: prepared.content.images.map(image => ({ ...image })) } : {}) }, () => { clear(captured); attempt.accepted(); }, undefined, attempt.refused);
+		});
+	};
+	const pluginProblemTarget = (): Extract<PluginSubmissionTarget, { type: "plugin-problem-submission" }> | undefined => {
+		const original = activeProblem?.pluginProblem, occurrence = activeProblemOccurrence;
+		if (!surfaceTarget || !original || !occurrence) return;
+		return { type: "plugin-problem-submission", sessionId: chatId, sessionKind: "practice", surfaceTarget,
+			channels: ["submission", "thinking"], problem: { problemId: original.problemId, occurrence, pluginId: original.pluginId, typeId: original.typeId, contractVersion: original.contractVersion, label: original.label, statement: original.input.statement } };
+	};
+	const preparePluginProblem: PreparePluginProblemSubmission = (capture, isCurrent, onAccepted) => {
+		const original = activeProblem?.pluginProblem, occurrence = activeProblemOccurrence, target = pluginProblemTarget();
+		if (!target || !original || !occurrence || busyRef.current || compacting) return Promise.resolve(false);
+		return runSubmission(target, () => {
+			const raw = capture();
+			return { type: "plugin-problem-submission", submission: raw.submission, submissionImages: [], thinking: { text: raw.thinking ?? "", images: [] } };
+		}, () => isCurrent() && !busyRef.current && activeProblemOf(submissionLive.current.nativeMessages)?.pluginProblem?.problemId === original.problemId, async (prepared, attempt) => {
+			if (prepared.type !== "plugin-problem-submission") return false;
+			const images = { ...(prepared.submissionImages.length ? { submission: prepared.submissionImages } : {}), ...(prepared.thinking.images.length ? { thinking: prepared.thinking.images } : {}) };
+			attempt.deliver();
+			return send({ type: "plugin-problem-submission", problemId: original.problemId, occurrence, submission: prepared.submission as Extract<ChatInput, { type: "plugin-problem-submission" }>["submission"],
+				thinking: prepared.thinking.text, ...(Object.keys(images).length ? { images } : {}),
+			}, () => { onAccepted(); attempt.accepted(); }, undefined, attempt.refused);
+		});
+	};
+	const pluginQuestionTarget = (): Extract<PluginSubmissionTarget, { type: "plugin-question-answer" }> | undefined => {
+		if (!surfaceTarget || !pendingPlugin) return;
+		const original = pendingPlugin;
+		return { type: "plugin-question-answer", sessionId: chatId, sessionKind: kind === "practice" ? "practice" : "teaching", surfaceTarget,
+			channels: ["answer", ...(original.showThinking ? ["thinking" as const] : []), ...(teachingCheck ? ["readingThinking" as const] : [])],
+			question: { questionId: original.questionId, occurrence: original.occurrence, pluginId: original.pluginId, typeId: original.typeId, contractVersion: original.contractVersion, label: original.label, variant: original.variant, showThinking: original.showThinking },
+		};
+	};
+	const preparePluginQuestion: PreparePluginQuestionSubmission = (capture, isCurrent) => {
+		const target = pluginQuestionTarget();
+		if (!target || !pendingPlugin || busyRef.current || compacting) return Promise.resolve(false);
+		const original = pendingPlugin;
+		return runSubmission(target, () => {
+			const raw = capture();
+			return { type: "plugin-question-answer", answer: raw.answer, answerImages: [], thinking: { text: raw.thinking ?? "", images: [] }, readingThinking: { text: raw.readingThinking ?? "", images: [] } };
+		}, () => isCurrent() && !busyRef.current && pendingPluginQuestionOf(submissionLive.current.nativeMessages)?.questionId === original.questionId, async (prepared, attempt) => {
+			if (prepared.type !== "plugin-question-answer") return false;
+			const images = submissionImages(prepared, target.channels);
+			attempt.deliver();
+			return send({ type: "plugin-question-answer", questionId: original.questionId, occurrence: original.occurrence, answer: prepared.answer as Extract<ChatInput, { type: "plugin-question-answer" }>["answer"],
+				...(original.showThinking ? { thinking: prepared.thinking.text } : {}), ...(teachingCheck ? { readingThinking: prepared.readingThinking.text } : {}), ...(images ? { images } : {}),
+			}, attempt.accepted, undefined, attempt.refused);
+		});
+	};
+	/** The one text lane: the composer, the opening prompt, plan accept and
+	 *  ChatActionsContext.sendText. `supplied` text sends as given (the
+	 *  composer's own text otherwise). A send while a turn runs interrupts
+	 *  it (steer): the text leaves the composer at once for the queued line,
+	 *  and a failed hand-off puts it back. `keepDraft` opts a fixed text out
+	 *  of the refusal flow's draft restore. */
+	const prepareText = (supplied?: string, openingAccepted?: () => void, beforePost?: (captured: string) => boolean, keepDraft = false) => {
+		const target = textTarget();
+		if (!target || pendingRef.current || pluginOwnsDock || activeProblemRef.current || compacting) return Promise.resolve(false);
+		if (!busyRef.current && zeroKeys) { if (!serverDown) setSetupOpen(true); return Promise.resolve(false); }
+		// No optimistic send and no change to the learner's draft.
+		if (!busyRef.current && selectedModelUnavailable(catalog, selectedModel)) { openModelPicker(); return Promise.resolve(false); }
+		let captured = "", capturedRevision = 0;
+		return runSubmission(target, () => { capturedRevision = composerEditRevision.current; return { type: "text", content: { text: captured = supplied ?? textRef.current.trim(), images: [] } }; }, () => submissionLive.current.ready && !pendingQuestionOf(submissionLive.current.nativeMessages) && !pendingPluginQuestionOf(submissionLive.current.nativeMessages) && !activeProblemOf(submissionLive.current.nativeMessages), async (prepared, attempt) => {
+			if (prepared.type !== "text") return false;
+			if (!prepared.content.text.trim() && !prepared.content.images.length) throw new Error("Message text or images are required. Your input has been kept.");
+			if (beforePost && !beforePost(captured)) { attempt.cancel(); return false; }
+			draftRef.current = keepDraft ? null : captured; // the refusal flow's preserve-and-replay seam
+			const unchanged = () => composerEditRevision.current === capturedRevision && textRef.current.trim() === captured;
+			const accepted = () => { if (unchanged()) applyText(""); openingAccepted?.(); attempt.accepted(); };
+			attempt.deliver();
+			if (busyRef.current) {
+				const fromComposer = supplied === undefined && unchanged();
+				if (fromComposer) applyText("");
+				const ok = await steer(prepared.content.text, prepared.content.images, () => { openingAccepted?.(); attempt.accepted(); }, attempt.refused);
+				if (!ok && fromComposer) applyText(restoreInterruptedDraft(textRef.current, captured));
+				return ok;
+			}
+			return send({ type: "text", text: prepared.content.text, ...(prepared.content.images.length ? { images: prepared.content.images.map(image => ({ ...image })) } : {}) }, accepted, undefined, attempt.refused);
+		});
+	};
+
+	const deliverOpeningPrompt = (prompt: string, captureNative = false) => {
+		let submitted = prompt;
 		openingDraftRef.current = prompt;
 		// Persist uncertainty BEFORE the POST: another mount must restore,
 		// not race the still-arriving request. No storage means no auto-send.
@@ -492,35 +742,46 @@ export function Chat({
 		}
 		setOpeningError(false);
 		draftRef.current = prompt; // The existing 503 flow must restore it too.
-		applyText("");
-		void send({ type: "text", text: prompt }, () => {
+		void prepareText(captureNative ? undefined : prompt, () => {
 			clearOpeningPrompt(chatId);
 			openingDraftRef.current = null;
-			if (draftRef.current === prompt) draftRef.current = null;
+			if (draftRef.current === submitted) draftRef.current = null;
+		}, captured => {
+			submitted = captured; openingDraftRef.current = captured;
+			const saved = stashOpeningPrompt(chatId, captured, true);
+			if (!saved) setOpeningError(true);
+			return saved;
 		}).then(accepted => {
 			if (!accepted && openingMountedRef.current && openingDraftRef.current === prompt && !textRef.current) {
 				applyText(prompt);
 			}
 		});
-	}, [chatId, send, applyText]);
+	};
 
+	// The opening send waits for this page's surface (a plugin interceptor
+	// may prepare it like any other text send).
 	const sentInitial = useRef(false);
 	useEffect(() => {
-		if (sentInitial.current) return;
-		sentInitial.current = true;
-		const entry = readOpeningPromptEntry(chatId);
-		const prompt = initialPrompt || entry?.text; // Legacy links still work.
-		if (!initialPromptOwed(initialMessages, prompt)) {
-			if (initialMessages.some(m => m.role === "user" || m.role === "assistant")) clearOpeningPrompt(chatId);
-			return;
-		}
-		openingDraftRef.current = prompt!;
-		if (entry?.attempted || initiallyInFlight) {
-			applyText(prompt!); // Interrupted start: the learner explicitly resends.
-			return;
-		}
-		deliverOpeningPrompt(prompt!);
-	}, [chatId, initialPrompt, initialMessages, initiallyInFlight, deliverOpeningPrompt, applyText]);
+		if (sentInitial.current || !surfaceTarget) return;
+		return scheduleOpeningSubmission(
+			() => !sentInitial.current && submissionMounted.current && submissionLive.current.surfaceTarget === surfaceTarget && !!findSurfaceBoundary(surfaceTarget),
+			() => {
+				sentInitial.current = true;
+				const entry = readOpeningPromptEntry(chatId);
+				const prompt = initialPrompt || entry?.text; // Legacy links still work.
+				if (!initialPromptOwed(initialMessages, prompt)) {
+					if (initialMessages.some(m => m.role === "user" || m.role === "assistant")) clearOpeningPrompt(chatId);
+					return;
+				}
+				openingDraftRef.current = prompt!;
+				if (entry?.attempted || initiallyInFlight) {
+					applyText(prompt!); // Interrupted start: the learner explicitly resends.
+					return;
+				}
+				deliverOpeningPrompt(prompt!);
+			},
+		);
+	}, [chatId, initialPrompt, initialMessages, initiallyInFlight, surfaceTarget, deliverOpeningPrompt, applyText]);
 
 	useEffect(() => {
 		if (!hasConfirmedConversation) return;
@@ -553,14 +814,13 @@ export function Chat({
 		// and dialog open all land together after the record refetch.
 		let cancelled = false;
 		void (async () => {
-			const res = await fetch(`/api/chats/${encodeURIComponent(chatId)}`);
-			if (!cancelled && res.ok) {
-				const record = (await res.json().catch(() => null)) as { messages?: LhMessage[] } | null;
-				if (Array.isArray(record?.messages)) setMessages(record.messages);
-			}
+			try { await readRecord({ isCurrent: () => !cancelled }); }
+			catch { /* refusal handling still restores the draft on a failed read */ }
 			if (cancelled) return;
 			if (draftRef.current !== null) {
-				applyText(draftRef.current);
+				// A send keeps its text until accepted: restore only into an
+				// empty composer, never over the learner's newer work.
+				if (!textRef.current) applyText(draftRef.current);
 				draftRef.current = null;
 			}
 			clearError();
@@ -570,9 +830,9 @@ export function Chat({
 		return () => {
 			cancelled = true;
 		};
-		// (setMessages/clearError are stable per session; the flow keys on
+		// (readRecord/clearError are stable per session; the flow keys on
 		//  [error, chatId].)
-	}, [error, chatId]);
+	}, [error, chatId, readRecord]);
 	// The events channel reconnected, so the server is reachable again.
 	useServerResync(() => {
 		if (error && isNetworkFailure(error.message)) clearError();
@@ -594,25 +854,74 @@ export function Chat({
 	useFieldCycle(cycleChatFields);
 	// Voice dictation: finals append at the end of the current text (the page
 	// owns the separator).
-	const dictation = useDictation({
+	const recording = useDictation({
 		// Ref-first (see textRef): the join is computed from the mirror so a
 		// send resuming after `await finish()` reads the dictated tail.
-		append: (t) => applyText(joinDictation(textRef.current, t)),
+		append: (t) => { if (!pluginOwnsDock) applyText(joinDictation(textRef.current, t)); },
+		disabled: pluginOwnsDock && !pluginMicAvailable,
 	});
+	// The page's own run ("main"); a plugin dock's run shows as blocked here.
+	const dictation: Dictation = { ...recording,
+		phase: recording.destinationId === "main" ? recording.phase : "idle",
+		active: recording.destinationId === "main" && recording.active,
+		error: recording.destinationId === "main" ? recording.error : null,
+		blocked: recording.destinationId !== "main" && recording.active,
+	};
 	/* When a dictation run ends, the composer takes focus (the hands are on
 	 * the keyboard from the stop). Falling edge of `active` only, and only the
 	 * composer: with a question pending the Composer is unmounted, the ref is
 	 * null, and the thinking field is left alone. */
 	const dictationWasActiveRef = useRef(false);
 	const composerInputRef = useRef<HTMLDivElement>(null);
+
+	// CITE: selected tutor text → a citation chip in the composer (or the
+	// field last typed in), then its comment popover. The transcript's scroll
+	// element arrives late (StickToBottom attaches it), so it is reported up.
+	const [transcriptElement, setTranscriptElement] = useState<HTMLElement | null>(null);
+	const [citationEdit, setCitationEdit] = useState<CitationEditTarget | null>(null);
+	const lastCiteInputRef = useRef<HTMLElement | null>(null);
+	const citeInput = useCallback(() => {
+		const fields = cycleChatFields();
+		return fields.find((field) => field === lastCiteInputRef.current) ?? fields[0] ?? composerInputRef.current;
+	}, [cycleChatFields]);
+	useEffect(() => {
+		const remember = (event: FocusEvent) => {
+			const input = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-file-path-input]") : null;
+			if (input && cycleChatFields().includes(input)) lastCiteInputRef.current = input;
+		};
+		document.addEventListener("focusin", remember);
+		return () => document.removeEventListener("focusin", remember);
+	}, [cycleChatFields]);
+	const citeAction = useMemo(
+		() => createCiteAction({ chatId, composer: citeInput, openEditor: setCitationEdit }),
+		[chatId, citeInput],
+	);
+	const selectionActions = useMemo(() => [citeAction], [citeAction]);
+	const transcriptElementRef = useRef<HTMLElement | null>(null);
+	transcriptElementRef.current = transcriptElement;
+	const citationNavigate = useRouter();
+	const citationActions = useMemo<CitationActions>(() => ({
+		editComment: (citation, source) => setCitationEdit({ citation, link: source.link, start: source.start, host: source.host, input: source.host.closest<HTMLElement>("[data-file-path-input]") ?? undefined }),
+		openSource: (citation) => {
+			const context = scrollContextRef.current;
+			revealCitationSource({
+				transcript: transcriptElementRef.current,
+				scroll: context ? { scrollRef: context.scrollRef, stopScroll: context.stopScroll } : null,
+				citation,
+				currentChatId: chatId,
+				navigate: (href) => citationNavigate.push(href),
+			});
+		},
+	}), [chatId, citationNavigate]);
 	useEffect(() => {
 		if (dictation.active) {
 			dictationWasActiveRef.current = true;
 		} else if (dictationWasActiveRef.current) {
 			dictationWasActiveRef.current = false;
-			composerInputRef.current?.focus();
+			// Do not steal focus from a helper or a newer interaction owner.
+			if (isInteractionScopeEligible(composerInputRef.current, controller)) composerInputRef.current!.focus();
 		}
-	}, [dictation.active]);
+	}, [dictation.active, controller]);
 
 	// Send gating. Jobs never gate the composer (contracts.ts "THE ASYNC
 	// PROTOCOL" §4): job tools ack mid-turn and the wake pipeline queues steers
@@ -625,13 +934,19 @@ export function Chat({
 	// paths, canSend and the docks gate on it (the server's registry mutex is
 	// the real gate; this is the affordance).
 	const [compacting, setCompacting] = useState(initiallyCompacting);
+	submissionLive.current.ready = !compacting && reconciliation === "ready";
 	// A failed model response: Retry keeps the saved input and completed
 	// work, without another learner message. Offered from
 	// "error" too: a dropped stream leaves the model there, and send()
 	// recovers from it. Later compaction requires new input instead.
-	const retryable = (status === "ready" || status === "error") && !busy && !compacting && endsInFailedTurn(nativeMessages);
+	const retryable = !pluginOwnsDock && (status === "ready" || status === "error") && !busy && !compacting && endsInFailedTurn(nativeMessages);
 	const retryFailedTurn = () => retryFailedResponse(send, draftRef);
-	const sendAllowed = !pending && !activeProblem && !compacting;
+	const sendAllowed = !pluginOwnsDock && reconciliation === "ready" && !pending && !activeProblem && !compacting && !submissionRunner.occupied;
+	// A plugin may hold prepared input (e.g. an attachment) for an empty field.
+	const pendingTextTarget = textTarget();
+	const pendingTextInput = !!pendingTextTarget && !!pluginManager?.hasPendingSubmissionInput(pendingTextTarget);
+	const pendingThinkingTarget = thinkingTarget();
+	const pendingThinkingInput = !!pendingThinkingTarget && !!pluginManager?.hasPendingSubmissionInput(pendingThinkingTarget);
 
 	/* The practice pause between problems: practice kind, nothing active or
 	 * in flight, and at least one problem already posed (a fresh session owes
@@ -640,43 +955,40 @@ export function Chat({
 	const nextReady =
 		kind === "practice" &&
 		!pending &&
+		!pluginOwnsDock &&
 		!activeProblem &&
 		!compacting &&
 		!busy &&
 		nativeMessages.some(
-			(m) => (m as { role?: string }).role === "assistant" &&
-				Array.isArray((m as { content?: unknown[] }).content) &&
-				(m as { content: Array<{ type?: string; name?: string }> }).content.some(
-					(b) => b.type === "toolCall" && b.name === "problem",
-				),
+			(m) => m.role === "assistant" && m.content.some(
+				(b, contentIndex) => b.type === "toolCall" && !!practiceProblemForCall(nativeMessages, { messageId: m.id, contentIndex, toolCallId: b.id, toolName: b.name }),
+			),
 		);
 	const sendNext = useCallback(() => {
-		if (!nextReady) return;
+		if (!nextReady || submissionRunner.occupied) return;
+		if (pendingTextInput) { void prepareText(); return; }
 		void send({ type: "next" });
-	}, [nextReady, send]);
+	}, [nextReady, send, submissionRunner, pendingTextInput]);
 
 	/* Enter from anywhere moves on: the window-level Enter (typing surfaces
 	 * and buttons keep their own lane, so no double fire) works without
 	 * composer focus. sendNext self-guards on nextReady, so the listener is
 	 * inert outside the pause, when the dock-mounted listeners are gone. */
-	useEnterSubmits(sendNext);
+	useEnterSubmits(sendNext, sessionFindScopeRef);
 
 	const syncFromServer = useCallback(async (retries = 1): Promise<boolean> => {
 		try {
 			// Freshness gate (record-sync.ts): the snapshot must not wipe a
 			// send (or any local advance) that happened while it was in flight.
+			// The canonical read adopts only while the verdict says apply (its
+			// isCurrent runs after the body, right before adoption).
 			const moment = () => ({ busy: busyRef.current, messages: nativeMessagesRef.current });
 			const start = moment();
-			const res = await fetch(`/api/chats/${chatId}`);
-			if (!res.ok) return false;
-			const record = (await res.json()) as { messages?: LhMessage[]; turns?: TurnUsage[]; pricing?: SessionPricing; turnError?: string };
-			const verdict = recordSyncVerdict(start, moment());
-			if (verdict === "skip") return false;
-			if (verdict === "retry") return retries > 0 ? syncFromServer(retries - 1) : false;
+			const gate: { verdict: ReturnType<typeof recordSyncVerdict> } = { verdict: "apply" };
+			const record = await readRecord({ isCurrent: () => (gate.verdict = recordSyncVerdict(start, moment())) === "apply" });
+			if (!record) return gate.verdict === "retry" && retries > 0 ? syncFromServer(retries - 1) : false;
 			if (Array.isArray(record.turns)) setTurns(record.turns);
 			setPricing(record.pricing);
-			if (!Array.isArray(record.messages)) return false;
-			setMessages(record.messages, record.turnError);
 			// The continuation seam (contracts.ts protocol §4): a job result
 			// landing in the record leaves the agent owing a continuation (the
 			// record ends on unconsumed results, no question, nothing running).
@@ -685,7 +997,7 @@ export function Chat({
 			continueIfOwed(record.messages);
 			return true;
 		} catch { return false; /* retain the confirmed view on a transient read failure */ }
-	}, [chatId, setMessages, continueIfOwed]);
+	}, [readRecord, continueIfOwed]);
 
 	// The settled terminal's other half: the reattach stream resolved
 	// turn-settled, so no turn runs and the record is current. Drop the
@@ -700,21 +1012,17 @@ export function Chat({
 	// Content written into the record server-side (sub-agent artifacts, abort
 	// notes) must show the moment it persists, mid-turn included. A full
 	// snapshot sync mid-stream would collide with the streaming tail
-	// (duplicate message ids), so this adoption is append-only (adoptRecord):
+	// (duplicate message ids), so this adoption is append-only (readRecord's append mode):
 	// insert the record's new ids in canonical order, never rewrite a local
 	// one, keep the in-flight tail last. The full syncFromServer stays the net
 	// at idle (reorder, plan blocks, turns).
 	const adoptAppendOnly = useCallback(async () => {
 		try {
-			const res = await fetch(`/api/chats/${chatId}`);
-			if (!res.ok) return;
-			const record = (await res.json()) as { messages?: LhMessage[] };
-			if (!Array.isArray(record.messages)) return;
-			adoptRecord(record.messages);
+			await readRecord({ adoption: "append" });
 		} catch {
 			/* transient — the idle full sync is the net */
 		}
-	}, [chatId, adoptRecord]);
+	}, [readRecord]);
 
 	// One 2s fallback adoption per submitted turn. Keep it across streaming
 	// and ready transitions: an initial canonical read may have failed.
@@ -756,12 +1064,13 @@ export function Chat({
 	const [mermaidFocus, setMermaidFocus] = useState<string | null>(null);
 	// Figure focus: the figure card's fullscreen button. Same overlay shell as
 	// mermaid, carrying the raw svg and the card's invert state.
-	const [figureFocus, setFigureFocus] = useState<{ svg: string; inverted: boolean } | null>(null);
+	const [figureFocus, setFigureFocus] = useState<{ svg: string; inverted: boolean } | { image: SessionImage } | null>(null);
 	// Stable, so a Chat render never re-renders the memoized transcript's
 	// overlay consumers (plan blocks, mermaid and figure cards).
 	const sessionOverlay = useMemo(() => ({
 		openMermaid: setMermaidFocus,
 		openFigure: (svg: string, inverted: boolean) => setFigureFocus({ svg, inverted }),
+		openImage: (image: SessionImage) => setFigureFocus({ image }),
 		openPlan: () => setPlanOpen(true),
 	}), []);
 
@@ -906,10 +1215,8 @@ export function Chat({
 		let cancelled = false;
 		void (async () => {
 			try {
-				const res = await fetch(`/api/chats/${chatId}`);
-				if (!res.ok || cancelled) return;
-				const record = (await res.json()) as { turnInFlight?: boolean };
-				if (cancelled) return;
+				const record = await readRecord({ adoption: "none", isCurrent: () => !cancelled });
+				if (!record) return;
 				if (record.turnInFlight === true) setTurnInFlight(true);
 				else void syncFromServer();
 			} catch {
@@ -919,7 +1226,7 @@ export function Chat({
 		return () => {
 			cancelled = true;
 		};
-	}, [status, chatId, syncFromServer]);
+	}, [status, readRecord, syncFromServer]);
 
 	// ── Central job observability (contracts.ts "THE ASYNC PROTOCOL" §4) ──
 	// One fetch of /api/jobs drives every job surface (transcript dispatch
@@ -1059,81 +1366,62 @@ export function Chat({
 	});
 
 	const onSend = () => {
-		if (pending || compacting) return;
-		/* Finish dictation first: a learner who talks right through Enter must
-		 * not lose the tail. Stop the run, let the last finals land, then send
-		 * the ref value (the flush lands via setState, invisible to this
-		 * closure). */
-		if (!dictation.active) {
-			doSteerOrSend();
-			return;
-		}
-		void dictation.finish().then(doSteerOrSend);
-	};
-	const doSend = () => {
-		if (busy || pending || compacting) return;
-		const t = textRef.current.trim();
-		if (!t) return;
-		if (zeroKeys) {
-			if (!serverDown) setSetupOpen(true);
-			return;
-		}
-		if (selectedModelUnavailable(catalog, selectedModel)) {
-			openModelPicker();
-			return; // No optimistic send and no change to the learner's draft.
-		}
-		if (openingDraftRef.current !== null) {
-			deliverOpeningPrompt(t);
-			return;
-		}
-		draftRef.current = t; // the refusal flow's preserve-and-replay seam
-		applyText("");
-		void send({ type: "text", text: t });
+		if (pending || pluginOwnsDock || compacting) return;
+		if (!isInteractionScopeEligible(sessionFindScopeRef.current, controller) || submissionRunner.occupied) return;
+		// An unsent opening prompt is resent through its own (stashed) lane.
+		if (openingDraftRef.current !== null) { deliverOpeningPrompt(textRef.current.trim(), true); return; }
+		// Idle input sends; new input during a busy response interrupts it
+		// (prepareText's steer lane). Dictation finishes first (runSubmission).
+		void prepareText();
 	};
 
 	// "Accept plan" (plan-accept.tsx): the same preflight as an ordinary send
 	// (an unavailable selected model opens the picker first), with the fixed
-	// go-ahead text and the learner's draft left alone.
+	// go-ahead text and the learner's draft left alone: nothing of the
+	// learner's to restore if the send is refused, so a refusal can't put an
+	// older sent message over the current draft.
 	const acceptPlan = () => {
-		if (busy || pending || compacting) return;
-		if (zeroKeys) {
-			if (!serverDown) setSetupOpen(true);
-			return;
-		}
-		if (selectedModelUnavailable(catalog, selectedModel)) {
-			openModelPicker();
-			return;
-		}
-		// Nothing of the learner's to restore if the send is refused: clear the
-		// replay slot so a refusal can't put an older sent message over the
-		// current draft.
-		draftRef.current = null;
-		void send({ type: "text", text: PLAN_ACCEPT_TEXT });
+		if (busy || pending || compacting || submissionRunner.occupied) return;
+		void prepareText(PLAN_ACCEPT_TEXT, undefined, undefined, true);
 	};
 
-	// New input interrupts a busy response; idle input uses ordinary Send.
-	const doSteerOrSend = () => {
-		if (pending || compacting) return;
-		const t = textRef.current.trim();
-		if (!t) return;
-		if (busy) {
-			applyText("");
-			void steer(t).then(accepted => {
-				if (!accepted) applyText(restoreInterruptedDraft(textRef.current, t));
-			});
-			return;
-		}
-		doSend();
+	// The plugin action context: a read-only view of the session, read at
+	// click (or shortcut) time.
+	const readViewInput = (): PluginSessionViewInput => {
+		const expected = pendingPlugin?.occurrence ?? unreadablePlugin?.occurrence
+			?? (pending ? { messageId: pending.messageId, contentIndex: pending.contentIndex, toolCallId: pending.toolCallId, toolName: pending.tool } : undefined) ?? activeProblemOccurrence;
+		if (!expected && !unreadablePlugin) return textTarget()!;
+		const current = inputViewReader.current?.();
+		const occurrence = current?.type === "answer" || current?.type === "plugin-question-answer" ? current.question.occurrence
+			: current?.type === "thinking" || current?.type === "plugin-problem-submission" ? current.problem.occurrence : current?.type === "unavailable" ? current.occurrence : undefined;
+		if (current && current.type !== "text" && expected && occurrence && pluginQuestionOccurrenceKey(expected) === pluginQuestionOccurrenceKey(occurrence)) return current;
+		return { type: "unavailable", ...(expected ? { occurrence: expected } : {}), expanded: false, revealed: false };
 	};
+	const actionContext = () => surfaceTarget ? createPluginSessionActionContext({ placement: "top-bar", surface: "session", sessionId: chatId, kind: kind === "practice" ? "practice" : "teaching", surfaceTarget }, () => {
+		if (!submissionMounted.current || submissionLive.current.surfaceTarget !== surfaceTarget) throw new Error("This session view is no longer active.");
+		return {
+			sessionId: chatId, kind: kind === "practice" ? "practice" : "teaching", title: titleText,
+			messages: nativeMessages, transcript: messages, status, reconciliation, busy, compacting,
+			phase: kind === "practice" ? "practice" : phases.at(-1) ?? "probe", contextTokens,
+			queuedSteers: visibleQueuedSteers(steerQueue, nativeMessages), composer: { text: textRef.current },
+			input: readViewInput(),
+		};
+	}) : undefined;
+	const captureActionContext = () => {
+		if (!submissionMounted.current || !surfaceTarget || !findSurfaceBoundary(surfaceTarget)) return;
+		const captured = actionContext();
+		if (captured) void captured.view; // Detach once at invocation, not after plugin awaits.
+		return captured;
+	};
+
+	usePluginShortcutPage(`/chat/${encodeURIComponent(chatId)}`, captureActionContext);
 
 	return (
 		<ChatActionsContext.Provider
 			value={{
 				chatId,
 				syncFromServer,
-				sendText: (t: string) => {
-					void send({ type: "text", text: t });
-				},
+				sendText: (t: string) => { void prepareText(t); },
 				openSetup: () => setSetupOpen(true),
 			}}
 		>
@@ -1141,6 +1429,7 @@ export function Chat({
 		<JobsContext.Provider value={jobs}>
 		<JobsFeedIdleContext.Provider value={jobsLoaded && !busy}>
 		<PinnedVisualContext.Provider value={pinned.context}>
+		<CitationActionsContext.Provider value={citationActions}>
 		{/* The session surface: the transcript column (header + scroller) and
 		    the side tutor as full-height siblings. The dock overlays the column
 		    bottom (outside the scroller); a spacer in the transcript reserves
@@ -1171,10 +1460,12 @@ export function Chat({
 								value={titleDraft}
 								onChange={(e) => setTitleDraft(capName(e.target.value))}
 								onKeyDown={(e) => {
+									if (!isInteractionScopeEligible(e.currentTarget, controller)) return;
 									if (e.key === "Enter" && !isComposing(e)) void commitRename(titleDraft);
 									// stopPropagation claims the Esc: closing rename
 									// must not also abort a turn.
 									else if (e.key === "Escape" && !isComposing(e)) {
+										controller?.claimEscape(e);
 										e.preventDefault();
 										e.stopPropagation();
 										setRenaming(false);
@@ -1182,6 +1473,7 @@ export function Chat({
 								}}
 								onBlur={() => void commitRename(titleDraft)}
 								spellCheck={false}
+								data-plugin-chrome-title
 								aria-label="Chat title"
 								data-lh-rename=""
 								title="Rename this chat"
@@ -1206,6 +1498,7 @@ export function Chat({
 								setTitleDraft(titleText);
 								setRenaming(true);
 							}}
+							data-plugin-chrome-title
 							className="lh-no-drag -mx-1.5 min-w-[8ch] max-sm:min-w-[calc(6ch+0.75rem)] shrink cursor-text truncate rounded-md px-1.5 text-left font-title text-3xl tracking-tight transition-colors hover:bg-accent"
 						>
 							{titleText}
@@ -1268,6 +1561,7 @@ export function Chat({
 					) : (
 						<PhaseChip phase={phases.at(-1) ?? "probe"} />
 					)}
+					<PluginSessionTopBarActions readContext={actionContext} captureContext={captureActionContext} refreshRef={refreshPluginActions} />
 				</TopBar>
 				{renameError && <p role="alert" className="shrink-0 px-3 py-1.5 text-xs text-destructive">{renameError}</p>}
 				<ChatNote />
@@ -1276,6 +1570,7 @@ export function Chat({
 				<div ref={sessionFindScopeRef} className={`relative flex min-h-0 flex-1 ${trackerRoom.area}`}>
 				<Conversation className="h-full min-w-0 flex-1" initial="instant" contextRef={scrollContextRef}>
 					<SessionMessageNavigation />
+					<TranscriptElementReporter onElement={setTranscriptElement} />
 					<ConversationContent className="min-h-full gap-0 p-0">
 						<div data-session-find-root="" className={`${COLUMN} flex flex-1 flex-col gap-4 pt-4 ${trackerRoom.column}`}>
 							{messages.length === 0 && !busy && (
@@ -1286,7 +1581,9 @@ export function Chat({
 							)}
 
 							<TranscriptRows
+								chatId={chatId}
 								messages={messages}
+								nativeMessages={nativeMessages}
 								phases={phases}
 								transcript={transcript}
 								streaming={status === "streaming"}
@@ -1315,14 +1612,11 @@ export function Chat({
 							    placeholder and streaming ⟺ a rendered row. Protocol events
 							    (agent_start) apply nothing, so it covers the whole
 							    provider-connect gap. turnInFlight is the same state entered
-							    by external discovery. */}
+							    by external discovery. Plugin grading/processing reads
+							    EVALUATING… until its POST acknowledges; only the
+							    wording changes, never the action or stream gates. */}
 							{(status === "submitted" || turnInFlight) && (
-								<span className="flex items-center gap-2 font-ui text-xs font-medium uppercase tracking-wide text-muted-foreground">
-									<BrailleSpinner label="Thinking" />
-									<Shimmer duration={1}>
-										THINKING…
-									</Shimmer>
-								</span>
+								<PendingTurnIndicator evaluating={evaluating} />
 							)}
 							{openingError && <p role="alert" className="text-sm text-destructive">{OPENING_PROMPT_FAILURE}</p>}
 							{settingsRefreshError && <p role="alert" className="text-xs text-destructive">{settingsRefreshError}</p>}
@@ -1353,10 +1647,37 @@ export function Chat({
 				    to the dock block's top edge, so it rides every height change
 				    and never overlaps the composer. */}
 				<DockOverlay
+					viewReader={inputViewReader}
+					viewTargets={surfaceTarget ? { text: textTarget()!, answer: builtinTarget, thinking: thinkingTarget(), pluginQuestion: pluginQuestionTarget(), pluginProblem: pluginProblemTarget() } : undefined}
 					pending={pending}
+					onPrepareBuiltin={prepareBuiltin}
+					onBuiltinPendingInput={question => { const target = builtinTarget(question); return !!target && !!pluginManager?.hasPendingSubmissionInput(target); }}
+					onPrepareThinking={prepareThinking}
+					pendingThinkingInput={pendingThinkingInput}
+					onPreparePluginQuestion={preparePluginQuestion}
+					preparing={submissionRunner.occupied}
+					preparationStatus={preparationError && <p role="alert" className="px-4 py-2 text-sm text-destructive">{preparationError}</p>}
+					pluginQuestion={pendingPlugin}
+					pluginDraft={pendingPlugin ? pluginQuestionDraft(pendingPlugin) : undefined}
+					pluginAvailable={!!pendingPlugin && pluginQuestionAvailability?.questionId === pendingPlugin.questionId && pluginQuestionAvailability.status === "available"}
+					pluginReady={!busy && !compacting && reconciliation === "ready"}
+					onPluginMicAvailable={setPluginMicAvailable}
+					onPluginSend={send}
+					onPluginDismiss={() => pendingPlugin ? dismissPluginQuestion(pendingPlugin.occurrence, pendingPlugin.questionId) : unreadablePlugin ? dismissPluginQuestion(unreadablePlugin.occurrence, unreadablePlugin.annotation.status === "unreadable" ? unreadablePlugin.annotation.identity?.questionId : undefined) : Promise.resolve()}
+					unreadablePlugin={!!unreadablePlugin}
+					unavailableOccurrence={unreadablePlugin?.occurrence}
+					reconciliation={reconciliation}
+					onRetrySync={() => { void reconcile(); }}
 					initialQuestionDraft={pending ? questionDraft(pending.key)?.form : undefined}
 					onSaveQuestionDraft={(form) => { if (pending) saveQuestionDraft(pending.key, { form }); }}
 					practice={activeProblem}
+					pluginPractice={activeProblem?.pluginProblem && activeProblemOccurrence ? {
+						snapshot: activeProblem.pluginProblem, occurrence: activeProblemOccurrence, chatId, draft: pluginProblemDraft(activeProblem.pluginProblem),
+						available: pluginProblemAvailability?.problemId === activeProblem.pluginProblem.problemId && pluginProblemAvailability.status === "available",
+						ready: !busy && !compacting && reconciliation === "ready", reconciliation: activeProblemOf(canonicalMessages)?.pluginProblem?.problemId === activeProblem.pluginProblem.problemId ? reconciliation : "syncing",
+						prepareSubmission: preparePluginProblem, send, preparing: submissionRunner.occupied, compactionRunning: compacting, onEscape: dictation.cancel,
+					} : undefined}
+					chatId={chatId}
 					compactionRunning={compacting}
 					onSubmitThinking={submitThinking}
 					plan={planInCard ? undefined : planDiagram}
@@ -1365,7 +1686,7 @@ export function Chat({
 					showReadingThinking={showReadingThinking}
 					readingThinking={readingThinkingSeed.value}
 					readingThinkingRevision={readingThinkingSeed.revision}
-					onReadingThinking={applyReadingThinking}
+					onReadingThinking={(value) => { applyReadingThinking(value); if (pendingPlugin) pluginQuestionDraft(pendingPlugin).readingThinking = value; }}
 					phase={phases.at(-1) ?? "probe"}
 					footer={
 						<StatsBar
@@ -1373,9 +1694,9 @@ export function Chat({
 							contextTokens={contextTokens}
 							cliContextWindow={cliContextWindowOf(nativeMessages)}
 							pricing={pricing}
-							dictationSlot={<DictationBar dictation={dictation} />}
+							dictationSlot={<DictationBar dictation={dictation} disabled={pluginOwnsDock && !pluginMicAvailable} />}
 							chatId={chatId}
-							onModelChange={setSelectedModel}
+							onModelChange={recordSelectedModel}
 						/>
 					}
 					onReserve={setDockReserve}
@@ -1411,6 +1732,7 @@ export function Chat({
 							// alone would only detach our view).
 							busy={busy}
 							value={textRef.current}
+							pendingInput={pendingTextInput}
 							revision={composerDraftRevision}
 							onChange={recordComposerText}
 							inputRef={composerInputRef}
@@ -1448,28 +1770,46 @@ export function Chat({
 				{pinned.dockColumn}
 				{/* The tracking card: top-right over the transcript, below the
 				    session-scoped focuses (z-40) and clear of the dock. */}
-				{hasTracking && trackerShown && <LessonTrackerCard tracking={tracking} plan={planProgress} bottomReserve={pinned.docked ? 0 : dockBlockH ?? Math.max(0, dockReserve - GRADIENT_H)} overlap={progressOverCheck} onCramped={setTrackerCramped} onPracticeWeakSpots={configured && !zeroKeys ? practiceWeakSpots : undefined} planView={pending ? planDiagram : undefined} onPlanViewPlaced={setPlanInCard} besideTab={pinned.drawerTab !== null} />}
+				{hasTracking && trackerShown && <LessonTrackerCard tracking={tracking} plan={planProgress} bottomReserve={pinned.docked ? 0 : dockBlockH ?? Math.max(0, dockReserve - GRADIENT_H)} overlap={progressOverCheck} onCramped={setTrackerCramped} onPracticeWeakSpots={configured && !zeroKeys ? practiceWeakSpots : undefined} planView={pending || pendingPlugin ? planDiagram : undefined} onPlanViewPlaced={setPlanInCard} besideTab={pinned.drawerTab !== null} />}
 				{pinned.drawerTab}
 
 				{/* The session-scoped focuses: absolute inset-0 siblings of the
 				    scroller inside the session area, so the top bar stays usable and
-				    draggable while a focus is open. */}
+				    draggable while a focus is open. They rank in this page's
+				    surface region, with the cite toolbar and its comment popover. */}
+				<SurfaceRegion target={surfaceTarget}>
 				{mermaidFocus !== null && (
 					<MermaidOverlay chart={mermaidFocus} onClose={() => setMermaidFocus(null)} />
 				)}
 				{figureFocus !== null && (
 					<MermaidOverlay
-						svg={figureFocus.svg}
-						inverted={figureFocus.inverted}
+						{...figureFocus}
 						onClose={() => setFigureFocus(null)}
 					/>
 				)}
 				{planOpen && <PlanPopup messages={messages} onClose={() => setPlanOpen(false)} />}
-				<AbortTurnDialog mode={abortAsk} onClose={() => setAbortAsk(null)} onConfirm={confirmAbort} busy={busy} />
+				<SelectionToolbar viewport={transcriptElement} actions={selectionActions} />
+				{citationEdit && (
+					<CitationCommentPopover
+						key={`${citationEdit.start}:${citationEdit.link}`}
+						target={citationEdit}
+						transcript={transcriptElement}
+						composer={() => citationEdit.input?.isConnected ? citationEdit.input : citeInput()}
+						onClose={() => setCitationEdit(null)}
+						onSend={() => {
+							const input = citationEdit.input?.isConnected ? citationEdit.input : citeInput();
+							if (input === composerInputRef.current) onSend();
+							else if (input) requestAnimationFrame(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+						}}
+					/>
+				)}
+				</SurfaceRegion>
+				<AbortTurnDialog mode={abortAsk} onClose={closeAbortAsk} onConfirm={confirmAbort} busy={busy} />
 				</div>
 			</div>
 			{sideTutor && <SideTutor chatId={chatId} selectedText={sideTutor.selectedText} onClose={closeSideTutor} />}
 		</div>
+		</CitationActionsContext.Provider>
 		</PinnedVisualContext.Provider>
 		</JobsFeedIdleContext.Provider>
 		</JobsContext.Provider>
@@ -1489,6 +1829,22 @@ export function Chat({
 		/>
 		</ChatActionsContext.Provider>
 	);
+}
+
+/** Reports the transcript's scroll element once StickToBottom attaches it
+ *  (its ref lands after first render, like SessionMessageNavigation's). */
+function TranscriptElementReporter({ onElement }: { onElement: (element: HTMLElement | null) => void }) {
+	const { scrollRef } = useStickToBottomContext();
+	useEffect(() => {
+		if (scrollRef.current) { onElement(scrollRef.current); return () => onElement(null); }
+		const id = window.setInterval(() => {
+			if (!scrollRef.current) return;
+			window.clearInterval(id);
+			onElement(scrollRef.current);
+		}, 50);
+		return () => { window.clearInterval(id); onElement(null); };
+	}, [scrollRef, onElement]);
+	return null;
 }
 
 /** Layered Esc: an open overlay claims Esc, closing itself, before the abort

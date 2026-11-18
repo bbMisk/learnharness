@@ -50,10 +50,14 @@ export * from "./math-delims.ts";
 // pure logic, browser-safe.
 export * from "./native-messages.ts";
 export { clientMessage } from "./client-messages.ts";
+export { copyImmutableData } from "./immutable-data.ts";
 export * from "./compaction.ts";
 export * from "./input-events.ts";
 export { parseFilePaths, quoteFilePath, filePathLabel, isDirectoryReference, directoryReferencePath } from "./file-paths.ts";
 export type { FilePathPart } from "./file-paths.ts";
+export * from "./citations.ts";
+export { parseComposerTokens } from "./composer-tokens.ts";
+export type { ComposerToken } from "./composer-tokens.ts";
 // Wave D (owner-approved 2026-09-26): the client view model — the grouping
 // canon (one continuous assistant document, step separators) ported from
 // the deleted server projection to the client side. Pure, browser-safe.
@@ -76,6 +80,10 @@ export * from "./fuzzy.ts";
 export * from "./settings.ts";
 export * from "./file-access.ts";
 export * from "./model-instructions.ts";
+// themes.ts (theme wave, 2026-11-04): the 12-color theme vocabulary, the
+// presets and the theme → CSS-token adapter — pure, shared by the layout,
+// the provider, Settings and the themes API.
+export * from "./themes.ts";
 export * from "./dictation.ts";
 // graph-deletion.ts (wave 6): the whole module is PURE but storage-port
 // driven — the deletion RUNS server-side only. The shell needs exactly one
@@ -94,6 +102,7 @@ export * from "./auth-keys.ts";
 // keyboard.ts: the shortcut registry + binding normalization (pure, browser-safe).
 export * from "./keyboard.ts";
 export * from "./job-visibility.ts";
+export * from "./plugin-shortcuts.ts";
 export * from "./coverage.ts";
 // session-markdown.ts (2026-09-27 engine; first consumer 2026-10-06): the
 // ONE session→markdown formatter — the extractor's view and the user-facing
@@ -102,6 +111,13 @@ export * from "./session-markdown.ts";
 
 export * from "./demo-document.ts";
 
-export * from "./review.ts";
 export { IMAGE_MIME, uploadedImageReferences, withoutUploadedImagePaths } from "./upload-images.ts";
 export type { ProjectRecord, ProjectView, ProjectFile, ProjectFolder, ProjectSummary } from './projects.ts';
+export * from "./plugins.ts";
+export * from "./plugin-questions.ts";
+export * from "./plugin-problems.ts";
+export * from "./plugin-view-context.ts";
+export * from "./plugin-submissions.ts";
+export type * from "./plugin-ui.ts";
+export type * from "./plugin-tree.ts";
+export * from "./plugin-agents.ts";

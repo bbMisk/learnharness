@@ -8,10 +8,19 @@
  * together) and the control itself locks — the row owns the dim.
  */
 
-import { useState, type ComponentPropsWithRef, type ReactNode, type RefObject } from "react";
+import { useLayoutEffect, useRef, useState, type ComponentPropsWithRef, type ReactNode, type RefObject } from "react";
 import { cn } from "@/lib/utils";
 import { isComposing } from "@/components/ime";
 import { focusLost } from "@/components/focus-return";
+
+/** Fork: bound while a Settings menu is open; the returned cleanup hands
+ *  focus back to the menu's trigger when the close (a pick, or Esc via the
+ *  menu's interaction layer) took the focused search box with it. Focus
+ *  that already moved somewhere real (a newly opened field) is left alone. */
+export function returnSettingsMenuFocus(anchorRef: RefObject<Element | null>): () => void {
+	const trigger = anchorRef.current?.querySelector<HTMLElement>('[aria-expanded="true"]') ?? anchorRef.current?.querySelector<HTMLElement>("button");
+	return () => { if (trigger?.isConnected && focusLost()) trigger.focus(); };
+}
 
 /** The settings dropdown dismissal, bound while a menu is open; returns
  *  the cleanup. A pointerdown inside the anchor or a portaled menu
@@ -171,9 +180,9 @@ export function Toggle({
 			onClick={() => onChange(!checked)}
 			className={cn(
 				"relative h-4.5 w-8 shrink-0 rounded-full border border-border transition-colors",
-				// On is a gray track with a WHITE disc (a full-white track is too
-				// loud); off stays the muted track.
-				checked ? "bg-muted-foreground" : "bg-muted",
+				// On is the theme accent track with a WHITE disc (Default's
+				// accent IS the gray of the old track); off stays the muted track.
+				checked ? "bg-(--lh-accent)" : "bg-muted",
 				disabled && "cursor-not-allowed",
 			)}
 		>
@@ -241,6 +250,31 @@ export function ThinSelect({
 	);
 }
 
+/** Shared graph/settings range control; the label and value stay paired. */
+export function SettingsSlider({ label, min, max, step, value, display, onChange, disabled, showLabel = true }: {
+	label: string;
+	min?: number;
+	max?: number;
+	step?: number;
+	value: number;
+	display?: string;
+	/** SettingsRow supplies the visible label when false. */
+	showLabel?: boolean;
+	onChange: (value: number) => void;
+	disabled?: boolean;
+}) {
+	return <label className={`flex flex-col gap-1${disabled ? " opacity-40" : ""}`}>
+		<span className="flex items-center justify-between text-[11px] text-muted-foreground">
+			{showLabel && label}<span className="tabular-nums">{display ?? value}</span>
+		</span>
+		<input type="range" aria-label={label} min={min} max={max} step={step} value={value} disabled={disabled}
+			onChange={(e) => onChange(Number(e.target.value))} className="h-1.5 w-full accent-primary" />
+	</label>;
+}
+
+/** Internal acknowledgement: false retains a rejected/unsaved draft. */
+export type SettingsCommitResult = boolean | Promise<boolean>;
+
 /** A thin hex/text input committing on blur + Enter (settings pace, not
  *  typing pace — every commit is a section PUT). */
 export function CommitInput({
@@ -250,62 +284,112 @@ export function CommitInput({
 	ariaLabel,
 	testid,
 	type = "text",
+	disabled,
+	min,
+	max,
+	step,
 }: {
 	/** "" = unset (the factory default). Mirrors the STORED record —
 	 *  after a clamped/normalized commit this flows back and the field
 	 *  snaps to the stored truth (a typed "-5" shows the stored 12). */
 	value: string;
 	placeholder?: string;
-	/** Returns a message when the value is refused; it shows under the
-	 *  field until the next commit. */
-	onCommit: (next: string) => string | void;
+	/** Refusal: a message (shown under the field until the next commit)
+	 *  or false (silent). Anything else, sync or async, acknowledges. */
+	onCommit: (next: string) => string | void | SettingsCommitResult | Promise<string | void | boolean>;
 	ariaLabel: string;
 	testid?: string;
 	type?: "text" | "number";
+	disabled?: boolean;
+	min?: number;
+	max?: number;
+	step?: number;
 }) {
-	// The draft exists only while editing; a commit shows the record's value
-	// again — commit-on-blur/Enter, the field honest about what landed.
-	// Enter and Esc keep focus in the field.
-	const [draft, setDraft] = useState(value);
-	const [editing, setEditing] = useState(false);
+	// The native editing buffer is the draft (uncontrolled): number inputs
+	// can display an incomplete token while exposing value="" — writing a
+	// controlled value back would erase text we cannot reconstruct. A
+	// commit (blur/Enter) shows the record's value again; Enter and Esc
+	// keep focus in the field.
+	const [initialValue] = useState(value);
+	const [, renderAcknowledgement] = useState(0);
 	const [error, setError] = useState<string | null>(null);
-	const commit = (el: HTMLInputElement) => {
+	const inputRef = useRef<HTMLInputElement>(null);
+	const dirty = useRef(false);
+	const revision = useRef(0);
+	const latestCommit = useRef(0);
+	const pending = useRef(new Set<number>());
+	useLayoutEffect(() => {
+		if (!dirty.current && inputRef.current && inputRef.current.value !== value) {
+			inputRef.current.value = value;
+		}
+	});
+	const revert = (element: HTMLInputElement) => {
+		dirty.current = false;
+		element.value = value;
+	};
+
+	const commit = async (element: HTMLInputElement) => {
+		if (disabled) return;
 		// Letters in a number field read as "" — refuse them instead of
 		// committing a clear, and show the stored value again.
-		if (type === "number" && el.validity?.badInput) {
-			setEditing(false);
-			el.value = value;
+		if (type === "number" && element.validity?.badInput) {
+			revert(element);
 			setError("Enter a number.");
 			return;
 		}
-		if (!editing) return;
-		setEditing(false);
-		const next = draft.trim();
-		setError(next !== value ? onCommit(next) || null : null);
+		if (!dirty.current) return;
+		const version = revision.current;
+		if (pending.current.has(version)) return;
+		const next = element.value.trim();
+		if (next === value && pending.current.size === 0) {
+			dirty.current = false;
+			setError(null);
+			renderAcknowledgement((n) => n + 1);
+			return;
+		}
+		const ticket = ++latestCommit.current;
+		pending.current.add(version);
+		try {
+			const result = await onCommit(next);
+			if (inputRef.current !== element || revision.current !== version || latestCommit.current !== ticket) return;
+			if (result === false) return; // a silent refusal keeps the text
+			// Accepted, or refused with a message: the field shows the record again.
+			dirty.current = false;
+			setError(typeof result === "string" ? result : null);
+			renderAcknowledgement((n) => n + 1);
+		} catch {
+			// Domain adapters own error presentation; a rejected save keeps text.
+		} finally {
+			pending.current.delete(version);
+		}
 	};
 	const input = (
 		<input
+			ref={inputRef}
 			type={type}
-			value={editing ? draft : value}
+			defaultValue={initialValue}
 			placeholder={placeholder}
 			aria-label={ariaLabel}
 			data-testid={testid}
-			onChange={(e) => {
-				setEditing(true);
-				setDraft(e.target.value);
+			disabled={disabled}
+			min={min}
+			max={max}
+			step={step}
+			onInput={() => {
+				dirty.current = true;
+				revision.current++;
 			}}
-			onBlur={(e) => commit(e.currentTarget)}
+			onBlur={(e) => { void commit(e.currentTarget); }}
 			onKeyDown={(e) => {
-				if (e.key === "Enter" && !isComposing(e)) commit(e.currentTarget);
-				if (e.key === "Escape" && !isComposing(e) && (editing || (type === "number" && e.currentTarget.validity?.badInput))) {
+				if (e.key === "Enter" && !isComposing(e)) void commit(e.currentTarget);
+				if (e.key === "Escape" && !isComposing(e) && (dirty.current || (type === "number" && e.currentTarget.validity?.badInput))) {
 					// An edit in progress: Esc reverts it and is this field's one
 					// action — the dialog behind stays open. React listens at the
 					// document root, so stop the dialog's document listener too.
 					e.preventDefault();
 					e.stopPropagation();
 					e.nativeEvent.stopImmediatePropagation();
-					setEditing(false);
-					e.currentTarget.value = value;
+					revert(e.currentTarget);
 				}
 			}}
 			className="h-7 w-40 rounded-sm border border-border bg-background px-2 font-ui text-xs text-foreground outline-none placeholder:text-muted-foreground/60"

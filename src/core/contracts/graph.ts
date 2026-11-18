@@ -273,15 +273,16 @@ export interface Cluster {
 
 /** The GET /api/graph payload — everything the home view's PURE renderer needs. */
 export interface GraphSnapshot {
-	/** Proposition nodes + the DERIVED implication nodes (one per chain,
-	 *  id = chain id) — what the canvas renders. */
+	/** Canvas nodes: propositions plus derived implication nodes for multi-premise
+	 * chains. Each implication node uses its chain's ID. */
 	nodes: GraphNode[];
 	/** The STORED proposition nodes alone (no derived implication nodes)
 	 *  — the stored truth, like `chains`: consumers that read the world
 	 *  (the chain table) take this list, never the canvas image. */
 	propositions: GraphNode[];
-	/** DERIVED untyped arrows: premise → imp → conclusion. A lossy image
-	 *  of the stored chains — rebuilt after every change, never stored. */
+	/** Derived canvas arrows: direct premise → conclusion for single-premise
+	 * chains, or premise → implication node → conclusion for multi-premise chains.
+	 * Rebuilt from chains, not stored separately. */
 	edges: GraphEdge[];
 	/** DERIVED LOGICAL arrows: every chain contracted to direct premise→
 	 *  conclusion over PROPOSITION ids only (the imp hop collapsed). The

@@ -9,6 +9,7 @@ import { describe, it } from "node:test";
 import { NextRequest } from "next/server";
 import { proxy } from "../proxy.ts";
 import { browserAPIRefusal, browserHostAllowed, browserOnlyMode } from "../src/server/desktop-access.ts";
+import { forkAPIRequestRefusal } from "../src/server/remote-api-access.ts";
 
 const secret = "a".repeat(64);
 
@@ -142,12 +143,23 @@ describe("proxy with the fork's owner-private remote host (Hanson's 8787 host)",
 			assert.ok(next(proxy(new NextRequest("http://127.0.0.1:8787/api/chats", { method: "POST", headers: { host: "127.0.0.1:8787", origin: "http://127.0.0.1:8787", "sec-fetch-site": "same-origin" } }))));
 		});
 	});
+
+	it("the plugin document route Proxy skips applies the same remote-host policy", () => {
+		withEnv(env, () => {
+			const route = "http://127.0.0.1:8787/api/plugins/document-one/documents/markdown";
+			const tailscale = (login: string) => new Request(route, { method: "POST", headers: { host, origin: `https://${host}`, "sec-fetch-site": "same-origin", "tailscale-user-login": login } });
+			assert.equal(forkAPIRequestRefusal(tailscale("owner@example.com")), undefined);
+			assert.match(forkAPIRequestRefusal(tailscale("someone@example.com")) ?? "", /different Tailscale user/);
+			assert.match(forkAPIRequestRefusal(new Request(route, { method: "POST", headers: { host: "rebind.attacker.example:8787" } })) ?? "", /Unknown LearnHarness host/);
+			assert.equal(forkAPIRequestRefusal(new Request(route, { method: "POST", headers: { host: "127.0.0.1:8787", origin: "http://127.0.0.1:8787", "sec-fetch-site": "same-origin" } })), undefined);
+		});
+	});
 });
 
 describe("package scripts", () => {
 	it("serve on loopback unless the developer passes a later -H", () => {
 		const { scripts } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { scripts: { dev: string; start: string; "desktop:dev": string } };
-		assert.match(scripts.dev, /^npm run review:build && next dev -H localhost\b/);
+		assert.match(scripts.dev, /^npm run plugins:build-core && npm run plugins:build-authoring && next dev -H localhost\b/);
 		assert.match(scripts.start, /^next start -H localhost\b/);
 		assert.match(scripts["desktop:dev"], /"npm run dev"/);
 	});

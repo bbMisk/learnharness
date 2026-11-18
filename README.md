@@ -22,7 +22,7 @@ Maintained by [Hanson Sun](https://github.com/bbMisk), based on [Amos Blomqvistâ
 - **Temporary side tutor:** clarify a concept without advancing the main lesson; resizable panes and keyboard controls.
 - **Projects and pinned chats:** shared files and custom project instructions.
 - **Easier attachments:** paste screenshots or drop files anywhere, with removable previews above the input.
-- **Learning review:** exportable learning history and offline flashcards from the knowledge graph.
+- **Learning review:** exportable learning history.
 - **Presentation and reliability:** dark figures/demos, bounded SVG sizing, inspectable background jobs, and send/recovery fixes.
 
 Current upstream ChatGPT sign-in is reused, with account-advertised discovery of new compatible models and an optional Fast preference that distinguishes requested from actual delivery.
@@ -79,17 +79,22 @@ Optional shared-host mode connects your own Macs to one running LearnHarness hos
 
 ## Development and support
 
-See [ChatGPT account setup](docs/chatgpt-plan.md) for account handling and limits, and [offline flashcards](docs/offline-flashcards.md) for review setup.
+See [ChatGPT account setup](docs/chatgpt-plan.md) for account handling and limits.
 
 ```bash
 npm ci
+npm run plugins:setup
 npm run dev        # http://localhost:3000
 npm test           # fixtures and fake providers
 ```
 
-See the [documentation index](docs/README.md) for all guides, [development](docs/development.md) for setup and checks, [architecture](docs/architecture.md) for the runtime, [keyboard shortcuts](docs/keyboard.md), and [desktop builds and releases](docs/desktop-release.md).
+See the [documentation index](docs/README.md) for all guides, [development](docs/development.md) for setup and checks, [architecture](docs/architecture.md) for the runtime, [keyboard shortcuts](docs/keyboard.md), [themes](docs/themes.md) for the theme file format, and [desktop builds and releases](docs/desktop-release.md).
+
+For trusted local plugins, start with the [authoring guide and capability map](docs/plugin-authoring.md). It links the question, practice-problem, submission, view-context and UI contracts. Use [`examples/plugins/`](examples/plugins/) for small runnable templates, [`plugins/`](plugins/) for feature source projects, and the [host architecture](docs/plugin-architecture.md) for internals.
 
 Questions, bug reports, and feature requests: [GitHub Issues](https://github.com/bbMisk/learnharness/issues).
+
+Security vulnerabilities: report privately as described in [SECURITY.md](SECURITY.md), not in public issues.
 
 ## License
 

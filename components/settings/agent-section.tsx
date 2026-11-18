@@ -45,6 +45,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CacheRetention } from "@earendil-works/pi-ai";
 import { CacheRetentionMenu, cacheRetentionLabel } from "./cache-retention-menu.tsx";
 import { MenuShell } from "@/components/menu-shell";
+import { useInteractionLayers } from "@/components/interaction-layers";
 import { useSettingsSaved } from "@/components/settings-signal";
 import { defaultOrderLevel, populateLevel } from "@/components/thinking-default";
 import { useModelCatalog } from "@/components/model-catalog";
@@ -66,8 +67,7 @@ import {
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { prettyModel } from "@/components/usage-format";
 import { cn } from "@/lib/utils";
-import { bindSettingsMenuDismiss, SettingsGroup, SettingsRow, SettingsMenuTrigger, Toggle, CommitInput } from "./controls.tsx";
-import { FlashcardAgentSection } from "./flashcard-agent-section";
+import { returnSettingsMenuFocus, SettingsGroup, SettingsRow, SettingsMenuTrigger, Toggle, CommitInput } from "./controls.tsx";
 import { ModelInstructionsSection } from "./model-instructions-section";
 import { ModelMenuList, ThinkingMenuList } from "./model-menu";
 import { ChatGPTBackgroundAccess } from "./chatgpt-connection";
@@ -164,6 +164,37 @@ export function composeAddFolder(agent: AgentSettings | undefined, folder: strin
 /** Removing the last folder NEVER changes the restriction switch. */
 export function composeRemoveFolder(agent: AgentSettings | undefined, folder: string): AgentSettings {
 	return { ...agent, fileAccess: { restricted: agent?.fileAccess?.restricted ?? false, folders: (agent?.fileAccess?.folders ?? []).filter((f) => f !== folder) } };
+}
+
+/** Parse the numeric draft and compose the WHOLE agent section. Empty
+ *  removes the override; invalid input never writes, rounds, or clamps.
+ *  Pure — exported for tests. */
+export function composeWorkerRequestConcurrency(
+	agent: AgentSettings | undefined,
+	value: string,
+): { ok: true; settings: AgentSettings } | { ok: false; error: string } {
+	const next = { ...agent };
+	const draft = value.trim();
+	if (draft === "") {
+		delete next.workerRequestConcurrency;
+		return { ok: true, settings: next };
+	}
+	const invalid = { ok: false as const, error: "Enter a positive, safely representable whole number." };
+	const concurrency = Number(draft);
+	if (!Number.isSafeInteger(concurrency) || concurrency <= 0) return invalid;
+	// Preserve native decimal/exponent syntax, but check fractional digits
+	// BEFORE accepting Number's result: e.g. 8.0000000000000001 rounds to 8.
+	// Trailing coefficient zeroes cancel negative decimal places exactly;
+	// this needs no arbitrary-precision arithmetic or unbounded powers.
+	const decimal = draft.match(/^\+?(\d+(?:\.\d*)?|\.\d+)(?:e([+-]?\d+))?$/i);
+	if (!decimal) return invalid;
+	const mantissa = decimal[1]!;
+	const fractionalPlaces = mantissa.split(".")[1]?.length ?? 0;
+	const coefficient = mantissa.replace(".", "");
+	const trailingZeroes = coefficient.length - coefficient.replace(/0+$/, "").length;
+	if (Number(decimal[2] ?? 0) - fractionalPlaces + trailingZeroes < 0) return invalid;
+	next.workerRequestConcurrency = concurrency;
+	return { ok: true, settings: next };
 }
 
 /** The quizzing mechanics: a segmented control, not a
@@ -358,11 +389,11 @@ export function AgentSection({
 	compaction: CompactionSettings | undefined;
 	/** Writes the composed WHOLE agent section (replace-PUT discipline);
 	 *  resolves false when the save failed. */
-	onSectionChange: (next: AgentSettings) => void | Promise<boolean>;
+	onSectionChange: (next: AgentSettings) => void | boolean | Promise<boolean>;
 	/** Writes the composed models section (slots — replace-PUT discipline). */
 	onModelsChange: (next: ModelsSettings) => void;
 	/** Writes the whole compaction section (replace-PUT discipline). */
-	onCompactionChange: (next: CompactionSettings) => void;
+	onCompactionChange: (next: CompactionSettings) => void | boolean | Promise<boolean>;
 }) {
 	// The shared catalog seeds the first frame and refreshes per mount and
 	// keys/models signal. Settings props still own saved selections/levels.
@@ -409,7 +440,9 @@ export function AgentSection({
 	 *  row), which kind. */
 	const [openMenu, setOpenMenu] = useState<{ target: ModelSlotName | "search"; kind: "model" | "thinking" | "engine" | "cache" } | null>(null);
 	const [advancedModels, setAdvancedModels] = useState(false);
+	const [workerConcurrencyError, setWorkerConcurrencyError] = useState<string | null>(null);
 	const menuAnchorRef = useRef<HTMLSpanElement>(null);
+	const interactions = useInteractionLayers();
 
 	const refreshSearch = () =>
 		fetch("/api/search")
@@ -471,10 +504,27 @@ export function AgentSection({
 		refreshSearch();
 	}, [agent?.search?.engine]);
 
-	// Any click outside the open menu, or Esc, closes it (bindSettingsMenuDismiss).
+	// Any click outside the open menu closes it; Esc is the menu layer's.
 	useEffect(() => {
 		if (openMenu === null) return;
-		return bindSettingsMenuDismiss(menuAnchorRef, () => setOpenMenu(null));
+		const onPointerDown = (e: PointerEvent) => {
+			const testid = openMenu.target === "search" ? "search-engine-menu" : `slot-${openMenu.kind}-menu-${openMenu.target}`;
+			if (!interactions.isElementEligible(document.querySelector<HTMLElement>(`[data-testid="${testid}"]`))) return;
+			const target = e.target as Node;
+			if (menuAnchorRef.current?.contains(target)) return;
+			if (target instanceof Element && target.closest("[data-lh-menu]")) return;
+			if (target instanceof Element && target.closest('[role="dialog"]')) {
+				setOpenMenu(null);
+			}
+			// else: outside the dialog — the dialog's own close handles it.
+		};
+		document.addEventListener("pointerdown", onPointerDown);
+		return () => document.removeEventListener("pointerdown", onPointerDown);
+	}, [openMenu, interactions]);
+	// A closed menu (pick or Esc) hands focus back to its trigger.
+	useEffect(() => {
+		if (openMenu === null) return;
+		return returnSettingsMenuFocus(menuAnchorRef);
 	}, [openMenu]);
 
 	async function saveSegment(path: string, text: string) {
@@ -635,7 +685,7 @@ export function AgentSection({
 										setConfirmSegmentDelete(false);
 										void deleteSegment(info.path);
 									}}
-									className="text-xs text-muted-foreground/70 underline-offset-2 hover:text-red-500 hover:underline"
+									className="text-xs text-muted-foreground/70 underline-offset-2 hover:text-error hover:underline"
 								>
 									{confirmSegmentDelete ? "Confirm delete" : "Delete"}
 								</button>
@@ -661,6 +711,7 @@ export function AgentSection({
 	// Resolved through the SAME core resolver the server's effective
 	// settings use: the hint and placeholder report exactly the number the
 	// trigger waits for.
+	const resolvedAgent = resolveSettings(agent === undefined ? null : { version: 1, agent }).agent;
 	const resolvedCompaction = resolveSettings(
 		compaction === undefined ? null : { version: 1, compaction },
 	).compaction;
@@ -675,7 +726,7 @@ export function AgentSection({
 					onClick={() => { setAdvancedModels(!advancedModels); setOpenMenu(null); }}
 					className="mb-1 self-start text-xs text-muted-foreground hover:text-foreground"
 				>{advancedModels ? "Hide advanced settings" : "Show advanced settings"}</button>
-				{catalogFailed && <p role="alert" className="text-xs text-red-400">Model catalog could not be loaded. Check the connection and retry. <button type="button" className="underline" onClick={refreshCatalog}>Retry</button></p>}
+				{catalogFailed && <p role="alert" className="text-xs text-error">Model catalog could not be loaded. Check the connection and retry. <button type="button" className="underline" onClick={refreshCatalog}>Retry</button></p>}
 				{MODEL_SLOTS.map((slot) => {
 					const override = models?.[slot];
 					const modelId = override?.model?.id ?? "";
@@ -703,12 +754,6 @@ export function AgentSection({
 							<span
 								ref={thisMenuOpen ? menuAnchorRef : undefined}
 								className="relative flex flex-wrap items-center justify-end gap-2 max-sm:max-w-[60%] lg:shrink-0 lg:flex-nowrap"
-								onKeyDown={(event) => {
-									// Portal events bubble here too: close this menu, not the dialog.
-									if (thisMenuOpen === "cache" && event.key === "Escape") {
-										event.preventDefault(); event.stopPropagation(); setOpenMenu(null);
-									}
-								}}
 							>
 								{slot !== "strong" && <><ChatGPTBackgroundAccess provider={coord?.provider} /><NativeSubscriptionBackgroundAccess provider={coord?.provider} /></>}
 								<MenuTrigger
@@ -747,6 +792,7 @@ export function AgentSection({
 									preferredSide="down"
 									anchorTestid={`slot-cache-${slot}`}
 									testid={`slot-cache-menu-${slot}`}
+									onClose={() => { setOpenMenu(null); return "closed"; }}
 									menuClass="flex w-80 flex-col gap-0.5 rounded-xl border border-border bg-card p-2 text-xs shadow-xl"
 								>
 									<CacheRetentionMenu value={override?.cacheRetention} provider={coord?.provider} modelId={coord?.id} onPick={(value) => {
@@ -759,6 +805,7 @@ export function AgentSection({
 										preferredSide="down"
 											anchorTestid={`slot-model-${slot}`}
 										testid={`slot-model-menu-${slot}`}
+										onClose={() => { setOpenMenu(null); return "closed"; }}
 										menuClass="flex w-[22rem] flex-col rounded-xl border border-border bg-card p-2 text-xs shadow-xl"
 									>
 										<ModelMenuList
@@ -787,6 +834,7 @@ export function AgentSection({
 										preferredSide="down"
 											anchorTestid={`slot-thinking-${slot}`}
 										testid={`slot-thinking-menu-${slot}`}
+										onClose={() => { setOpenMenu(null); return "closed"; }}
 										menuClass="flex w-44 flex-col gap-0.5 rounded-xl border border-border bg-card p-2 text-xs shadow-xl"
 									>
 										<ThinkingMenuList
@@ -805,6 +853,44 @@ export function AgentSection({
 						</SettingsRow>
 					);
 				})}
+				<SettingsRow
+					label="Concurrent worker requests"
+					hint="Maximum simultaneous background-worker model requests. Direct conversations are not limited."
+					testid="worker-request-concurrency-row"
+				>
+					<div
+						className="flex flex-col items-end gap-1"
+						onChangeCapture={() => setWorkerConcurrencyError(null)}
+						onBlurCapture={(event) => {
+							// Browsers expose incomplete numeric input (e.g. "1e")
+							// as an empty value. It is INVALID, not a blank reset.
+							if (event.target instanceof HTMLInputElement && event.target.validity.badInput) {
+								event.stopPropagation();
+								setWorkerConcurrencyError("Enter a positive, safely representable whole number.");
+							}
+						}}
+					>
+						<CommitInput
+							type="number"
+							min={1}
+							step={1}
+							value={String(agent?.workerRequestConcurrency ?? "")}
+							placeholder={String(resolvedAgent.workerRequestConcurrency)}
+							ariaLabel="Concurrent worker requests"
+							testid="input-worker-request-concurrency"
+							onCommit={(value) => {
+								const next = composeWorkerRequestConcurrency(agent, value);
+								setWorkerConcurrencyError(next.ok ? null : next.error);
+								// Through the section's one save queue, composed on the latest record.
+								return next.ok ? saveAgent((base) => {
+									const latest = composeWorkerRequestConcurrency(base, value);
+									return latest.ok ? latest.settings : { ...base };
+								}) : false;
+							}}
+						/>
+						{workerConcurrencyError && <p role="alert" className="text-xs text-error">{workerConcurrencyError}</p>}
+					</div>
+				</SettingsRow>
 			</SettingsGroup>
 
 			<SettingsGroup label="Tools" testid="group-tools">
@@ -927,7 +1013,7 @@ export function AgentSection({
 									<Toggle checked={restricted} label="Restrict to listed folders" onChange={(on) => saveAgent((base) => composeFileRestriction(effective(base), on))} />
 								</div>
 							</SettingsRow>
-							{fileAccessError && <p role="alert" data-testid="file-access-config-error" className="text-xs text-red-500">{fileAccessError}</p>}
+							{fileAccessError && <p role="alert" data-testid="file-access-config-error" className="text-xs text-error">{fileAccessError}</p>}
 							<div className="flex gap-2 pl-3">
 								<input value={folderInput} aria-label="Allowed folder path" data-testid="file-access-add" placeholder="Absolute path or ~/folder"
 									onChange={(event) => { folderText.current = event.target.value; setFolderInput(event.target.value); setFolderError(null); setFolderWarning(null); }}
@@ -935,7 +1021,7 @@ export function AgentSection({
 									className="min-w-0 flex-1 rounded-sm border border-border bg-background px-2 py-1 font-ui text-xs" />
 								<button type="button" data-testid="file-access-add-button" disabled={!folderInput.trim()} onClick={addFolder} className="rounded-sm border border-border px-2 text-xs disabled:opacity-40">Add folder</button>
 							</div>
-							{folderError && <p role="alert" data-testid="file-access-input-error" className="pl-3 text-xs text-red-500">{folderError}</p>}
+							{folderError && <p role="alert" data-testid="file-access-input-error" className="pl-3 text-xs text-error">{folderError}</p>}
 							{folderWarning && <p role="status" data-testid="file-access-input-warning" className="pl-3 text-xs text-amber-500">{folderWarning}</p>}
 							{folders.map((folder) => (
 								<div key={folder} data-testid="file-access-folder" className="flex items-center justify-between gap-4 pl-3 text-xs">
@@ -975,6 +1061,7 @@ export function AgentSection({
 										preferredSide="down"
 											anchorTestid="search-engine-trigger"
 										testid="search-engine-menu"
+										onClose={() => { setOpenMenu(null); return "closed"; }}
 										menuClass="flex w-44 flex-col gap-0.5 rounded-xl border border-border bg-card p-2 text-xs shadow-xl"
 									>
 										{engineOption("auto", "Automatic", engine === null, null, () => {
@@ -995,8 +1082,6 @@ export function AgentSection({
 				})()}
 			</SettingsGroup>
 
-			<FlashcardAgentSection agent={agent} onChange={saveAgent}/>
-
 			<ModelInstructionsSection agent={agent} catalog={catalog ?? undefined} strong={models?.strong?.model ?? slots?.strong?.model} onChange={saveAgent} />
 
 			<SettingsGroup label="Context" testid="group-context">
@@ -1014,18 +1099,28 @@ export function AgentSection({
 						onCommit={(v) => {
 							// Empty = factory default: absence is the unset for numbers.
 							if (v === "") {
-								onCompactionChange({ ...compaction, thresholdTokens: undefined });
-								return;
+								return onCompactionChange({ ...compaction, thresholdTokens: undefined });
 							}
 							const n = Number(v);
 							if (!Number.isFinite(n) || n <= 0) return "Enter a number of tokens, or leave it empty for the default.";
 							// Mirror the server's floor (anti-churn: each compaction
 							// keeps a ~20k-token tail) and ceiling.
-							onCompactionChange({
+							return onCompactionChange({
 								...compaction,
 								thresholdTokens: Math.min(COMPACTION_THRESHOLD_MAX, Math.max(COMPACTION_THRESHOLD_FLOOR, Math.round(n))),
 							});
 						}}
+					/>
+				</SettingsRow>
+				<SettingsRow
+					label="Include reasoning in token estimates (OpenAI Responses only)"
+					hint="Use saved output-token usage to account for replayed reasoning on matching OpenAI Responses models. Off uses the original text-based estimate."
+					testid="compaction-row-reasoning"
+				>
+					<Toggle
+						label="Include reasoning in token estimates (OpenAI Responses only)"
+						checked={resolvedCompaction.includeReasoning}
+						onChange={(includeReasoning) => onCompactionChange({ ...compaction, includeReasoning })}
 					/>
 				</SettingsRow>
 			</SettingsGroup>

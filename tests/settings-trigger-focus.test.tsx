@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, it } from "node:test";
 import { parseHTML } from "linkedom";
+import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
 import type { ModelCatalogEntry } from "../src/core";
 
 // A Settings menu hands focus back to its trigger after a pick or Esc, so
@@ -54,7 +55,7 @@ it("the first pick into an empty model slot keeps focus on its trigger", async (
 		const [models, setModels] = React.useState({});
 		return <AgentSection agent={undefined} models={models} graph={undefined} compaction={undefined} onCompactionChange={() => {}} onSectionChange={() => {}} onModelsChange={setModels} />;
 	}
-	await act(async () => { root.render(<Settings />); await new Promise((r) => setTimeout(r, 5)); });
+	await act(async () => { root.render(<InteractionLayersProvider><Settings /></InteractionLayersProvider>); await new Promise((r) => setTimeout(r, 5)); });
 	const trigger = element("slot-model-vision");
 	await click("slot-model-vision");
 	await click("model-option-fixture-vision");
@@ -63,7 +64,7 @@ it("the first pick into an empty model slot keeps focus on its trigger", async (
 });
 
 it("closing the Reading font menu keeps focus on its trigger", async () => {
-	await act(async () => { root.render(<AppearanceSection appearance={undefined} onSectionChange={() => {}} />); });
+	await act(async () => { root.render(<InteractionLayersProvider><AppearanceSection appearance={undefined} onSectionChange={() => {}} /></InteractionLayersProvider>); });
 	const trigger = element("font-trigger");
 	await click("font-trigger");
 	assert.ok(document.querySelector('[data-testid="font-menu"]'));
@@ -77,7 +78,7 @@ it("closing the Reading font menu keeps focus on its trigger", async () => {
 
 it("the advanced model triggers wrap below 1024 px, so 640–720 px windows keep the labels readable", async () => {
 	await act(async () => {
-		root.render(<AgentSection agent={undefined} models={{}} graph={undefined} compaction={undefined} onCompactionChange={() => {}} onSectionChange={() => {}} onModelsChange={() => {}} />);
+		root.render(<InteractionLayersProvider><AgentSection agent={undefined} models={{}} graph={undefined} compaction={undefined} onCompactionChange={() => {}} onSectionChange={() => {}} onModelsChange={() => {}} /></InteractionLayersProvider>);
 		await new Promise((r) => setTimeout(r, 5));
 	});
 	await click("models-advanced");

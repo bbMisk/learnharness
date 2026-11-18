@@ -1,10 +1,11 @@
 import { useEffect } from "react";
 import { isComposing } from "@/components/ime";
 
-/** The topmost open app modal (anything marked data-lh-modal): it owns the keyboard. */
+/** The topmost open app modal (anything marked data-lh-modal, or a shared
+ *  HostDialog's active modal boundary): it owns the keyboard. */
 export function openModal(): HTMLElement | null {
 	if (typeof document === "undefined") return null;
-	const all = document.querySelectorAll<HTMLElement>("[data-lh-modal]");
+	const all = document.querySelectorAll<HTMLElement>('[data-lh-modal], [data-interaction-layer][role="dialog"][aria-modal="true"]');
 	return all[all.length - 1] ?? null;
 }
 

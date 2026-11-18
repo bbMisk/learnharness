@@ -29,9 +29,11 @@
  * Pure and deterministic: client-safe (no node deps), same input → same view.
  */
 
-import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ImageContent, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { LhMarkerMessage, LhMessage } from "./native-messages.ts";
-import { PRACTICE_CONCLUDE_TOOL, problemInputForConclude, SEND_TO_USER_TOOL, sendToUserText } from "./native-messages.ts";
+import { PRACTICE_CONCLUDE_TOOL, problemInputForConclude, SEND_TO_USER_TOOL, sendToUserText, pluginQuestionResultMatches } from "./native-messages.ts";
+import { readPluginQuestionMessageAnnotation, readPluginQuestionCancellation, type PluginQuestionAnnotationRead } from "./plugin-questions.ts";
+import { pluginProblemForCall, type PluginProblemSnapshot } from "./plugin-problems.ts";
 import { activeCompactionOf, type CompactionDetails } from "./compaction.ts";
 import { QUESTION_TOOLS } from "./pending.ts";
 import { isLessonTrackingTool } from "./lesson-tracking.ts";
@@ -54,10 +56,15 @@ export interface LhViewPart extends Record<string, unknown> {
 	/** Native location, retained across display grouping (client-only). */
 	sourceMessageId?: string;
 	sourceContentIndex?: number;
+	/** Must be selected before any generic tool renderer; never a raw trace. */
+	pluginQuestion?: Exclude<PluginQuestionAnnotationRead, { status: "absent" }>;
+	pluginProblem?: PluginProblemSnapshot;
 	input?: unknown;
 	output?: unknown;
 	rawInput?: unknown;
 	errorText?: string;
+	/** Native result retained for public plugin renderers and readable fallbacks. */
+	result?: Pick<ToolResultMessage, "content" | "details" | "isError">;
 	data?: unknown;
 }
 
@@ -77,6 +84,7 @@ export interface LiveExecution {
 	output?: unknown;
 	/** The failure text (output-error parts). */
 	errorText?: string;
+	result?: Pick<ToolResultMessage, "content" | "details" | "isError">;
 }
 
 /** The live turn's execution layer, maintained by the session hook. */
@@ -100,6 +108,14 @@ function textPart(text: string): LhViewPart {
 
 /** The result a tool part should show, from a native toolResult. */
 function applyResult(part: LhViewPart, result: ToolResultMessage): void {
+	if (part.pluginQuestion) {
+		// Authored payload/error prose must never escape through generic trace.
+		if (result.isError) { part.state = "output-error"; return; }
+		part.state = "output-available";
+		part.output = result.details;
+		return;
+	}
+	part.result = { content: result.content, details: result.details, isError: result.isError };
 	if (result.isError) {
 		part.state = "output-error";
 		part.rawInput = part.input;
@@ -217,8 +233,8 @@ function pushRow(state: ViewFoldState, row: LhViewMessage): void {
 }
 
 /** The tool part a result pairs with, as its (row, part) location. */
-function findToolPart(state: ViewFoldState, toolCallId: string): { i: number; p: number } | undefined {
-	if (!state.toolPartIds.has(toolCallId)) return undefined;
+function findToolPart(state: ViewFoldState, result: LhMessage & ToolResultMessage): { i: number; p: number } | undefined {
+	if (!state.toolPartIds.has(result.toolCallId)) return undefined;
 	const out = state.out;
 	for (let i = out.length - 1; i >= 0; i--) {
 		// NEWEST-FIRST part scan within a group: a result pairs with the most
@@ -230,7 +246,13 @@ function findToolPart(state: ViewFoldState, toolCallId: string): { i: number; p:
 		const parts = out[i]!.parts;
 		for (let p = parts.length - 1; p >= 0; p--) {
 			const part = parts[p]!;
-			if (part.type.startsWith("tool-") && part.toolCallId === toolCallId) return { i, p };
+			if (!part.type.startsWith("tool-") || part.toolCallId !== result.toolCallId) continue;
+			if (part.pluginQuestion) {
+				const occurrence = { messageId: part.sourceMessageId!, contentIndex: part.sourceContentIndex!, toolCallId: part.toolCallId!, toolName: part.type.slice(5) };
+				if (pluginQuestionResultMatches(result, occurrence, part.pluginQuestion) || (result.isError && part.pluginQuestion.status !== "posed")) return { i, p };
+				continue;
+			}
+			if (!result.lhQuestionOccurrence && !readPluginQuestionCancellation(result.details)) return { i, p };
 		}
 	}
 	return undefined;
@@ -258,11 +280,12 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
 
 	if (role === "user") {
 		const content = m.content as string | Array<{ type: string; text?: string }>;
-		const texts =
-			typeof content === "string"
-				? [content]
-				: content.filter((c) => c.type === "text").map((c) => (c as { text: string }).text);
-		pushRow(state, { id: m.id, role: "user", parts: texts.map(textPart) });
+		const parts = typeof content === "string" ? [textPart(content)] : content.flatMap((block): LhViewPart[] => {
+			if (block.type === "text") return [textPart(block.text as string)];
+			if (block.type === "image") return [{ ...block as ImageContent }];
+			return [];
+		});
+		pushRow(state, { id: m.id, role: "user", parts });
 		return;
 	}
 
@@ -272,7 +295,7 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
 	}
 
 	if (role === "toolResult") {
-		const at = findToolPart(state, (m as ToolResultMessage).toolCallId);
+		const at = findToolPart(state, m as LhMessage & ToolResultMessage);
 		applyResultTo(at && ownPart(state, at.i, at.p), m as ToolResultMessage);
 		return;
 	}
@@ -338,7 +361,18 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
 					hiddenTracking = true;
 					continue;
 				}
+				const annotation = readPluginQuestionMessageAnnotation(m, contentIndex);
+				if (annotation.status !== "absent") {
+					// Source position, not reasoning-partitioned/grouped view index.
+					state.toolPartIds.add(block.id);
+					rest.push({ type: `tool-${block.name}`, toolCallId: block.id,
+						sourceMessageId: m.id, sourceContentIndex: contentIndex, pluginQuestion: annotation,
+						state: annotation.status === "posed" ? "input-available" : streamingMessage ? "input-streaming" : "output-error" });
+					continue;
+				}
 				const part = toolPartOf(block, live, streamingMessage);
+				const pluginProblem = pluginProblemForCall(ctx.messages, { messageId: m.id, contentIndex, toolCallId: block.id, toolName: block.name });
+				if (pluginProblem) { part.pluginProblem = pluginProblem; part.input = pluginProblem.input; }
 				// pin_visual is invisible like the tracking tools, except that a
 				// failed call keeps the quiet "Retrying…" line.
 				if (block.name === PIN_VISUAL_TOOL) {
@@ -404,14 +438,14 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
 		const last = out[out.length - 1];
 		if (last && last.role === "assistant") {
 			// Same group: the step separator renders between the steps.
-			const step: LhViewPart = { type: "step-start" };
+			const step: LhViewPart = { type: "step-start", sourceMessageId: m.id };
 			if (state.owned) {
 				state.owned.add(step);
 				for (const part of parts) state.owned.add(part);
 			}
 			ownRow(state, out.length - 1).parts.push(step, ...parts);
 		} else {
-			pushRow(state, { id: m.id, role: "assistant", parts: [{ type: "step-start" }, ...parts] });
+			pushRow(state, { id: m.id, role: "assistant", parts: [{ type: "step-start", sourceMessageId: m.id }, ...parts] });
 		}
 		return;
 	}
@@ -446,6 +480,7 @@ function toolPartOf(
 	const exec = live?.executions.get(block.id);
 	const isQuestion = isPlaceholderResultTool(block.name);
 	if (exec) {
+		if (exec.result) part.result = exec.result;
 		if (exec.isError) {
 			// An invalid call NEVER becomes input-available — the dock's mount
 			// gate keys on the clean execution end (a malformed quiz must never
@@ -482,7 +517,7 @@ function applyResultTo(part: LhViewPart | undefined, result: ToolResultMessage):
 		// and crash the render.
 		const tool = part.type.startsWith("tool-") ? part.type.slice("tool-".length) : part.type;
 		const isQuestion = isPlaceholderResultTool(tool);
-		if (isQuestion && !result.isError && result.details == null) {
+		if (!result.isError && ((isQuestion && result.details == null) || part.pluginProblem)) {
 			// The clean pose/ask ack carries no card data — NEVER
 			// output-available. But the call IS settled, so set the state
 			// explicitly rather than keep whatever toolPartOf guessed (which
@@ -551,6 +586,10 @@ function projectMarker(marker: LhMarkerMessage, state: ViewFoldState): void {
 				metadata: { subagentResult: meta },
 				parts: [textPart(marker.content), { type: "data-subagent-aborted", id: `sa_${marker.id}`, data: meta }],
 			});
+			return;
+		}
+		case "plugin-problem-submission": {
+			pushRow(state, { id: marker.id, role: "user", parts: [{ type: "data-plugin-problem-submission", id: `ps_${marker.id}`, data: marker.details }] });
 			return;
 		}
 		case "practice-thinking": {

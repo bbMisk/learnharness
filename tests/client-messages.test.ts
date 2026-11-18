@@ -24,7 +24,13 @@ const history = [assistant, result, question];
 it("removes non-display bytes without changing the rendered conversation or pending question", () => {
 	const saved = JSON.stringify(history);
 	const display = history.map(clientMessage);
-	assert.deepEqual(projectView(display), projectView(history));
+	// Upstream 0.6.1 keeps each native tool result on its view part (part.result,
+	// for plugin tool renderers). The display copy deliberately drops the
+	// result's inline image bytes, so that is the only difference allowed.
+	const withoutResultImages = (view: ReturnType<typeof projectView>) => view.map(row => ({ ...row, parts: row.parts.map(part => part.result
+		? { ...part, result: { ...part.result, content: part.result.content.filter(block => block.type !== "image") } } : part) }));
+	assert.deepEqual(projectView(display), withoutResultImages(projectView(history)));
+	assert.notDeepEqual(projectView(display), projectView(history), "the image bytes really were dropped from the result");
 	assert.deepEqual(pendingQuestionOf(display), pendingQuestionOf(history));
 	assert.equal(JSON.stringify(history), saved, "model history and export source must remain untouched");
 	assert.ok(JSON.stringify(display).length < saved.length / 100);

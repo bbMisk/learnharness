@@ -1,3 +1,4 @@
+import { DEFAULT_THEME } from "../src/core/themes.ts";
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 
@@ -5,6 +6,8 @@ import assert from "node:assert/strict";
 import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, describe, it } from "node:test";
 import { parseHTML } from "linkedom";
+import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
+import { installModalBrowserApis } from "./modal-dom.ts";
 import type { Root } from "react-dom/client";
 
 // Keyboard focus inside Settings: it shows, and it never drops to the body
@@ -19,9 +22,13 @@ Object.assign(globalThis, {
 Object.assign(dom.document, { oninput: null });
 // linkedom has no focus model: track the last focus() call.
 let focused: Element | null = null;
-dom.window.HTMLElement.prototype.focus = function (this: Element) { focused = this; };
+// As in a browser, the (non-focusable) body cannot take focus: HostDialog
+// "returning" focus to a <body> opener leaves the composer focused.
+dom.window.HTMLElement.prototype.focus = function (this: Element) { if (this !== dom.document.body) focused = this; };
 // A removed element loses focus, as in a browser.
 Object.defineProperty(dom.document, "activeElement", { get: () => (focused?.isConnected ? focused : dom.document.body), configurable: true });
+// HostDialog reads computed style and observes its portal like a browser.
+installModalBrowserApis(dom);
 const { createRoot } = await import("react-dom/client");
 const { AppearanceProvider } = await import("../components/settings/appearance.tsx");
 const { SettingsDialog } = await import("../components/settings/settings-dialog-body.tsx");
@@ -40,7 +47,7 @@ async function render(node: React.ReactNode) {
 	host = document.createElement("div");
 	document.body.append(host);
 	root = createRoot(host);
-	await act(async () => { root!.render(node); });
+	await act(async () => { root!.render(<InteractionLayersProvider>{node}</InteractionLayersProvider>); });
 }
 
 describe("Settings keyboard focus", () => {
@@ -49,22 +56,22 @@ describe("Settings keyboard focus", () => {
 		const opener = document.createElement("button");
 		document.body.append(opener);
 		opener.focus();
-		await render(<AppearanceProvider><SettingsDialog onClose={() => {}} initialSection="general" initialRow={null} /></AppearanceProvider>);
+		await render(<AppearanceProvider initialAppearance={undefined} initialTheme={DEFAULT_THEME}><SettingsDialog onClose={() => "closed"} initialSection="general" initialRow={null} navigationRequest={0} layerId="settings" /></AppearanceProvider>);
 		// Compare identities: a failing DOM-node diff would inspect the whole document.
 		assert.ok(focused !== opener, "the dialog took focus");
-		await act(async () => { root!.render(<AppearanceProvider>{null}</AppearanceProvider>); });
+		await act(async () => { root!.render(<InteractionLayersProvider><AppearanceProvider initialAppearance={undefined} initialTheme={DEFAULT_THEME}>{null}</AppearanceProvider></InteractionLayersProvider>); });
 		assert.ok(focused === opener, "focus went back to the opener");
 		opener.remove();
 	});
 
 	it("closing Settings with no opener (the /settings deep link) focuses the composer", async () => {
 		globalThis.fetch = (async () => Response.json({ settings: null })) as typeof fetch;
-		await render(<AppearanceProvider><SettingsDialog onClose={() => {}} initialSection="general" initialRow={null} /></AppearanceProvider>);
+		await render(<AppearanceProvider initialAppearance={undefined} initialTheme={DEFAULT_THEME}><SettingsDialog onClose={() => "closed"} initialSection="general" initialRow={null} navigationRequest={0} layerId="settings" /></AppearanceProvider>);
 		const composer = document.createElement("form");
 		composer.setAttribute("data-testid", "composer");
 		composer.innerHTML = '<div role="textbox" data-file-path-input=""></div>';
 		document.body.append(composer);
-		await act(async () => { root!.render(<AppearanceProvider>{null}</AppearanceProvider>); });
+		await act(async () => { root!.render(<InteractionLayersProvider><AppearanceProvider initialAppearance={undefined} initialTheme={DEFAULT_THEME}>{null}</AppearanceProvider></InteractionLayersProvider>); });
 		assert.ok(focused === composer.firstElementChild, "focus went to the composer");
 		composer.remove();
 	});

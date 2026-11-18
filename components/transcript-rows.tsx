@@ -10,18 +10,20 @@
  * output, keys and live-state rules are chat.tsx's, unchanged.
  */
 
-import { Fragment, memo, useMemo } from "react";
+import { Fragment, memo, useCallback, useMemo, useRef } from "react";
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import { PathText } from "@/components/file-path-chip";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
-import { LiveToolCard } from "@/components/artifacts/live-tool-card";
 import { Separator } from "@/components/ui/separator";
 import { AnsweredCard } from "@/components/answered-card";
 import { MalformedQuestion } from "@/components/malformed-question";
-import { artifactRenderers } from "@/components/artifacts";
+import { ToolPartRenderer } from "@/components/plugin-renderers";
+import { PluginQuestionPart } from "@/components/plugin-question-part";
+import { PluginProblemSubmitted } from "@/components/plugin-problem-submitted";
+import { SubmittedImages } from "@/components/submitted-images";
 import { SubagentSteerCard } from "@/components/artifacts/steer-card";
 import { PlanBlock } from "@/components/plan-block";
-import { ThinkingCard, type PracticeThinkingData } from "@/components/practice-cards";
+import { ProblemCard, ThinkingCard, type PracticeThinkingData } from "@/components/practice-cards";
 import { GraphContextCard, type GraphContextData } from "@/components/graph-context-card";
 import { PhaseDivider } from "@/components/phase-divider";
 import { CompactionCutDivider, CompactionMomentDivider, type CompactionDividerData } from "@/components/compaction-divider";
@@ -29,13 +31,16 @@ import { ArrowRightIcon } from "lucide-react";
 import {
 	firstSourceTextParts,
 	messageAnchorId,
+	pluginProblemById,
+	readPluginProblemSubmission,
 	teachStepIndex,
 	textPartMessageId,
-	type ArtifactPartProps,
+	type LhMessage,
 	type LhViewMessage,
 	type LhViewPart,
 	type Phase3,
 	type PlanBlockData,
+	type PluginProblemSnapshot,
 	type QuestionAnswerData,
 	type QuestionCall,
 } from "@/src/core";
@@ -63,7 +68,11 @@ function isSubagentSteer(m: LhViewMessage): boolean {
 const NO_MALFORMED: readonly QuestionCall[] = [];
 
 export interface TranscriptRowsProps {
+	chatId: string;
 	messages: readonly LhViewMessage[];
+	/** The native record: a submitted plugin problem's card reads the posed
+	 *  problem's snapshot from it. */
+	nativeMessages: readonly LhMessage[];
 	/** phaseTimeline(messages): the teach seam's divider. */
 	phases: readonly Phase3[];
 	/** The progressive fill (components/progressive-transcript.ts). */
@@ -99,8 +108,21 @@ function rowAnchors(messages: readonly LhViewMessage[]): string[] {
 	});
 }
 
+/** The plugin problem ids a row's submission markers name ("" for none). */
+function submittedProblemIds(m: LhViewMessage): string[] {
+	const ids: string[] = [];
+	for (const part of m.parts) {
+		if (part.type !== "data-plugin-problem-submission") continue;
+		const id = readPluginProblemSubmission(part.data)?.problemId;
+		if (id) ids.push(id);
+	}
+	return ids;
+}
+
 export function TranscriptRows({
+	chatId,
 	messages,
+	nativeMessages,
 	phases,
 	transcript,
 	streaming,
@@ -113,6 +135,12 @@ export function TranscriptRows({
 }: TranscriptRowsProps) {
 	const anchors = useMemo(() => rowAnchors(messages), [messages]);
 	const malformed = busy ? NO_MALFORMED : malformedQuestions;
+	// A submitted plugin problem's card needs the posed snapshot from the
+	// native record. Rows stay memoized on primitives: a stable lookup plus a
+	// per-row key that changes only when that row's snapshots do.
+	const nativeRef = useRef(nativeMessages);
+	nativeRef.current = nativeMessages;
+	const lookupProblem = useCallback((problemId: string) => pluginProblemById(nativeRef.current, problemId), []);
 	return messages.map((m, mi) =>
 		transcript.hidesMessage(mi) ? null : (
 			<TranscriptRow
@@ -126,6 +154,9 @@ export function TranscriptRows({
 				streamingLast={streaming && mi === messages.length - 1}
 				activeReasoningId={streaming && mi === messages.length - 1 && activeMessageId ? `${activeMessageId}-r0` : undefined}
 				anchors={anchors[mi]!}
+				chatId={chatId}
+				problemKey={problemKeyOf(m, nativeMessages)}
+				lookupProblem={lookupProblem}
 				malformedQuestions={malformed}
 				questionPending={questionPending}
 				compacting={compacting}
@@ -135,8 +166,18 @@ export function TranscriptRows({
 	);
 }
 
+/** The row's posed-problem snapshots as one primitive (memo-stable). */
+function problemKeyOf(m: LhViewMessage, nativeMessages: readonly LhMessage[]): string {
+	const ids = submittedProblemIds(m);
+	return ids.length ? ids.map((id) => JSON.stringify(pluginProblemById(nativeMessages, id))).join("\n") : "";
+}
+
 interface RowProps {
 	message: LhViewMessage;
+	chatId: string;
+	/** problemKeyOf: re-renders the row when a submitted problem's snapshot changes. */
+	problemKey: string;
+	lookupProblem: (problemId: string) => PluginProblemSnapshot | null;
 	rowKey: string;
 	teachSeam: boolean;
 	/** Leading parts still waiting for the progressive fill. */
@@ -160,6 +201,8 @@ const TranscriptRow = memo(function TranscriptRow({
 	streamingLast,
 	activeReasoningId,
 	anchors,
+	chatId,
+	lookupProblem,
 	malformedQuestions,
 	questionPending,
 	compacting,
@@ -196,6 +239,10 @@ const TranscriptRow = memo(function TranscriptRow({
 							return <CompactionMomentDivider key={pi} data={part.data as CompactionDividerData} />;
 						case "data-compaction-cut":
 							return <CompactionCutDivider key={pi} data={part.data as CompactionDividerData} />;
+						case "data-plugin-problem-submission": {
+							const submitted = readPluginProblemSubmission(part.data);
+							return <PluginProblemSubmitted key={pi} data={part.data} snapshot={submitted ? lookupProblem(submitted.problemId) : null} chatId={chatId} />;
+						}
 						case "data-practice-thinking":
 							return <ThinkingCard key={pi} data={part.data as PracticeThinkingData} />;
 						case "data-practice-next":
@@ -260,6 +307,7 @@ const TranscriptRow = memo(function TranscriptRow({
 					<div className="lh-prose whitespace-pre-wrap text-foreground">
 						<PathText text={m.parts.filter((p) => p.type === "text").map((p) => p.text).join("\n")} />
 					</div>
+					<SubmittedImages images={m.parts.filter((part) => part.type === "image").map((part) => ({ type: "image" as const, data: part.data as string, mimeType: part.mimeType as string }))} />
 				</div>
 			) : (
 				<Message from="assistant" className="max-w-full">
@@ -284,6 +332,7 @@ const TranscriptRow = memo(function TranscriptRow({
 									key={partKey(part, pi, teachBoundary)}
 									part={part}
 									pi={pi}
+									chatId={chatId}
 									teachBoundary={teachBoundary}
 									reasoningStreaming={streamingLast && pi === m.parts.length - 1 && (activeReasoningId === undefined || part.id === activeReasoningId)}
 									textStreaming={streamingLast && pi === m.parts.length - 1}
@@ -316,6 +365,7 @@ function partKey(part: LhViewPart, pi: number, teachBoundary: boolean): string |
 interface PartProps {
 	part: LhViewPart;
 	pi: number;
+	chatId: string;
 	teachBoundary: boolean;
 	/** The live turn streams and this is the transcript's last part. */
 	reasoningStreaming: boolean;
@@ -332,6 +382,7 @@ interface PartProps {
 const TranscriptPart = memo(function TranscriptPart({
 	part,
 	pi,
+	chatId,
 	teachBoundary,
 	reasoningStreaming,
 	textStreaming,
@@ -341,6 +392,10 @@ const TranscriptPart = memo(function TranscriptPart({
 	compacting,
 	onRetryQuestion,
 }: PartProps) {
+	// Plugin-posed problems and questions own their parts, an unreadable
+	// question included (it must never fall through to the retry line).
+	if (part.pluginProblem) return <ProblemCard part={{ ...part, state: part.state ?? "input-available", toolCallId: part.toolCallId ?? "" }} />;
+	if (part.pluginQuestion) return <PluginQuestionPart part={part} chatId={chatId} />;
 	// A tool call that errored BACK TO THE AGENT (validation
 	// failure, malformed args) is invisible work — the agent
 	// reads the error and retries. Surface the retry loop as one
@@ -390,20 +445,10 @@ const TranscriptPart = memo(function TranscriptPart({
 			return null;
 		}
 		default: {
-			// A tool call being written: input-streaming spans the whole
-			// execution, and the live card (spinner + shimmered activity label,
-			// the input watchable on expand) shows it. On settling, the
-			// registry's card takes over below.
-			if (part.type.startsWith("tool-") && part.state === "input-streaming") {
-				return <LiveToolCard part={part as ArtifactPartProps["part"]} />;
-			}
-			// Artifact extension point (contracts.ts): job
-			// parts and future artifacts render via the
-			// registry — add renderers there, not here.
-			if (part.type.startsWith("tool-")) {
-				const Renderer = artifactRenderers[part.type.slice("tool-".length)];
-				if (Renderer) return <Renderer part={part as ArtifactPartProps["part"]} />;
-			}
+			// Built-in presentation stays authoritative (the live card while a
+			// call is written, then the registry's card); plugin renderers
+			// extend only the generic native-tool fallback slot.
+			if (part.type.startsWith("tool-")) return <ToolPartRenderer part={part} />;
 			return null;
 		}
 	}

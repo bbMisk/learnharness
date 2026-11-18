@@ -10,8 +10,16 @@ Object.assign(dom.document, { oninput: null });
 Object.assign(globalThis, {
 	window: dom.window, document: dom.document, Element: dom.window.Element, HTMLElement: dom.window.HTMLElement,
 	HTMLInputElement: dom.window.HTMLInputElement, Node: dom.window.Node, Event: dom.window.Event, CustomEvent: dom.window.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true,
+	MutationObserver: dom.window.MutationObserver, NodeFilter: { SHOW_ELEMENT: 1, FILTER_ACCEPT: 1, FILTER_SKIP: 3 },
 	fetch: async () => { throw new TypeError("Failed to fetch"); },
 });
+// HostDialog's scroll lock measures the page; linkedom has no layout.
+const style = (element: HTMLElement) => ({
+	display: element.style.display || "block", visibility: element.style.visibility || "visible",
+	paddingLeft: "0px", paddingRight: "0px", marginLeft: "0px", marginRight: "0px", borderLeftWidth: "0px", borderRightWidth: "0px",
+	getPropertyValue: () => "",
+});
+Object.assign(dom.window, { getComputedStyle: style });
 dom.window.HTMLElement.prototype.focus = function () {};
 dom.window.HTMLElement.prototype.scrollIntoView = function () {};
 Object.assign(dom.window.HTMLElement.prototype, { select() {} });
@@ -21,13 +29,14 @@ const { ChainTableOverlay } = await import("../components/chain-table.tsx");
 const { EditableSourceName } = await import("../components/source-folder-tree.tsx");
 const { DeleteSourceDialog } = await import("../components/delete-source-dialog.tsx");
 const { ServerEventsProvider } = await import("../components/server-events.tsx");
+const { InteractionLayersProvider } = await import("../components/interaction-layers.tsx");
 const quiet = () => ({ close() {}, onOpen() {}, onEvent() {} });
 
 async function mount(node: React.ReactNode) {
 	const host = document.createElement("div");
 	document.body.append(host);
 	const root = createRoot(host);
-	await act(async () => root.render(<ServerEventsProvider connect={quiet}>{node}</ServerEventsProvider>));
+	await act(async () => root.render(<InteractionLayersProvider><ServerEventsProvider connect={quiet}>{node}</ServerEventsProvider></InteractionLayersProvider>));
 	return { root, host };
 }
 

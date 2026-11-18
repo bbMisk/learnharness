@@ -7,6 +7,7 @@ import { createRoot } from "react-dom/client";
 import { parseHTML } from "linkedom";
 import { ChainTableOverlay } from "../components/chain-table.tsx";
 import { ServerEventsProvider } from "../components/server-events.tsx";
+import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
 const dom = parseHTML("<html><head></head><body></body></html>");
 // linkedom omits selection; native browser behavior is covered by the UI check.
 dom.window.HTMLInputElement.prototype.select = function () {};
@@ -21,12 +22,12 @@ it("one Escape cancels inline source/folder editing without closing the overlay 
 		return Response.json({ organization: { version: 1, folders: [], placements: {} }, sources: [{ id: "chat", kind: "chat", label: "Unextracted", createdAt: "2026-10-30" }] });
 	};
 	const root = createRoot(document);
-	const onWindow = () => { windowEscapes++; };
+	const onWindow = (event: KeyboardEvent) => { if (!event.defaultPrevented) windowEscapes++; };
 	window.addEventListener("keydown", onWindow);
 	try {
-		await act(async () => { root.render(<html><head /><body><ServerEventsProvider connect={() => ({ close() {}, onOpen() {}, onEvent() {} })}>
+		await act(async () => { root.render(<html><head /><body><InteractionLayersProvider><ServerEventsProvider connect={() => ({ close() {}, onOpen() {}, onEvent() {} })}>
 			<ChainTableOverlay open nodes={[]} chains={[]} sessions={{}} fileSources={{}} onClose={() => { closed++; }} />
-		</ServerEventsProvider></body></html>); });
+		</ServerEventsProvider></InteractionLayersProvider></body></html>); });
 		for (const raw of ["null", "3", '"text"', "{"]) {
 			const drop = new dom.window.Event("drop", { bubbles: true, cancelable: true });
 			Object.defineProperty(drop, "dataTransfer", { value: { getData: () => raw } });
@@ -61,9 +62,9 @@ it("a failed source rename reports once, under its row, and Esc clears it", asyn
 	const alerts = () => [...document.querySelectorAll('[role="alert"]')].filter((el) => el.textContent === "Could not rename.").length;
 	const key = (k: string) => { const event = new dom.window.Event("keydown", { bubbles: true, cancelable: true }); Object.defineProperty(event, "key", { value: k }); return event; };
 	try {
-		await act(async () => { root.render(<ServerEventsProvider connect={() => ({ close() {}, onOpen() {}, onEvent() {} })}>
+		await act(async () => { root.render(<InteractionLayersProvider><ServerEventsProvider connect={() => ({ close() {}, onOpen() {}, onEvent() {} })}>
 			<ChainTableOverlay open nodes={[]} chains={[]} sessions={{}} fileSources={{}} onClose={() => {}} />
-		</ServerEventsProvider>); });
+		</ServerEventsProvider></InteractionLayersProvider>); });
 		await act(async () => { (document.querySelector('button[title="Rename"]') as HTMLElement).click(); });
 		const input = document.querySelector<HTMLInputElement>('[data-testid="source-name-input"]')!;
 		input.setAttribute("type", "text");

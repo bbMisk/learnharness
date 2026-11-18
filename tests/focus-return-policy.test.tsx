@@ -6,6 +6,7 @@ import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, it } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
+import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
 
 // One focus return everywhere: closing Find, the side tutor, the ⌘K model
 // menu or setup hands focus back with its caret, and the fallback finds the
@@ -22,7 +23,8 @@ Object.assign(globalThis, {
 });
 Object.assign(dom.window, {
 	innerWidth: 1280, innerHeight: 800,
-	getComputedStyle: () => ({ display: "block", visibility: "visible", opacity: "1", whiteSpace: "normal", getPropertyValue: () => "" }),
+	// A collapsed field (checkVisibility false) is display:none to style reads too, as in a browser.
+	getComputedStyle: (element: HTMLElement) => ({ display: element.checkVisibility?.() === false ? "none" : "block", visibility: "visible", opacity: "1", whiteSpace: "normal", getPropertyValue: () => "" }),
 	getSelection: () => ({ toString: () => "" }),
 });
 Object.assign(dom.document, { oninput: null });
@@ -45,6 +47,9 @@ const selection = {
 Object.assign(document, { getSelection: () => selection });
 let focused: Element | null = null;
 dom.window.HTMLElement.prototype.focus = function (this: HTMLElement) {
+	// As in a browser, the (non-focusable) body cannot take focus: a dialog
+	// opened from nothing that "returns" focus to <body> leaves it where it is.
+	if (this === dom.document.body) return;
 	focused = this;
 	if (!this.isContentEditable) range = null; // a plain field takes the selection
 	else if (!(range && this.contains(range.startContainer))) range = at(this, 0);
@@ -112,9 +117,10 @@ it("closing Find puts the caret back where it was", async () => {
 	const { kbdEventForAction } = await import("../src/core/keyboard.ts");
 	const composer = field("composer");
 	const scope = document.createElement("div");
+	document.body.append(scope); // Find only opens for a connected, visible session scope
 	hosts.push(scope);
 	mountHost();
-	await act(async () => { root!.render(<SessionFind scopeRef={{ current: scope as HTMLDivElement }} scrollContextRef={{ current: null }} />); });
+	await act(async () => { root!.render(<InteractionLayersProvider><SessionFind scopeRef={{ current: scope as HTMLDivElement }} scrollContextRef={{ current: null }} /></InteractionLayersProvider>); });
 	typingMidText(composer);
 	await act(async () => { window.dispatchEvent(new dom.window.Event(kbdEventForAction("find"))); });
 	assert.ok(focused?.tagName === "INPUT", "Find took focus");
@@ -131,7 +137,7 @@ it("closing the side tutor puts the caret back where it was", async () => {
 	}
 	const thinking = field("thinking-field");
 	const host = mountHost();
-	await act(async () => { root!.render(<Harness />); });
+	await act(async () => { root!.render(<InteractionLayersProvider><Harness /></InteractionLayersProvider>); });
 	typingMidText(thinking);
 	await act(async () => { window.dispatchEvent(new dom.window.Event(kbdEventForAction("toggle-side-tutor"))); });
 	host.querySelector<HTMLElement>('[data-testid="tutor-input"]')!.focus();
@@ -148,7 +154,7 @@ it("Esc in the ⌘K model menu hands focus back mid-typing, caret kept", async (
 	const { ModelControl } = await import("../components/model-picker.tsx");
 	const composer = field("composer");
 	const host = mountHost();
-	await act(async () => { root!.render(<ModelControl />); });
+	await act(async () => { root!.render(<InteractionLayersProvider><ModelControl /></InteractionLayersProvider>); });
 	typingMidText(composer);
 	await act(async () => { window.dispatchEvent(new dom.window.CustomEvent("lh:kbd-open-model-picker")); });
 	const menu = document.querySelector<HTMLElement>('[data-testid="model-menu"]');
@@ -179,7 +185,7 @@ async function mountSetup() {
 		return <SetupDialog open={open} onClose={() => setOpen(false)} onDone={() => setOpen(false)} />;
 	}
 	mountHost();
-	await act(async () => { root!.render(<Harness />); });
+	await act(async () => { root!.render(<InteractionLayersProvider><Harness /></InteractionLayersProvider>); });
 	await frame();
 }
 
@@ -223,8 +229,8 @@ it("dismissing a check from its folded state hands focus to the composer, not th
 	Object.assign(thinking, { checkVisibility: () => false }); // Esc folded the check
 	const composer = field("composer");
 	mountHost();
-	await act(async () => { root!.render(<AbortTurnDialog mode="question" onClose={() => {}} onConfirm={() => {}} />); });
+	await act(async () => { root!.render(<InteractionLayersProvider><AbortTurnDialog mode="question" onClose={() => {}} onConfirm={() => {}} /></InteractionLayersProvider>); });
 	assert.ok(focused === document.querySelector('[data-testid="abort-turn-confirm"]'), "the dialog takes focus");
-	await act(async () => { root!.render(<AbortTurnDialog mode={null} onClose={() => {}} onConfirm={() => {}} />); });
+	await act(async () => { root!.render(<InteractionLayersProvider><AbortTurnDialog mode={null} onClose={() => {}} onConfirm={() => {}} /></InteractionLayersProvider>); });
 	assert.ok(caretAtEnd(composer), "the composer, caret after its draft");
 });

@@ -109,7 +109,7 @@ describe("DispatchCard — the BYOK refusal tone (owner, 2026-09-22)", () => {
 		assert.ok(html.includes('data-testid="dispatch-setup-link"'));
 		assert.ok(html.includes("Set up models"));
 		assert.ok(!html.includes("failed"));
-		assert.ok(!html.includes("text-red-500"));
+		assert.ok(!html.includes("text-error"));
 	});
 
 	it("a key-refused job is INFO: 'needs a provider key', 'Add a key' (zero-keys wave, 66dbea9)", () => {
@@ -127,7 +127,7 @@ describe("DispatchCard — the BYOK refusal tone (owner, 2026-09-22)", () => {
 		const html = renderToStaticMarkup(inJobs([job({ error: "FAILED: headless crashed" })]));
 		assert.ok(html.includes('data-testid="dispatch-settled"'));
 		assert.match(html, /failed/i);
-		assert.ok(html.includes("text-red-500"));
+		assert.ok(html.includes("text-error"));
 		assert.ok(!html.includes("dispatch-refused"));
 	});
 
@@ -470,6 +470,20 @@ describe("probe-done card", () => {
 			<ProbeDoneCard part={{ state: "input-available", input: { assessment: validAssessment } } as never} />,
 		);
 		assert.match(html, /modal logic basics/);
+	});
+
+	it("renders math in the strand, assessment, and summary", () => {
+		const html = renderToStaticMarkup(
+			<ProbeDoneCard part={{ state: "output-available", input: { assessment: {
+				strands: [{ strand: "Compare $x$", assessment: "Understands $y$" }],
+				summary: "Review\n\n$$\nz=1\n$$",
+			} }, output: { ok: true } }} />,
+		);
+		assert.equal((html.match(/class="katex"/g) ?? []).length, 3);
+		assert.ok(html.includes("katex-display"), "display math in the summary renders as display math");
+		assert.match(html, /Compare/);
+		assert.match(html, /Understands/);
+		assert.match(html, /Review/);
 	});
 
 	it("a REJECTED assessment (the stringified live shape) renders the retry note, never the garbage", () => {

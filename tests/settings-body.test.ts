@@ -36,6 +36,20 @@ describe("parseGeneralSettingsBody", () => {
 });
 
 describe("parseAgentSettingsBody", () => {
+	it("worker concurrency accepts positive safe integers only; absent resets to the default", () => {
+		for (const value of [1, 8, 100_000, Number.MAX_SAFE_INTEGER]) {
+			assert.deepEqual(parseAgentSettingsBody({ workerRequestConcurrency: value, tools: { research: false } }), {
+				ok: true, settings: { workerRequestConcurrency: value, tools: { research: false } },
+			});
+		}
+		for (const value of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity, -Infinity, "8", "", null, true, [], {}]) {
+			const result = parseAgentSettingsBody({ workerRequestConcurrency: value });
+			assert.equal(result.ok, false, String(value));
+			if (!result.ok) assert.match(result.error, /workerRequestConcurrency.*positive.*safely representable whole number/);
+		}
+		assert.deepEqual(parseAgentSettingsBody({ workerRequestConcurrency: undefined }), { ok: true, settings: {} });
+	});
+
 	it("models: valid roles with model pair and/or thinkingLevel; unknown role is a 400 with the list", () => {
 		const r = parseAgentSettingsBody({
 			models: {
@@ -50,7 +64,7 @@ describe("parseAgentSettingsBody", () => {
 		});
 		const bad = parseAgentSettingsBody({ models: { teacher: {} } });
 		assert.equal(bad.ok, false);
-		if (!bad.ok) assert.match(bad.error, /unknown role "teacher" \(supported: researcher, demoBuilder, visualMaker, extractor, auditor, flashcardCurator\)/);
+		if (!bad.ok) assert.match(bad.error, /unknown role "teacher" \(supported: researcher, demoBuilder, visualMaker, extractor, auditor\)/);
 		const malformed = parseAgentSettingsBody({ models: { researcher: { model: { provider: 1, id: "x" } } } });
 		assert.equal(malformed.ok, false);
 	});
@@ -111,8 +125,8 @@ describe("parseAgentSettingsBody", () => {
 describe("parseAppearanceSettingsBody", () => {
 	it("parses every field; hex-or-null colors; clamps happen at sanitize, rejects here", () => {
 		const r = parseAppearanceSettingsBody({
-			mode: "light",
-			background: "#202830",
+			theme: "catppuccin-latte",
+			background: "#ffffff",
 			fontFamily: "Some Font",
 			proseFontSize: 20,
 			sessionNameSerif: false,
@@ -120,8 +134,8 @@ describe("parseAppearanceSettingsBody", () => {
 		});
 		assert.ok(r.ok);
 		assert.deepEqual(r.settings, {
-			mode: "light",
-			background: "#202830",
+			theme: "catppuccin-latte",
+			background: "#ffffff",
 			fontFamily: "Some Font",
 			proseFontSize: 20,
 			sessionNameSerif: false,
@@ -131,7 +145,7 @@ describe("parseAppearanceSettingsBody", () => {
 
 	it("rejects bad enums, ranges, and colors — with specific messages, never clamps", () => {
 		const cases: unknown[] = [
-			{ mode: "sepia" },
+			{ theme: "Sepia!" },
 			{ background: "blue" },
 			{ background: 42 },
 			{ fontFamily: "" },
@@ -151,39 +165,34 @@ describe("parseAppearanceSettingsBody", () => {
 		assert.ok(parseAppearanceSettingsBody({ mdRendering: { headingWeight: 100 } }));
 		assert.ok(parseAppearanceSettingsBody({ mdRendering: { headingWeight: 900 } }));
 		assert.ok(parseAppearanceSettingsBody({ background: "#abc" }));
-		// null = "the mode's default" — explicit, valid
+		// null = "the theme's color" — explicit, valid
 		assert.ok(parseAppearanceSettingsBody({ background: null, fontFamily: null }));
 	});
 
-	it("refuses a light background on the dark theme, with a readable message", () => {
-		const light = parseAppearanceSettingsBody({ background: "#ffffff" });
-		assert.equal(light.ok, false);
-		if (!light.ok) assert.match(light.error, /^Background must be a dark color/);
-		assert.ok(parseAppearanceSettingsBody({ background: "#202830" }).ok);
-		// Light mode is not built yet: the app still renders light text.
-		assert.equal(parseAppearanceSettingsBody({ background: "#ffffff", mode: "light" }).ok, false);
-		// The limit is text contrast for every tier (3:1 against the muted
-		// #8d8d8d), not a darkness cap.
-		for (const readable of ["#424242", "#3a3a3a", "#003366", "#202830", "#000"]) {
-			assert.ok(parseAppearanceSettingsBody({ background: readable }).ok, readable);
-		}
-		for (const unreadable of ["#474747", "#666666", "#2f4f4f", "#808080", "#ff0000"]) {
-			assert.equal(parseAppearanceSettingsBody({ background: unreadable }).ok, false, unreadable);
-		}
+	it("accepts a theme id and color overrides, rejects bad values", () => {
+		const ok = parseAppearanceSettingsBody({ theme: "rose-pine-dawn", colors: { warning: "#f0f0f0", error: null } });
+		assert.ok(ok.ok);
+		assert.deepEqual(ok.ok && ok.settings, { theme: "rose-pine-dawn", colors: { warning: "#f0f0f0", error: null } });
+		const badTheme = parseAppearanceSettingsBody({ theme: "Rosé Pine" });
+		assert.equal(badTheme.ok, false);
+		assert.match(!badTheme.ok ? badTheme.error : "", /theme must be a theme id/);
+		const unknownColor = parseAppearanceSettingsBody({ colors: { sepia: "#000000" } });
+		assert.equal(unknownColor.ok, false);
+		assert.match(!unknownColor.ok ? unknownColor.error : "", /unknown color "sepia"/);
+		assert.equal(parseAppearanceSettingsBody({ colors: { error: "red" } }).ok, false);
+		assert.equal(parseAppearanceSettingsBody({ colors: "red" }).ok, false);
+	});
+
+	it("names a malformed emphasis color", () => {
 		const bad = parseAppearanceSettingsBody({ mdRendering: { boldColor: "red" } });
 		assert.ok(!bad.ok);
 		if (!bad.ok) assert.equal(bad.error, "Bold color must be a hex color like #1a2b3c");
 	});
 
-	it("refuses a bold or italic color too dark to read on the background", () => {
-		const dark = parseAppearanceSettingsBody({ mdRendering: { boldColor: "#1c1c1c" } });
-		assert.equal(dark.ok, false);
-		if (!dark.ok) assert.equal(dark.error, "Bold color must be light enough to read on the background");
-		assert.equal(parseAppearanceSettingsBody({ mdRendering: { italicColor: "#555555" } }).ok, false);
-		assert.ok(parseAppearanceSettingsBody({ mdRendering: { boldColor: "#ff8800", italicColor: "#e6e6e6" } }).ok);
-		// Checked against the background in the same section write.
-		assert.ok(parseAppearanceSettingsBody({ mdRendering: { italicColor: "#8d8d8d" } }).ok);
-		assert.equal(parseAppearanceSettingsBody({ background: "#3a3a3a", mdRendering: { italicColor: "#8d8d8d" } }).ok, false);
+	it("drops the light-mode wave's mode/lightBackground like any unknown key", () => {
+		const ok = parseAppearanceSettingsBody({ mode: "light", lightBackground: "#f0f0f0" });
+		assert.ok(ok.ok);
+		assert.deepEqual(ok.ok && ok.settings, {});
 	});
 
 	it("rejects non-object bodies and non-object mdRendering", () => {
@@ -252,6 +261,13 @@ describe("parseGraphSettingsBody", () => {
 });
 
 describe("parseCompactionSettingsBody (owner round 14)", () => {
+	it("rejects non-boolean reasoning choices rather than silently changing the estimator", () => {
+		for (const includeReasoning of ["true", "false", 0, 1, null, [], {}]) {
+			const result = parseCompactionSettingsBody({ includeReasoning });
+			assert.ok(!result.ok);
+			assert.match(result.error, /includeReasoning must be true or false/);
+		}
+	});
 	it("parses a threshold; absent = the empty section (factory default at resolution)", () => {
 		const r = parseCompactionSettingsBody({ thresholdTokens: 120000 });
 		assert.ok(r.ok);

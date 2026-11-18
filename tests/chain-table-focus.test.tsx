@@ -20,6 +20,7 @@ Object.defineProperty(document, "activeElement", { configurable: true, get: () =
 const { createRoot } = await import("react-dom/client");
 const { ChainTableOverlay } = await import("../components/chain-table.tsx");
 const { ServerEventsProvider } = await import("../components/server-events.tsx");
+const { InteractionLayersProvider } = await import("../components/interaction-layers.tsx");
 const quiet = () => ({ close() {}, onOpen() {}, onEvent() {} });
 
 let setOpen: (open: boolean) => void = () => {};
@@ -38,7 +39,7 @@ it("focus returns to the opener after the table closes", async () => {
 	const host = document.createElement("div");
 	document.body.append(host);
 	const root = createRoot(host);
-	await act(async () => root.render(<ServerEventsProvider connect={quiet}><Harness /></ServerEventsProvider>));
+	await act(async () => root.render(<InteractionLayersProvider><ServerEventsProvider connect={quiet}><Harness /></ServerEventsProvider></InteractionLayersProvider>));
 	const opener = document.querySelector<HTMLElement>('[data-testid="opener"]')!;
 	opener.focus();
 	await act(async () => setOpen(true));
@@ -53,7 +54,7 @@ it("Tab inside the open table stays in it: it goes to the table's search, never 
 	const host = document.createElement("div");
 	document.body.append(host);
 	const root = createRoot(host);
-	await act(async () => root.render(<ServerEventsProvider connect={quiet}><Harness /></ServerEventsProvider>));
+	await act(async () => root.render(<InteractionLayersProvider><ServerEventsProvider connect={quiet}><Harness /></ServerEventsProvider></InteractionLayersProvider>));
 	await act(async () => setOpen(true));
 	let reachedWindow = false;
 	const onWindow = (e: Event) => { if ((e as KeyboardEvent).key === "Tab") reachedWindow = true; };
@@ -71,7 +72,7 @@ it("Esc in the table's search clears the query first, then closes the table", as
 	const host = document.createElement("div");
 	document.body.append(host);
 	const root = createRoot(host);
-	await act(async () => root.render(<ServerEventsProvider connect={quiet}><Harness /></ServerEventsProvider>));
+	await act(async () => root.render(<InteractionLayersProvider><ServerEventsProvider connect={quiet}><Harness /></ServerEventsProvider></InteractionLayersProvider>));
 	await act(async () => setOpen(true));
 	const search = document.querySelector('[data-testid="chain-table-search"]') as HTMLInputElement;
 	search.setAttribute("type", "text"); // linkedom reports no type, so React would skip onChange
@@ -91,7 +92,7 @@ it("Esc with focus in the table body also clears the query before closing", asyn
 	const host = document.createElement("div");
 	document.body.append(host);
 	const root = createRoot(host);
-	await act(async () => root.render(<ServerEventsProvider connect={quiet}><Harness /></ServerEventsProvider>));
+	await act(async () => root.render(<InteractionLayersProvider><ServerEventsProvider connect={quiet}><Harness /></ServerEventsProvider></InteractionLayersProvider>));
 	await act(async () => setOpen(true));
 	const search = document.querySelector('[data-testid="chain-table-search"]') as HTMLInputElement;
 	search.setAttribute("type", "text");

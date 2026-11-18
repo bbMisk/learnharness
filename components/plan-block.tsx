@@ -12,12 +12,12 @@ import { layout as dagreLayout } from "dagre-d3-es/src/dagre/index.js";
 // d3's curveBasis (the exact recipe dagre-d3's own renderer uses).
 import { curveBasis, line } from "d3-shape";
 import { fitGraphView, fitZoomFor, zoomedGraphView, type Viewport } from "@/components/pan-zoom";
-import { isComposing } from "@/components/ime";
 import type { PlanBlockData, PlanNodeStatus, PlanTree } from "@/src/core";
 import { derivedNodeStatus, derivePlanStatuses } from "@/src/core";
 import { Hint } from "@/components/ui/hint";
 import { useSessionOverlay } from "@/components/session-overlay";
 import { focusComposer, useFocusReturn } from "@/components/focus-return";
+import { InteractionLayerOwner, useInteractionLayer } from "./interaction-layers";
 
 /**
  * PLAN BLOCKS — the plan lives in the chat: persisted `data-plan-block`
@@ -390,18 +390,19 @@ const BOX: Record<PlanNodeStatus, string> = {
 	// 50%-opacity app background instead of true transparency: a routed
 	// edge passing behind the box composites UNDER the fill — dimmed to
 	// half, not shown straight through.
-	visited: "fill-background/50 stroke-white",
-	current: "fill-background/50 stroke-white",
+	visited: "fill-background/50 stroke-line-strong",
+	current: "fill-background/50 stroke-line-strong",
 	upcoming: "fill-card stroke-border",
 };
 const TEXT: Record<PlanNodeStatus, string> = {
-	visited: "fill-white text-xs",
-	current: "fill-white text-xs font-medium",
+	visited: "fill-line-strong text-xs",
+	current: "fill-line-strong text-xs font-medium",
 	upcoming: "fill-muted-foreground/80 text-xs",
 };
 // The in-chat block uses the dock language: boxes in the lighter
-// background variant like the composer/dock shells, with white outlines.
-const MONO_BOX = "fill-card stroke-white";
+// background variant like the composer/dock shells, with outlines in the
+// strong line ink (white in dark).
+const MONO_BOX = "fill-card stroke-line-strong";
 const MONO_TEXT = "fill-foreground text-xs";
 
 /** The diagram itself: positioned nodes + bezier edges. Pure-ish render —
@@ -490,7 +491,7 @@ export function PlanDiagram({
 				>
 					{/* The arrowhead. The mouth (x 27.2) sits at refX so the
 					    line ends AT the notch — the tip beyond it is solid fill. */}
-					<path d={ARROW_HEAD} className="fill-white" />
+					<path d={ARROW_HEAD} className="fill-line-strong" />
 				</marker>
 				{/* Same head, grayed — for arrows drawn in the dim style (see
 				    the both-ends rule below). */}
@@ -537,7 +538,7 @@ export function PlanDiagram({
 					<path
 						key={`${e.from}->${e.to}`}
 						d={edgePathD(pts, target)}
-						className={dim ? "fill-none stroke-border" : "fill-none stroke-white"}
+						className={dim ? "fill-none stroke-border" : "fill-none stroke-line-strong"}
 						strokeWidth={STROKE_W}
 						markerEnd={`url(#${markerId}${dim ? "-dim" : ""})`}
 					/>
@@ -686,27 +687,17 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 	);
 	const statusOf = (id: string): PlanNodeStatus => (statuses ? derivedNodeStatus(statuses, id) : "upcoming");
 
-	// Esc closes — claimed at the DOCUMENT level, so a surfaced layer's Esc
-	// is exactly one action. The window-level chain (dictation cancel →
-	// abort) is the fallback for when NOTHING is surfaced; a window listener
-	// here could never stop it (same-node listeners all fire), so Esc would
-	// both close the plan AND cancel dictation.
-	useEffect(() => {
-		const onKey = (e: KeyboardEvent) => {
-			if (document.querySelector('[data-testid="settings-dialog"]')) return;
-			if (e.key === "Escape" && !e.defaultPrevented && !isComposing(e)) {
-				e.preventDefault();
-				e.stopPropagation();
-				onClose();
-			}
-		};
-		document.addEventListener("keydown", onKey);
-		return () => document.removeEventListener("keydown", onKey);
-	}, [onClose]);
+	// Esc closes through the interaction layers: a surfaced layer's Esc is
+	// exactly one action, and the window-level chain (dictation cancel →
+	// abort) only hears an Esc no layer owns.
+	const dialogRef = useRef<HTMLDivElement>(null);
+	const layer = useInteractionLayer({
+		kind: "view", enabled: true, rootRef: dialogRef,
+		onClose: () => { onClose(); return "closed"; },
+	});
 
 	// Focus moves into the popup (a modal: the shortcuts' Tab trap keeps it
 	// there) and returns to whatever held it on close, else the typing field.
-	const dialogRef = useRef<HTMLDivElement>(null);
 	useFocusReturn(true, focusComposer);
 	useEffect(() => {
 		dialogRef.current?.focus({ preventScroll: true });
@@ -815,13 +806,16 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 	const markerId = useId().replace(/[^a-zA-Z0-9-]/g, "");
 
 	return (
+		<InteractionLayerOwner.Provider value={layer.id}>
 		<div
 			ref={dialogRef}
 			data-testid="plan-popup"
 			// SESSION-SCOPED (absolute, not fixed): the chat page mounts this
 			// INSIDE the session-area div — below the drag bar, right of the
 			// sidebar. 80% + blur: the transcript ghosts through.
-			className="absolute inset-0 z-40 flex flex-col bg-background/80 p-4 outline-none backdrop-blur-sm"
+			className="pointer-events-auto absolute inset-0 z-40 flex flex-col bg-background/80 p-4 outline-none backdrop-blur-sm"
+			// Ranked inside the session's bounded view stack, below app modals.
+			style={{ zIndex: 100 + layer.order }}
 			role="dialog"
 			aria-modal="true"
 			data-lh-modal
@@ -930,5 +924,6 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 				)}
 			</div>
 		</div>
+		</InteractionLayerOwner.Provider>
 	);
 }

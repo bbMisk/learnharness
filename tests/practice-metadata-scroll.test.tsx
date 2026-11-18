@@ -8,6 +8,7 @@ import { parseHTML } from "linkedom";
 const { window, document } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { React, window, document, Node: window.Node, Element: window.Element, HTMLElement: window.HTMLElement, Event: window.Event, CustomEvent: window.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true, innerWidth: 852, innerHeight: 393 });
 const { createRoot } = await import("react-dom/client");
+const { InteractionLayersProvider } = await import("../components/interaction-layers.tsx");
 const { ConcludeCard } = await import("../components/practice-cards.tsx");
 import type { ArtifactPartProps } from "../src/core";
 
@@ -34,7 +35,7 @@ test("scrolling inside the open popover keeps it open; an outside scroll or a re
 	document.body.append(host);
 	const root = createRoot(host);
 	try {
-		await act(async () => root.render(<ConcludeCard part={part} />));
+		await act(async () => root.render(<InteractionLayersProvider><ConcludeCard part={part} /></InteractionLayersProvider>));
 		const open = async () => {
 			await act(async () => (document.querySelector('[data-testid="metadata-toggle"]') as HTMLElement).click());
 			assert.ok(document.querySelector('[data-testid="metadata-box"]'), "opened");

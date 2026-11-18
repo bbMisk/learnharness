@@ -33,6 +33,7 @@ Object.assign(globalThis, {
 const { createRoot } = await import("react-dom/client");
 const { useFileDrop } = await import("../components/file-drop.ts");
 const { AttachButton } = await import("../components/attach-button.tsx");
+const { InteractionLayersProvider } = await import("../components/interaction-layers.tsx");
 
 let root: ReturnType<typeof createRoot> | undefined;
 afterEach(async () => {
@@ -52,7 +53,7 @@ async function mount(lh: unknown) {
 	Object.defineProperty(dom.window, "lh", { configurable: true, value: lh });
 	draft = "";
 	root = createRoot(document.getElementById("root")!);
-	await act(async () => root!.render(<Field />));
+	await act(async () => root!.render(<InteractionLayersProvider><Field /></InteractionLayersProvider>));
 	const input = document.querySelector('input[type="file"]') as HTMLInputElement;
 	let chooserOpened = 0;
 	input.click = () => { chooserOpened++; };
@@ -90,3 +91,35 @@ for (const [name, lh] of [["web", undefined], ["remote-server desktop", { remote
 		assert.equal(page.chooserOpened(), 1);
 	});
 }
+
+it("desktop: an outside press closes the menu; presses on the paperclip and in the menu do not", async () => {
+	await mount({ chooseAttachmentFolder: async () => null });
+	const press = (el: Element) => act(async () => { el.dispatchEvent(new dom.window.Event("pointerdown", { bubbles: true, cancelable: true })); });
+	await click(q("attach-button"));
+	await press(q("attach-files")!);
+	assert.ok(q("attach-menu"), "a press inside the menu keeps it open for the pick");
+	await press(q("attach-button")!);
+	assert.ok(q("attach-menu"), "the paperclip's own press is its toggle, not an outside press");
+	await press(document.body);
+	assertSameNode(q("attach-menu"), null, "an outside press closes the menu");
+	assert.equal(q("attach-button")!.getAttribute("aria-expanded"), "false");
+});
+
+it("desktop: Escape closes the menu and returns focus to the paperclip", async () => {
+	const prototype = dom.window.HTMLElement.prototype;
+	const noop = prototype.focus;
+	let focused: Element | null = null;
+	prototype.focus = function () { focused = this; };
+	try {
+		await mount({ chooseAttachmentFolder: async () => null });
+		await click(q("attach-button"));
+		const menu = q("attach-menu")!;
+		assert.ok(menu);
+		const escape = Object.assign(new dom.window.Event("keydown", { bubbles: true, cancelable: true }), { key: "Escape" });
+		await act(async () => { menu.dispatchEvent(escape); });
+		assertSameNode(q("attach-menu"), null, "Escape closes the menu");
+		assertSameNode(focused, q("attach-button"), "focus returns to the paperclip");
+	} finally {
+		prototype.focus = noop;
+	}
+});

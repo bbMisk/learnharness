@@ -11,7 +11,8 @@
 
 import path from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { isDarkBackground, isHexColor, isReadableInk, QUESTION_TYPES, sanitizeQuestionType, type ChatSettings } from "../core";
+import { isHexColor, QUESTION_TYPES, sanitizeQuestionType, type ChatSettings } from "../core";
+import { COLOR_OVERRIDE_KEYS, isThemeId, type AppearanceColorOverrides, type ColorOverrideKey } from "../core/themes.ts";
 import type {
 	AgentSettings,
 	AppearanceSettings,
@@ -90,10 +91,6 @@ export function parseGeneralSettingsBody(body: unknown): SettingsBodyResult<Gene
 	const raw = asRecord(body);
 	if (!raw) return { ok: false, error: "Invalid JSON body" };
 	const settings: GeneralSettings = {};
-	if (raw.flashcardSources !== undefined) {
-		if (raw.flashcardSources !== "chats" && raw.flashcardSources !== "all") return {ok:false, error:"flashcardSources must be chats or all"};
-		settings.flashcardSources = raw.flashcardSources;
-	}
 	if (raw.autoUpdate !== undefined) {
 		if (typeof raw.autoUpdate !== "boolean") {
 			return { ok: false, error: "autoUpdate must be a boolean" };
@@ -188,7 +185,7 @@ function parseBooleanMap(value: unknown, field: string): { map?: Record<string, 
 	return { map: out };
 }
 
-/** agent: { flashcards?, models?, tools?, prompts?, modelInstructions?,
+/** agent: { workerRequestConcurrency?, models?, tools?, prompts?, modelInstructions?,
  *  search?, graphTools?, fileAccess? } — model/thinking validity against
  *  the catalog is checked by the route (validateChatSettings discipline);
  *  prompt switch-on membership is checked by the route (needs the store). */
@@ -196,17 +193,11 @@ export function parseAgentSettingsBody(body: unknown): SettingsBodyResult<AgentS
 	const raw = asRecord(body);
 	if (!raw) return { ok: false, error: "Invalid JSON body" };
 	const settings: AgentSettings = {};
-	if (raw.flashcards !== undefined) {
-		const value = asRecord(raw.flashcards);
-		if (!value) return {ok:false,error:"flashcards must be an object"};
-		if (value.enabled !== undefined && typeof value.enabled !== "boolean") return {ok:false,error:"flashcards.enabled must be a boolean"};
-		if (value.dailyLimit !== undefined && (typeof value.dailyLimit !== "number" || !Number.isInteger(value.dailyLimit) || value.dailyLimit < 1 || value.dailyLimit > 100)) return {ok:false,error:"flashcards.dailyLimit must be an integer from 1 to 100"};
-		if (value.instructions !== undefined && (typeof value.instructions !== "string" || value.instructions.length > 8000)) return {ok:false,error:"flashcards.instructions must be at most 8000 characters"};
-		settings.flashcards = {
-			...(value.enabled !== undefined ? {enabled:value.enabled as boolean} : {}),
-			...(value.dailyLimit !== undefined ? {dailyLimit:value.dailyLimit as number} : {}),
-			...(value.instructions !== undefined ? {instructions:value.instructions as string} : {}),
-		};
+	if (raw.workerRequestConcurrency !== undefined) {
+		if (typeof raw.workerRequestConcurrency !== "number" || !Number.isSafeInteger(raw.workerRequestConcurrency) || raw.workerRequestConcurrency <= 0) {
+			return { ok: false, error: "workerRequestConcurrency must be a positive, safely representable whole number" };
+		}
+		settings.workerRequestConcurrency = raw.workerRequestConcurrency;
 	}
 	if (raw.models !== undefined) {
 		const models = asRecord(raw.models);
@@ -294,26 +285,35 @@ function parseHexOrNull(value: unknown, field: string): { color?: string | null;
 	return { color: value };
 }
 
-/** appearance: { mode?, background?, fontFamily?, proseFontSize?,
- *  sessionNameSerif?, mdRendering? } */
+/** appearance: { theme?, background?, colors?, fontFamily?,
+ *  proseFontSize?, codeLigatures?, sessionNameSerif?, mdRendering? } —
+ *  `theme` is shape-checked here (slug); whether it EXISTS is the route's check. */
 export function parseAppearanceSettingsBody(body: unknown): SettingsBodyResult<AppearanceSettings> {
 	const raw = asRecord(body);
 	if (!raw) return { ok: false, error: "Invalid JSON body" };
 	const settings: AppearanceSettings = {};
-	if (raw.mode !== undefined) {
-		if (raw.mode !== "dark" && raw.mode !== "light") {
-			return { ok: false, error: "mode must be \"dark\" or \"light\"" };
-		}
-		settings.mode = raw.mode;
+	if (raw.theme !== undefined) {
+		if (!isThemeId(raw.theme)) return { ok: false, error: "theme must be a theme id (lowercase slug)" };
+		settings.theme = raw.theme;
 	}
 	if (raw.background !== undefined) {
 		const parsed = parseHexOrNull(raw.background, "Background");
 		if (parsed.error) return { ok: false, error: parsed.error };
-		// The app renders only the dark theme for now, whatever `mode` says.
-		if (parsed.color && !isDarkBackground(parsed.color)) {
-			return { ok: false, error: "Background must be a dark color: the theme's text is light and would be unreadable" };
-		}
 		settings.background = parsed.color ?? null;
+	}
+	if (raw.colors !== undefined) {
+		const colors = asRecord(raw.colors);
+		if (!colors) return { ok: false, error: "colors must be an object" };
+		const out: AppearanceColorOverrides = {};
+		for (const [key, value] of Object.entries(colors)) {
+			if (!(COLOR_OVERRIDE_KEYS as readonly string[]).includes(key)) {
+				return { ok: false, error: `unknown color "${key}" (supported: ${COLOR_OVERRIDE_KEYS.join(", ")})` };
+			}
+			const parsed = parseHexOrNull(value, `colors.${key}`);
+			if (parsed.error) return { ok: false, error: parsed.error };
+			out[key as ColorOverrideKey] = parsed.color ?? null;
+		}
+		settings.colors = out;
 	}
 	if (raw.fontFamily !== undefined) {
 		if (raw.fontFamily !== null && (typeof raw.fontFamily !== "string" || !raw.fontFamily.trim())) {
@@ -331,6 +331,12 @@ export function parseAppearanceSettingsBody(body: unknown): SettingsBodyResult<A
 			return { ok: false, error: "proseFontSize must be an integer between 12 and 24" };
 		}
 		settings.proseFontSize = raw.proseFontSize;
+	}
+	if (raw.codeLigatures !== undefined) {
+		if (typeof raw.codeLigatures !== "boolean") {
+			return { ok: false, error: "codeLigatures must be a boolean" };
+		}
+		settings.codeLigatures = raw.codeLigatures;
 	}
 	if (raw.sessionNameSerif !== undefined) {
 		if (typeof raw.sessionNameSerif !== "boolean") {
@@ -362,11 +368,6 @@ export function parseAppearanceSettingsBody(body: unknown): SettingsBodyResult<A
 			const parsed = parseHexOrNull(md.italicColor, "Italic color");
 			if (parsed.error) return { ok: false, error: parsed.error };
 			rendering.italicColor = parsed.color ?? null;
-		}
-		for (const [field, ink] of [["Bold color", rendering.boldColor], ["Italic color", rendering.italicColor]] as const) {
-			if (ink && !isReadableInk(ink, settings.background ?? null)) {
-				return { ok: false, error: `${field} must be light enough to read on the background` };
-			}
 		}
 		if (Object.keys(rendering).length) settings.mdRendering = rendering;
 	}
@@ -456,6 +457,12 @@ export function parseCompactionSettingsBody(body: unknown): SettingsBodyResult<C
 	const raw = asRecord(body);
 	if (!raw) return { ok: false, error: "Invalid JSON body" };
 	const settings: CompactionSettings = {};
+	if (raw.includeReasoning !== undefined) {
+		if (typeof raw.includeReasoning !== "boolean") {
+			return { ok: false, error: "includeReasoning must be true or false" };
+		}
+		settings.includeReasoning = raw.includeReasoning;
+	}
 	if (raw.thresholdTokens !== undefined) {
 		if (typeof raw.thresholdTokens !== "number" || !Number.isFinite(raw.thresholdTokens)) {
 			return { ok: false, error: "thresholdTokens must be a number" };

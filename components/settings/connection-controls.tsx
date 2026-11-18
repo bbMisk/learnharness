@@ -1,9 +1,7 @@
 "use client";
-import { useEffect, useRef } from "react";
-import { isComposing } from "@/components/ime";
-import { createPortal } from "react-dom";
-import { useBackdropDismiss } from "@/components/backdrop-dismiss";
-import { captureFocus } from "@/components/focus-return";
+import { useMemo, useRef, type RefObject } from "react";
+import { HostDialog } from "@/components/host-dialog";
+import type { CloseOutcome } from "@/components/interaction-layers";
 import { Button } from "@/components/ui/button";
 
 export function ConnectionRow({ label, action, actionVariant, disabled, onAction, children, testid, actionTestid, labelClassName }: { label: string; action: string; actionVariant?: "outline" | "ghost"; disabled: boolean; onAction: () => void; children?: React.ReactNode; testid?: string; actionTestid?: string; labelClassName?: string }) {
@@ -22,29 +20,21 @@ export function ConnectionFooter({ leading, children, testid }: { leading?: Reac
 	</div>;
 }
 
-/** `initialFocus`: which control takes focus on open; "last" puts a confirm dialog's action under Enter. */
-export function ConnectionDialog({ children, onClose, busy, label, testid, backdropTestid, initialFocus = "first" }: { children: React.ReactNode; onClose: () => void; busy: boolean; label: string; testid: string; backdropTestid: string; initialFocus?: "first" | "last" }) {
-	const ref = useRef<HTMLDivElement>(null), closeRef = useRef(onClose), busyRef = useRef(busy);
-	closeRef.current = onClose;
-	busyRef.current = busy;
-	const backdropDismiss = useBackdropDismiss(() => { if (!busy) onClose(); });
-	useEffect(() => {
-		const previous = captureFocus();
-		const focusable = () => [...(ref.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled])') ?? [])];
-		(initialFocus === "last" ? focusable().at(-1) : focusable()[0])?.focus();
-		const key = (event: KeyboardEvent) => {
-			if (event.key === "Escape") { if (event.defaultPrevented || isComposing(event)) return; event.preventDefault(); event.stopImmediatePropagation(); if (!busyRef.current) closeRef.current(); }
-			else if (event.key === "Tab") {
-				const items = focusable(), first = items[0], last = items.at(-1);
-				if (!first) { event.preventDefault(); return; }
-				if (event.shiftKey && (document.activeElement === first || !ref.current?.contains(document.activeElement))) { event.preventDefault(); last?.focus(); }
-				else if (!event.shiftKey && (document.activeElement === last || !ref.current?.contains(document.activeElement))) { event.preventDefault(); first.focus(); }
-			}
-		};
-		document.addEventListener("keydown", key, true);
-		return () => { document.removeEventListener("keydown", key, true); previous?.(false); };
-	}, []);
-	return createPortal(<div className="fixed inset-0 z-[60] flex items-center justify-center bg-background/80" data-testid={backdropTestid} {...backdropDismiss}>
-		<div ref={ref} role="dialog" aria-modal="true" data-lh-modal aria-label={label} aria-busy={busy} data-testid={testid} onClick={(event) => event.stopPropagation()} className="settings-dialog-pop mx-4 max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-md border border-border bg-card p-5 shadow-xl">{children}</div>
-	</div>, document.body);
+/** `initialFocus`: which control takes focus on open; "last" puts a confirm dialog's action under Enter.
+ *  A busy dialog stays open (Esc and the backdrop are refused). */
+export function ConnectionDialog({ children, onClose, busy, label, testid, backdropTestid, initialFocus = "first" }: { children: React.ReactNode; onClose: () => CloseOutcome | void; busy: boolean; label: string; testid: string; backdropTestid: string; initialFocus?: "first" | "last" }) {
+	const ref = useRef<HTMLDivElement>(null);
+	// HostDialog portals the frame a commit after mount, so a mount effect would
+	// find no buttons. Its explicit initial-focus seam reads the action instead.
+	const lastAction = useMemo<RefObject<HTMLElement | null>>(() => ({
+		get current() {
+			if (initialFocus !== "last") return null;
+			return [...(ref.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled])') ?? [])].at(-1) ?? null;
+		},
+	}), [initialFocus]);
+	return <HostDialog open onClose={() => (busy ? "blocked" : onClose() ?? "closed")} aria-label={label} initialFocusRef={lastAction}
+		backdropProps={{ className: "fixed inset-0 z-[60] flex items-center justify-center bg-background/80", "data-testid": backdropTestid }}
+		frame={<div ref={ref} data-lh-modal aria-busy={busy} data-testid={testid} onClick={(event) => event.stopPropagation()} className="settings-dialog-pop mx-4 max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-md border border-border bg-card p-5 shadow-xl" />}>
+		{children}
+	</HostDialog>;
 }

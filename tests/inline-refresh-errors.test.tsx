@@ -14,7 +14,6 @@ Object.assign(globalThis, {
 	CustomEvent: dom.window.CustomEvent,
 	IS_REACT_ACT_ENVIRONMENT: true,
 });
-const { FlashcardAgentSection } = await import("../components/settings/flashcard-agent-section.tsx");
 const { useReadingThinkingRefresh } = await import("../components/reading-thinking-refresh.ts");
 const { notifySettingsSaved } = await import("../components/settings-signal.ts");
 
@@ -38,25 +37,6 @@ const settle = () =>
 		await new Promise((resolve) => setTimeout(resolve, 0));
 	});
 const alerts = () => [...host.querySelectorAll('[role="alert"]')].map((node) => ({ text: node.textContent, className: node.className }));
-
-const status = { running: false, phase: "Idle", preparedToday: 3, startedToday: 3, dailyLimit: 20, error: null, model: null, projects: [] };
-
-it("flashcard settings show a failed status load and clear it on the next success", async () => {
-	let statusOk = false;
-	globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
-		if (init?.method === "POST") return new Response("{}", { status: 200 });
-		return statusOk ? new Response(JSON.stringify(status), { status: 200 }) : new Response("{}", { status: 503 });
-	}) as typeof fetch;
-	await render(<FlashcardAgentSection agent={undefined} onChange={() => {}} />);
-	assert.deepEqual(alerts(), [{ text: "Could not load preparation status.", className: "text-xs text-destructive" }]);
-
-	statusOk = true;
-	const prepare = [...host.querySelectorAll("button")].find((button) => button.textContent === "Prepare now")!;
-	await act(async () => prepare.click());
-	await settle();
-	assert.deepEqual(alerts(), []);
-	assert.match(host.textContent ?? "", /3 prepared today/);
-});
 
 it("a failed settings refresh after a save shows a message until the next successful read", async () => {
 	let ok = false;

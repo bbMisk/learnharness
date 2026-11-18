@@ -74,7 +74,7 @@ function Harness({ initial, expose }: { initial: { messages: LhViewMessage[]; st
 	expose(set);
 	return (
 		<div>
-			<TranscriptRows
+			<TranscriptRows chatId="chat" nativeMessages={[]}
 				messages={view.messages}
 				phases={phaseTimeline(view.messages)}
 				transcript={SHOW_ALL}
@@ -195,7 +195,7 @@ describe("a transcript plan block opens the plan through the session overlay", (
 		const { createRoot } = await import("react-dom/client");
 		const root = createRoot(host);
 		roots.push({ root, host });
-		const rows = <TranscriptRows messages={planRow()} phases={[]} transcript={SHOW_ALL} streaming={false} malformedQuestions={[]} busy={false} questionPending={false} compacting={false} onRetryQuestion={noop} />;
+		const rows = <TranscriptRows chatId="chat" nativeMessages={[]} messages={planRow()} phases={[]} transcript={SHOW_ALL} streaming={false} malformedQuestions={[]} busy={false} questionPending={false} compacting={false} onRetryQuestion={noop} />;
 		await act(async () => root.render(wrap(rows)));
 		return host;
 	}

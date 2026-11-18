@@ -7,6 +7,11 @@ import { setDictationActive } from "../components/dictation-state.ts";
 import { notifySettingsSaved } from "../components/settings-signal.ts";
 import { AUTH_KEYS, DICTATION_LANGUAGES, type AuthKeyStatus, type ModelCatalogEntry, type UserSettings } from "../src/core/index.ts";
 import { ModelMenuList } from "../components/settings/model-menu.tsx";
+import { installModalBrowserApis } from "./modal-dom.ts";
+import { InteractionLayersProvider, useInteractionLayers, type InteractionLayersController } from "../components/interaction-layers.tsx";
+let interactionController: InteractionLayersController | undefined;
+function InteractionFixture({ children }: { children: React.ReactNode }) { interactionController = useInteractionLayers(); return children; }
+function WithLayers({ children }: { children: React.ReactNode }) { return <InteractionLayersProvider><InteractionFixture>{children}</InteractionFixture></InteractionLayersProvider>; }
 
 let dispose: (() => Promise<void>) | undefined;
 let restore: (() => void) | undefined;
@@ -19,6 +24,8 @@ async function key(element: HTMLElement, value: string) {
 	await act(async () => {
 		const event = new window.Event("keydown", { bubbles: true, cancelable: true });
 		Object.assign(event, { key: value });
+		// linkedom omits the browser's window capture path.
+		interactionController?.captureKeyDown(event as KeyboardEvent);
 		element.dispatchEvent(event);
 	});
 }
@@ -75,13 +82,15 @@ async function fixture(failRead = false) {
 			else delete (globalThis as Record<string, unknown>)[name];
 		}
 	};
-	// Register the outer dialog listener first: one Escape must close only
-	// the language menu, even when the settings dialog owns another listener.
-	doc.addEventListener("keydown", (event) => { if ((event as KeyboardEvent).key === "Escape") state.outerEscapes++; });
+	// The outer surface observes the capture-snapshotted owner, rather than
+	// recreating the retired independent document-level dismissal listener.
+	doc.addEventListener("keydown", (event) => {
+		if ((event as KeyboardEvent).key === "Escape" && !interactionController?.getEventOwner(event as KeyboardEvent)) state.outerEscapes++;
+	});
 	const { createRoot } = await import("react-dom/client");
 	const { DictationLanguageSetting } = await import("../components/dictation-language.tsx");
 	let root = createRoot(doc.getElementById("root")!);
-	const mount = async () => { await act(async () => { root.render(<DictationLanguageSetting />); }); };
+	const mount = async () => { await act(async () => { root.render(<WithLayers><DictationLanguageSetting /></WithLayers>); }); };
 	dispose = async () => { await act(async () => { setDictationActive(false); root.unmount(); }); };
 	await mount();
 	// Fixtures represent distinct server records; remounts within a fixture
@@ -89,12 +98,12 @@ async function fixture(failRead = false) {
 	await act(async () => { notifySettingsSaved("dictation"); });
 	return {
 		state,
-		render: async (element: React.ReactNode) => { await act(async () => { root.render(element); }); },
+		render: async (element: React.ReactNode) => { await act(async () => { root.render(<WithLayers>{element}</WithLayers>); }); },
 		remount: async () => { await dispose!(); root = createRoot(doc.getElementById("root")!); await mount(); },
 	};
 }
 
-afterEach(async () => { await dispose?.(); restore?.(); dispose = undefined; restore = undefined; });
+afterEach(async () => { await dispose?.(); restore?.(); dispose = undefined; restore = undefined; interactionController = undefined; });
 
 test("an initial load failure is visible and opening the menu again can retry", async () => {
 	const f = await fixture(true);
@@ -310,7 +319,9 @@ test("Add Provider owns Escape above an open key editor", async () => {
 	f.state.keys = [{ id: "DEEPGRAM_API_KEY", info: AUTH_KEYS.find((key) => key.id === "DEEPGRAM_API_KEY")!, present: false, masked: null, source: "none", shadowedByEnv: false }];
 	const { KeysSection } = await import("../components/settings/keys-section.tsx");
 	let outer = 0;
-	const fallback = () => outer++;
+	// The window fallback (dictation cancel / turn abort) acts only on an
+	// Escape no interaction layer owned or claimed (keyboard-shortcuts.tsx).
+	const fallback = (event: KeyboardEvent) => { if (!event.defaultPrevented && !interactionController?.isEscapeOwned(event)) outer++; };
 	window.addEventListener("keydown", fallback);
 	try {
 		await f.render(<KeysSection />);
@@ -330,16 +341,20 @@ test("Add Provider owns Escape above an open key editor", async () => {
 test("Settings above the plan consumes one Escape without reaching the abort fallback", async () => {
 	const f = await fixture();
 	const { PlanPopup } = await import("../components/plan-block.tsx");
-	const { SettingsDialogBody } = await import("../components/settings/settings-dialog-body.tsx");
+	// The Settings shell (HostDialog) owns Settings' Escape; the body alone has no dismissal listener.
+	const { SettingsDialog } = await import("../components/settings/settings-dialog-body.tsx");
+	const restoreApis = installModalBrowserApis({ window, document } as unknown as Parameters<typeof installModalBrowserApis>[0]);
 	let outer = 0;
-	const fallback = (event: KeyboardEvent) => { if (event.key === "Escape") outer++; };
+	// The window fallback (dictation cancel / turn abort) acts only on an
+	// Escape no interaction layer owned or claimed (keyboard-shortcuts.tsx).
+	const fallback = (event: KeyboardEvent) => { if (event.key === "Escape" && !event.defaultPrevented && !interactionController?.isEscapeOwned(event)) outer++; };
 	window.addEventListener("keydown", fallback);
 	function Layers() {
 		const [plan, setPlan] = React.useState(true);
 		const [settings, setSettings] = React.useState(false);
 		return <>{plan && <PlanPopup messages={[]} onClose={() => setPlan(false)} />}
 			<button data-testid="open-settings" onClick={() => setSettings(true)}>Settings</button>
-			{settings && <SettingsDialogBody initialSection="general" onClose={() => setSettings(false)} />}</>;
+			{settings && <SettingsDialog initialSection="general" initialRow={null} navigationRequest={0} layerId="settings" onClose={() => { setSettings(false); return "closed"; }} />}</>;
 	}
 	try {
 		await f.render(<Layers />);
@@ -353,5 +368,5 @@ test("Settings above the plan consumes one Escape without reaching the abort fal
 		assert.equal(outer, 0);
 		await key(document.body, "Escape");
 		assert.equal(outer, 1);
-	} finally { window.removeEventListener("keydown", fallback); }
+	} finally { window.removeEventListener("keydown", fallback); restoreApis(); }
 });

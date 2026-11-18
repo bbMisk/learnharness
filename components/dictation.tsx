@@ -8,6 +8,7 @@ import { useTypeWhisperDictation } from "./typewhisper-dictation";
 import { deepgramListenUrl, type DictationLanguage } from "@/src/core";
 import { useDictationLanguage } from "@/components/dictation-preference";
 import { setDictationActive } from "@/components/dictation-state";
+import { dispatchFocusedPluginShortcut } from "@/components/plugin-input-focus";
 export { isDictationActive } from "@/components/dictation-state";
 
 /**
@@ -76,6 +77,39 @@ export const DEEPGRAM_KEY_ID = "DEEPGRAM_API_KEY";
  * dev-speak, so the surface says this instead. The errored idle button's
  * click recognizes it and deep-links Settings → Keys → the Deepgram row. */
 export const DICTATION_KEYLESS = "Dictation needs a Deepgram key";
+export const DICTATION_ACTIVE_ELSEWHERE = "Dictation is active elsewhere";
+
+// Mounted controllers do not claim capture. Only start() acquires the single
+// window-wide owner, synchronously, before settings/mic/token awaits.
+let recordingOwner: symbol | null = null;
+let recordingTarget: ((text: string) => unknown) | null = null;
+const controllers = new Map<symbol, { primary: boolean; toggle: () => void; cancel: () => void }>();
+function toggleGlobalDictation() {
+	if (dispatchFocusedPluginShortcut("toggle-dictation")) return;
+	for (const controller of controllers.values()) {
+		if (controller.primary) {
+			controller.toggle();
+			return;
+		}
+	}
+}
+function cancelGlobalDictation() {
+	if (recordingOwner) controllers.get(recordingOwner)?.cancel();
+}
+function registerController(id: symbol, controller: { primary: boolean; toggle: () => void; cancel: () => void }) {
+	if (controllers.size === 0) {
+		window.addEventListener("lh:kbd-toggle-dictation", toggleGlobalDictation);
+		window.addEventListener("lh:kbd-cancel-dictation", cancelGlobalDictation);
+	}
+	controllers.set(id, controller);
+	return () => {
+		controllers.delete(id);
+		if (controllers.size === 0) {
+			window.removeEventListener("lh:kbd-toggle-dictation", toggleGlobalDictation);
+			window.removeEventListener("lh:kbd-cancel-dictation", cancelGlobalDictation);
+		}
+	};
+}
 
 /** Mint a fresh short-lived token (the route holds the real key). The warm
  *  cache and the reconnect path both bottom out here. The route's keyless
@@ -160,15 +194,14 @@ export function rmsToMeter(rms: number): number {
  * sibling subtree far from the hook's owner, and there is exactly one
  * window, one pending question, one target at a time.
  */
-let questionTarget: ((text: string) => void) | null = null;
+let questionTarget: ((text: string) => void | Promise<void>) | null = null;
 
-/* The finisher registry: submit paths FAR from the hook's owner (the
- * pending question's dock) need finish() without a prop bridge. Same
- * module-level pattern as questionTarget — one window, one instance,
- * one finisher. Empty registry (no hook mounted) → resolve immediately. */
+/* The CORE finisher registry: the pending question's dock needs finish()
+ * without a prop bridge. Explicit plugin controllers never register here;
+ * their submit paths await their own controller.finish(). */
 let dictationFinisher: (() => Promise<void>) | null = null;
 
-/** Finish any live dictation run before continuing (see Dictation.finish). */
+/** Finish the core page's dictation before continuing (see Dictation.finish). */
 export function finishDictation(): Promise<void> {
 	return dictationFinisher ? dictationFinisher() : Promise.resolve();
 }
@@ -183,6 +216,20 @@ export function joinDictation(current: string, final: string): string {
  * unmount guard is identity-based so dev-mode double-invoked effects
  * can't clear another claimant.
  */
+export function usePluginQuestionDictationTarget(append: (text: string) => void | Promise<void>, claimed: boolean) {
+	useEffect(() => {
+		if (!claimed) return;
+		questionTarget = append;
+		return () => {
+			if (questionTarget === append) {
+				// Cancel/discard an obsolete capture before releasing its destination.
+				if (recordingTarget === append) cancelGlobalDictation();
+				questionTarget = null;
+			}
+		};
+	}, [append, claimed]);
+}
+
 export function useDictationTarget(append: (text: string) => void, claimed: boolean) {
 	useEffect(() => {
 		if (!claimed) return;
@@ -195,9 +242,16 @@ export function useDictationTarget(append: (text: string) => void, claimed: bool
 
 export type DictationPhase = "idle" | "connecting" | "recording" | "stopping";
 
+export interface DictationDestination { id: string; append: (text: string) => void | Promise<void> }
+
 export type Dictation = {
 	backend?: "typewhisper";
 	phase: DictationPhase;
+	/** One shared recorder; an explicit destination never claims the main input. */
+	destinationId: string;
+	blocked?: boolean;
+	toggleFor: (destination: DictationDestination) => void;
+	finishFor: (destinationId: string) => Promise<void>;
 	/** Terminal-state explanation, shown inside the wide button (cleared on the next start). */
 	error: string | null;
 	/** Latest observed RMS, 0..1 — sampled by the meter's own tick, never reset. */
@@ -224,41 +278,60 @@ export type Dictation = {
 };
 
 /**
- * One dictation instance per composer-bearing page. `append` is the
- * composer fallback; the mounted question form's claim wins while a
- * question waits.
+ * Shared capture engine with one synchronous window-wide recording owner.
+ * Each primary run captures its main/question or explicit side destination.
+ * Explicit plugin controllers never claim the primary target or finisher;
+ * their asynchronous transcript delivery is part of finishing.
  */
-export function useDictation({ append }: { append: (text: string) => void }): Dictation {
+export function useDictation({ append, destination = "primary", disabled = false }: {
+	append: (text: string) => void;
+	/** Explicit destinations never register or consult the core primary target. */
+	destination?: "primary" | "explicit";
+	disabled?: boolean;
+}): Dictation {
+	const primary = destination === "primary";
 	const [backend, setBackend] = useState<"loading" | "typewhisper" | "deepgram">("loading");
-	useEffect(() => { setBackend(window.lh?.platform === "darwin" ? "typewhisper" : "deepgram"); }, []);
+	// TypeWhisper (macOS) captures and inserts into the focused field itself,
+	// so it serves the core page only; explicit (plugin) destinations need
+	// their own append and keep the in-app capture.
+	useEffect(() => { setBackend(primary && window.lh?.platform === "darwin" ? "typewhisper" : "deepgram"); }, [primary]);
 	const native = backend === "typewhisper";
-	const cloud = useDeepgramDictation({ append, enabled: backend === "deepgram" });
+	const cloud = useDeepgramDictation({ append, primary, disabled, enabled: backend === "deepgram" });
 	const local = useTypeWhisperDictation(native);
-	const dictation = native ? local : cloud;
+	const owner = useRef(Symbol("typewhisper")).current;
 	useEffect(() => {
-		setDictationActive(dictation.active);
-		dictationFinisher = dictation.finish;
-		return () => { if (dictationFinisher === dictation.finish) { dictationFinisher = null; setDictationActive(false); } };
-	}, [dictation.active, dictation.finish]);
-	useEffect(() => {
-		window.addEventListener("lh:kbd-toggle-dictation", dictation.toggle);
-		window.addEventListener("lh:kbd-cancel-dictation", dictation.cancel);
-		return () => {
-			window.removeEventListener("lh:kbd-toggle-dictation", dictation.toggle);
-			window.removeEventListener("lh:kbd-cancel-dictation", dictation.cancel);
-		};
-	}, [dictation.toggle, dictation.cancel]);
-	return dictation;
+		if (!native) return;
+		setDictationActive(local.active);
+		dictationFinisher = local.finish;
+		return () => { if (dictationFinisher === local.finish) { dictationFinisher = null; setDictationActive(false); } };
+	}, [native, local.active, local.finish]);
+	useEffect(() => native ? registerController(owner, { primary: true, toggle: local.toggle, cancel: local.cancel }) : undefined,
+		[native, owner, local.toggle, local.cancel]);
+	return native ? local : cloud;
 }
 
-function useDeepgramDictation({ append, enabled }: { append: (text: string) => void; enabled: boolean }): Dictation {
+function useDeepgramDictation({ append, primary, disabled, enabled }: {
+	append: (text: string) => void;
+	primary: boolean;
+	disabled: boolean;
+	enabled: boolean;
+}): Dictation {
+	const owner = useRef(Symbol("dictation")).current;
 	const { getLanguage } = useDictationLanguage();
-	const [phase, setPhase] = useState<DictationPhase>("idle");
+	const [phase, setPhaseState] = useState<DictationPhase>("idle");
+	const phaseRef = useRef<DictationPhase>("idle");
+	const setPhase = useCallback((next: DictationPhase) => {
+		phaseRef.current = next;
+		setPhaseState(next);
+	}, []);
+	const [destinationId, setDestinationId] = useState("main");
+	const destinationRef = useRef<DictationDestination | null>(null);
+	const disabledRef = useRef(disabled);
+	disabledRef.current = disabled;
 	const [error, setError] = useState<string | null>(null);
 	/** Latest RMS from the worklet; the meter samples this. */
 	const levelRef = useRef(0);
-	/** The page's fallback append — kept fresh per render so a mid-recording
-	 *  retarget (composer↔question) is honored on the very next final. */
+	/** Fresh fallback for the next start; a live run retains its own target. */
 	const appendRef = useRef(append);
 	appendRef.current = append;
 
@@ -282,23 +355,34 @@ function useDeepgramDictation({ append, enabled }: { append: (text: string) => v
 	const bufferRef = useRef<string[]>([]);
 	/** Resolvers waiting for the run to fully end (finish()): released by
 	 *  cleanup(), which every terminal path runs. */
-	const waitersRef = useRef<Array<() => void>>([]);
+	const waitersRef = useRef<Array<{ resolve: () => void; reject: (error: unknown) => void }>>([]);
+	const appendFailureRef = useRef<{ error: unknown } | null>(null);
+	const appendPendingRef = useRef(false);
 
-	/** Flush the buffered transcript into the primary input — question claim
-	 *  first, composer fallback. Called exactly once per run, at cleanup; the
+	/** Flush into this run's fixed destination. Called exactly once at cleanup; the
 	 *  buffer clears itself so double-cleanup is a no-op. */
-	const flush = useCallback(() => {
+	const flush = useCallback((): unknown => {
 		if (bufferRef.current.length === 0) return;
 		const text = bufferRef.current.join(" ");
 		bufferRef.current = [];
-		(questionTarget ?? appendRef.current)(text);
+		return (destinationRef.current?.append ?? appendRef.current)(text);
 	}, []);
 
 	/** Full teardown of one run's machinery. Idempotent; generation-guarded by callers. */
 	const cleanup = useCallback((warmNext = true) => {
-		genRef.current++;
-		setDictationActive(false);
-		flush(); // the deferred transcript appears when the run ends
+		const endGen = ++genRef.current;
+		let appended: unknown;
+		// A second cleanup (cancel/dispose) cannot turn an unfinished async
+		// append into a successful finish: that would send the old draft.
+		let failure: { error: unknown } | null = appendPendingRef.current
+			? { error: new DOMException("Dictation transcript delivery canceled", "AbortError") }
+			: null;
+		appendPendingRef.current = false;
+		try {
+			appended = flush(); // exactly one append, after the final transcript
+		} catch (error) {
+			failure = { error };
+		}
 		if (safetyRef.current) {
 			clearTimeout(safetyRef.current);
 			safetyRef.current = null;
@@ -318,15 +402,32 @@ function useDeepgramDictation({ append, enabled }: { append: (text: string) => v
 				ws.close();
 			} catch {}
 		}
-		setPhase("idle");
-		// The finish() waiters ride until NOW — post-flush, post-teardown:
-		// a submit path resuming after `await finishDictation()` reads the
-		// target field with the dictated tail already in it.
-		for (const w of waitersRef.current.splice(0)) w();
-		// Pre-mint for the next run (best-effort; a keyless page just doesn't
-		// warm).
-		if (warmNext) warmTokens.refresh();
-	}, []);
+		const complete = (failed: { error: unknown } | null) => {
+			if (endGen !== genRef.current) return;
+			appendPendingRef.current = false;
+			appendFailureRef.current = failed;
+			if (failed) setError(failed.error instanceof Error ? failed.error.message : "Dictation transcript could not be applied");
+			if (recordingOwner === owner) {
+				recordingOwner = null;
+				recordingTarget = null;
+				setDictationActive(false);
+			}
+			setPhase("idle");
+			// A plugin's async onTranscript is part of finishing, not a
+			// fire-and-forget notification: send must see its controlled text.
+			for (const waiter of waitersRef.current.splice(0)) {
+				if (failed) waiter.reject(failed.error);
+				else waiter.resolve();
+			}
+			if (warmNext) warmTokens.refresh();
+		};
+		if (appended && typeof (appended as PromiseLike<unknown>).then === "function") {
+			appendPendingRef.current = true;
+			setPhase("stopping");
+			// Both branches consume the promise, including stop-without-finish.
+			void Promise.resolve(appended).then(() => complete(null), (error: unknown) => complete({ error }));
+		} else complete(failure);
+	}, [flush, owner, setPhase]);
 
 	/** Open the Deepgram socket and wire its messages. `gen` guards staleness. */
 	const openSocket = useCallback(
@@ -387,12 +488,23 @@ function useDeepgramDictation({ append, enabled }: { append: (text: string) => v
 				}
 			});
 		},
-		[cleanup],
+		[cleanup, setPhase],
 	);
 
-	const start = useCallback(async () => {
+	const start = useCallback(async (destination?: DictationDestination) => {
+		if (disabledRef.current || phaseRef.current !== "idle") return;
+		if (recordingOwner !== null && recordingOwner !== owner) {
+			setError(DICTATION_ACTIVE_ELSEWHERE);
+			return;
+		}
+		const target = destination ?? { id: "main", append: primary ? questionTarget ?? appendRef.current : (text: string) => appendRef.current(text) };
+		destinationRef.current = target;
+		setDestinationId(target.id);
+		recordingOwner = owner;
+		recordingTarget = target.append;
 		setDictationActive(true);
 		setError(null);
+		appendFailureRef.current = null;
 		setPhase("connecting");
 		reconnectsRef.current = 0;
 		bufferRef.current = []; // fresh run, fresh buffer
@@ -439,6 +551,7 @@ function useDeepgramDictation({ append, enabled }: { append: (text: string) => v
 			const worklet = new AudioWorkletNode(ctx, "pcm-capture");
 			workletRef.current = worklet;
 			worklet.port.onmessage = (e) => {
+				if (gen !== genRef.current) return;
 				const msg = e.data as { type: string; rms?: number; buffer?: ArrayBuffer };
 				if (msg.type === "level") {
 					levelRef.current = msg.rms ?? 0; // never reset to zero (dictate pattern)
@@ -485,11 +598,11 @@ function useDeepgramDictation({ append, enabled }: { append: (text: string) => v
 		// The handshake fires the moment the graph is live (mic-gated, never
 		// before it).
 		openSocket(gen, token, language);
-	}, [openSocket, cleanup, getLanguage]);
+	}, [openSocket, cleanup, getLanguage, owner, primary, setPhase]);
 
 	const stop = useCallback(() => {
 		const gen = genRef.current;
-		if (phase !== "recording" && phase !== "connecting") return;
+		if (phaseRef.current !== "recording" && phaseRef.current !== "connecting") return;
 		setPhase("stopping");
 
 		// Mic dies first, so no more audio enqueues. The per-run nodes die with
@@ -517,44 +630,72 @@ function useDeepgramDictation({ append, enabled }: { append: (text: string) => v
 		} else {
 			cleanup();
 		}
-	}, [phase, cleanup]);
+	}, [cleanup, setPhase]);
 
 	const cancel = useCallback(() => {
-		if (phase === "idle") return;
+		if (phaseRef.current === "idle") return;
 		// Discard first, teardown second — cleanup() flushes, and the now-empty
 		// buffer makes that flush a no-op. Also kills a "stopping" run: the
 		// flush already underway is abandoned (its timer is cleared inside).
 		bufferRef.current = [];
 		cleanup();
-	}, [phase, cleanup]);
+	}, [cleanup]);
 
-	const finish = useCallback((): Promise<void> => {
-		return new Promise((resolve) => {
-			if (phase === "idle") {
-				resolve();
+	const finishCurrent = useCallback((): Promise<void> => {
+		return new Promise((resolve, reject) => {
+			if (phaseRef.current === "idle") {
+				if (appendFailureRef.current) reject(appendFailureRef.current.error);
+				else resolve();
 				return;
 			}
-			waitersRef.current.push(resolve);
+			waitersRef.current.push({ resolve, reject });
 			// "stopping" is already ending — the waiter just rides to cleanup.
-			if (phase === "recording" || phase === "connecting") stop();
+			if (phaseRef.current === "recording" || phaseRef.current === "connecting") stop();
 		});
-	}, [phase, stop]);
+	}, [stop]);
+	const finishFor = useCallback((id: string) => destinationRef.current?.id === id ? finishCurrent() : Promise.resolve(), [finishCurrent]);
+	// A main submission must not stop or wait for side-input recording.
+	const finish = useCallback(() => finishFor("main"), [finishFor]);
 
-	const toggle = useCallback(() => {
+	// Publish finish() for the sibling subtrees (the pending question's
+	// dock) — registered for as long as this page owns the hook.
+	useEffect(() => {
+		if (!primary || !enabled) return;
+		dictationFinisher = finish;
+		return () => {
+			if (dictationFinisher === finish) dictationFinisher = null;
+		};
+	}, [finish, primary, enabled]);
+
+	const toggleFor = useCallback((destination?: DictationDestination) => {
 		if (!enabled) return;
-		if (phase === "idle") void start();
-		else if (phase === "recording" || phase === "connecting") stop();
-		// "stopping" presses are ignored — the flush is in flight.
-	}, [phase, start, stop, enabled]);
+		if (phaseRef.current === "idle") void start(destination);
+		else if (phaseRef.current === "recording" || phaseRef.current === "connecting") stop();
+		// Focus chooses where to START. An active run always stops into its
+		// original destination, even after focus moves to a different field.
+	}, [start, stop, enabled]);
+	const toggle = useCallback(() => toggleFor(), [toggleFor]);
 
+	// One shared pair of shortcut listeners, regardless of widget count:
+	// focused plugin control first, otherwise core fallback; Esc always
+	// cancels the actual recording owner rather than the focused widget.
 	// Warm a token while enabled; unmount discards the buffer and tears down.
 	useEffect(() => {
 		if (enabled) warmTokens.refresh();
-		return () => { bufferRef.current = []; cleanup(false); };
+		return () => {
+			// Navigation cancels capture: invalidate every pending await before
+			// releasing resources, and never append into a different page's input.
+			bufferRef.current = [];
+			cleanup(false);
+		};
 	}, [enabled, cleanup]);
+	useEffect(() => enabled ? registerController(owner, { primary, toggle, cancel }) : undefined, [enabled, owner, primary, toggle, cancel]);
 
 	return {
 		phase,
+		destinationId,
+		toggleFor,
+		finishFor,
 		error,
 		levelRef,
 		active: phase !== "idle",
@@ -578,8 +719,8 @@ function useDeepgramDictation({ append, enabled }: { append: (text: string) => v
  *   error     the wide button again, label swapped for the failure reason
  *             (full text in the tooltip), cleared on the next click.
  */
-export function DictationBar({ dictation }: { dictation: Dictation }) {
-	const { phase, error, levelRef, toggle, active, clearError } = dictation;
+export function DictationBar({ dictation, disabled = false }: { dictation: Dictation; disabled?: boolean }) {
+	const { phase, error, levelRef, toggle, active, clearError, blocked } = dictation;
 	const typeWhisper = dictation.backend === "typewhisper";
 	const { open: openSettings } = useSettingsDialog();
 	/** The keyless click: the errored idle button deep-links Settings → Keys →
@@ -647,6 +788,7 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 							toggle();
 						}
 					}}
+					disabled={disabled || blocked}
 					aria-label={error ? `Dictation failed: ${error}` : "Start dictation"}
 					data-testid="dictation-toggle"
 					className="flex h-7 w-full items-center justify-center gap-1.5 rounded-md border border-border/50 bg-card/50 text-xs text-muted-foreground/70 shadow-lg backdrop-blur transition-colors hover:border-border hover:text-muted-foreground"

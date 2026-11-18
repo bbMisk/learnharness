@@ -12,6 +12,7 @@ Object.assign(globalThis, {
 	getComputedStyle: () => ({ getPropertyValue: () => "" }),
 });
 const { createRoot } = await import("react-dom/client");
+const { InteractionLayersProvider } = await import("../components/interaction-layers.tsx");
 const { GraphChromeRow } = await import("../components/graph-view.tsx");
 const { DEFAULT_RENDER_SETTINGS } = await import("../src/core/render-settings.ts");
 
@@ -22,11 +23,11 @@ it("Esc clears the graph search, then leaves it", async () => {
 	const host = document.createElement("div");
 	document.body.append(host);
 	const root = createRoot(host);
-	const render = (query: string) => root.render(
+	const render = (query: string) => root.render(<InteractionLayersProvider>
 		<GraphChromeRow isEmpty={false} query={query} onQuery={(q) => queries.push(q)} noMatch={false} importing={false}
 			searchInputRef={{ current: null }} onImportFiles={() => {}} settings={DEFAULT_RENDER_SETTINGS as never}
-			changeSettings={() => {}} onOpenChains={() => {}} onFit={() => {}} />,
-	);
+			changeSettings={() => {}} onOpenChains={() => {}} onFit={() => {}} />
+	</InteractionLayersProvider>);
 	const esc = async () => {
 		const input = host.querySelector('input[aria-label="Search nodes"]') as HTMLInputElement;
 		let blurred = false;

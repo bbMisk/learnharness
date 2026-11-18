@@ -158,6 +158,10 @@ export function useTypeWhisperDictation(enabled: boolean): Dictation {
 		levelRef,
 		active: phase !== "idle",
 		backend: "typewhisper",
+		// TypeWhisper inserts into the focused field: there is one destination.
+		destinationId: "main",
+		toggleFor: () => toggle(),
+		finishFor: (id: string) => (id === "main" ? finish() : Promise.resolve()),
 		toggle,
 		stop: () => void finish(),
 		finish,

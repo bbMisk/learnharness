@@ -1,11 +1,14 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useState } from "react";
+import { useCallback, useLayoutEffect, useState, type RefObject } from "react";
 import { joinDictation, useDictationTarget } from "@/components/dictation";
 import { useFileDrop } from "@/components/file-drop";
 import { FileDropFeedback } from "@/components/file-drop-feedback";
 import { verbatimInputProps } from "@/components/verbatim-input";
+import { composingQuestionKey, pluginQuestionKeySuppressed } from "./plugin-question-keys";
 import { PathInput } from "@/components/path-input";
+import { useOptionalInteractionLayers } from "./interaction-layers";
+import { isInteractionScopeEligible } from "./plugin-input-focus";
 
 /**
  * The reading-thinking field (owner design 2026-10-03, "two questions per
@@ -30,6 +33,7 @@ export function ReadingThinkingField({
 	onOpen,
 	claim,
 	onUploadingChange,
+	inputRef,
 }: {
 	value: string;
 	revision: number;
@@ -44,11 +48,13 @@ export function ReadingThinkingField({
 	/** Primary dictation claim — true while the check is behind its reveal. */
 	claim: boolean;
 	onUploadingChange?: (busy: boolean) => void;
+	inputRef?: RefObject<HTMLDivElement | null>;
 }) {
 	// Local keystroke state (upstream): the owning Chat keeps the draft in a
 	// ref, so typing does not rerender the transcript; revision signals an
 	// explicit parent reset. The file drop (fork) edits this local draft and
 	// keeps its own synchronous mirror for back-to-back dictation appends.
+	const controller = useOptionalInteractionLayers();
 	const [draft, setDraft] = useState(value);
 	useLayoutEffect(() => { setDraft(value); }, [revision, value]);
 	const applyDraft = useCallback((next: string) => {
@@ -77,6 +83,7 @@ export function ReadingThinkingField({
 			<FileDropFeedback files={files} />
 			<PathInput
 				{...verbatimInputProps}
+				ref={inputRef}
 				value={files.text}
 				onValueChange={(value) => files.changeText(value)}
 				/* py-0.5 (owner round, 2026-10-07): the scrollbar fix. Source
@@ -89,7 +96,10 @@ export function ReadingThinkingField({
 				   get implicitly from their py-2. Line-height stays 1.25 (the
 				   caret law, typography round 2). */
 				onKeyDown={(e) => {
+					if (composingQuestionKey(e) || pluginQuestionKeySuppressed(e)) return;
+					if (!isInteractionScopeEligible(e.currentTarget, controller)) return;
 					if (e.key === "Escape" && onEscape) {
+						controller?.claimEscape(e);
 						// Esc stops dictation (the strip's rule) — claimed so the
 						// window chain doesn't also read it as abort-turn.
 						e.preventDefault();

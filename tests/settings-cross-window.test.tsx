@@ -1,9 +1,11 @@
+import { DEFAULT_THEME } from "../src/core/themes.ts";
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { parseHTML } from "linkedom";
+import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
 import type { Root } from "react-dom/client";
 
 // Another window's save (the server's settings-changed event) refreshes this
@@ -57,7 +59,7 @@ async function mount(children: React.ReactNode) {
 	document.body.append(host);
 	root = createRoot(host);
 	await act(async () => {
-		root!.render(<ServerEventsProvider connect={connect}><AppearanceProvider>{children}</AppearanceProvider></ServerEventsProvider>);
+		root!.render(<InteractionLayersProvider><ServerEventsProvider connect={connect}><AppearanceProvider initialAppearance={undefined} initialTheme={DEFAULT_THEME}>{children}</AppearanceProvider></ServerEventsProvider></InteractionLayersProvider>);
 	});
 }
 

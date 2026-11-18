@@ -1,9 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { useBackdropDismiss } from "@/components/backdrop-dismiss";
-import { useEscapeClose } from "@/components/open-modal";
+import { useEffect, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react";
+import { HostDialog } from "@/components/host-dialog";
 import type { ChatDeleteMode, ChatListItem } from "@/src/core";
 
 /** The graph-traces checkbox copy (owner, 2026-09-24 flow rework — was
@@ -53,9 +51,6 @@ export function DeleteSessionDialog({
 }) {
 	const [traces, setTraces] = useState(false);
 	const [busy, setBusy] = useState(false);
-	const backdropDismiss = useBackdropDismiss(() => {
-		if (!busy) onClose();
-	});
 	// Retry IS pressing Delete again: the mode always derives from the
 	// checkbox's current state (a toggle between failure and retry is a
 	// change of intent, honored as such — the checkbox is disabled while
@@ -75,9 +70,6 @@ export function DeleteSessionDialog({
 			setFailure(null);
 		}
 	}, [chat]);
-
-	// Esc closes (claimed — a menu/dialog Esc must not also abort a turn).
-	useEscapeClose(!!chat, onClose, { busy });
 
 	const run = async () => {
 		if (!chat || busy || Date.now() - openedAt.current < 500) return;
@@ -108,12 +100,7 @@ export function DeleteSessionDialog({
 
 	if (!chat) return null;
 
-	return createPortal(
-		<div
-			className="fixed inset-0 z-50 flex items-center justify-center bg-background/80"
-			{...backdropDismiss}
-		>
-			<DeleteSessionBody
+	return <DeleteSessionBody
 				chat={chat}
 				traces={traces}
 				busy={busy}
@@ -121,10 +108,11 @@ export function DeleteSessionDialog({
 				onTraces={(next) => setTraces(next)}
 				onClose={onClose}
 				onRun={() => void run()}
-			/>
-		</div>,
-		document.body,
-	);
+				renderFrame={(frame, initialFocus) => <HostDialog open frame={frame} initialFocusRef={initialFocus} onClose={() => {
+					if (busy) return "blocked";
+					onClose(); return "closed";
+				}} backdropProps={{ className: "fixed inset-0 z-50 flex items-center justify-center bg-background/80" }}>{frame.props.children}</HostDialog>}
+			/>;
 }
 
 /** The dialog's pure body — exported for SSR pins (the settings-dialog /
@@ -137,6 +125,7 @@ export function DeleteSessionBody({
 	onTraces,
 	onClose,
 	onRun,
+	renderFrame,
 }: {
 	chat: Pick<ChatListItem, "id" | "title">;
 	/** The graph-traces checkbox — unchecked by default (preserve-graph). */
@@ -146,9 +135,11 @@ export function DeleteSessionBody({
 	onTraces: (next: boolean) => void;
 	onClose: () => void;
 	onRun: () => void;
+	/** Fork: `initialFocus` is Delete (Enter confirms), for a host that mounts the frame later (HostDialog), where autoFocus cannot land. */
+	renderFrame?: (frame: ReactElement<{ children: ReactNode }>, initialFocus: RefObject<HTMLButtonElement | null>) => ReactNode;
 }) {
 	const confirmRef = useRef<HTMLButtonElement>(null);
-	return (
+	const frame = (
 		<div
 			role="dialog"
 			aria-modal="true"
@@ -241,4 +232,5 @@ export function DeleteSessionBody({
 			</div>
 		</div>
 	);
+	return renderFrame ? renderFrame(frame, confirmRef) : frame;
 }

@@ -31,9 +31,9 @@ import { CLAUDE_CODE_PROVIDER } from "./contracts/claude-code.ts";
 import type { ModelRole } from "../../config.ts";
 import { isSearchEngineId, type SearchEngineId } from "./search.ts";
 import { isDictationLanguage, type DictationLanguage } from "./dictation.ts";
-import { sanitizeFlashcardSettings } from "./flashcard-settings.ts";
 import { parseFileAccessSettings, type FileAccessSettings } from "./file-access.ts";
 import { MODEL_INSTRUCTIONS_MAX } from "./model-instructions.ts";
+import { COLOR_OVERRIDE_KEYS, isThemeId, type AppearanceColorOverrides } from "./themes.ts";
 
 /** The schema version this code understands. Bump ONLY for breaking shape
  *  changes (a field renamed/meaning changed); pure additions never bump. */
@@ -48,7 +48,6 @@ export const BACKGROUND_MODEL_ROLES = [
 	"visualMaker",
 	"extractor",
 	"auditor",
-	"flashcardCurator",
 ] as const;
 
 export type BackgroundModelRole = (typeof BACKGROUND_MODEL_ROLES)[number];
@@ -66,8 +65,8 @@ export interface RoleModelOverride {
 
 /** The capability tiers a user can pin models into (see ROLE_SLOT):
  *  strong = prober + teacher (also the per-session default-teacher
- *  starting point); cheap = researcher, demo-builder, extractor, auditor,
- *  flashcard-curator; vision = visual-maker + pdf-reader. Resolution per
+ *  starting point); cheap = researcher, demo-builder, extractor, auditor;
+ *  vision = visual-maker + pdf-reader. Resolution per
  *  role: ROLE OVERRIDE → slot → nothing (BYOK: no factory pin). */
 export const MODEL_SLOTS = ["strong", "cheap", "vision"] as const;
 export type ModelSlotName = (typeof MODEL_SLOTS)[number];
@@ -194,9 +193,9 @@ export const CACHE_RETENTIONS = ["none", "short", "long"] as const satisfies rea
 export interface ModelSlot {
 	/** Native Pi preference. Absent leaves Pi/environment behavior unchanged. */
 	cacheRetention?: CacheRetention;
-	/** The model swap: both coordinates or neither. */
+	/** Configured model coordinates; provider and id must be supplied together. */
 	model?: { provider: string; id: string };
-	/** The thinking budget swap. */
+	/** Optional thinking level used with this slot's configured model. */
 	thinkingLevel?: ThinkingLevel;
 }
 
@@ -317,7 +316,6 @@ export const ROLE_SLOT: Readonly<Record<ModelRole, ModelSlotName>> = {
 	demoBuilder: "cheap",
 	extractor: "cheap",
 	auditor: "cheap",
-	flashcardCurator: "cheap",
 	visualMaker: "vision",
 	pdfReader: "vision",
 };
@@ -352,8 +350,6 @@ export interface GeneralSettings {
 	showReadingThinking?: boolean;
 	/** Keep typing, paste and dictation in a question's "Your thinking" field (default ON). */
 	keepThinkingFocus?: boolean;
-	/** Flashcard source scope. Chat provenance is required by default. */
-	flashcardSources?: "chats" | "all";
 	/** Session modes not offered in the mode switch and sidebar (default none; at least one stays). */
 	hiddenModes?: SessionMode[];
 	/** Teaching checks wait for Enter or a click: in cram mode (default), always, or never. */
@@ -375,18 +371,14 @@ export interface DictationSettings {
 }
 
 /** Agent settings — everything about the non-conversation machinery. */
-export interface FlashcardAgentSettings {
-	enabled?: boolean;
-	dailyLimit?: number;
-	/** Extra curation guidance, never the output or source-grounding contract. */
-	instructions?: string;
-}
-
 export interface AgentSettings {
-	flashcards?: FlashcardAgentSettings;
 	/** Optional per-model tutor instructions keyed by "provider:id"
 	 *  (core/model-instructions.ts). Absent key = no instructions. */
 	modelInstructions?: Record<string, string>;
+	/** Maximum simultaneous background-worker model requests (default 8).
+	 *  Direct conversations bypass this limit. Positive safe integers only:
+	 *  no arbitrary ceiling, rounding, or clamping. */
+	workerRequestConcurrency?: number;
 	/** Background-role model/thinking overrides (absent role = its slot). */
 	models?: Partial<Record<BackgroundModelRole, RoleModelOverride>>;
 	/** Tool toggles keyed by tool id (absent key = enabled). User-level
@@ -427,20 +419,28 @@ export interface MdRenderingSettings {
 	italicColor?: string | null;
 }
 
-/** Appearance settings — mode, colors, type, markdown emphasis. */
+/** Appearance settings — theme, color overrides, type, markdown emphasis. */
 export interface AppearanceSettings {
-	/** "dark" | "light" (default dark). */
-	mode?: "dark" | "light";
-	/** The one user-chosen color; everything else derives per-mode in code.
-	 *  null = the mode's default background. */
+	/** The active theme id (core/themes.ts presets or a custom file under
+	 *  THEMES_DIR). Absent or gone = "default". The theme declares the
+	 *  mode (dark/light) — the old `mode`/`lightBackground` keys are no
+	 *  longer read (theme wave, 2026-11-04). */
+	theme?: string;
+	/** The background override (null = the theme's). Kept at its pre-theme
+	 *  key so existing records keep their color. */
 	background?: string | null;
-	/** The main reading font, by name — user-chosen from installed fonts.
-	 *  null = Source Sans 3. */
+	/** Per-color overrides on top of the theme (null/absent = the theme's).
+	 *  Preserved across theme switches. Bold/italic live in mdRendering. */
+	colors?: AppearanceColorOverrides;
+	/** The main reading font (everything that is Source Sans 3 today), by
+	 *  name — user-chosen from installed fonts. null = Source Sans 3. */
 	fontFamily?: string | null;
 	/** Reading font size in px (12–24, default 16). Headings render as
 	 *  multiples of this, so one knob scales the document coherently. */
 	proseFontSize?: number;
-	/** Session names in CMU Serif (default true). */
+	/** Permit normal font ligatures in code (including inline code and code editors). Default false; prose is unaffected. */
+	codeLigatures?: boolean;
+	/** Session names in CMU Serif (default true — today's look). */
 	sessionNameSerif?: boolean;
 	mdRendering?: MdRenderingSettings;
 }
@@ -488,6 +488,9 @@ export interface GraphSettings {
  */
 export interface CompactionSettings {
 	thresholdTokens?: number;
+	/** Use saved output usage for replayable same-model Responses reasoning.
+	 *  Absent = false: preserve the original readable-content heuristic. */
+	includeReasoning?: boolean;
 }
 
 /** THE record. Every section optional (delta); unknown top-level keys are
@@ -515,13 +518,16 @@ export interface UserSettings {
  *  absence here. */
 export interface FactorySettings {
 	version: number;
+	agent: Required<Pick<AgentSettings, "workerRequestConcurrency">>;
 	general: Required<GeneralSettings>;
 	dictation: Required<DictationSettings>;
 	appearance: {
-		mode: "dark" | "light";
+		theme: string;
 		background: string | null;
+		colors: AppearanceColorOverrides;
 		fontFamily: string | null;
 		proseFontSize: number;
+		codeLigatures: boolean;
 		sessionNameSerif: boolean;
 		mdRendering: {
 			headingWeight: number;
@@ -535,18 +541,21 @@ export interface FactorySettings {
 
 export const FACTORY_SETTINGS: FactorySettings = {
 	version: CURRENT_SETTINGS_VERSION,
-	general: { autoUpdate: true, showReadingThinking: false, keepThinkingFocus: true, flashcardSources: "chats", hiddenModes: [], revealQuestions: "cram", cramShortProbe: true, sharedHandoffPrefix: false, showLessonTime: false },
+	agent: { workerRequestConcurrency: 8 },
+	general: { autoUpdate: true, showReadingThinking: false, keepThinkingFocus: true, hiddenModes: [], revealQuestions: "cram", cramShortProbe: true, sharedHandoffPrefix: false, showLessonTime: false },
 	dictation: { language: "en" },
 	appearance: {
-		mode: "dark",
-		background: null, // the dark default (#141414) lives in the mode's derivation curve
+		theme: "default",
+		background: null, // null = the active theme's background
+		colors: {}, // no overrides: every color is the theme's
 		fontFamily: null, // Source Sans 3
 		proseFontSize: 16,
+		codeLigatures: false,
 		sessionNameSerif: true,
 		mdRendering: { headingWeight: 900, boldColor: null, italicColor: null },
 	},
 	graph: { enabled: true, rendering: true, extractionChunkTokens: 4096 },
-	compaction: { thresholdTokens: 150_000 },
+	compaction: { thresholdTokens: 150_000, includeReasoning: false },
 };
 
 /** The chunk budget's validated floor (GraphSettings.extractionChunkTokens
@@ -566,41 +575,6 @@ const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min)
 /** #rgb / #rrggbb (case-insensitive) — the only color format we accept. */
 export function isHexColor(value: string): boolean {
 	return /^#[0-9a-fA-F]{3}$/.test(value) || /^#[0-9a-fA-F]{6}$/.test(value);
-}
-
-/** WCAG relative luminance of a #rgb / #rrggbb color. */
-function luminance(hex: string): number {
-	const digits = hex.length === 4 ? hex.slice(1).split("").map((c) => c + c) : [hex.slice(1, 3), hex.slice(3, 5), hex.slice(5, 7)];
-	const [r = 0, g = 0, b = 0] = digits.map((d) => {
-		const c = parseInt(d, 16) / 255;
-		return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-	});
-	return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-
-/** The dark theme's dimmest text tier (globals.css --muted-foreground). */
-const DARK_THEME_MUTED_TEXT = "#8d8d8d";
-/** The dark theme's factory background (globals.css --background). */
-const DARK_THEME_BACKGROUND = "#141414";
-
-/** WCAG contrast of light text on a dark color (below 1 when inverted). */
-function contrast(text: string, background: string): number {
-	return (luminance(text) + 0.05) / (luminance(background) + 0.05);
-}
-
-/** The dark theme has light text, so its background must keep every text
- *  tier readable: 3:1 against the muted text (the body text then clears
- *  about 8:1). */
-export function isDarkBackground(hex: string): boolean {
-	if (!isHexColor(hex)) return false;
-	return contrast(DARK_THEME_MUTED_TEXT, hex) >= 3;
-}
-
-/** A bold/italic ink must stay readable on the background (null = the
- *  factory one): WCAG AA, 4.5:1. */
-export function isReadableInk(ink: string, background: string | null): boolean {
-	if (!isHexColor(ink)) return false;
-	return contrast(ink, background ?? DARK_THEME_BACKGROUND) >= 4.5;
 }
 
 /** Coerce an arbitrary hex-or-null field: null and valid hex pass through,
@@ -624,7 +598,6 @@ const boolOrDrop = (value: unknown): boolean | undefined =>
 
 function sanitizeGeneral(raw: Record<string, unknown>): GeneralSettings {
 	const out: GeneralSettings = {};
-	if (raw.flashcardSources === "chats" || raw.flashcardSources === "all") out.flashcardSources = raw.flashcardSources;
 	const autoUpdate = boolOrDrop(raw.autoUpdate);
 	if (autoUpdate !== undefined) out.autoUpdate = autoUpdate;
 	const showReadingThinking = boolOrDrop(raw.showReadingThinking);
@@ -777,8 +750,10 @@ function sanitizeBooleanMap(raw: unknown): Record<string, boolean> | undefined {
 
 function sanitizeAgent(raw: Record<string, unknown>): AgentSettings {
 	const out: AgentSettings = {};
-	const flashcards = sanitizeFlashcardSettings(raw.flashcards);
-	if (flashcards) out.flashcards = flashcards;
+	// Invalid disk values drop: absence resolves to 8, never a silent clamp.
+	if (typeof raw.workerRequestConcurrency === "number" && Number.isSafeInteger(raw.workerRequestConcurrency) && raw.workerRequestConcurrency > 0) {
+		out.workerRequestConcurrency = raw.workerRequestConcurrency;
+	}
 	if (raw.models !== null && typeof raw.models === "object" && !Array.isArray(raw.models)) {
 		const models: Partial<Record<BackgroundModelRole, RoleModelOverride>> = {};
 		for (const [role, override] of Object.entries(raw.models as Record<string, unknown>)) {
@@ -838,12 +813,18 @@ function sanitizeMdRendering(raw: unknown): MdRenderingSettings {
 
 function sanitizeAppearance(raw: Record<string, unknown>): AppearanceSettings {
 	const out: AppearanceSettings = {};
-	if (raw.mode === "dark" || raw.mode === "light") out.mode = raw.mode;
-	if (raw.background !== undefined) {
-		const background = sanitizeHexOrNull(raw.background);
-		// A light background (stored before the guard) falls back to the
-		// default: the app renders only the dark theme for now.
-		out.background = background !== null && !isDarkBackground(background) ? null : background;
+	// Theme wave (2026-11-04): `mode`/`lightBackground` (light-mode wave)
+	// are no longer read — the theme declares the mode. Dropped here like
+	// the graph's dead rungs; the next appearance write flushes them.
+	if (isThemeId(raw.theme)) out.theme = raw.theme;
+	if (raw.background !== undefined) out.background = sanitizeHexOrNull(raw.background);
+	if (raw.colors !== null && typeof raw.colors === "object" && !Array.isArray(raw.colors)) {
+		const colors: AppearanceColorOverrides = {};
+		const c = raw.colors as Record<string, unknown>;
+		for (const key of COLOR_OVERRIDE_KEYS) {
+			if (c[key] !== undefined) colors[key] = sanitizeHexOrNull(c[key]);
+		}
+		out.colors = colors;
 	}
 	if (raw.fontFamily !== undefined) {
 		out.fontFamily = typeof raw.fontFamily === "string" && raw.fontFamily.trim() ? raw.fontFamily : null;
@@ -851,6 +832,8 @@ function sanitizeAppearance(raw: Record<string, unknown>): AppearanceSettings {
 	if (typeof raw.proseFontSize === "number" && Number.isFinite(raw.proseFontSize)) {
 		out.proseFontSize = clamp(Math.round(raw.proseFontSize), PROSE_FONT_MIN, PROSE_FONT_MAX);
 	}
+	const codeLigatures = boolOrDrop(raw.codeLigatures);
+	if (codeLigatures !== undefined) out.codeLigatures = codeLigatures;
 	const sessionNameSerif = boolOrDrop(raw.sessionNameSerif);
 	if (sessionNameSerif !== undefined) out.sessionNameSerif = sessionNameSerif;
 	if (raw.mdRendering !== undefined) out.mdRendering = sanitizeMdRendering(raw.mdRendering);
@@ -888,6 +871,8 @@ export const COMPACTION_THRESHOLD_MAX = 2_000_000;
 
 function sanitizeCompaction(raw: Record<string, unknown>): CompactionSettings {
 	const out: CompactionSettings = {};
+	const includeReasoning = boolOrDrop(raw.includeReasoning);
+	if (includeReasoning !== undefined) out.includeReasoning = includeReasoning;
 	const rawTokens = raw.thresholdTokens;
 	if (typeof rawTokens === "number" && Number.isFinite(rawTokens) && rawTokens > 0) {
 		out.thresholdTokens = Math.min(COMPACTION_THRESHOLD_MAX, Math.max(COMPACTION_THRESHOLD_FLOOR, Math.floor(rawTokens)));

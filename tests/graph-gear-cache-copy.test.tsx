@@ -3,15 +3,16 @@ import React from "react";
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
 import { GraphChromeRow } from "../components/graph-view.tsx";
 import { CacheRetentionMenu } from "../components/settings/cache-retention-menu.tsx";
 import { DEFAULT_RENDER_SETTINGS } from "../src/core/render-settings.ts";
 
 it("the graph's gear button is named like its tooltip", () => {
 	const html = renderToStaticMarkup(
-		<GraphChromeRow isEmpty={false} query="" onQuery={() => {}} noMatch={false} importing={false}
+		<InteractionLayersProvider><GraphChromeRow isEmpty={false} query="" onQuery={() => {}} noMatch={false} importing={false}
 			searchInputRef={{ current: null }} onImportFiles={() => {}} settings={DEFAULT_RENDER_SETTINGS as never}
-			changeSettings={() => {}} onOpenChains={() => {}} onFit={() => {}} />,
+			changeSettings={() => {}} onOpenChains={() => {}} onFit={() => {}} /></InteractionLayersProvider>,
 	);
 	assert.match(html, /<button[^>]*aria-label="Graph display settings"[^>]*aria-expanded/);
 });

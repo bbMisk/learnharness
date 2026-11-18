@@ -7,6 +7,8 @@ import { afterEach, describe, it } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
 import { SetupDialog } from "../components/setup-dialog.tsx";
+import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
+import { installModalDom } from "./modal-dom.ts";
 import type { ModelCatalogEntry } from "../src/core/contracts/models.ts";
 
 // As in render-update-banner: mount real React handlers against an isolated
@@ -24,7 +26,7 @@ Object.assign(globalThis, {
 	requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0),
 	cancelAnimationFrame: (id: number) => clearTimeout(id),
 });
-Object.assign(dom.window, { innerWidth: 1280, innerHeight: 800 });
+installModalDom(dom);
 dom.window.HTMLElement.prototype.scrollIntoView = () => {};
 // linkedom has no focus model: track the last focus() call; a removed
 // element loses focus, as in a browser.
@@ -72,7 +74,7 @@ async function mount({ keyed = false, catalogFails = false } = {}) {
 		const [open, setOpen] = React.useState(true);
 		return <SetupDialog open={open} onClose={() => { closed++; setOpen(false); }} onDone={() => { completed++; }} />;
 	}
-	await act(async () => { root!.render(<Harness />); });
+	await act(async () => { root!.render(<InteractionLayersProvider><Harness /></InteractionLayersProvider>); });
 }
 
 function element(selector: string): HTMLElement {

@@ -34,7 +34,7 @@ assert_idle() {
 	curl -sf "$URL/api/health" >/dev/null || return 0
 	local busy jobs
 	busy="$(curl -sf "$URL/api/chats" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).chats.filter(c=>c.busy||c.compacting).length))')"
-	jobs="$(curl -sf "$URL/api/activity" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const a=JSON.parse(s);console.log(a.jobs.length+a.extractions.length+a.flashcards.length)})')"
+	jobs="$(curl -sf "$URL/api/activity" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const a=JSON.parse(s);console.log(a.jobs.length+a.extractions.length+(a.pluginWorkers??[]).length+(a.flashcards??[]).length)})')"
 	[ "$busy" = 0 ] && [ "$jobs" = 0 ] || die "host is working ($busy replies, $jobs background jobs); retry later or pass --force"
 	# Someone may be mid-lesson (reading, about to submit) even when nothing runs.
 	local recent
@@ -43,6 +43,11 @@ assert_idle() {
 }
 
 assert_idle
+# Core plugins build from their own locked dependencies; a checkout that has
+# never run plugins:setup has none yet.
+for manifest in plugins/*/package.json; do
+	[ -d "$(dirname "$manifest")/node_modules" ] || { npm run plugins:setup; break; }
+done
 npm run build
 node scripts/build-server.mjs
 

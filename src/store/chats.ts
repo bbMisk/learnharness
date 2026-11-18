@@ -24,7 +24,7 @@ import { removeLeftoverTemps, writeFileAtomicSync } from "./atomic-write.ts";
 
 function chatFile(id: string): string {
 	if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error(`Invalid chat id: ${id}`);
-	return path.join(PATHS.chats, `${id}.json`);
+	return path.join(/* turbopackIgnore: true */ PATHS.chats, `${id}.json`);
 }
 
 /** THE SILENCE LAW (push S6, 2026-10-02): chats-changed announces ONLY
@@ -175,7 +175,7 @@ function getChat(id: string): ChatRecord | null {
 function readChat(id: string): ChatRecord | null {
 	let parsed: unknown;
 	try {
-		parsed = JSON.parse(fs.readFileSync(chatFile(id), "utf-8"));
+		parsed = JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ chatFile(id), "utf-8"));
 	} catch {
 		return null;
 	}
@@ -243,7 +243,7 @@ const summaryCache = new Map<string, { signature: string; summary: ChatSummary }
 function listChats(): ChatSummary[] {
 	try {
 		fs.mkdirSync(PATHS.chats, { recursive: true });
-		const files = fs.readdirSync(PATHS.chats).filter((f) => f.endsWith(".json"));
+		const files = fs.readdirSync(/* turbopackIgnore: true */ PATHS.chats).filter((f) => f.endsWith(".json"));
 		const present = new Set(files);
 		for (const file of summaryCache.keys()) if (!present.has(file)) summaryCache.delete(file);
 		const summaries: ChatSummary[] = [];

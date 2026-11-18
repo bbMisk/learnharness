@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { isInteractionElementVisible, useOptionalInteractionLayers, type InteractionLayersController } from "./interaction-layers";
+import { isInteractionScopeEligible } from "./plugin-input-focus";
 
 type DropTarget = {
 	id: string;
@@ -34,16 +36,32 @@ function visible(target: DropTarget) {
 	return !(input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) || !input.disabled;
 }
 
-function destination(event: DragEvent) {
+/** Only a field in the foreground interaction layer may receive a drop: a
+ *  plugin view, dialog or popup covering a chat makes that chat's fields
+ *  ineligible, exactly as it does for keyboard commands. */
+function eligible(target: DropTarget, controller: InteractionLayersController | null) {
+	const element = target.element();
+	if (!element) return false;
+	if (visible(target)) return isInteractionScopeEligible(element, controller);
+	if (!target.canReveal()) return false;
+	// A revealable field is hidden until activated: judge the layer at its
+	// nearest rendered ancestor. Never reveal through an inert/aria-hidden cover.
+	if (element.closest("[inert], [aria-hidden='true']")) return false;
+	let scope: HTMLElement | null = element.parentElement;
+	while (scope && !isInteractionElementVisible(scope)) scope = (scope as HTMLElement).parentElement;
+	return isInteractionScopeEligible(scope, controller);
+}
+
+function destination(event: DragEvent, controller: InteractionLayersController | null) {
 	// The drop shield also covers iframes. Look underneath it so dropping
 	// directly on a field still owns that field, even when another was focused.
 	for (const element of document.elementsFromPoint(event.clientX, event.clientY)) {
 		const id = element.closest<HTMLElement>("[data-file-drop-id]")?.dataset.fileDropId;
 		const target = id ? targets.get(id) : undefined;
-		if (target && visible(target)) return target;
+		if (target && visible(target) && eligible(target, controller)) return target;
 	}
-	const available = [...targets.values()].sort((a, b) => b.priority() - a.priority());
-	return available.find((t) => t.id === focused && visible(t)) ?? available.find((t) => visible(t) || t.canReveal());
+	const available = [...targets.values()].filter((t) => eligible(t, controller)).sort((a, b) => b.priority() - a.priority());
+	return available.find((t) => t.id === focused && visible(t)) ?? available[0];
 }
 
 /** Positively known folders among the dropped files (upstream 0.5.0's folder
@@ -67,13 +85,16 @@ export function GlobalFileDrop() {
 	const [over, setOver] = useState(false);
 	const [label, setLabel] = useState("");
 	const [error, setError] = useState("");
+	const controller = useOptionalInteractionLayers();
+	const layers = useRef(controller);
+	layers.current = controller;
 	useEffect(() => {
 		let depth = 0;
 		const files = (event: DragEvent) => Array.from(event.dataTransfer?.types || []).includes("Files");
 		const enter = (event: DragEvent) => {
 			if (!files(event)) return;
 			depth++;
-			setLabel(destination(event)?.label() || "a chat");
+			setLabel(destination(event, layers.current)?.label() || "a chat");
 			setOver(true);
 		};
 		const leave = () => {
@@ -86,7 +107,7 @@ export function GlobalFileDrop() {
 			if (!files(event)) return;
 			event.preventDefault();
 			if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-			setLabel(destination(event)?.label() || "a chat");
+			setLabel(destination(event, layers.current)?.label() || "a chat");
 		};
 		const drop = (event: DragEvent) => {
 			if (!files(event)) return;
@@ -95,7 +116,7 @@ export function GlobalFileDrop() {
 			depth = 0;
 			setOver(false);
 			setError("");
-			const target = destination(event);
+			const target = destination(event, layers.current);
 			if (!target) {
 				setError("Open a chat or project to add files.");
 				return;

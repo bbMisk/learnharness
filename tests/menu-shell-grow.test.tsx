@@ -16,6 +16,7 @@ Object.assign(globalThis, {
 	requestAnimationFrame: (cb: FrameRequestCallback) => frames.push(cb), cancelAnimationFrame: () => {},
 });
 const { createRoot } = await import("react-dom/client");
+const { InteractionLayersProvider } = await import("../components/interaction-layers.tsx");
 const { MenuShell } = await import("../components/menu-shell.tsx");
 
 // The menu's box as a browser lays it out: content height, capped by max-height.
@@ -44,7 +45,7 @@ it("content that grows past the cap after opening flips the menu to the roomier 
 	document.body.innerHTML = '<button id="row"></button><div id="host"></div>';
 	const root = createRoot(document.querySelector("#host")!);
 	try {
-		await act(async () => root.render(<Row />));
+		await act(async () => root.render(<InteractionLayersProvider><Row /></InteractionLayersProvider>));
 		const menu = () => document.querySelector<HTMLElement>('[data-testid="row-menu"]')!;
 		assert.equal(menu().style.top, "660px", "fits below at first: opens down");
 		content = 304;
@@ -69,7 +70,7 @@ it("closing a menu cancels the second click of that double click for a moment, n
 		return event.defaultPrevented;
 	};
 	try {
-		await act(async () => root.render(<Row />));
+		await act(async () => root.render(<InteractionLayersProvider><Row /></InteractionLayersProvider>));
 		await act(async () => root.render(null)); // the item's first click closed the menu
 		assert.equal(click(2), true, "the tail is cancelled");
 		assert.equal(click(1), false, "a fresh single click is untouched");

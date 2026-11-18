@@ -15,9 +15,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MessageResponse } from "../components/ai-elements/message.tsx";
+import { HostMarkdown } from "../components/host-markdown.tsx";
 import { Reasoning, ReasoningContent } from "../components/ai-elements/reasoning.tsx";
 
 const renderers = {
+	host: (md: string) => renderToStaticMarkup(<HostMarkdown text={md} />),
 	message: (md: string) => renderToStaticMarkup(<MessageResponse mode="static">{md}</MessageResponse>),
 	reasoning: (md: string) => renderToStaticMarkup(<Reasoning open><ReasoningContent>{md}</ReasoningContent></Reasoning>),
 };

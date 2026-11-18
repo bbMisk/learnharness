@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { it } from "node:test";
-import { GraphCanvasRenderer, pinOutsideNeighborhood, type CanvasData } from "../components/graph-canvas.ts";
+import { CLUSTER_LIGHTNESS, GraphCanvasRenderer, pinOutsideNeighborhood, type CanvasData } from "../components/graph-canvas.ts";
 import { graphSnapshot } from "../src/core/graph.ts";
 
 const dir = new URL("./fixtures/golden-data/graph/", import.meta.url);
@@ -49,7 +49,7 @@ function renderer() {
 		nodes: view.nodes.map((n) => ({ id: n.id, x: ledger[n.id]!.x, y: ledger[n.id]!.y, label: n.name })),
 		edges: view.edges, logicalEdges: view.logicalEdges, impLinks: view.impLinks,
 		clusters: view.clusters.map((c) => ({ id: c.id, label: c.label, members: c.members })),
-		colors: { node: "#000", edge: "#000", label: "#000", hoverText: "#000" }, fontFamily: "sans-serif",
+		colors: { node: "#000", edge: "#000", label: "#000", hoverText: "#000", clusterLightness: CLUSTER_LIGHTNESS.dark }, fontFamily: "sans-serif",
 	};
 	r.setData(data);
 	const drag = (id: string, dx: number, settle = true) => {

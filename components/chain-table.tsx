@@ -40,12 +40,10 @@
  * clear).
  */
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
 	ChevronDownIcon,
-	ChevronRightIcon,
 	ChevronUpIcon,
-	DumbbellIcon,
 	BookIcon,
 	BookOpenIcon,
 	FolderPlusIcon,
@@ -59,10 +57,13 @@ import { EditableSourceName, SourceDragRow, sourceNameMatches, SourceFolderTree,
 import { chainRow, useChainNavigation } from "./chain-navigation";
 import { useServerEvent, useServerResync } from "./server-events";
 import { TopBar } from "@/components/top-bar";
+import { InteractionLayerOwner, useInteractionLayer } from "./interaction-layers";
 import { DeleteSourceDialog } from "@/components/delete-source-dialog";
 import { LatexGlyph } from "@/components/latex-glyph";
 import { isComposing } from "@/components/ime";
 import { actionError } from "@/components/rename";
+import { ToolContentResponse } from "@/components/ai-elements/message";
+import { TreeCell, TreeCheckbox, TreeDisclosure, TreeGuide, TreeHeader, TreeSelectionSpacer, TreeSeparator, treeBranchLayout, treeColumnLayout, treeRowLayout } from "./tree-presentation";
 
 /** The sortable columns. */
 export type ChainSortCol = "name" | "props" | "created";
@@ -115,8 +116,10 @@ export function ChainTableBody({
 	onToggleFolder = () => {},
 	keyboardActive = true,
 	sourceInventoryPending = false,
+	pickerChrome = false,
 }: {
 	sourceInventoryPending?: boolean;
+	pickerChrome?: boolean;
 	keyboardActive?: boolean;
 	directory?: SourceDirectory;
 	onOrganizationChange?: OrganizationChange;
@@ -299,7 +302,7 @@ export function ChainTableBody({
 			    chain table names nothing, so its bar carries counts + search +
 			    close only. Search + close carve out with lh-no-drag (later in
 			    the DOM than the drag band). */}
-			<TopBar>
+			<TopBar sidebarToggle={!pickerChrome}>
 				<span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
 					{chains.length} {chains.length === 1 ? "chain" : "chains"} · {nodes.length} {nodes.length === 1 ? "node" : "nodes"}
 				</span>
@@ -343,13 +346,13 @@ export function ChainTableBody({
 			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
 				{/* The TOP rule: the table is framed — a line under the header,
 			    a line under the last group, lines between groups. */}
-				<div className="sticky top-0 z-10 flex shrink-0 items-center gap-1 border-b border-border/60 bg-background/80 px-3 py-1.5 text-[11px] uppercase tracking-widest text-muted-foreground/70 backdrop-blur">
+				<TreeHeader sticky>
 					<button
 						type="button"
 						data-testid="sort-name"
 						onClick={() => onSort("name")}
 						aria-sort={sort.col === "name" ? (sort.dir === 1 ? "ascending" : "descending") : "none"}
-						className="flex flex-1 items-center gap-1 text-left transition-colors hover:text-foreground"
+						{...treeColumnLayout({ grow: true, align: "left", className: "flex items-center gap-1 transition-colors hover:text-foreground" })}
 					>
 						Name {dirIcon("name")}
 					</button>
@@ -358,7 +361,7 @@ export function ChainTableBody({
 						data-testid="sort-props"
 						onClick={() => onSort("props")}
 						aria-sort={sort.col === "props" ? (sort.dir === 1 ? "ascending" : "descending") : "none"}
-						className="flex w-14 shrink-0 items-center justify-end gap-1 text-right transition-colors hover:text-foreground"
+						{...treeColumnLayout({ widthClassName: "w-14", align: "right", className: "flex items-center justify-end gap-1 transition-colors hover:text-foreground" })}
 					>
 						Props {dirIcon("props")}
 					</button>
@@ -367,11 +370,11 @@ export function ChainTableBody({
 						data-testid="sort-created"
 						onClick={() => onSort("created")}
 						aria-sort={sort.col === "created" ? (sort.dir === 1 ? "ascending" : "descending") : "none"}
-						className="flex w-20 shrink-0 items-center justify-end gap-1 text-right transition-colors hover:text-foreground"
+						{...treeColumnLayout({ widthClassName: "w-20", align: "right", className: "flex items-center justify-end gap-1 transition-colors hover:text-foreground" })}
 					>
 						Created {dirIcon("created")}
 					</button>
-				</div>
+				</TreeHeader>
 
 				{creatingFolder && onOrganizationChange && <div className="flex items-center px-3 py-2" data-testid="new-folder-row">
 					<EditableSourceName name="" initiallyEditing onCancel={() => setCreatingFolder(false)}
@@ -401,8 +404,7 @@ export function ChainTableBody({
 							// The horizontal rules: between cluster groups AND under the
 							// last one — the table is framed top (header) and bottom.
 							// Never on individual rows.
-							className="relative border-b border-transparent"
-							style={{ marginLeft: depth * 36 }}
+							{...treeBranchLayout({ depth, className: "border-b border-transparent", style: { marginLeft: depth * 36 } })}
 						>
 							{/* The TREE THREAD: a vertical guide at the
 							    expander arrow's column (center 37px: pl-3 + checkbox 14 +
@@ -413,13 +415,10 @@ export function ChainTableBody({
 							    (bottom-[8px] = 9px from the border box minus the 1px group
 							    rule). */}
 							{open && group.chains.length > 0 && (
-								<div
-									data-testid={`cluster-thread-${group.key}`}
-									className="pointer-events-none absolute bottom-[8px] left-[37px] top-[23px] w-px bg-border/50"
-								/>
+								<TreeGuide selectionColumn depth={0} data-testid={`cluster-thread-${group.key}`} />
 							)}
 							{/* The cluster row: birth-session group header. */}
-							<SourceDragRow {...chainRow(["source", group.key], depth, open)} kind="source" id={group.key} name={group.label ?? "unlabeled"} enabled={Boolean(onOrganizationChange && group.birth)} className="flex items-center gap-1 px-3 py-1.5">
+							<SourceDragRow {...chainRow(["source", group.key], depth, open)} kind="source" id={group.key} name={group.label ?? "unlabeled"} enabled={Boolean(onOrganizationChange && group.birth)} {...treeRowLayout()}>
 								<RowCheckbox
 									disabled={selectMode ? group.nodeIds.length === 0 : !directory?.sources.some((s) => s.id === group.birth)}
 									checked={selectMode ? selectedCount === group.nodeIds.length && group.nodeIds.length > 0 : group.birth !== null && selectedSources.has(group.birth)}
@@ -437,12 +436,12 @@ export function ChainTableBody({
 									? <EditableSourceName name={group.label ?? ""} muted={empty} onSave={(name) => onOrganizationChange({ action: "rename-source", id: group.birth!, name })} />
 									: <span className={`min-w-0 flex-1 truncate text-sm font-medium${empty ? " text-muted-foreground/60" : ""}`}>{group.label ?? <span className="text-muted-foreground/60">unlabeled</span>}</span>}
 								{group.kind === "notes" && <span className="text-[11px] uppercase tracking-widest text-muted-foreground/60">notes</span>}
-								<span className="w-14 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+								<TreeCell widthClassName="w-14" align="right" className="text-xs tabular-nums text-muted-foreground">
 									{group.nodeIds.length}
-								</span>
-								<span className="w-20 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+								</TreeCell>
+								<TreeCell widthClassName="w-20" align="right" className="text-xs tabular-nums text-muted-foreground">
 									{group.newestCreatedAt.slice(0, 10)}
-								</span>
+								</TreeCell>
 							</SourceDragRow>
 
 							{/* The chain rows — clearly indented under the folder;
@@ -454,22 +453,19 @@ export function ChainTableBody({
 									const chainOpen = expandedChains.has(chain.id);
 									const selectedInChain = memberIds.filter((id) => selection.has(id)).length;
 									return (
-										<div key={chain.id} data-testid={`chain-block-${chain.id}`} className="relative">
+										<div key={chain.id} data-testid={`chain-block-${chain.id}`} {...treeBranchLayout()}>
 												{/* The chain's own thread: the same bracket rule one
 												    level down — at the chain arrow's column (center 73px),
 												    from the chain row's checkbox bottom (top-[22px]) to the
 												    LAST statement row's checkbox bottom (bottom-[8px]). */}
 												{chainOpen && memberIds.length > 0 && (
-													<div
-														data-testid={`chain-thread-${chain.id}`}
-														className="pointer-events-none absolute bottom-[8px] left-[73px] top-[22px] w-px bg-border/50"
-													/>
+													<TreeGuide selectionColumn depth={1} variant="compact" data-testid={`chain-thread-${chain.id}`} />
 												)}
 											<div
 												{...chainRow(["chain", group.key, chain.id], depth + 1, chainOpen)}
 												data-testid={`chain-row-${chain.id}`}
 												aria-label={formatChainLine(chain, Object.fromEntries([...byId.entries()].map(([id, n]) => [id, { name: n.name }])))}
-												className="flex items-center gap-1 py-1 pl-12 pr-3"
+												{...treeRowLayout({ depth: 1, variant: "compact" })}
 											>
 												{selectMode ? <RowCheckbox
 													checked={selectedInChain === memberIds.length && memberIds.length > 0}
@@ -477,7 +473,7 @@ export function ChainTableBody({
 													onToggle={(next) => onToggleNodes(memberIds, next)}
 													testid={`chain-checkbox-${chain.id}`}
 													label={`Select chain ${nameOf(chain.conclusion)}`}
-												/> : <span aria-hidden="true" className="size-3.5 shrink-0" />}
+												/> : <TreeSelectionSpacer />}
 												<Expander open={chainOpen} onClick={() => onToggleChain(chain.id)} testid={`chain-toggle-${chain.id}`} label={`Expand chain ${nameOf(chain.conclusion)}`} />
 												{/* The chain line: proposition names as faint-outlined
 												    chips joined by KaTeX ∧ / ⟹ (see the module doc). A
@@ -512,12 +508,12 @@ export function ChainTableBody({
 														);
 													})}
 												</span>
-												<span className="w-14 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+												<TreeCell widthClassName="w-14" align="right" className="text-xs tabular-nums text-muted-foreground">
 													{memberIds.length}
-												</span>
-												<span className="w-20 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+												</TreeCell>
+												<TreeCell widthClassName="w-20" align="right" className="text-xs tabular-nums text-muted-foreground">
 													{dateOf(chain.conclusion)}
-												</span>
+												</TreeCell>
 											</div>
 
 											{/* The propositions — their STATEMENT text directly (names
@@ -534,26 +530,30 @@ export function ChainTableBody({
 															key={id}
 															{...chainRow(["prop", group.key, chain.id, id], depth + 2)}
 															data-testid={`prop-row-${id}`}
-															className="flex items-start gap-2 py-1 pl-21 pr-3"
+															data-chain-statement
+															{...treeRowLayout({ depth: 2, variant: "detail" })}
 														>
 															{selectMode ? <RowCheckbox
 																checked={selection.has(id)}
 																onToggle={(next) => onToggleNodes([id], next)}
 																testid={`prop-checkbox-${id}`}
 																label={`Select node ${node.name}`}
-															/> : <span aria-hidden="true" className="size-3.5 shrink-0" />}
-															<span className="min-w-0 flex-1 text-xs leading-relaxed text-muted-foreground">
+															/> : <TreeSelectionSpacer />}
+															<ToolContentResponse
+																mode="static"
+																className="min-w-0 flex-1 text-muted-foreground [--font-prose:var(--font-ui)] [--lh-prose-size:var(--text-xs)] [--lh-prose-leading:1.625] [&_[data-streamdown=inline-code]]:[font-size:inherit] [&_[data-streamdown=inline-code]]:[color:inherit]"
+															>
 																{node.statement}
-															</span>
-															<span className="w-14 shrink-0" />
-															<span className="w-20 shrink-0" />
+															</ToolContentResponse>
+															<TreeCell widthClassName="w-14" />
+															<TreeCell widthClassName="w-20" />
 														</div>
 													);
 												})}
 										</div>
 									);
 								})}
-							<div data-testid={`source-separator-${group.key}`} className="pointer-events-none absolute bottom-[-1px] right-0 border-b border-border/60" style={{ left: depth === 0 ? 0 : 1 }} />
+							<TreeSeparator data-testid={`source-separator-${group.key}`} outside inset={depth === 0 ? 0 : 1} />
 						</div>
 					);
 				}} />
@@ -587,7 +587,6 @@ export function ChainTableBody({
 								aria-label={`Done picking — ${selection.size} ${selection.size === 1 ? "proposition" : "propositions"} selected`}
 								className="flex items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/80"
 							>
-								<DumbbellIcon aria-hidden="true" className="size-3.5" />
 								Done
 							</button>
 						) : (
@@ -618,18 +617,7 @@ export function ChainTableBody({
 /** The rotating chevron — collapsed points right, expanded rotates down
  *  (the affordance must read on every expandable row). */
 function Expander({ open, onClick, testid, label }: { open: boolean; onClick: () => void; testid: string; label: string }) {
-	return (
-		<button
-			type="button"
-			data-testid={testid}
-			onClick={onClick}
-			aria-label={label}
-			aria-expanded={open}
-			className="flex h-5 w-3.5 shrink-0 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
-		>
-			<ChevronRightIcon className={`size-3.5 transition-transform ${open ? "rotate-90" : ""}`} />
-		</button>
-	);
+	return <TreeDisclosure open={open} onClick={onClick} data-testid={testid} aria-label={label} />;
 }
 
 /** The checkbox — checked/indeterminate (partial chains/clusters); DOM
@@ -650,18 +638,8 @@ function RowCheckbox({
 	label: string;
 }) {
 	return (
-		<input
-			type="checkbox"
-			disabled={disabled}
-			checked={checked}
-			ref={(el) => {
-				if (el) el.indeterminate = indeterminate;
-			}}
-			data-testid={testid}
-			aria-label={label}
-			onChange={(e) => onToggle(e.target.checked)}
-			className="size-3.5 shrink-0 accent-primary"
-		/>
+		<TreeCheckbox disabled={disabled} checked={checked} indeterminate={indeterminate}
+			data-testid={testid} aria-label={label} onChange={(e) => onToggle(e.target.checked)} />
 	);
 }
 
@@ -685,8 +663,17 @@ export function ChainTableOverlay({
 	selectMode,
 	controlledSelection,
 	onSelectionChange,
+	keyboardActive = true,
+	registerInteraction = true,
+	pickerChrome = false,
 }: {
 	open: boolean;
+	/** Host knowledge picker has clearance, but no sidebar-reopen action. */
+	pickerChrome?: boolean;
+	/** A host knowledge picker registers once through its pane or modal shell. */
+	registerInteraction?: boolean;
+	/** Internal host ownership; ordinary practice keeps the existing default. */
+	keyboardActive?: boolean;
 	nodes: GraphNode[];
 	chains: GraphChain[];
 	sessions: Record<string, string>;
@@ -718,21 +705,27 @@ export function ChainTableOverlay({
 	}, [visibleDirectory]);
 	const requestVersion = useRef(0);
 	const directoryOpening = useRef(0);
+	const directoryRequest = useRef<AbortController | null>(null);
 	const mutationTail = useRef<Promise<unknown>>(Promise.resolve());
 	const readDirectory = useCallback(async () => {
 		const version = ++requestVersion.current;
+		directoryRequest.current?.abort();
+		const request = new AbortController();
+		directoryRequest.current = request;
 		try {
-			const response = await fetch("/api/graph/sources", { cache: "no-store" });
+			const response = await fetch("/api/graph/sources", { cache: "no-store", signal: request.signal });
 			if (!response.ok) throw new Error("Could not read source organization.");
 			const body = await response.json() as SourceDirectory;
-			if (version === requestVersion.current) { setDirectory(body); setDirectoryPending(false); setDirectoryFailure(""); }
-		} catch (error) { if (version === requestVersion.current) setDirectoryFailure(actionError(error, "Could not read source organization.")); }
+			if (!request.signal.aborted && version === requestVersion.current) { setDirectory(body); setDirectoryPending(false); setDirectoryFailure(""); }
+		} catch (error) { if (!request.signal.aborted && version === requestVersion.current) setDirectoryFailure(actionError(error, "Could not read source organization.")); }
 	}, []);
 	useEffect(() => {
 		if (open) void readDirectory();
 		return () => {
 			requestVersion.current++;
 			directoryOpening.current++;
+			directoryRequest.current?.abort();
+			directoryRequest.current = null;
 			// Keep cached organization, but require fresh source kinds on EACH opening.
 			setDirectoryPending(true);
 		};
@@ -781,45 +774,47 @@ export function ChainTableOverlay({
 		else setInternalSelection(next);
 	};
 
-	// Esc dismisses (unless a dialog has focus — each dialog's own Esc
-	// owns its layer; all listen on window, so the guards are explicit).
+	// Tab cycles the table's own field (its search), never the page's
+	// composer hidden behind the overlay. Escape is the view layer's below.
 	useEffect(() => {
 		if (!open || deleteOpen) return;
 		const onKeyDown = (e: KeyboardEvent) => {
-			// Tab cycles the table's own field (its search), never the page's
-			// composer hidden behind the overlay.
 			if (e.key === "Tab" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
 				e.preventDefault();
 				e.stopPropagation();
 				document.querySelector<HTMLElement>('[data-testid="chain-table-overlay"] [data-testid="chain-table-search"]')?.focus();
-				return;
-			}
-			if (e.key === "Escape") {
-				// App Router delegates React events on document too: a child's
-				// stopPropagation cannot silence a sibling document listener.
-				if (e.defaultPrevented || isComposing(e) || (e.target instanceof Element && e.target.closest('[data-testid="source-name-input"]'))) return;
-				// Claim at the document level — the window chain (dictation →
-				// abort) must not also act. One Esc, one action.
-				e.preventDefault();
-				e.stopPropagation();
-				// Clear the search first, wherever focus is in the table.
-				if (query) setQuery("");
-				else onClose();
 			}
 		};
 		document.addEventListener("keydown", onKeyDown);
 		return () => document.removeEventListener("keydown", onKeyDown);
-	}, [open, deleteOpen, onClose, query]);
+	}, [open, deleteOpen]);
 
 	// Closing hands focus back to whatever opened the table. A layout
 	// effect: it captures the opener before the table's own mount focus.
+	// The return waits a microtask and is dropped when the effect re-runs at
+	// once (StrictMode's replayed mount): moving focus mid-replay would revoke
+	// the picker's opening lease as a user focus change.
+	const pendingReturn = useRef<{ cancelled: boolean } | null>(null);
 	useLayoutEffect(() => {
 		if (!open) return;
+		if (pendingReturn.current) pendingReturn.current.cancelled = true;
 		const opener = document.activeElement as HTMLElement | null;
 		return () => {
-			if (opener?.isConnected) opener.focus?.();
+			const pending = { cancelled: false };
+			pendingReturn.current = pending;
+			queueMicrotask(() => { if (!pending.cancelled && opener?.isConnected) opener.focus?.(); });
 		};
 	}, [open]);
+	const rootRef = useRef<HTMLDivElement>(null);
+	const inheritedOwner = useContext(InteractionLayerOwner);
+	const layer = useInteractionLayer({
+		kind: "view", enabled: open && keyboardActive && registerInteraction, rootRef,
+		// Esc clears the search first, wherever focus is in the table.
+		onClose: (reason) => {
+			if (reason === "escape" && query) { setQuery(""); return "handled-without-close"; }
+			onClose(); return "closed";
+		},
+	});
 
 	if (!open) return null;
 
@@ -839,14 +834,17 @@ export function ChainTableOverlay({
 	};
 
 	return (
-		<>
+		<InteractionLayerOwner.Provider value={registerInteraction && keyboardActive ? layer.id : inheritedOwner}>
 			<div
+				ref={rootRef}
 				data-testid="chain-table-overlay"
 				className="absolute inset-0 z-40 flex flex-col bg-background/80 backdrop-blur-sm"
+				style={registerInteraction ? { zIndex: 100 + layer.order } : undefined}
 			>
-				{directoryFailure && <p role="alert" className="px-3 py-1 text-xs text-red-400">{directoryFailure}</p>}
+				{directoryFailure && <p role="alert" className="px-3 py-1 text-xs text-error">{directoryFailure}</p>}
 				<ChainTableBody
-					keyboardActive={!deleteOpen}
+					pickerChrome={pickerChrome}
+					keyboardActive={keyboardActive && !deleteOpen}
 					directory={directory}
 					onOrganizationChange={directory ? changeOrganization : undefined}
 					selectedFolders={selectedFolders}
@@ -912,6 +910,6 @@ export function ChainTableOverlay({
 					mutationTail.current = operation; return operation;
 				}}
 			/>}
-		</>
+		</InteractionLayerOwner.Provider>
 	);
 }
