@@ -31,7 +31,7 @@ describe("md-blocks — code", () => {
 	it("inline code passes through with the house inline styling", () => {
 		const html = render("a `term` b");
 		assert.ok(html.includes('data-streamdown="inline-code"'), "inline code keeps the inline-code path");
-		assert.match(html, /a <code class="rounded px-1\.5 py-0\.5 font-mono text-sm text-\(--lh-ink-code\)"[^>]*>term<\/code> b/, "inline semantics, spacing and typography stay intact, in the theme's code ink");
+		assert.match(html, /a <code class="inline-block max-w-full whitespace-pre-wrap wrap-anywhere rounded px-1\.5 py-0\.5 font-mono text-sm text-\(--lh-ink-code\)"[^>]*>term<\/code> b/, "inline semantics, spacing and typography stay intact, in the theme's code ink");
 		assert.ok(!html.includes("bg-muted"), "inline code no longer uses the question-card surface");
 	});
 
