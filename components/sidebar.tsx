@@ -363,16 +363,20 @@ function SessionMetaLine({ chat, showTime, gutter, className }: { chat: ChatList
 	const meta = sessionMeta(chat);
 	const time = showTime ? formatLessonTime(chat.timeSpentMs) : null;
 	if (!time) return <span className={className}>{meta}</span>;
-	const estimatedOnly = !chat.measuredStudyMs && !!chat.estimatedStudyMs;
-	const oldTime = formatLessonTime(chat.estimatedStudyMs);
-	const label = estimatedOnly ? "Estimated study time" : "Active study time";
-	const tooltip = !estimatedOnly && oldTime ? `Active study time · ${oldTime} estimated before tracking` : label;
+	const estimatedTime = formatLessonTime(chat.estimatedStudyMs);
+	const activeTime = formatLessonTime(chat.measuredStudyMs);
+	let label = "Active study time";
+	let tooltip = label;
+	if (estimatedTime) {
+		label = activeTime ? "Total study time (includes estimate)" : "Estimated study time";
+		tooltip = activeTime ? `${activeTime} recorded · ${estimatedTime} estimated before tracking` : label;
+	}
 	return (
 		<span className={cn("flex items-baseline gap-2 text-xs text-muted-foreground", gutter && "-mr-7")}>
 			<span className="min-w-0 truncate" title={meta}>{meta}</span>
 			<span className="ml-auto shrink-0 tabular-nums" title={tooltip} data-testid="session-time">
 				<span className="sr-only">{label}: </span>
-				{estimatedOnly ? "~" : ""}{time}
+				{estimatedTime ? "~" : ""}{time}
 			</span>
 		</span>
 	);

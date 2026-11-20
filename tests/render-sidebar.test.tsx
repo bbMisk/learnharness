@@ -188,6 +188,16 @@ describe("SessionRow time spent (owner, 2026-11-05)", () => {
 		assert.match(html, /flex items-baseline gap-2 text-xs text-muted-foreground -mr-7/, "the meta line takes the archive gutter");
 	});
 
+	it("marks a cumulative total that includes estimated time", () => {
+		const html = withTime(item({
+			timeSpentMs: 90 * 60_000,
+			measuredStudyMs: 10 * 60_000,
+			estimatedStudyMs: 80 * 60_000,
+		}), true);
+		assert.match(html, /Total study time \(includes estimate\): <\/span>~1h 30m/);
+		assert.match(html, /title="10m recorded · 1h 20m estimated before tracking"/);
+	});
+
 	it("on, a practice row keeps the dumbbell's corner", () => {
 		const html = withTime({ ...timed, kind: "practice" }, true);
 		assert.match(html, /1h 20m/);

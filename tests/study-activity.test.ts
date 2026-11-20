@@ -85,13 +85,16 @@ it("validates submissions, deduplicates retries and overlapping lessons, and rep
 		practiceProblemsConcluded: 1,
 	});
 	assert.equal(progress.allTime.activeSeconds, 13);
+	const summary = chatStore.listChats().find(({ id }) => id === a.id);
+	assert.equal(summary?.measuredStudyMs, 10_000);
+	assert.equal(summary?.estimatedStudyMs, 85_000);
+	assert.equal(summary?.timeSpentMs, 95_000);
 	// Fall-back Sunday begins at 04:00Z even though New York ends the day at UTC-5.
 	const fallBackMidnight = Date.parse("2026-11-01T04:00:00Z");
 	saveStudySpans(b.id, [[fallBackMidnight - 4_000, fallBackMidnight + 5_000]]);
 	assert.equal(studyProgress(Date.parse("2026-11-01T17:00:00Z")).today.activeSeconds, 5);
 	assert.equal(progress.allTime.historicalEstimateSeconds, 85);
 	assert.ok(!JSON.stringify(progress).includes("private"));
-	assert.equal(chatStore.listChats().find(({ id }) => id === a.id)?.timeSpentMs, 10_000);
 
 	const now = Date.now();
 	const submit = (chatId: string, spans: unknown) =>

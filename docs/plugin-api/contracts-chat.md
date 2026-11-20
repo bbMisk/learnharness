@@ -548,7 +548,7 @@ pendingProblem: boolean;
 
 ### ChatSummary timeSpentMs
 
-Sidebar time in ms. Uses active time when available and falls back to the pre-tracking estimate.
+Cumulative sidebar time in ms, including the pre-tracking estimate.
 
 ```ts
 timeSpentMs?: number;

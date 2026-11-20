@@ -257,7 +257,7 @@ function listChats(): ChatSummary[] {
 			const spans = activity && Object.hasOwn(activity.lessons, summary.id) ? activity.lessons[summary.id]! : [];
 			const active = studyDuration(spans);
 			const historicalEstimate = studyDuration(estimatedSpans, -Infinity, activity?.startedAt ?? Infinity);
-			return { ...summary, timeSpentMs: active || historicalEstimate, measuredStudyMs: active, estimatedStudyMs: historicalEstimate };
+			return { ...summary, timeSpentMs: active + historicalEstimate, measuredStudyMs: active, estimatedStudyMs: historicalEstimate };
 		};
 		for (const file of files) {
 			let signature: string;
