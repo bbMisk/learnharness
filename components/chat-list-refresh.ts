@@ -211,6 +211,12 @@ export function useChatListRefresh({
 	// compaction) change a row's time spent (owner, 2026-11-05).
 	useServerEvent("record-changed", ({ chatId }) => refresher.event({ type: "record-changed", chatId }));
 	useServerResync(() => void refresher.resync());
+	useEffect(() => {
+		const refreshTime = () => void refresher.refresh({ projects: false });
+		window.addEventListener("lh:study-activity", refreshTime);
+		return () => window.removeEventListener("lh:study-activity", refreshTime);
+	}, [refresher]);
+
 
 	/* INSTANT TURN-STATE (owner, sidebar round 2026-10-02): the open
 	   session broadcasts lh:turn-state the instant its turn starts

@@ -40,6 +40,7 @@ export * from "./lesson-tracking.ts";
 export * from "./pinned-visual.ts";
 export * from "./plan-progress.ts";
 export * from "./lesson-time.ts";
+export * from "./study-activity.ts";
 export * from "./question-type.ts";
 export * from "./phases.ts";
 export * from "./pending.ts";

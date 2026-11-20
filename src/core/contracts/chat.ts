@@ -285,10 +285,10 @@ export interface ChatSummary {
 	/** Practice sessions: a posed problem with no conclude — the sidebar meta's
 	 *  "Problem waiting". False on teaching sessions. */
 	pendingProblem: boolean;
-	/** Active lesson time in ms, measured from the record
-	 *  (core/lesson-time.ts), on every list row; Settings → General only decides
-	 *  whether the sidebar shows it. */
+	/** Sidebar time in ms. Uses active time when available and falls back to the pre-tracking estimate. */
 	timeSpentMs?: number;
+	measuredStudyMs?: number;
+	estimatedStudyMs?: number;
 	/** The record's model-control settings — rides the list payload via the
 	 *  summary spread (the picker never needs it from here; the full record
 	 *  is its source). */

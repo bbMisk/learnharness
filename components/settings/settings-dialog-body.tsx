@@ -490,7 +490,7 @@ export function SettingsDialogBody({
 									</SettingsRow>
 									<SettingsRow
 										label="Show time spent on lessons"
-										hint="The sidebar shows about how long you've worked on each lesson."
+										hint="Show focused lesson time in the sidebar. Time pauses after two minutes without input. Older estimates are marked with ~."
 										testid="row-show-lesson-time"
 									>
 										<Toggle

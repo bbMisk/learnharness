@@ -437,6 +437,8 @@ export interface ChatSummary {
     pendingQuestion: boolean;
     pendingProblem: boolean;
     timeSpentMs?: number;
+    measuredStudyMs?: number;
+    estimatedStudyMs?: number;
     settings?: ChatSettings;
 }
 ```
@@ -458,6 +460,8 @@ export interface ChatSummary {
 - [pendingQuestion](#chatsummary-pendingquestion)
 - [pendingProblem](#chatsummary-pendingproblem)
 - [timeSpentMs](#chatsummary-timespentms)
+- [measuredStudyMs](#chatsummary-measuredstudyms)
+- [estimatedStudyMs](#chatsummary-estimatedstudyms)
 - [settings](#chatsummary-settings)
 
 ### ChatSummary pinned
@@ -544,12 +548,22 @@ pendingProblem: boolean;
 
 ### ChatSummary timeSpentMs
 
-Active lesson time in ms, measured from the record
-(core/lesson-time.ts), on every list row; Settings → General only decides
-whether the sidebar shows it.
+Sidebar time in ms. Uses active time when available and falls back to the pre-tracking estimate.
 
 ```ts
 timeSpentMs?: number;
+```
+
+### ChatSummary measuredStudyMs
+
+```ts
+measuredStudyMs?: number;
+```
+
+### ChatSummary estimatedStudyMs
+
+```ts
+estimatedStudyMs?: number;
 ```
 
 ### ChatSummary settings

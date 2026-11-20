@@ -61,6 +61,7 @@ export * from "./typewhisper.ts";
 export { uploadStore, UploadError } from "../store/uploads.ts";
 
 export { learningHistory, captureLearningHistory } from "./learning-history.ts";
+export { studyProgress, recordStudyActivity } from "./study-progress.ts";
 
 export { projectStore, projectView, projectInstructions, checkProjectFolder } from './projects.ts';
 export { setChatOrganization } from '../store/chats.ts';

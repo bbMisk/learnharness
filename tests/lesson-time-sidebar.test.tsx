@@ -187,7 +187,7 @@ it("switching on in this window shows the figure without a reload; off takes it 
 	await setGeneral({ showLessonTime: true }, true);
 	await settle();
 	assert.equal(served.lists, before, "display only: no list fetch");
-	assert.deepEqual(figures(), ["Time spent: 1h 30m"], "the empty lesson shows nothing");
+	assert.deepEqual(figures(), ["Estimated study time: ~1h 30m"], "the empty lesson shows nothing");
 	await setGeneral({ showLessonTime: false }, true);
 	await settle();
 	assert.deepEqual(figures(), []);
@@ -197,14 +197,14 @@ it("follows the switch flipped in another window (the server's settings-changed 
 	const reads = served.settingsReads;
 	await setGeneral({ showLessonTime: true }, false);
 	await settle();
-	assert.deepEqual(figures(), ["Time spent: 1h 30m"]);
+	assert.deepEqual(figures(), ["Estimated study time: ~1h 30m"]);
 	assert.equal(served.settingsReads, reads + 1, "every General reader hears the event; one read serves them all");
 	// Another General change while on: the list already carries the figures, so no list fetch.
 	const lists = served.lists;
 	await setGeneral({ showLessonTime: true, cramShortProbe: false }, false);
 	await settle();
 	assert.equal(served.lists, lists);
-	assert.deepEqual(figures(), ["Time spent: 1h 30m"]);
+	assert.deepEqual(figures(), ["Estimated study time: ~1h 30m"]);
 	await setGeneral({ showLessonTime: false }, false);
 	await settle();
 	assert.deepEqual(figures(), []);
@@ -216,7 +216,7 @@ it("catches a switch flipped while disconnected on the reconnect", async () => {
 	assert.deepEqual(figures(), [], "nothing told this window yet");
 	await act(async () => channel.reopen!());
 	await settle();
-	assert.deepEqual(figures(), ["Time spent: 1h 30m"]);
+	assert.deepEqual(figures(), ["Estimated study time: ~1h 30m"]);
 });
 
 it("a silent record write (a dismissal's record-changed) updates the figure", async () => {
@@ -225,5 +225,5 @@ it("a silent record write (a dismissal's record-changed) updates the figure", as
 	await act(async () => emit("record-changed", { chatId: timed.id }));
 	await settle();
 	assert.equal(served.lists, before + 1, "one debounced list fetch");
-	assert.deepEqual(figures(), ["Time spent: 1h 50m"]);
+	assert.deepEqual(figures(), ["Estimated study time: ~1h 50m"]);
 });

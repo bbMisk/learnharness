@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useChatSession } from "@/components/session";
+import { useStudyActivity } from "@/components/use-study-activity";
 import { usePlugins } from "@/components/plugins";
 import { PluginSubmissionRunner, SubmissionModelEpoch, type SubmissionAttempt } from "@/components/plugin-submission-runner";
 import { submissionImages, type BuiltinSubmissionCapture, type PrepareBuiltinSubmission, type PrepareThinkingSubmission, type PreparePluginQuestionSubmission, type PreparePluginProblemSubmission } from "@/components/plugin-submission-adapters";
@@ -262,7 +263,9 @@ export function Chat({
 	// interceptors may prepare it first, and the delivery only goes out while
 	// this page's surface is still the one the learner acted on.
 	const pathname = usePathname();
-	const surfaceTarget = usePageSurfaceBoundary({ active: pathname === `/chat/${encodeURIComponent(chatId)}`, viewKey: chatId, bodyRef: sessionFindScopeRef });
+	const activeLesson = pathname === `/chat/${encodeURIComponent(chatId)}`;
+	useStudyActivity(chatId, sessionFindScopeRef, activeLesson);
+	const surfaceTarget = usePageSurfaceBoundary({ active: activeLesson, viewKey: chatId, bodyRef: sessionFindScopeRef });
 	const { manager: pluginManager } = usePlugins();
 	const [, submissionChanged] = useState(0);
 	const [preparationError, setPreparationError] = useState<string>();

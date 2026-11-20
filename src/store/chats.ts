@@ -19,7 +19,9 @@ import { cleanName, CURRENT_CHAT_VERSION } from "../core/contracts.ts";
 import type { LhMessage } from "../core/native-messages.ts";
 import { activeProblemOf, danglingQuestionOf } from "../core/native-messages.ts";
 import { phaseAt3Lh } from "../core/phases.ts";
-import { lessonTimeMs } from "../core/lesson-time.ts";
+import { estimatedLessonSpans } from "../core/lesson-time.ts";
+import { studyDuration, type StudySpan } from "../core/study-activity.ts";
+import { deleteStudySpans, readStudyActivity } from "./study-activity.ts";
 import { removeLeftoverTemps, writeFileAtomicSync } from "./atomic-write.ts";
 
 function chatFile(id: string): string {
@@ -191,7 +193,7 @@ function readChat(id: string): ChatRecord | null {
 }
 
 /** Projection for the session list; null when the record is absent or fails to project. */
-function summaryOf(id: string): ChatSummary | null {
+function summaryOf(id: string): { summary: ChatSummary; estimatedSpans: StudySpan[] } | null {
 	const record = getChat(id);
 	if (!record) return null;
 	// Archived chats are listed, not kept in memory: they are rarely opened,
@@ -203,7 +205,7 @@ function summaryOf(id: string): ChatSummary | null {
 	// zero-back-compat wipe makes these "corrupt") must not blank the
 	// whole sidebar — same isolation getChat's per-file catch gives.
 	try {
-		return {
+		const row: ChatSummary = {
 			// turns and extractions stay out of the list payload (list =
 			// summaries; usage aggregates ride the full record, the picker
 			// never needs them).
@@ -224,10 +226,8 @@ function summaryOf(id: string): ChatSummary | null {
 			// "Problem waiting"); false on teaching sessions, which
 			// have no problem tool.
 			pendingProblem: activeProblemOf(messages) !== null,
-			// Time spent (owner, 2026-11-05): one pass over the record already in
-			// hand, cached with the summary until the file changes.
-			timeSpentMs: lessonTimeMs(messages),
 		} as ChatSummary;
+		return { summary: row, estimatedSpans: estimatedLessonSpans(messages) };
 	} catch (err) {
 		console.error(`[chat ${summary.id}] summary projection failed:`, err);
 		return null;
@@ -238,7 +238,7 @@ function summaryOf(id: string): ChatSummary | null {
  *  App writes are atomic renames (new inode); ctime also changes on any
  *  in-place write, even one that preserves mtime. Only successful
  *  projections are cached, so a transient read failure retries next list. */
-const summaryCache = new Map<string, { signature: string; summary: ChatSummary }>();
+const summaryCache = new Map<string, { signature: string; summary: ChatSummary; estimatedSpans: StudySpan[] }>();
 
 function listChats(): ChatSummary[] {
 	try {
@@ -247,6 +247,18 @@ function listChats(): ChatSummary[] {
 		const present = new Set(files);
 		for (const file of summaryCache.keys()) if (!present.has(file)) summaryCache.delete(file);
 		const summaries: ChatSummary[] = [];
+		let activity: ReturnType<typeof readStudyActivity> | undefined;
+		try {
+			activity = readStudyActivity();
+		} catch (error) {
+			console.error("[study activity] could not read timing", error);
+		}
+		const timedRow = ({ summary, estimatedSpans }: { summary: ChatSummary; estimatedSpans: StudySpan[] }): ChatSummary => {
+			const spans = activity && Object.hasOwn(activity.lessons, summary.id) ? activity.lessons[summary.id]! : [];
+			const active = studyDuration(spans);
+			const historicalEstimate = studyDuration(estimatedSpans, -Infinity, activity?.startedAt ?? Infinity);
+			return { ...summary, timeSpentMs: active || historicalEstimate, measuredStudyMs: active, estimatedStudyMs: historicalEstimate };
+		};
 		for (const file of files) {
 			let signature: string;
 			try {
@@ -258,7 +270,7 @@ function listChats(): ChatSummary[] {
 			}
 			const cached = summaryCache.get(file);
 			if (cached?.signature === signature) {
-				summaries.push({ ...cached.summary });
+				summaries.push(timedRow(cached));
 				continue;
 			}
 			const summary = summaryOf(file.slice(0, -5));
@@ -266,8 +278,8 @@ function listChats(): ChatSummary[] {
 				summaryCache.delete(file);
 				continue;
 			}
-			summaryCache.set(file, { signature, summary });
-			summaries.push({ ...summary });
+			summaryCache.set(file, { signature, ...summary });
+			summaries.push(timedRow(summary));
 		}
 		return summaries.sort((a, b) => Number(!!b.pinned)-Number(!!a.pinned) || b.updatedAt.localeCompare(a.updatedAt));
 	} catch {
@@ -379,6 +391,11 @@ function deleteChat(id: string): boolean {
 		forgetRecord(id);
 		fs.unlinkSync(chatFile(id));
 		removeLeftoverTemps(chatFile(id));
+		try {
+			deleteStudySpans(id);
+		} catch (error) {
+			console.warn("[study activity] could not remove deleted lesson timing", error);
+		}
 		emit("chats-changed", {}); // only a real removal — the present-entry law
 		return true;
 	} catch {

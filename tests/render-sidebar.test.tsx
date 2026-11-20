@@ -182,7 +182,7 @@ describe("SessionRow time spent (owner, 2026-11-05)", () => {
 
 	it("on: a muted figure at the meta line's end, the title line untouched", () => {
 		const html = withTime(timed, true);
-		assert.match(html, /data-testid="session-time"[^>]*>(<span class="sr-only">Time spent: <\/span>)1h 20m</);
+		assert.match(html, /data-testid="session-time"[^>]*>(<span class="sr-only">Active study time: <\/span>)1h 20m</);
 		assert.match(html, /Waiting for input ·/, "the meta stays");
 		assert.match(html, /class="block truncate font-prose[^"]*">Test session<\/span>/, "the title line carries no figure");
 		assert.match(html, /flex items-baseline gap-2 text-xs text-muted-foreground -mr-7/, "the meta line takes the archive gutter");

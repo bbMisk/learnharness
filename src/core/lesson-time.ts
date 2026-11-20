@@ -1,9 +1,8 @@
 /**
- * Time spent on a lesson (owner, 2026-11-05): an optional figure on each
- * sidebar row (Settings → General, off by default). Measured from the
- * lesson record only — no live activity tracking.
+ * Historical estimate for periods before activity tracking. Derived from
+ * the transcript, which cannot distinguish study from idle time.
  *
- * Active time is the sum of the gaps between consecutive timestamped
+ * The estimate includes the gaps between consecutive timestamped
  * record messages (learner and assistant messages, tool results, custom
  * markers — every LhMessage carries `timestamp`, Unix ms; an assistant's is
  * when its request started). A gap longer than BREAK_AFTER_MS, or
@@ -26,6 +25,7 @@
  * Pure and browser-safe (type-only imports plus pure modules).
  */
 
+import { studyDuration, type StudySpan } from "./study-activity.ts";
 import type { LhMessage } from "./native-messages.ts";
 import { QUESTION_TOOLS } from "./pending.ts";
 import { LessonTracker, PROBLEM_DONE_TOOL, PROBLEM_LIST_TOOL, PROBLEM_START_TOOL } from "./lesson-tracking.ts";
@@ -36,9 +36,9 @@ export const BREAK_AFTER_MS = 10 * MINUTE_MS;
 /** A longer gap while a question or problem is open is a break. */
 export const OPEN_BREAK_AFTER_MS = 25 * MINUTE_MS;
 
-/** The record's measured active time, in ms (0 when nothing measurable). */
-export function lessonTimeMs(messages: readonly LhMessage[]): number {
-	let total = 0;
+/** Historical time inferred from transcript gaps. */
+export function estimatedLessonSpans(messages: readonly LhMessage[]): StudySpan[] {
+	const spans: StudySpan[] = [];
 	let latest: number | null = null;
 	let openQuestions = new Set<string>();
 	const tracker = new LessonTracker();
@@ -48,7 +48,7 @@ export function lessonTimeMs(messages: readonly LhMessage[]): number {
 		if (typeof t === "number" && Number.isFinite(t)) {
 			if (latest !== null && t > latest) {
 				const breakAfter = openQuestions.size > 0 || problemOpen ? OPEN_BREAK_AFTER_MS : BREAK_AFTER_MS;
-				if (t - latest <= breakAfter) total += t - latest;
+				if (t - latest <= breakAfter) spans.push([latest, t]);
 			}
 			if (latest === null || t > latest) latest = t;
 		}
@@ -68,7 +68,11 @@ export function lessonTimeMs(messages: readonly LhMessage[]): number {
 			}
 		}
 	}
-	return total;
+	return spans;
+}
+
+export function lessonTimeMs(messages: readonly LhMessage[]): number {
+	return studyDuration(estimatedLessonSpans(messages));
 }
 
 const TEN_MINUTES_MS = 10 * MINUTE_MS;
