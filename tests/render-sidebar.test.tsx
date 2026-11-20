@@ -190,12 +190,12 @@ describe("SessionRow time spent (owner, 2026-11-05)", () => {
 
 	it("marks a cumulative total that includes estimated time", () => {
 		const html = withTime(item({
-			timeSpentMs: 90 * 60_000,
-			measuredStudyMs: 10 * 60_000,
-			estimatedStudyMs: 80 * 60_000,
+			timeSpentMs: 28 * 60_000,
+			measuredStudyMs: 14 * 60_000,
+			estimatedStudyMs: 14 * 60_000,
 		}), true);
-		assert.match(html, /Total study time \(includes estimate\): <\/span>~1h 30m/);
-		assert.match(html, /title="10m recorded · 1h 20m estimated before tracking"/);
+		assert.match(html, /Total study time \(includes estimate\): <\/span>~30m/);
+		assert.match(html, /title="14m recorded · 14m estimated before tracking"/);
 	});
 
 	it("on, a practice row keeps the dumbbell's corner", () => {

@@ -75,15 +75,11 @@ export function lessonTimeMs(messages: readonly LhMessage[]): number {
 	return studyDuration(estimatedLessonSpans(messages));
 }
 
-const TEN_MINUTES_MS = 10 * MINUTE_MS;
-
-/** The sidebar's figure: rounded to the nearest 10 minutes — "<10m" under
- *  5 minutes, then "10m", "50m", "1h", "1h 20m", "12h 40m". Null (show
- *  nothing) when the lesson has no measurable time. */
-export function formatLessonTime(ms: number | null | undefined): string | null {
+/** Round the sidebar total to 10 minutes and the tooltip breakdown to one minute. */
+export function formatLessonTime(ms: number | null | undefined, stepMinutes: 1 | 10 = 10): string | null {
 	if (typeof ms !== "number" || !Number.isFinite(ms) || ms <= 0) return null;
-	const minutes = Math.round(ms / TEN_MINUTES_MS) * 10;
-	if (minutes === 0) return "<10m";
+	const minutes = Math.round(ms / (stepMinutes * MINUTE_MS)) * stepMinutes;
+	if (minutes === 0) return `<${stepMinutes}m`;
 	const hours = Math.floor(minutes / 60);
 	const rest = minutes % 60;
 	if (hours === 0) return `${rest}m`;

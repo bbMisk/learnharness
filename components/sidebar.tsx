@@ -363,8 +363,8 @@ function SessionMetaLine({ chat, showTime, gutter, className }: { chat: ChatList
 	const meta = sessionMeta(chat);
 	const time = showTime ? formatLessonTime(chat.timeSpentMs) : null;
 	if (!time) return <span className={className}>{meta}</span>;
-	const estimatedTime = formatLessonTime(chat.estimatedStudyMs);
-	const activeTime = formatLessonTime(chat.measuredStudyMs);
+	const estimatedTime = formatLessonTime(chat.estimatedStudyMs, 1);
+	const activeTime = formatLessonTime(chat.measuredStudyMs, 1);
 	let label = "Active study time";
 	let tooltip = label;
 	if (estimatedTime) {
