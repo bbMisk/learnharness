@@ -157,7 +157,8 @@ export function useQuestionLayout({ cacheId, request, identity, live, parts, onL
 		onLayoutRef.current?.(next);
 		// The request's fields (not its identity) are the inputs.
 	}, [identity, cacheId, enabled, request?.available, request?.base, request?.floor, request?.key, contentVersion]);
-	useEffect(() => () => {
+	// FORK: a layout effect, so a replaced form's "no layout" lands in the commit's mutation phase, before its successor's report.
+	useIsoLayoutEffect(() => () => {
 		onLayoutRef.current?.(null);
 		hostRef.current?.remove();
 		hostRef.current = null;
