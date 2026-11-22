@@ -1,8 +1,8 @@
 "use client";
 
+import { transcriptMath } from "@/components/transcript-math";
 import { cn } from "@/lib/utils";
 import { cjk } from "@streamdown/cjk";
-import { createMathPlugin } from "@streamdown/math";
 
 import type { ComponentProps, HTMLAttributes } from "react";
 import type { LhViewMessage } from "@/src/core";
@@ -19,6 +19,7 @@ import { memoizeRehypeKatex } from "@/components/katex-cache";
 import { CachedBlock } from "@/components/cached-block";
 import { code } from "@/components/code-highlighter";
 import { repairMathForDisplay, transformMathDelimiters } from "@/src/core";
+import { rehypeGluePunctuation } from "@/components/md-nobreak";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: LhViewMessage["role"];
@@ -88,10 +89,9 @@ export type MessageResponseProps = ComponentProps<typeof Streamdown> & {
 // HTML sanitization remains enabled. Other streaming repairs stay active.
 export const streamdownRemend = { htmlTags: false };
 
-// Repeated equations render once (components/katex-cache.ts), and finished
+// Repeated equations render once (components/katex-cache.ts) around the
+// transcript's HTML-only KaTeX (components/transcript-math.ts), and finished
 // blocks keep their parsed output across remounts (components/cached-block.tsx).
-const math = createMathPlugin({ singleDollarTextMath: true });
-const [rehypeKatex, katexOptions] = math.rehypePlugin as [Parameters<typeof memoizeRehypeKatex>[0], object];
 
 export const streamdownPlugins = {
   cjk: {
@@ -99,7 +99,7 @@ export const streamdownPlugins = {
     remarkPluginsAfter: [...cjk.remarkPluginsAfter, remarkBreaks],
   },
   code,
-  math: { ...math, rehypePlugin: [memoizeRehypeKatex(rehypeKatex), katexOptions] },
+  math: { ...transcriptMath, rehypePlugin: memoizeRehypeKatex(transcriptMath.rehypePlugin as Parameters<typeof memoizeRehypeKatex>[0]) },
 } as unknown as PluginConfig;
 
 // Model output must not load remote images: a rendered
@@ -109,11 +109,18 @@ export const streamdownPlugins = {
 // becomes an "[Image blocked: alt]" badge. data: images were already
 // blocked by the sanitize step; the app's image and SVG cards don't render
 // through markdown. Links are unchanged.
+//
+// Punctuation glue (components/md-nobreak.ts) runs last in this list:
+// after sanitize/harden (its class survives) and before rehype-katex, which
+// Streamdown appends after the list.
 const [hardenPlugin, hardenOptions] = defaultRehypePlugins.harden as [unknown, Record<string, unknown>];
-export const streamdownRehypePlugins = Object.values({
-  ...defaultRehypePlugins,
-  harden: [hardenPlugin, { ...hardenOptions, allowedImagePrefixes: [] }],
-}) as NonNullable<StreamdownProps["rehypePlugins"]>;
+export const streamdownRehypePlugins = [
+  ...Object.values({
+    ...defaultRehypePlugins,
+    harden: [hardenPlugin, { ...hardenOptions, allowedImagePrefixes: [] }],
+  }),
+  rehypeGluePunctuation,
+] as NonNullable<StreamdownProps["rehypePlugins"]>;
 
 export const MessageResponse = memo(
   ({ className, children, streaming = false, ...props }: MessageResponseProps) => {

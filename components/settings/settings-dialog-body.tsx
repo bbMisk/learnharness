@@ -23,7 +23,6 @@ import type { CloseOutcome } from "@/components/interaction-layers";
 import { focusComposer, useFocusReturn } from "@/components/focus-return";
 import {
 	CURRENT_SETTINGS_VERSION,
-	type AgentSettings,
 	type GeneralSettings,
 	type AppearanceSettings,
 	type CompactionSettings,
@@ -33,7 +32,7 @@ import {
 import { useAppearance } from "./appearance.tsx";
 import { SettingsSection } from "./controls.tsx";
 import { UpdateSettings } from "./update-settings.tsx";
-import { AgentSection } from "./agent-section.tsx";
+import { AgentSection, composePromptSwitch } from "./agent-section.tsx";
 import type { ModelsSettings } from "@/src/core";
 import { MENU_CLOSE_EVENT, MENU_OPEN_EVENT } from "@/components/menu-shell";
 import { notifySettingsSaved } from "@/components/settings-signal";
@@ -48,7 +47,7 @@ import { KeyboardSection } from "./keyboard-section.tsx";
 import { PluginsSection } from "./plugins-section.tsx";
 import { PluginSettingsPage } from "./plugin-settings-page.tsx";
 import { usePlugins } from "@/components/plugins";
-import { WriteOrderContext, type SettingsWriteOrder } from "./settings-dialog.tsx";
+import { newWriteOrder, WriteOrderContext } from "./settings-dialog.tsx";
 
 /** Hints earn their place: only the keyboard note (storage location is a
  *  real question users ask). */
@@ -61,6 +60,13 @@ const SECTIONS = [
 	{ id: "general", label: "General", icon: SettingsIcon },
 ] as const;
 export type SectionId = (typeof SECTIONS)[number]["id"] | "plugins" | "core-plugins" | `plugin:${string}`;
+
+// Settings runs on supported browsers that predate Promise.withResolvers.
+function settingsCompletion() {
+	let resolve!: () => void;
+	const promise = new Promise<void>(done => { resolve = done; });
+	return { promise, resolve };
+}
 
 /** The open dialog: the shared modal shell + plain dim backdrop around the body. */
 export function SettingsDialog({
@@ -113,7 +119,7 @@ export function SettingsDialogBody({
 }) {
 	const { onAppearanceChange } = useAppearance();
 	const inheritedWriteOrder = useContext(WriteOrderContext);
-	const standaloneWriteOrder = useRef<SettingsWriteOrder>({ issued: 0, acknowledged: 0, listeners: new Set() });
+	const standaloneWriteOrder = useRef(newWriteOrder());
 	const writeOrder = inheritedWriteOrder ?? standaloneWriteOrder;
 	const { snapshot } = usePlugins();
 	const [record, setRecord] = useState<UserSettings | null | undefined>(
@@ -212,6 +218,10 @@ export function SettingsDialogBody({
 			.then((body: { settings: UserSettings | null; fileAccessError?: string }) => {
 				if (!alive) return;
 				const unchanged = authority.acknowledged === acknowledgedAtRead;
+				if (unchanged && body.settings) {
+					authority.record = body.settings;
+					authority.fileAccessError = body.fileAccessError ?? null;
+				}
 				setRecord(unchanged ? body.settings ?? { version: CURRENT_SETTINGS_VERSION } : authority.record ?? body.settings ?? { version: CURRENT_SETTINGS_VERSION });
 				setFileAccessError(unchanged ? body.fileAccessError ?? null : authority.fileAccessError ?? null);
 			})
@@ -237,49 +247,80 @@ export function SettingsDialogBody({
 		async (
 			section: "general" | "agent" | "models" | "appearance" | "graph" | "compaction",
 			body: object,
+			confirms?: (stored: UserSettings) => boolean,
 		): Promise<boolean> => {
-			const ticket = ++writeOrder.current.issued;
-			setError(null);
-			const res = await fetch(`/api/settings/${section}`, {
-				method: "PUT",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify(body),
-			}).catch(() => null);
-			if (!res) {
-				if (ticket === writeOrder.current.issued) setError(`${section} settings could not be saved. Try again.`);
-				return false;
+			const authority = writeOrder.current;
+			while (authority.promptDeletion) await authority.promptDeletion;
+			const ticket = ++authority.issued;
+			authority.pendingWrites++;
+			try {
+				setError(null);
+				const res = await fetch(`/api/settings/${section}`, {
+					method: "PUT",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify(body),
+				}).catch(() => null);
+				if (!res) {
+					if (ticket === writeOrder.current.issued) setError(`${section} settings could not be saved. Try again.`);
+					return false;
+				}
+				if (!res.ok) {
+					const detail = (await res.json().catch(() => ({}))) as {
+						error?: string;
+					};
+					if (ticket === writeOrder.current.issued) setError(detail.error ?? `${section} settings could not be saved (${res.status}). Try again.`);
+					return false;
+				}
+				// Server truth, never the request body: the server may normalize
+				// on write (e.g. clamp a pinned thinking level), and the writing
+				// surface must show the stored value in this same interaction.
+				const reply = (await res.json().catch(() => null)) as { settings?: UserSettings; fileAccessError?: string } | null;
+				const stored = reply?.settings;
+				if (!stored || typeof stored !== "object" || Array.isArray(stored) || stored.version !== 1 ||
+					!stored[section] || typeof stored[section] !== "object" || Array.isArray(stored[section])) {
+					if (ticket === writeOrder.current.issued) setError(`${section}: Could not confirm saved settings. Your input has been kept.`);
+					return false;
+				}
+				if (ticket >= writeOrder.current.acknowledged) {
+					writeOrder.current.acknowledged = ticket;
+					writeOrder.current.record = stored;
+					writeOrder.current.fileAccessError = reply?.fileAccessError ?? null;
+					for (const apply of writeOrder.current.listeners) apply(stored, writeOrder.current.fileAccessError);
+					// Every accepted response is a full canonical record, including
+					// appearance saved by an earlier, still-pending section request.
+					onAppearanceChange(stored.appearance);
+				}
+				notifySettingsSaved(section);
+				return confirms?.(stored) ?? true;
+			} finally {
+				authority.pendingWrites--;
 			}
-			if (!res.ok) {
-				const detail = (await res.json().catch(() => ({}))) as {
-					error?: string;
-				};
-				if (ticket === writeOrder.current.issued) setError(detail.error ?? `${section} settings could not be saved (${res.status}). Try again.`);
-				return false;
-			}
-			// Server truth, never the request body: the server may normalize
-			// on write (e.g. clamp a pinned thinking level), and the writing
-			// surface must show the stored value in this same interaction.
-			const reply = (await res.json().catch(() => null)) as { settings?: UserSettings; fileAccessError?: string } | null;
-			const stored = reply?.settings;
-			if (!stored || typeof stored !== "object" || Array.isArray(stored) || stored.version !== 1 ||
-				!stored[section] || typeof stored[section] !== "object" || Array.isArray(stored[section])) {
-				if (ticket === writeOrder.current.issued) setError(`${section}: Could not confirm saved settings. Your input has been kept.`);
-				return false;
-			}
-			if (ticket >= writeOrder.current.acknowledged) {
-				writeOrder.current.acknowledged = ticket;
-				writeOrder.current.record = stored;
-				writeOrder.current.fileAccessError = reply?.fileAccessError ?? null;
-				for (const apply of writeOrder.current.listeners) apply(stored, writeOrder.current.fileAccessError);
-				// Every accepted response is a full canonical record, including
-				// appearance saved by an earlier, still-pending section request.
-				onAppearanceChange(stored.appearance);
-			}
-			notifySettingsSaved(section);
-			return true;
 		},
 		[onAppearanceChange, writeOrder],
 	);
+
+	async function deletePromptOverride(path: string, remove: () => Promise<boolean>) {
+		const authority = writeOrder.current;
+		// DELETE only acknowledges a key removal. Don't patch a mirror that
+		// hasn't seen preceding full-record ACKs, and never queue a delete.
+		if (authority.promptDeletion || authority.pendingWrites) return "settings-busy" as const;
+		const settled = settingsCompletion();
+		authority.promptDeletion = settled.promise;
+		try {
+			if (!await remove()) return "delete-failed" as const;
+			const stored = authority.record;
+			if (stored?.agent?.prompts?.[path] !== undefined) {
+				const patched = { ...stored, agent: composePromptSwitch(stored.agent, path, false) };
+				authority.acknowledged = ++authority.issued;
+				authority.record = patched;
+				for (const apply of authority.listeners) apply(patched, authority.fileAccessError ?? null);
+			}
+			return "deleted" as const;
+		} finally {
+			authority.promptDeletion = undefined;
+			settled.resolve();
+		}
+	}
 
 	// General PUTs replace the section: retain sibling choices and serialize saves.
 	const writeGeneral = async (next: GeneralSettings) => {
@@ -534,9 +575,10 @@ export function SettingsDialogBody({
 										onModelsChange={(next: ModelsSettings) =>
 											void write("models", next)
 										}
-										onSectionChange={(next: AgentSettings) =>
-											write("agent", next)
+										onSectionChange={(next, confirms) =>
+											write("agent", next, confirms && (stored => confirms(stored.agent ?? {})))
 										}
+										onDeletePromptOverride={deletePromptOverride}
 										onCompactionChange={(next: CompactionSettings) =>
 											write("compaction", next)
 										}

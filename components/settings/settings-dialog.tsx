@@ -30,8 +30,11 @@ export interface SettingsWriteOrder {
 	acknowledged: number;
 	record?: UserSettings;
 	fileAccessError?: string | null;
+	pendingWrites: number;
+	promptDeletion?: Promise<void>;
 	listeners: Set<(record: UserSettings, fileAccessError: string | null) => void>;
 }
+export const newWriteOrder = (): SettingsWriteOrder => ({ issued: 0, acknowledged: 0, pendingWrites: 0, listeners: new Set() });
 export const WriteOrderContext = createContext<RefObject<SettingsWriteOrder> | null>(null);
 
 /** AppShell-level mount: the sidebar row and the mod+, chord call this.
@@ -44,7 +47,7 @@ export function SettingsDialogProvider({
 }) {
 	const interactions = useInteractionLayers();
 	const layerId = useId();
-	const writeOrder = useRef<SettingsWriteOrder>({ issued: 0, acknowledged: 0, listeners: new Set() });
+	const writeOrder = useRef(newWriteOrder());
 	const [show, setShow] = useState(false);
 	const [landOn, setLandOn] = useState<SectionId>("keys");
 	const [landOnRow, setLandOnRow] = useState<string | null>(null);

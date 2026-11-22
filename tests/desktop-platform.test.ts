@@ -228,7 +228,7 @@ describe("desktop window chrome", () => {
 		runInNewContext(readFileSync(new URL("../electron/preload.cjs", import.meta.url), "utf8"), context);
 		assert.equal(bridge.platform, "win32");
 		assert.deepEqual(Object.keys(bridge).sort(), [
-			"chatgpt", "checkForUpdates", "chooseAttachmentFolder", "expandWindow", "getConnection", "getPathForFile", "getUpdateState", "getZoom", "hostOnThisComputer", "installUpdate", "onCloseRequest", "onOpenSettings", "onUpdateStatus", "onZoom", "openConnection", "platform", "quitFromHome", "remoteServer", "setAppearance", "setConnection", "subscriptions",
+			"chatgpt", "checkForUpdates", "chooseAttachmentFolder", "dismissStartupMessage", "expandWindow", "getConnection", "getPathForFile", "getUpdateState", "getZoom", "hostOnThisComputer", "installUpdate", "onCloseRequest", "onOpenSettings", "onUpdateStatus", "onZoom", "openConnection", "platform", "quitFromHome", "remoteServer", "setAppearance", "setConnection", "subscriptions", "takeStartupMessage",
 		]);
 		const appearance = { mode: "light", background: "#eeeeee" };
 		(bridge.setAppearance as (a: unknown) => void)(appearance);

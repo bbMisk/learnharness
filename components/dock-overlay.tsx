@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useStickToBottomContext } from "use-stick-to-bottom";
 import { opensWaitingCheck } from "@/components/waiting-check-key";
@@ -12,7 +12,9 @@ import { ConversationScrollButton } from "@/components/ai-elements/conversation"
 import { Button } from "@/components/ui/button";
 import { dockStateKey } from "@/components/dock-state-key";
 import { forwardDockWheel, useDockHeight } from "@/components/dock-height";
-import { createDockMorph } from "@/components/dock-morph";
+import { createDockMorph, createDockWidthMorph } from "@/components/dock-morph";
+import { useAppearance } from "@/components/settings/appearance";
+import { dockContainerMax, layoutFontKey, questionCardGeometry, rootRem, type QuestionLayout } from "@/components/question-layout";
 import { useOptionalInteractionLayers } from "@/components/interaction-layers";
 import { isInteractionScopeEligible } from "@/components/plugin-input-focus";
 import { composingQuestionKey, pluginQuestionKeySuppressed } from "@/components/plugin-question-keys";
@@ -25,7 +27,7 @@ import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-stee
 import { finishDictation } from "@/components/dictation";
 import { QuestionDock } from "@/components/question-dock";
 import { PracticeDock } from "@/components/practice-dock";
-import { MARGIN_MIN_W, dockFlank, measureDockFlank, type DockFlank } from "@/components/dock-flank";
+import { MARGIN_MIN_W, dockFlank } from "@/components/dock-flank";
 import { rememberRevealed, wasRevealed } from "@/components/revealed-questions";
 import { useHydrated } from "@/components/use-hydrated";
 import { rememberDockFolded, restoresReadingPosition, savedDockReserve } from "@/components/session-navigation";
@@ -362,11 +364,12 @@ export function DockOverlay({
 	// so the fade floor never lags. With the card's make-room padding the
 	// flank starts at the shifted dock's edge and ends left of the card's lane
 	// (dock-flank.ts); padding changes alter the block's content box, so the
-	// observer sees them, and `room` re-runs it too.
-	const [flank, setFlank] = useState<DockFlank>(() => dockFlank(0, 0, 0));
-	const flankW = flank.width;
-	const flankWRef = useRef(0);
-	const laneRef = useRef(0);
+	// observer sees them, and `room` re-runs it too. The flank itself is
+	// derived below, from the dock's current width.
+	const [blockBox, setBlockBox] = useState({ width: 0, paddingLeft: 0, paddingRight: 0 });
+	const blockBoxRef = useRef(blockBox);
+	// The root font size: the dock's rem geometry in px.
+	const [rem, setRem] = useState(16);
 	// The resize mute: the fold machine ignores scroll events for a beat after
 	// a geometry change, because a resize/rewrap re-clamps scrollTop and emits
 	// phantom scroll events mid-transient. Width changes stamp here; height
@@ -378,12 +381,14 @@ export function DockOverlay({
 		const block = blockRef.current;
 		if (!block) return;
 		const measure = () => {
-			const next = measureDockFlank(block);
-			const widthMoved = Math.abs(next.width - flankWRef.current) > 1;
-			if (widthMoved || next.lane !== laneRef.current) {
-				flankWRef.current = next.width;
-				laneRef.current = next.lane;
-				setFlank(next);
+			setRem(rootRem(block.ownerDocument));
+			const style = getComputedStyle(block);
+			const next = { width: Math.round(block.offsetWidth), paddingLeft: parseFloat(style.paddingLeft) || 0, paddingRight: parseFloat(style.paddingRight) || 0 };
+			const prev = blockBoxRef.current;
+			const widthMoved = Math.abs(next.width - prev.width) > 1;
+			if (widthMoved || next.paddingLeft !== prev.paddingLeft || next.paddingRight !== prev.paddingRight) {
+				blockBoxRef.current = next;
+				setBlockBox(next);
 				if (widthMoved) geometryAtRef.current = Date.now();
 			}
 		};
@@ -392,6 +397,41 @@ export function DockOverlay({
 		ro.observe(block);
 		return () => ro.disconnect();
 	}, [room]);
+
+	// ADAPT QUESTION LAYOUT (Appearance): while a NATIVE question is
+	// expanded, the whole bottom region takes the width the question card
+	// solved for (components/question-layout.ts), capped at the transcript
+	// width. Folded bars, reveal invitations, plugin questions, practice and
+	// the composer keep the default 46rem. The request carries only
+	// geometry/font inputs, never typing state.
+	const { appearance } = useAppearance();
+	const adaptive = appearance.adaptiveQuestions && !!pending && !pluginQuestion && !unreadablePlugin;
+	const blockW = blockBox.width;
+	// The dock centers in the block's content box (the make-room padding).
+	const contentW = blockW - blockBox.paddingLeft - blockBox.paddingRight;
+	// Full: the card's shell may line up with the transcript's text column
+	// (dockContainerMax: block - 1rem); a set width caps it there.
+	const containerMax = dockContainerMax(contentW, rem, appearance.transcriptMaxWidth);
+	const fontKey = layoutFontKey(appearance);
+	const geometry = questionCardGeometry(rem);
+	const DOCK_W = geometry.container;
+	const layoutRequest = useMemo(
+		() => (adaptive && blockW > 0
+			? { available: Math.max(containerMax - geometry.chrome, 0), base: geometry.base, floor: geometry.floor, key: fontKey }
+			: null),
+		[adaptive, blockW, containerMax, fontKey, geometry.chrome, geometry.base, geometry.floor],
+	);
+	const [questionLayout, setQuestionLayout] = useState<QuestionLayout | null>(null);
+	const adaptedW = adaptive && expanded && !revealPending && questionLayout && questionLayout.width + geometry.chrome > DOCK_W
+		? questionLayout.width + geometry.chrome
+		: null;
+	const dockW = Math.min(adaptedW ?? DOCK_W, contentW || Infinity);
+	const flank = dockFlank(blockW, blockBox.paddingLeft, blockBox.paddingRight, dockW);
+	const flankW = flank.width;
+	const dockRef = useRef<HTMLDivElement>(null);
+	const widthMorphRef = useRef<ReturnType<typeof createDockWidthMorph> | null>(null);
+	if (!widthMorphRef.current) widthMorphRef.current = createDockWidthMorph();
+	useIsoLayoutEffect(() => () => widthMorphRef.current?.dispose(), []);
 
 	// The reserve grows immediately, but never shrinks while a question or
 	// practice problem owns the dock: shrinking flow space could pin a nearby
@@ -427,9 +467,16 @@ export function DockOverlay({
 	if (!heightMorphRef.current) heightMorphRef.current = createDockMorph();
 	const retargetOpening = useCallback(() => heightMorphRef.current?.retarget(stateKey), [stateKey]);
 	useIsoLayoutEffect(() => () => heightMorphRef.current?.dispose(), []);
+	// Mid-width-morph block heights are not settled; the morph's finish
+	// offers the natural height instead (measureBlock below).
+	const offerSettled = useCallback((blockH: number) => {
+		if (!widthMorphRef.current?.animating()) offer(blockH);
+	}, [offer]);
 	useDockHeight({
 		scrollRef, blockRef, viewportRef, bodyRef, shellRef, contentRef,
-		expanded, enabled: ownsDock, mode, onScrollbarInset: setSbInset, onHeight: offer,
+		// The two-column row replaces the question scroll area as the
+		// height-variable region: reconnect the observers when it swaps.
+		expanded, enabled: ownsDock, mode: `${mode}:${questionLayout?.kind ?? "default"}`, onScrollbarInset: setSbInset, onHeight: offerSettled,
 		onLayout: retargetOpening,
 	});
 
@@ -644,12 +691,18 @@ export function DockOverlay({
 		// opening over its remaining original time.
 		heightMorphRef.current?.layout(el, stateKey, ownsDock && expanded, measureBlock);
 	});
+	// The width morph (adaptive question layout): AFTER the height morph has
+	// measured its natural target at the final width; same duration/easing.
+	useIsoLayoutEffect(() => {
+		const el = dockRef.current;
+		if (el) widthMorphRef.current?.layout(el, adaptedW ?? DOCK_W, measureBlock);
+	});
 
 	return (
 		<div className="pointer-events-none absolute inset-x-0 bottom-0" style={{ right: sbInset }}>
 			<div className="h-24 bg-gradient-to-t from-background via-background/85 to-transparent" />
 			<div ref={blockRef} data-testid="dock-block" className={`relative bg-background pb-5 ${room}`}>
-				<div className={DOCK}>
+				<div ref={dockRef} data-dock-width={adaptedW ?? undefined} className={DOCK} style={adaptedW ? { maxWidth: adaptedW } : undefined}>
 					<div ref={viewportRef} data-dock-viewport="" className="pointer-events-auto">
 					<div ref={bodyRef}>
 					{setupCta}
@@ -719,6 +772,8 @@ export function DockOverlay({
 									dictationClaim={!revealPending || !showReadingThinking}
 									attachmentsUploading={readingUploading}
 									compactionRunning={compactionRunning}
+									layoutRequest={layoutRequest}
+									onLayout={setQuestionLayout}
 								/>
 							) : pluginPractice ? (
 								<PluginProblemDock {...pluginPractice} viewReader={customViewReader} expanded={expanded} onExpand={() => { setExpanded(true); void suppressFoldDuringReveal(); }} />

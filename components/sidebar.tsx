@@ -28,6 +28,9 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { capName, formatLessonTime, fuzzyScore } from "@/src/core";
 import { useChatListRefresh } from "@/components/chat-list-refresh";
+import { SIDEBAR_COMPACT_ROW, sidebarNameFont } from "@/components/sidebar-folders";
+import { useAppearance } from "@/components/settings/appearance";
+import { OverlayScrollArea } from "@/components/overlay-scroll";
 import type { ChatListItem, ProjectSummary } from "@/src/core";
 import { kbdEventForAction } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
@@ -39,6 +42,7 @@ import { PluginSidebarActions } from "@/components/plugin-chrome";
 import { HostContentRootContext, HostRouteLifetimeProvider } from "@/components/host-content-root";
 import { isInteractionScopeEligible } from "@/components/plugin-input-focus";
 import { InteractionLayersProvider, useInteractionLayers, useOptionalInteractionLayers } from "@/components/interaction-layers";
+import { StartupMessage, type StartupMessageOffer } from "@/components/startup-message";
 
 /**
  * Toggleable sidebar — NOT a modal drawer: no backdrop, no focus theft. It
@@ -115,6 +119,8 @@ declare global {
 			checkForUpdates?: () => Promise<void>;
 			installUpdate?: () => void;
 			onOpenSettings?: (cb: (section: string) => void) => () => void;
+			takeStartupMessage?: () => Promise<StartupMessageOffer | null>;
+			dismissStartupMessage?: (id: string) => Promise<boolean>;
 		};
 	}
 }
@@ -395,8 +401,11 @@ export function SessionRow({
 	onContextMenu,
 	onArchive,
 	showTime = false,
+	compact = false,
 }: {
 	chat: ChatListItem;
+	/** Appearance → compact chat list: one line, no meta. */
+	compact?: boolean;
 	active: boolean;
 	onOpen: () => void;
 	/** Keyboard-walk highlight (the search's ↑/↓ walk) — visually distinct
@@ -411,7 +420,7 @@ export function SessionRow({
 	const [archiving, setArchiving] = useState(false);
 	const archiveLabel = chat.archived ? "Restore chat" : "Archive chat";
 	return (
-		<div className={cn("group/session relative mb-0.5 rounded-lg transition-colors hover:bg-accent", active && "bg-accent", kbdSelected && !active && "bg-accent/60 ring-1 ring-border")}>
+		<div className={cn("group/session relative mb-0.5 rounded-lg hover:bg-accent", active && "bg-accent", kbdSelected && !active && "bg-accent/60 ring-1 ring-inset ring-border")}>
 		<button
 			type="button"
 			onClick={onOpen}
@@ -421,7 +430,8 @@ export function SessionRow({
 			data-testid={kbdSelected ? "session-row-kbd" : "session-row"}
 			data-chat-id={chat.id}
 			className={cn(
-				"relative flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left",
+				"relative flex w-full items-center gap-2 rounded-lg px-3 text-left",
+				compact ? SIDEBAR_COMPACT_ROW : "py-2",
 				onArchive && "pr-10",
 			)}
 		>
@@ -431,8 +441,8 @@ export function SessionRow({
 				{/* Titles are the learner's/teacher's WORDS — the prose font,
 				    the same voice the words were typed in; the meta line below
 				    stays mono (machine data). Mono = chrome, prose = human words. */}
-				<span className="block truncate font-prose text-(length:--lh-prose-size)">{chat.title}</span>
-				<SessionMetaLine chat={chat} showTime={showTime} gutter={!!onArchive && (chat.kind ?? "teach") !== "practice"} className="block text-xs text-muted-foreground" />
+				<span className={cn("block truncate", sidebarNameFont(compact))}>{chat.title}</span>
+				{!compact && <SessionMetaLine chat={chat} showTime={showTime} gutter={!!onArchive && (chat.kind ?? "teach") !== "practice"} className="block text-xs text-muted-foreground" />}
 			</span>
 			{/* The dumbbell rides the FAR RIGHT, keeping titles flush with the
 			    teaching rows. */}
@@ -443,7 +453,7 @@ export function SessionRow({
 		{onArchive && <Hint label={archiveLabel} side="right">
 			<button type="button" aria-label={archiveLabel} disabled={archiving} aria-busy={archiving}
 				onClick={event => { event.stopPropagation(); if (archiving) return; setArchiving(true); void onArchive().finally(() => setArchiving(false)); }}
-				className="absolute right-1.5 top-1.5 flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-card hover:text-foreground group-hover/session:opacity-100 group-focus-within/session:opacity-100 [@media(hover:none)]:opacity-100 disabled:opacity-40">
+				className={cn("absolute right-1.5 flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-card hover:text-foreground group-hover/session:opacity-100 group-focus-within/session:opacity-100 [@media(hover:none)]:opacity-100 disabled:opacity-40", compact ? "top-0.5" : "top-1.5")}>
 				{chat.archived ? <ArchiveRestoreIcon className="size-3.5"/> : <ArchiveIcon className="size-3.5"/>}
 			</button>
 		</Hint>}
@@ -454,8 +464,8 @@ export function SessionRow({
 /** The inline-rename row: same geometry as SessionRow, but the
  *  title line becomes a text input — select-all on entry (the click means
  *  "replace", the header rename's rule), Enter/blur commits, Esc discards.
- *  The meta line stays so the row never changes height mid-edit. */
-export function RenameRow({ chat, draft: initialDraft, onCommit, onCancel, showTime = false, takeFocus = true }: { chat: ChatListItem; draft?: string; onCommit: (next: string, byKey: boolean) => void; onCancel: () => void; showTime?: boolean; takeFocus?: boolean }) {
+ *  The row keeps the list's density mid-edit. */
+export function RenameRow({ chat, draft: initialDraft, onCommit, onCancel, showTime = false, takeFocus = true, compact = false }: { chat: ChatListItem; draft?: string; onCommit: (next: string, byKey: boolean) => void; onCancel: () => void; showTime?: boolean; takeFocus?: boolean; compact?: boolean }) {
 	const [draft, setDraft] = useState(initialDraft ?? chat.title);
 	const interactions = useOptionalInteractionLayers();
 	const inputRef = useRef<HTMLInputElement | null>(null);
@@ -470,7 +480,7 @@ export function RenameRow({ chat, draft: initialDraft, onCommit, onCancel, showT
 	return (
 		<div
 			data-testid="session-rename-row"
-			className="relative mb-0.5 flex w-full items-center rounded-lg bg-accent px-3 py-2"
+			className={cn("relative mb-0.5 flex w-full items-center rounded-lg bg-accent px-3", compact ? SIDEBAR_COMPACT_ROW : "py-2")}
 		>
 			{/* NOTHING MOVES: an idle row renders no status spacer
 			    (SessionStatus is null when not busy), so the title starts at
@@ -497,9 +507,9 @@ export function RenameRow({ chat, draft: initialDraft, onCommit, onCancel, showT
 					aria-label="Rename chat"
 					data-testid="session-rename-input"
 					data-lh-rename=""
-					className="lh-input w-full min-w-0 truncate border-0 border-b border-border bg-transparent px-0 text-foreground outline-none"
+					className={cn("w-full min-w-0 truncate border-0 border-b border-border bg-transparent px-0 text-foreground outline-none", compact ? sidebarNameFont(true) : "lh-input")}
 				/>
-				<SessionMetaLine chat={chat} showTime={showTime} gutter={false} className="block truncate text-xs text-muted-foreground" />
+				{!compact && <SessionMetaLine chat={chat} showTime={showTime} gutter={false} className="block truncate text-xs text-muted-foreground" />}
 			</span>
 		</div>
 	);
@@ -512,6 +522,7 @@ export type SessionKindFilter = "teach" | "all" | "practice";
 const KIND_FILTER_KEY = "lh:session-kind-filter";
 
 function SessionsSidebar() {
+	const { appearance: { compactSessionList } } = useAppearance();
 	const interactions = useInteractionLayers();
 	const { open, toggle } = useSidebar();
 	const [chats, setChats] = useState<ChatListItem[] | null>(null);
@@ -730,8 +741,7 @@ function SessionsSidebar() {
 		return () => window.removeEventListener("lh:kbd-sessions-search", onFocusSearch);
 	}, [open, toggle, interactions]);
 
-	// Keep the kbd-selected row in view (the rows are the container's only
-	// buttons, so the index matches).
+	// Keep the kbd-selected row in view.
 	useEffect(() => {
 		if (kbdIndex === null) return;
 		listRef.current?.querySelectorAll('[data-testid="session-row"], [data-testid="session-row-kbd"]')[kbdIndex]?.scrollIntoView({ block: "nearest" });
@@ -762,9 +772,9 @@ function SessionsSidebar() {
 	}, [open, pathname, refresh]);
 
 	const renderChat = (chat: ChatListItem, index?: number) => renamingId === chat.id ? (
-		<RenameRow key={chat.id} chat={chat} draft={renameDraft ?? undefined} takeFocus={!renameQuiet} showTime={showTime} onCommit={(next, byKey) => { void commitRename(chat.id, next, byKey, chat.title); if (byKey) returnFocus(chat.id); }} onCancel={() => { setRenamingId(null); setRenameError(""); returnFocus(chat.id); }} />
+		<RenameRow key={chat.id} chat={chat} draft={renameDraft ?? undefined} takeFocus={!renameQuiet} showTime={showTime} compact={compactSessionList} onCommit={(next, byKey) => { void commitRename(chat.id, next, byKey, chat.title); if (byKey) returnFocus(chat.id); }} onCancel={() => { setRenamingId(null); setRenameError(""); returnFocus(chat.id); }} />
 	) : (
-		<SessionRow key={chat.id} chat={chat} showTime={showTime} active={pathname === `/chat/${chat.id}`} kbdSelected={index !== undefined && index === kbdIndex}
+		<SessionRow key={chat.id} chat={chat} showTime={showTime} compact={compactSessionList} active={pathname === `/chat/${chat.id}`} kbdSelected={index !== undefined && index === kbdIndex}
 			onArchive={() => updateChat(chat.id, {archived:!chat.archived})}
 			onOpen={() => { setKbdIndex(null); router.push(`/chat/${chat.id}`); }} onContextMenu={event => openContext(event, chat)} />
 	);
@@ -970,7 +980,9 @@ function SessionsSidebar() {
 				{moveStatus && <p role="status" className="px-4 py-1 text-xs text-muted-foreground">{moveStatus}</p>}
 				{updateError && <p role="alert" className="px-4 py-2 text-xs text-destructive">{updateError}</p>}
 				{renameError && <p role="alert" className="px-4 py-2 text-xs text-destructive">{renameError}</p>}
-				<div {...chatDrop.handlers} ref={listRef} data-testid="unassigned-chat-list" className={cn("flex-1 overflow-y-auto px-2 pb-2 pt-1", chatDrop.over && "bg-accent/50 ring-1 ring-inset ring-border")}>
+				{/* The bar overlays the rows: highlights run to the edge; it shows
+				    while scrolling or hovering (components/overlay-scroll.tsx). */}
+				<OverlayScrollArea {...chatDrop.handlers} scrollRef={listRef} data-testid="unassigned-chat-list" className={cn("px-2 pb-2 pt-1", chatDrop.over && "bg-accent/50 ring-1 ring-inset ring-border")}>
 					{shown === null ? (
 						<div className="px-2 py-4 text-xs text-muted-foreground">Loading…</div>
 					) : shown.length === 0 ? (
@@ -980,7 +992,7 @@ function SessionsSidebar() {
 					) : (
 						shown.map((chat, index) => renderChat(chat, index))
 					)}
-				</div>
+				</OverlayScrollArea>
 
 					{/* Background agents: the section is ALWAYS here — empty means
 					    empty (the header sits alone); it populates and grows when
@@ -1118,6 +1130,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 				    matters for the events it dispatches, never for DOM priority. */}
 				<KeyboardShortcuts />
 				<PluginWidgets />
+				<StartupMessage />
 			</SettingsDialogProvider></InteractionLayersProvider>
 		</HostContentRootContext.Provider>
 		</HostRouteLifetimeProvider>

@@ -44,7 +44,7 @@ Instead of just giving you an explanation, it uses your answers and thinking to 
 
 **Bring your files.** Attach PDFs, photos, or any other file with the paperclip, or drag them in. Photos and pasted screenshots, and anything you attach from the iPad or through the shared host, are uploaded: the app keeps a copy in its data folder and the agent reads that copy. Other files attached in the desktop app stay where they are: the message carries their path, and the agent reads them from there.
 
-The agent can also research questions in the background, create visual explanations, show your own images in the lesson and mark them up with arrows and labels, and build interactive demonstrations.
+The agent can also research questions in the background, create visual explanations, show your own images in the lesson and mark them up with arrows and labels (including figures it crops straight out of your PDFs, such as lecture slides), and build interactive demonstrations.
 
 ## Knowledge that carries forward
 

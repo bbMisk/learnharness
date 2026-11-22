@@ -26,6 +26,7 @@ import React from "react";
 
 import assert from "node:assert/strict";
 import { assertSameNode } from "./helpers/same-node.ts";
+import { katexMatrixRows } from "./katex-html-fixture.ts";
 import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
 import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
@@ -331,7 +332,7 @@ describe("ChainTableBody — chain rows (chips + connectors)", () => {
 		assert.equal(row.querySelector("strong")?.textContent, "Statement");
 		assert.equal(row.querySelectorAll(".katex").length, 2);
 		assert.equal(row.querySelectorAll(".katex-display").length, 1);
-		assert.equal(row.querySelectorAll("mtr").length, 2);
+		assert.equal(katexMatrixRows(row), 2);
 		assert.equal(row.querySelectorAll(".katex-error").length, 0);
 		assert.equal(row.querySelector('[data-streamdown="inline-code"]')?.textContent, "literal");
 		assert.ok(row.querySelector('[aria-label="Copy code"]'));

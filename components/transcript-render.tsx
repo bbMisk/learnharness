@@ -28,6 +28,7 @@ import { GraphContextCard, type GraphContextData } from "@/components/graph-cont
 import { PhaseDivider } from "@/components/phase-divider";
 import { CompactionCutDivider, CompactionMomentDivider, type CompactionDividerData } from "@/components/compaction-divider";
 import { ArrowRightIcon } from "lucide-react";
+import { isSubagentSteer, newestLearnerTurnFrom } from "./transcript-rows.ts";
 import {
 	firstSourceTextParts,
 	messageAnchorId,
@@ -57,12 +58,6 @@ function SystemLine({ children, testId }: { children: React.ReactNode; testId?: 
 			{children}
 		</div>
 	);
-}
-
-/** A wake-pipeline steer message: user-role delivery whose metadata marks it
- * as a sub-agent result — rendered as an artifact card, never a bubble. */
-function isSubagentSteer(m: LhViewMessage): boolean {
-	return (m.metadata as { subagentResult?: unknown } | undefined)?.subagentResult != null;
 }
 
 const NO_MALFORMED: readonly QuestionCall[] = [];
@@ -134,6 +129,9 @@ export function TranscriptRows({
 	onRetryQuestion,
 }: TranscriptRowsProps) {
 	const anchors = useMemo(() => rowAnchors(messages), [messages]);
+	// Keep the newest learner turn (including its answer and any live tail)
+	// fully laid out; older rows may skip layout off screen (globals.css).
+	const newestTurnFrom = useMemo(() => newestLearnerTurnFrom(messages), [messages]);
 	const malformed = busy ? NO_MALFORMED : malformedQuestions;
 	// A submitted plugin problem's card needs the posed snapshot from the
 	// native record. Rows stay memoized on primitives: a stable lookup plus a
@@ -154,6 +152,7 @@ export function TranscriptRows({
 				streamingLast={streaming && mi === messages.length - 1}
 				activeReasoningId={streaming && mi === messages.length - 1 && activeMessageId ? `${activeMessageId}-r0` : undefined}
 				anchors={anchors[mi]!}
+				older={mi < newestTurnFrom}
 				chatId={chatId}
 				problemKey={problemKeyOf(m, nativeMessages)}
 				lookupProblem={lookupProblem}
@@ -187,6 +186,8 @@ interface RowProps {
 	/** The reasoning part id of the message being written now, when known. */
 	activeReasoningId?: string;
 	anchors: string;
+	/** Before the newest learner turn: may skip layout while off screen. */
+	older: boolean;
 	malformedQuestions: readonly QuestionCall[];
 	questionPending: boolean;
 	compacting: boolean;
@@ -201,6 +202,7 @@ const TranscriptRow = memo(function TranscriptRow({
 	streamingLast,
 	activeReasoningId,
 	anchors,
+	older,
 	chatId,
 	lookupProblem,
 	malformedQuestions,
@@ -293,6 +295,7 @@ const TranscriptRow = memo(function TranscriptRow({
 				    Rendered WITHOUT the Message wrapper — that is the bubble. */
 				<div
 					data-testid="user-message"
+					data-older-transcript-row={older ? "" : undefined}
 					/* The user message is a full-width card-color band with the
 					    same geometry as the thinking rows: 5px band
 					    padding, the left gap matches it, the rail fills the 3ch
@@ -310,7 +313,7 @@ const TranscriptRow = memo(function TranscriptRow({
 					<SubmittedImages images={m.parts.filter((part) => part.type === "image").map((part) => ({ type: "image" as const, data: part.data as string, mimeType: part.mimeType as string }))} />
 				</div>
 			) : (
-				<Message from="assistant" className="max-w-full">
+				<Message from="assistant" className="max-w-full" data-older-transcript-row={older ? "" : undefined}>
 					<MessageContent className="w-full">
 						{m.parts.map((part, pi) => {
 							if (pi < hiddenParts) return null;
@@ -440,7 +443,7 @@ const TranscriptPart = memo(function TranscriptPart({
 			// Pending/streaming questions live in the dock, not the
 			// transcript; answered ones render as graded records.
 			if (part.state === "output-available") {
-				return <AnsweredCard answer={part.output as QuestionAnswerData} input={part.input} />;
+				return <AnsweredCard answer={part.output as QuestionAnswerData} input={part.input} toolCallId={part.toolCallId} />;
 			}
 			return null;
 		}

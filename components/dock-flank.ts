@@ -34,14 +34,16 @@ export interface DockFlank {
 }
 
 /** The flank for a block `blockWidth` px wide (border box) with the given
- *  computed left/right padding. Assumes the dock fits its 46rem (when it
- *  doesn't, the width is negative and the marginalia stays faded out). */
-export function dockFlank(blockWidth: number, paddingLeft: number, paddingRight: number): DockFlank {
+ *  computed left/right padding, beside a dock `dockWidth` px wide (46rem, or
+ *  wider while an adapted question card owns it). Assumes the dock fits
+ *  (when it doesn't, the width is negative and the marginalia stays faded
+ *  out). */
+export function dockFlank(blockWidth: number, paddingLeft: number, paddingRight: number, dockWidth = DOCK_W): DockFlank {
 	const lane = Math.max(0, paddingRight - paddingLeft);
 	return {
 		lane,
-		width: Math.round(blockWidth / 2 - DOCK_W / 2 - 2 * MARGIN_GAP - lane / 2),
-		left: `calc(50% + ${DOCK_W / 2 + MARGIN_GAP - lane / 2}px)`,
+		width: Math.round(blockWidth / 2 - dockWidth / 2 - 2 * MARGIN_GAP - lane / 2),
+		left: `calc(50% + ${dockWidth / 2 + MARGIN_GAP - lane / 2}px)`,
 		right: MARGIN_GAP + lane,
 	};
 }

@@ -1,6 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { piModels } from "../src/agent/models.ts";
+import { refreshConnectionCatalog } from "../src/server/model-catalog.ts";
 import { refreshChatGPTModels, chatGPTModels, chatGPTStatus, chatGPTScope, chatGPTScopeCurrent, chatGPTLease, chatGPTAbortController } from "../src/agent/chatgpt-bridge.ts";
 const send = Object.getOwnPropertyDescriptor(process, "send"), connected = Object.getOwnPropertyDescriptor(process, "connected");
 const desktopMarker = process.env.LH_DESKTOP_SERVER, desktopSecret = process.env.LH_DESKTOP_API_SECRET;
@@ -61,4 +62,16 @@ test("new complete account models reach the bridge without an installed Pi allow
  assert.deepEqual(chatGPTModels().map(m=>m.id),["future-complete"]);
  assert.equal(chatGPTModels()[0]!.contextWindow,500000);
  assert.equal(chatGPTModels()[0]!.maxTokens,0,"unknown output limits remain unknown");
+});
+test("account-offered GPT-6.1 Terra resolves from the bundled Responses catalog", async () => {
+ const refresh = refreshConnectionCatalog("chatgpt");
+ reply(pending.at(-1), { ...value("B", 9, "B", 3), models: [
+  { id: "gpt-6.1-terra", name: "GPT-6.1 Terra (account)" },
+  { id: "not-in-the-bundled-catalog", name: "Unsupported" },
+ ] });
+ await refresh;
+ assert.deepEqual(chatGPTModels().map(({ provider, id, name, api, cost }) => ({ provider, id, name, api, cost })), [{
+  provider: "chatgpt", id: "gpt-6.1-terra", name: "GPT-6.1 Terra (account)", api: "openai-responses",
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+ }]);
 });

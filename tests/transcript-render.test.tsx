@@ -1,5 +1,5 @@
 /**
- * THE MEMOIZED TRANSCRIPT (components/transcript-rows.tsx): while a reply
+ * THE MEMOIZED TRANSCRIPT (components/transcript-render.tsx): while a reply
  * streams, settled rows — and settled parts of the very group the reply is
  * growing — never re-render; only the streaming row does. Counted through
  * the artifact registry (a probe renderer renders once per part render).
@@ -35,7 +35,7 @@ Object.assign(globalThis, {
 	getComputedStyle: () => ({ animationName: "none", getPropertyValue: () => "" }),
 });
 const { artifactRenderers } = await import("../components/artifacts/index.ts");
-const { TranscriptRows } = await import("../components/transcript-rows.tsx");
+const { TranscriptRows } = await import("../components/transcript-render.tsx");
 
 const renders = new Map<string, number>();
 function RenderProbe({ part }: ArtifactPartProps) {

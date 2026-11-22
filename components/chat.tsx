@@ -34,7 +34,7 @@ import {
 } from "@/components/ai-elements/conversation";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { BrailleSpinner } from "@/components/braille-spinner";
-import { TranscriptRows } from "@/components/transcript-rows";
+import { TranscriptRows } from "@/components/transcript-render.tsx";
 import { ChatSessionComposer } from "@/components/composer";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
@@ -116,9 +116,11 @@ import { DockOverlay, GRADIENT_H } from "@/components/dock-overlay";
 import { StatsBar } from "@/components/stats-bar";
 import { useSessionRename } from "@/components/session-rename";
 
-/** The transcript column: full session width with a thin px-6 margin. The
- *  composer/question dock is narrower (DOCK in dock-overlay.tsx). */
-const COLUMN = "mx-auto w-full max-w-none px-6";
+/** The transcript column: full session width with a thin px-6 margin, or
+ *  the Appearance transcript width, centered (globals.css
+ *  .lh-transcript-column). The composer/question dock is narrower (DOCK in
+ *  dock-overlay.tsx). */
+const COLUMN = "lh-transcript-column mx-auto w-full px-6";
 
 /** The BYOK refusal envelope from the transport's error text: the 503 body
  *  arrives verbatim as the error message, so the {code, missing} shape
@@ -250,7 +252,7 @@ export function Chat({
 	// client-side (core/view.ts projectView); each send is one explicit input
 	// event ({chatId, input}); the turn stream is the server's AgentEvent
 	// passthrough.
-	const { canonicalMessages, reconciliation, reconcile, pluginQuestionAvailability, pluginQuestionDraft, pluginProblemAvailability, pluginProblemDraft, dismissPluginQuestion, readRecord, messages, nativeMessages, hasConfirmedConversation, contextTokens, lessonTracking: tracking, tutorPin, send, continueIfOwed, steer, steerQueue, submitAnswer, dismissQuestion, dismissProblem, questionDraft, saveQuestionDraft, status, evaluating, error, stop, abortTurn, clearError, resumeStream, setReattachSettled } =
+	const { canonicalMessages, reconciliation, reconcile, pluginQuestionAvailability, pluginQuestionDraft, pluginProblemAvailability, pluginProblemDraft, dismissPluginQuestion, readRecord, readStats, messages, nativeMessages, hasConfirmedConversation, contextTokens, lessonTracking: tracking, tutorPin, send, continueIfOwed, steer, steerQueue, submitAnswer, dismissQuestion, dismissProblem, questionDraft, saveQuestionDraft, status, evaluating, error, stop, abortTurn, clearError, resumeStream, setReattachSettled } =
 		useChatSession({ chatId, initialMessages, initialError, initiallyInFlight });
 
 	const controller = useOptionalInteractionLayers();
@@ -274,12 +276,14 @@ export function Chat({
 	const submissionMounted = useRef(true);
 	useEffect(() => { submissionMounted.current = true; return () => { submissionMounted.current = false; submissionRunner.dispose(); }; }, [submissionRunner]);
 	useEffect(() => () => submissionRunner.dispose(), [surfaceTarget, submissionRunner]);
-	// A plain object, not useRef: it carries a `changed` hook too, and a
-	// dev-mode server-rendered ref object is sealed.
-	const [inputViewReader] = useState<SessionInputViewReader>(() => ({ current: null }));
 	const refreshPluginActions = useRef<(() => void) | null>(null);
-	const notifyViewChanged = useCallback(() => { if (submissionMounted.current) refreshPluginActions.current?.(); }, []);
-	inputViewReader.changed = notifyViewChanged;
+	// One stable object with `changed` from the start: React's development
+	// server renderer seals useRef objects, so adding `changed` to a ref later
+	// threw "object is not extensible" and every chat page 500ed under next dev.
+	const [inputViewReader] = useState<SessionInputViewReader>(() => ({
+		current: null,
+		changed: () => { if (submissionMounted.current) refreshPluginActions.current?.(); },
+	}));
 	const submissionLive = useRef({ nativeMessages, surfaceTarget, ready: true });
 	submissionLive.current = { nativeMessages, surfaceTarget, ready: true };
 	const runSubmission = async (target: PluginSubmissionTarget, capture: () => PluginSubmission | Promise<PluginSubmission>, current: () => boolean, deliver: (prepared: PluginSubmission, attempt: SubmissionAttempt) => Promise<boolean>): Promise<boolean> => {
@@ -1162,23 +1166,31 @@ export function Chat({
 	// fetches the record. No turns yet → the bar renders "—" everywhere.
 	const [turns, setTurns] = useState<TurnUsage[]>([]);
 	const [pricing, setPricing] = useState<SessionPricing | undefined>();
+	const statsRequest = useRef<AbortController | null>(null);
 	const syncTurns = useCallback(async () => {
+		statsRequest.current?.abort();
+		const request = new AbortController();
+		statsRequest.current = request;
 		try {
-			const res = await fetch(`/api/chats/${chatId}?only=stats`);
-			if (!res.ok) return;
-			const record = (await res.json()) as { turns?: TurnUsage[]; pricing?: SessionPricing };
-			if (Array.isArray(record.turns)) setTurns(record.turns);
-			setPricing(record.pricing);
+			const stats = await readStats(request.signal);
+			if (!stats || request.signal.aborted) return;
+			if (Array.isArray(stats.turns)) setTurns(stats.turns);
+			setPricing(stats.pricing);
 		} catch {
 			// transient blip: stats stay on the last known figures
+		} finally {
+			if (statsRequest.current === request) statsRequest.current = null;
 		}
-	}, [chatId]);
+	}, [readStats]);
 	useEffect(() => {
 		void syncTurns();
 		// A read that failed offline never retries on its own.
 		const onOnline = () => void syncTurns();
 		window.addEventListener("online", onOnline);
-		return () => window.removeEventListener("online", onOnline);
+		return () => {
+			window.removeEventListener("online", onOnline);
+			statsRequest.current?.abort();
+		};
 	}, [syncTurns]);
 	useServerResync(() => void syncTurns());
 	// Settlement refreshes coverage and canonical messages/stats. Without a
@@ -1436,8 +1448,9 @@ export function Chat({
 		{/* The session surface: the transcript column (header + scroller) and
 		    the side tutor as full-height siblings. The dock overlays the column
 		    bottom (outside the scroller); a spacer in the transcript reserves
-		    its height. */}
-		<div className="relative flex lh-h-screen">
+		    its height. data-session-surface scopes the session's reading rules
+		    (no-wrap inline code/math, globals.css). */}
+		<div data-session-surface="" className="relative flex lh-h-screen">
 			<div className="flex min-w-0 flex-1 flex-col">
 				{/* The top bar: in flow above the scroller. Fixed 60px height, not
 				    padding: the sidebar toggle renders only while the sidebar is

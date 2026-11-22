@@ -36,7 +36,7 @@ export interface DemoBuilderOptions {
 	/** The settings-resolved demoBuilder engine; tests pass a scripted one. */
 	engine: PiEngine;
 	headless?: HeadlessApi;
-	/** Max agent steps (each write/run/fix is one step). Default 24 ≈ 6 cycles. */
+	/** Optional assistant-turn cap; omitted = no turn-count limit. */
 	maxSteps?: number;
 	/** Live activity-line callback (updates the job record). */
 	onActivity?: (line: string) => void;
@@ -218,7 +218,7 @@ export async function runDemoBuilder(input: DemoBuilderInput, opts: DemoBuilderO
 			engine: opts.engine,
 			systemPrompt: INSTRUCTIONS + "\n\n" + DEMO_VISUAL_STYLE,
 			prompt,
-			maxTurns: opts.maxSteps ?? 24,
+			maxTurns: opts.maxSteps,
 			abortSignal: opts.abortSignal,
 			onUsage: (usage) => opts.onUsage?.(usage),
 			onToolStart: (toolName) => opts.onActivity?.(toolName),

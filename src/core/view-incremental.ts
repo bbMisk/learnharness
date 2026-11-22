@@ -27,7 +27,7 @@
  * the preceding group) goes through the fold's copy-on-write, so cached
  * rows are never mutated and untouched rows keep their identity from one
  * update to the next — which is what lets the transcript skip re-rendering
- * them (components/transcript-rows.tsx).
+ * them (components/transcript-render.tsx).
  */
 
 import type { ToolResultMessage } from "@earendil-works/pi-ai";

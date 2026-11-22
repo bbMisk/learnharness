@@ -386,7 +386,7 @@ export function tableMarkdown(table: HTMLTableElement): string {
 	const copy = table.cloneNode(true) as HTMLTableElement;
 	const tex: string[] = [];
 	for (const math of copy.querySelectorAll(".katex")) {
-		tex.push(math.querySelector("annotation")?.textContent ?? "");
+		tex.push(math.getAttribute("data-tex") ?? math.querySelector("annotation")?.textContent ?? "");
 		math.replaceWith(`\u0000${tex.length - 1}\u0000`);
 	}
 	return tableDataToMarkdown(extractTableDataFromElement(copy))
@@ -455,8 +455,11 @@ export function MarkdownSpan(props: ComponentProps<"span"> & ExtraProps) {
 	);
 }
 
-/** A display equation with the corner copy (the raw TeX — KaTeX embeds it
- *  in the MathML <annotation>; read from the DOM on click, no re-parse). */
+/** Upstream's name for the span override (its tests import it). */
+export const MathDisplay = MarkdownSpan;
+
+/** A display equation with the corner copy: the TeX from the formula's
+ *  data-tex, falling back to the MathML annotation for older markup. */
 function DisplayMath({ children, className, ...rest }: ComponentProps<"span">) {
 	const displayOnly = useContext(MarkdownDisplayOnlyContext);
 	const ref = useRef<HTMLSpanElement>(null);
@@ -472,7 +475,9 @@ function DisplayMath({ children, className, ...rest }: ComponentProps<"span">) {
 			{!displayOnly && <CopyCorner
 				className="absolute top-0 right-0 z-10"
 				label="Copy equation source"
-				getText={() => ref.current?.querySelector("annotation")?.textContent ?? ""}
+				getText={() => ref.current?.querySelector(".katex[data-tex]")?.getAttribute("data-tex")
+					?? ref.current?.querySelector('annotation[encoding="application/x-tex"]')?.textContent
+					?? ""}
 			/>}
 			<span ref={ref} className={className} {...rest}>
 				{children}
