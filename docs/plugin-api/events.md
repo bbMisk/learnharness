@@ -12,8 +12,8 @@
 
 Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
 
-One notification: the type discriminates the payload (distributed per
-type, so narrowing on `type` narrows the payload).
+One notification: distribute over the vocabulary so narrowing `type`
+actually narrows its payload (including plugin-scoped messages).
 
 ```ts
 export type ServerEvent<K extends ServerEventType = ServerEventType> = {

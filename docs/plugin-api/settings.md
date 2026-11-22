@@ -50,10 +50,9 @@ declare const MODEL_SLOTS: readonly [
 
 Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
 
-One slot's stored state. BYOK: the WRITE side
-requires model (a level alone can never run — no factory floor); the
-sanitizer keeps whatever is on disk, but RESOLUTION treats a slot
-without a model as unset (inert level, no phantom default).
+Stored model-slot preferences. A slot is configured only when model is
+present; sanitized level-only records can be retained but resolve as unset.
+A thinking level alone does not select an implicit fallback model.
 
 ```ts
 export interface ModelSlot {

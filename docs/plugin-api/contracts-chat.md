@@ -97,10 +97,9 @@ reasoningTokens: number | undefined;
 
 Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
 
-The session's kind: "teach" is the default and ABSENT on pre-practice
-records (no migration — absence reads as teach); "practice" marks an
-adaptive-practice session — the practice agent, its two tools, no
-extraction, no graph writes.
+Session kind: teach is the default when a saved record omits kind.
+Practice uses the adaptive-practice agent without teaching extraction or
+graph writes. Reading an absent kind does not require a record migration.
 
 ```ts
 export type ChatKind = "teach" | "practice";
@@ -110,12 +109,9 @@ export type ChatKind = "teach" | "practice";
 
 Public SDK type, exported as `ChatListItem`. Import with `import type`; the SDK has no runtime exports.
 
-The sidebar's session row: a summary + live liveness. The chats list
-route attaches `busy` from the turn-liveness registry ONLY — the row
-spinner means exactly "a turn is in flight" (background jobs show in
-the sidebar's Background agents section instead). The store itself
-can't see liveness (import law: store never imports server), hence the
-split at exactly the record/liveness seam.
+Session-list row combining a saved summary with live server state.
+busy means a native conversation turn is in flight; detached background
+jobs do not make the session busy. These flags are not persisted status.
 
 ```ts
 export interface ChatListItem extends ChatSummary {
@@ -307,10 +303,9 @@ turns?: TurnUsage[];
 
 ### ChatRecord extractions
 
-Append-only background-extraction usage log: one entry per finished
-pipeline job on THIS chat — extraction is real spend too. Same
-parallel-log discipline as `turns` (nothing rides inside messages).
-Keyed by startedAt; idempotent appends.
+Append-only background-extraction usage for this chat, separate from
+messages. Finished runs include failed runs with usage; appends are
+idempotent by startedAt.
 
 ```ts
 extractions?: ExtractionRunUsage[];
