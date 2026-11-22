@@ -57,3 +57,12 @@ describe("escAbortTarget (the layered-Esc ruling)", () => {
 	});
 });
 
+describe("the side thread's Esc rung (#16, F11)", () => {
+	const none = { abortAsk: false, mermaidFocus: false, planOpen: false, setupOpen: false, pending: false, problem: false, busy: false };
+	it("an open side thread closes before anything else on the ladder", () => {
+		assert.equal(escAbortTarget({ ...none, sideThread: true, busy: true }), "side-thread");
+		assert.equal(escAbortTarget({ ...none, sideThread: true, pending: true, planOpen: true, mermaidFocus: true }), "side-thread");
+		assert.equal(escAbortTarget({ ...none, sideThread: true, abortAsk: true }), null, "the abort dialog still claims its own Esc");
+		assert.equal(escAbortTarget({ ...none, sideThread: false, busy: true }), "turn");
+	});
+});

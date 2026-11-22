@@ -18,7 +18,7 @@
  *   "shift+tab", "alt+arrowdown", "mod+shift+f", "?", "f2", "escape"
  * Order is fixed: mod, alt, shift, then the key.
  */
-import { sideQuestionsEnabled } from "./fork-config.ts";
+import { sideQuestionsEnabled, sideTutorEnabled } from "./fork-config.ts";
 
 export type KeyAction =
 	| "toggle-dictation"
@@ -171,7 +171,7 @@ export function effectiveKeymap(): Map<string, KeyAction> {
 export function actionForBinding(binding: string): KeyAction | undefined {
 	const action = effectiveKeymap().get(binding);
 	// Keep the previous shortcut working until the learner rebinds the action.
-	return action ?? (binding === "mod+alt+s" && bindingForAction("toggle-side-tutor") === "mod+shift+s" ? "toggle-side-tutor" : undefined);
+	return action ?? (sideTutorEnabled && binding === "mod+alt+s" && bindingForAction("toggle-side-tutor") === "mod+shift+s" ? "toggle-side-tutor" : undefined);
 }
 
 /** The effective (override-aware) binding for one action — display use. */

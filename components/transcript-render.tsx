@@ -10,7 +10,7 @@
  * output, keys and live-state rules are chat.tsx's, unchanged.
  */
 
-import { Fragment, memo, useCallback, useMemo, useRef } from "react";
+import { Fragment, memo, useCallback, useMemo, useRef, type ReactNode } from "react";
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import { PathText } from "@/components/file-path-chip";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
@@ -85,6 +85,12 @@ export interface TranscriptRowsProps {
 	questionPending: boolean;
 	compacting: boolean;
 	onRetryQuestion: (call: QuestionCall) => void;
+	/** Side-question entry points (upstream's side questions; empty while
+	 *  the fork's side tutor is the switched-on side conversation): per
+	 *  native assistant message, part index → the segment's source id. */
+	sideEntries?: ReadonlyMap<string, ReadonlyMap<number, string>>;
+	/** Renders one entry's button (the chat page owns the side thread). */
+	renderSideEntry?: (sourceMessageId?: string) => ReactNode;
 }
 
 /** Each row's anchored text part ids (one DOM anchor per native teacher
@@ -127,6 +133,8 @@ export function TranscriptRows({
 	questionPending,
 	compacting,
 	onRetryQuestion,
+	sideEntries,
+	renderSideEntry,
 }: TranscriptRowsProps) {
 	const anchors = useMemo(() => rowAnchors(messages), [messages]);
 	// Keep the newest learner turn (including its answer and any live tail)
@@ -139,8 +147,10 @@ export function TranscriptRows({
 	const nativeRef = useRef(nativeMessages);
 	nativeRef.current = nativeMessages;
 	const lookupProblem = useCallback((problemId: string) => pluginProblemById(nativeRef.current, problemId), []);
-	return messages.map((m, mi) =>
-		transcript.hidesMessage(mi) ? null : (
+	return messages.map((m, mi) => {
+		// A row without side entries gets no renderer, so it stays memo-stable.
+		const rowSideEntries = sideEntries?.get(m.id);
+		return transcript.hidesMessage(mi) ? null : (
 			<TranscriptRow
 				key={m.id || `m-${mi}`}
 				message={m}
@@ -160,9 +170,11 @@ export function TranscriptRows({
 				questionPending={questionPending}
 				compacting={compacting}
 				onRetryQuestion={onRetryQuestion}
+				sideEntries={rowSideEntries}
+				renderSideEntry={rowSideEntries ? renderSideEntry : undefined}
 			/>
-		),
-	);
+		);
+	});
 }
 
 /** The row's posed-problem snapshots as one primitive (memo-stable). */
@@ -192,6 +204,9 @@ interface RowProps {
 	questionPending: boolean;
 	compacting: boolean;
 	onRetryQuestion: (call: QuestionCall) => void;
+	/** This row's side-question entry points (part index → source id). */
+	sideEntries?: ReadonlyMap<number, string>;
+	renderSideEntry?: (sourceMessageId?: string) => ReactNode;
 }
 
 const TranscriptRow = memo(function TranscriptRow({
@@ -209,6 +224,8 @@ const TranscriptRow = memo(function TranscriptRow({
 	questionPending,
 	compacting,
 	onRetryQuestion,
+	sideEntries,
+	renderSideEntry,
 }: RowProps) {
 	const anchored = useMemo(() => new Set(anchors ? anchors.split("\n") : []), [anchors]);
 	if (m.role === "user" && isSubagentSteer(m)) {
@@ -330,7 +347,8 @@ const TranscriptRow = memo(function TranscriptRow({
 											call.toolCallId === part.toolCallId,
 									)
 								: undefined;
-							return (
+							const sideEntry = part.type === "step-start" && renderSideEntry ? sideEntries?.get(pi) : undefined;
+							const rendered = (
 								<TranscriptPart
 									key={partKey(part, pi, teachBoundary)}
 									part={part}
@@ -346,8 +364,11 @@ const TranscriptRow = memo(function TranscriptRow({
 									onRetryQuestion={onRetryQuestion}
 								/>
 							);
+							// A side entry closes the step before this boundary.
+							return sideEntry ? <Fragment key={`side-${pi}`}>{renderSideEntry!(sideEntry)}{rendered}</Fragment> : rendered;
 						})}
 					</MessageContent>
+					{renderSideEntry && sideEntries?.has(m.parts.length) ? renderSideEntry(sideEntries.get(m.parts.length)) : null}
 				</Message>
 			)}
 		</Fragment>

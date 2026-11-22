@@ -48,6 +48,8 @@ import {
 	isProviderKeyRefusal,
 	capName,
 	cliContextWindowOf,
+	sideSegmentId,
+	sideTutorEnabled,
 	kbdEventForAction as kbdEventForChat,
 	activeProblemOccurrenceOf,
 	buildAnswer,
@@ -107,6 +109,8 @@ import {
 import { useGeneralSettings } from "@/components/general-settings";
 import { readDraft, writeDraft } from "@/components/draft-store";
 import { SideTutor, useSideTutor } from "@/components/side-tutor";
+// FORK: side questions through the switch seam (components/side-questions.ts), not side-thread/use-side-thread directly.
+import { createSideQuestionActions, sideEntryPoints, SideThreadBody, SideThreadPanel, SideThreadPopover, useSideThread, type SideThreadOpenArgs } from "@/components/side-questions";
 import { useReadingThinkingResync } from "@/components/reading-thinking-resync";
 import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/thinking-block";
 import { isComposing } from "@/components/ime";
@@ -318,6 +322,7 @@ export function Chat({
 		}
 	};
 	const textTarget = (): Extract<PluginSubmissionTarget, { type: "text" }> | undefined => surfaceTarget ? { type: "text", sessionId: chatId, sessionKind: kind === "practice" ? "practice" : "teaching", surfaceTarget, channels: ["content"] } : undefined;
+	const sideEntries = useMemo(() => sideEntryPoints(nativeMessages, messages), [nativeMessages, messages]);
 
 	// The reattach settled terminal → the sync-and-continue seam (below).
 	setReattachSettled(() => reattachSettledRef.current());
@@ -357,6 +362,7 @@ export function Chat({
 			const pinned = pinEscRef.current;
 			const target = escAbortTarget({
 				abortAsk: abortAskRef.current !== null,
+				sideThread: sideThreadOpenRef.current,
 				mermaidFocus: mermaidFocusRef.current !== null || figureFocusRef.current !== null,
 				pinExpanded: pinned?.escState.pinExpanded ?? false,
 				drawer: pinned?.escState.drawer ?? null,
@@ -367,7 +373,8 @@ export function Chat({
 				problem: activeProblemRef.current !== null,
 				busy: busyRef.current,
 			});
-			if (target === "question") { pluginAbortTarget.current = pluginQuestion; setAbortAsk("question"); }
+			if (target === "side-thread") closeSideThreadRef.current();
+			else if (target === "question") { pluginAbortTarget.current = pluginQuestion; setAbortAsk("question"); }
 			else if (target === "problem") setAbortAsk("problem");
 			else if (target === "turn") setAbortAsk("turn");
 			else if (target === "mermaid") setMermaidFocus(null);
@@ -403,6 +410,7 @@ export function Chat({
 				const question = (p.input as { question?: string } | null)?.question ?? "";
 				const reading = readingThinkingRef.current.trim() || undefined;
 				clearReadingThinking();
+				void closeSideThreadRef.current(); // its note lands after the skip
 				const answer = dismissedAnswer(toolQuestionKind(p.tool), question);
 				void dismissQuestion(
 					p.toolCallId,
@@ -923,7 +931,75 @@ export function Chat({
 		() => createCiteAction({ chatId, composer: citeInput, openEditor: setCitationEdit }),
 		[chatId, citeInput],
 	);
-	const selectionActions = useMemo(() => [citeAction], [citeAction]);
+	// One durable companion per explanation/check, in teaching AND practice.
+	// Main requests append new raw exchanges from every thread; closing only hides the UI.
+	const workingRef = useRef("");
+	const sideThread = useSideThread(chatId, nativeMessages, () => {
+		// Plugin editors own opaque answer/submission values. Only host Thinking
+		// is safe helper context; read its live draft without introspecting the renderer.
+		if (pendingPlugin) return pendingPlugin.showThinking ? pluginQuestionDraft(pendingPlugin).thinking : "";
+		if (activeProblem?.pluginProblem) return pluginProblemDraft(activeProblem.pluginProblem).thinking;
+		return workingRef.current;
+	});
+	const sideNavigation = useRef(0);
+	const closeSideThread = useCallback(() => {
+		const id = sideThread.state?.threadId;
+		if (!id) return;
+		const navigation = ++sideNavigation.current;
+		void recording.finishFor(`side:${id}`).then(() => {
+			if (navigation === sideNavigation.current) sideThread.close(id);
+		});
+	}, [recording.finishFor, sideThread.state?.threadId, sideThread.close]);
+	const openSideThread = useCallback((args: SideThreadOpenArgs) => {
+		const navigation = ++sideNavigation.current;
+		const current = sideThread.state;
+		const source = args.sourceMessageId ?? args.passage?.sourceMessageId ?? (args.questionCallId ? nativeMessages.find((message) => message.role === "assistant" &&
+			message.content.some((block) => block.type === "toolCall" && block.id === args.questionCallId))?.id : undefined);
+		if (current && current.segmentId !== sideSegmentId(nativeMessages, source) && recording.active && recording.destinationId === `side:${current.threadId}`) {
+			void recording.finishFor(`side:${current.threadId}`).then(() => {
+				if (navigation === sideNavigation.current) sideThread.open(args);
+			});
+		} else sideThread.open(args);
+	}, [nativeMessages, recording.active, recording.destinationId, recording.finishFor, sideThread.open, sideThread.state]);
+	const goToCurrentSideStep = sideThread.state && sideThread.currentSegmentId && sideThread.state.segmentId !== sideThread.currentSegmentId
+		? () => openSideThread({ sourceMessageId: sideThread.currentSegmentId!, anchor: sideThread.state!.anchor }) : undefined;
+	const sideDictationFor = (id: string) => {
+		const destinationId = `side:${id}`;
+		const owns = recording.destinationId === destinationId;
+		return { phase: owns ? recording.phase : "idle" as const, active: owns && recording.active,
+			blocked: !owns && recording.active, error: owns ? recording.error : null, levelRef: recording.levelRef,
+			toggle: () => recording.toggleFor({ id: destinationId, append: (text) => sideThread.saveDraft(id, joinDictation(sideThread.draftFor(id), text), true) }),
+			finish: () => recording.finishFor(destinationId) };
+	};
+	const renderSideEntry = (sourceMessageId?: string) => {
+		if (!sourceMessageId) return null;
+		const hasHistory = sideThread.threads.some((thread) => thread.anchor.messageId === sourceMessageId && thread.messages.length > 0);
+		return <div className="mt-1 flex justify-end">
+			<Button type="button" variant="ghost" size="icon-xs" data-testid="side-conversation-button" data-side-segment-id={sourceMessageId}
+				data-has-history={hasHistory} aria-label={hasHistory ? "Open side conversation" : "Ask a side question"}
+				title={hasHistory ? "Open side conversation" : "Ask a side question"}
+				className={hasHistory ? "border border-border/60 text-muted-foreground" : "text-muted-foreground/40 hover:text-muted-foreground"}
+				onClick={(event) => openSideThread({ sourceMessageId, anchor: { kind: "element", element: event.currentTarget } })}>
+				<MessageCircleQuestionIcon aria-hidden className="size-3.5" fill="currentColor" fillOpacity={hasHistory ? 0.12 : 0} />
+			</Button>
+		</div>;
+	};
+	const sideThreadOpenRef = useRef(false);
+	sideThreadOpenRef.current = sideThread.state !== null;
+	const closeSideThreadRef = useRef(closeSideThread);
+	closeSideThreadRef.current = closeSideThread;
+	const toggleQuestionThread = useCallback(() => {
+		if (!isInteractionScopeEligible(sessionFindScopeRef.current, controller)) return;
+		if (sideThreadOpenRef.current) closeSideThreadRef.current();
+		else openSideThread({ anchor: { kind: "composer" }, questionCallId: pendingRef.current?.toolCallId });
+	}, [controller, openSideThread]);
+	useEffect(() => {
+		window.addEventListener(kbdEventForChat("toggle-question-thread"), toggleQuestionThread);
+		return () => window.removeEventListener(kbdEventForChat("toggle-question-thread"), toggleQuestionThread);
+	}, [toggleQuestionThread]);
+	// Advancing the lesson does not close or disable an old conversation.
+	const sideActions = useMemo(() => createSideQuestionActions({ open: openSideThread }), [openSideThread]);
+	const selectionActions = useMemo(() => [citeAction, ...sideActions], [citeAction, sideActions]);
 	const transcriptElementRef = useRef<HTMLElement | null>(null);
 	transcriptElementRef.current = transcriptElement;
 	const citationNavigate = useRouter();
@@ -946,7 +1022,7 @@ export function Chat({
 		} else if (dictationWasActiveRef.current) {
 			dictationWasActiveRef.current = false;
 			// Do not steal focus from a helper or a newer interaction owner.
-			if (isInteractionScopeEligible(composerInputRef.current, controller)) composerInputRef.current!.focus();
+			if (!document.activeElement?.closest('[data-testid="side-thread"]') && isInteractionScopeEligible(composerInputRef.current, controller)) composerInputRef.current!.focus();
 		}
 	}, [dictation.active, controller]);
 
@@ -1588,9 +1664,9 @@ export function Chat({
 					    widths) instead of widening the page; the extraction ring and
 					    phase tag stay outside it — the ring's popover would clip. */}
 					<div onWheel={sidewaysWheel} className="lh-scroll-fade flex min-w-0 items-center gap-3 overflow-x-auto [scrollbar-width:none]!">
-					<Hint label="Temporary side tutor" action="toggle-side-tutor" side="bottom">
+					{sideTutorEnabled && /* FORK: the tutor's button only while it is the switched-on side conversation */ <Hint label="Temporary side tutor" action="toggle-side-tutor" side="bottom">
 						<button type="button" aria-label="Open side tutor" aria-expanded={sideTutor !== null} onClick={toggleSideTutor} className="lh-no-drag flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border/80 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:border-border hover:text-foreground"><MessageCircleQuestionIcon className="size-3.5 text-primary" aria-hidden />Side tutor</button>
-					</Hint>
+					</Hint>}
 					{/* The plan chip opens the full-DAG popup at every width; the
 					    marginalia is the wide-screen glance view. */}
 					{planTree && (
@@ -1669,6 +1745,8 @@ export function Chat({
 								questionPending={!!pending}
 								compacting={compacting}
 								onRetryQuestion={retryQuestion}
+								sideEntries={sideEntries}
+								renderSideEntry={renderSideEntry}
 							/>
 
 							{/* THE placeholder, ACTION-gated (owner, optimistic round
@@ -1857,6 +1935,44 @@ export function Chat({
 					}}
 				/>
 				</Conversation>
+				{sideThread.state?.mode === "panel" && (
+					<SideThreadPanel>
+						<SideThreadBody
+							key={sideThread.state.threadId}
+							state={sideThread.state}
+							chatId={chatId}
+							draft={sideThread.draftFor(sideThread.state.threadId)}
+							readDraft={sideThread.draftFor.bind(null, sideThread.state.threadId)}
+							dictation={sideDictationFor(sideThread.state.threadId)}
+							onDraftChange={sideThread.saveDraft.bind(null, sideThread.state.threadId)}
+							onAsk={(text, retry) => sideThread.ask(text, retry, sideThread.state!.threadId)}
+							onStop={sideThread.stop}
+							onExpand={sideThread.expand}
+							onFloat={sideThread.float}
+							onClose={closeSideThread}
+							onCurrentStep={goToCurrentSideStep}
+						/>
+					</SideThreadPanel>
+				)}
+
+				{sideThread.state?.mode === "popover" && (
+					<SideThreadPopover
+						state={sideThread.state}
+						chatId={chatId}
+						draft={sideThread.draftFor(sideThread.state.threadId)}
+						readDraft={sideThread.draftFor.bind(null, sideThread.state.threadId)}
+						dictation={sideDictationFor(sideThread.state.threadId)}
+						onDraftChange={sideThread.saveDraft.bind(null, sideThread.state.threadId)}
+						composer={() => composerInputRef.current}
+						onAsk={(text, retry) => sideThread.ask(text, retry, sideThread.state!.threadId)}
+						onStop={sideThread.stop}
+						onExpand={sideThread.expand}
+						onFloat={sideThread.float}
+						onClose={closeSideThread}
+						onCurrentStep={goToCurrentSideStep}
+					/>
+				)}
+
 				{/* The pinned demo/diagram's docked column (the card itself stays
 				    in its transcript row, restyled over this column). */}
 				{pinned.dockColumn}
@@ -1946,7 +2062,7 @@ function TranscriptElementReporter({ onElement }: { onElement: (element: HTMLEle
  *  underneath. Priority is stacking order: the abort confirm (claims via its
  *  own dialog), the session overlays, setup (self-closing; the gate must
  *  only not fire), then the abort chain proper (question, problem, turn). */
-export type EscAbortTarget = "mermaid" | "pin-expanded" | "plan" | "setup" | "pin-drawer" | "check" | "question" | "problem" | "turn" | null;
+export type EscAbortTarget = "side-thread" | "mermaid" | "pin-expanded" | "plan" | "setup" | "pin-drawer" | "check" | "question" | "problem" | "turn" | null;
 
 /**
  * Does the opening topic still owe its first send? The topic is the server's
@@ -1961,6 +2077,9 @@ export function initialPromptOwed(messages: readonly { role: string }[], prompt:
 
 export function escAbortTarget(s: {
 	abortAsk: boolean;
+	/** An open side thread (#16, F11): Esc closes (and commits) it before
+	 *  anything else on the ladder. */
+	sideThread?: boolean;
 	mermaidFocus: boolean;
 	planOpen: boolean;
 	setupOpen: boolean;
@@ -1982,6 +2101,7 @@ export function escAbortTarget(s: {
 	checkOpen?: boolean;
 }): EscAbortTarget {
 	if (s.abortAsk) return null; // the popup's own Esc — claimed by the dialog
+	if (s.sideThread) return "side-thread";
 	if (s.mermaidFocus) return "mermaid";
 	if (s.pinExpanded) return "pin-expanded";
 	if (s.planOpen) return "plan";
