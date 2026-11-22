@@ -879,7 +879,7 @@ async function main() {
 		const fromFirstWindow = event => !firstWindow.isDestroyed() && event.sender === firstWindow.webContents &&
 			trustedSender(event, new URL(url).origin, BrowserWindow);
 		let messages;
-		if (app.isPackaged && !devUrl) {
+		if (app.isPackaged && !devUrl && require("./fork-config.cjs").startupAnnouncements) {
 			const { dismissalStore, startMessages } = require("./startup-messages.cjs");
 			messages = startMessages(firstWindow, dismissalStore(app.getPath("userData")));
 		}
