@@ -1837,6 +1837,7 @@ export function Chat({
 					onRetrySync={() => { void reconcile(); }}
 					initialQuestionDraft={pending ? questionDraft(pending.key)?.form : undefined}
 					onSaveQuestionDraft={(form) => { if (pending) saveQuestionDraft(pending.key, { form }); }}
+					workingRef={workingRef}
 					practice={activeProblem}
 					pluginPractice={activeProblem?.pluginProblem && activeProblemOccurrence ? {
 						snapshot: activeProblem.pluginProblem, occurrence: activeProblemOccurrence, chatId, draft: pluginProblemDraft(activeProblem.pluginProblem),

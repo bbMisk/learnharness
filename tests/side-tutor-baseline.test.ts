@@ -41,7 +41,15 @@ describe("the default side-chat switch keeps the app as it was", () => {
 		assert.deepEqual(JSON.parse(JSON.stringify(KEYBOARD_ACTIONS)), baseline.keyboardActions);
 	});
 
-	it("offers the same model slots", () => {
+	it("offers the same model slots, and no Settings surface lists per-role models", () => {
 		assert.deepEqual([...MODEL_SLOTS], ["strong", "cheap", "vision"]);
+		// The role lists now carry upstream's sideQuestion (a schema-level
+		// override only). Settings shows slots, never roles: no browser
+		// component reads the role lists, the catalog's rolePins, or the role.
+		const files = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true })
+			.flatMap((entry) => entry.isDirectory() ? files(path.join(dir, entry.name)) : /\.tsx?$/.test(entry.name) ? [path.join(dir, entry.name)] : []);
+		for (const file of files("components")) {
+			assert.doesNotMatch(fs.readFileSync(file, "utf8"), /\bBACKGROUND_MODEL_ROLES\b|\bROLE_SLOT\b|\brolePins\b|\bsideQuestion\b/, file);
+		}
 	});
 });

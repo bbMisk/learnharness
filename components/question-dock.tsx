@@ -203,6 +203,9 @@ export interface QuestionDockProps {
 	/** Escape in a question field stops dictation (STT wave) — threaded
 	 *  from the page that owns the dictation hook. */
 	onEscape?: () => void;
+	/** The learner's current unsubmitted working (thinking, or the typed
+	 *  answer in text mode), kept current for the side thread's nudges. */
+	workingRef?: { current: string };
 	/** The keyboard machine is armed only while the dock is expanded; the
 	 *  collapsed bar keeps its native Enter-to-expand. */
 	active?: boolean;
@@ -245,6 +248,7 @@ export function QuestionDock({
 	dictationClaim = true,
 	compactionRunning = false,
 	attachmentsUploading = false,
+	workingRef,
 	layoutRequest,
 	onLayout,
 }: QuestionDockProps) {
@@ -304,6 +308,7 @@ export function QuestionDock({
 					preparing={preparing}
 					initialDraft={hydrated ? initialDraft : undefined}
 					onSaveDraft={hydrated ? onSaveDraft : undefined}
+					workingRef={workingRef}
 					onEscape={onEscape}
 					dictationClaim={dictationClaim}
 					compactionRunning={compactionRunning}
@@ -417,6 +422,7 @@ function QuestionDockForm({
 	dictationClaim = true,
 	compactionRunning = false,
 	attachmentsUploading = false,
+	workingRef,
 	layoutRequest,
 	onLayout,
 }: Omit<QuestionDockProps, "expanded" | "onExpand" | "reveal"> & {onReveal?: () => void}) {
@@ -485,6 +491,11 @@ function QuestionDockForm({
 	const [thinking, setThinking] = useState(initialDraft?.thinking ?? "");
 	const [other, setOther] = useState(initialDraft?.other ?? "");
 	const [text, setText] = useState(initialDraft?.text ?? "");
+	// Mirrors the working out for the side thread (nudges respond to it).
+	useEffect(() => {
+		if (workingRef) workingRef.current = (qd.mode === "text" ? text : thinking).trim();
+	}, [workingRef, qd.mode, text, thinking]);
+	useEffect(() => () => { if (workingRef) workingRef.current = ""; }, [workingRef]);
 	/* Refs mirror the two dictation-target fields: the run's flush lands via
 	 * setState, which a closure waiting through `await finishDictation()`
 	 * cannot observe in time. Submit reads these, kept current at every write

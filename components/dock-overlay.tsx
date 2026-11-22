@@ -114,6 +114,7 @@ export function DockOverlay({
 	pluginQuestion, pluginDraft, pluginAvailable, pluginReady, onPluginMicAvailable, onPluginSend, onPluginDismiss, unreadablePlugin, reconciliation, onRetrySync,
 	initialQuestionDraft,
 	onSaveQuestionDraft,
+	workingRef,
 	practice, pluginPractice,
 	chatId,
 	compactionRunning,
@@ -165,6 +166,8 @@ export function DockOverlay({
 	onRetrySync(): void;
 	initialQuestionDraft?: QuestionFormDraft;
 	onSaveQuestionDraft: (draft: QuestionFormDraft) => void;
+	/** The dock's current unsubmitted working, for the side thread. */
+	workingRef?: { current: string };
 	/** Compaction running for this chat: the docks' submit affordance gate
 	 *  (the server's registry is the real one). */
 	compactionRunning: boolean;
@@ -770,6 +773,7 @@ export function DockOverlay({
 									preparing={preparing}
 									initialDraft={initialQuestionDraft}
 									onSaveDraft={onSaveQuestionDraft}
+									workingRef={workingRef}
 									onEscape={dictationCancel}
 									dictationClaim={!revealPending || !showReadingThinking}
 									attachmentsUploading={readingUploading}
