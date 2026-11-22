@@ -177,6 +177,7 @@ it("edits one segment with recoverable Settings writes and refreshes without Pro
 		await click(dialog()!, "Delete override");
 		await click(dialog()!, "Confirm delete"); // the fork's two-click delete
 		assert.match(dialog()!.querySelector('[role="alert"]')!.textContent ?? "", /Settings is still saving/);
+		assert.ok(button(dialog()!, "Confirm delete"), "the busy refusal keeps the confirm armed");
 		assert.equal(overrideText, revisedText, "a pending full-record ACK prevents dispatch");
 		assert.equal(button(dialog()!, "Close").disabled, false);
 		await click(dialog()!, "Close");
@@ -216,6 +217,70 @@ it("edits one segment with recoverable Settings writes and refreshes without Pro
 		await new Promise(resolve => setTimeout(resolve, 5));
 		restoreModal();
 		Reflect.deleteProperty(textarea, "defaultValue");
+		for (const [key, descriptor] of descriptors) {
+			if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+			else Reflect.deleteProperty(globalThis, key);
+		}
+	}
+});
+
+it("the two-click delete: a busy refusal stays armed; leaving the button, blur or 4 s disarm; a touch tap does not", async (t) => {
+	const dom = parseHTML("<html><body><div id='root'></div><button id='opener'>Edit</button></body></html>");
+	const globals = { React, window: dom.window, document: dom.document, Element: dom.window.Element, HTMLElement: dom.window.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true };
+	const descriptors = new Map(Object.keys(globals).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+	Object.assign(globalThis, globals);
+	const restoreModal = installModalDom(dom);
+	const { createRoot } = await import("react-dom/client");
+	const { PromptSegmentDialog } = await import("../components/settings/prompt-segment-dialog.tsx");
+	const root = createRoot(document.querySelector("#root")!);
+	const outcomes: ("deleted" | "settings-busy")[] = ["settings-busy", "deleted"];
+	let deletes = 0, closed = 0;
+	const del = () => [...document.querySelectorAll("button")].find(b => /delete/i.test(b.textContent ?? ""))!;
+	const press = () => act(async () => { del().click(); });
+	const leave = (pointerType: string) => act(async () => {
+		const event = new dom.window.Event("pointerout", { bubbles: true });
+		Object.assign(event, { pointerType, relatedTarget: document.body });
+		del().dispatchEvent(event);
+	});
+	try {
+		await act(async () => root.render(<InteractionLayersProvider><PromptSegmentDialog name="Doctrine" source="# Default" override="# Mine" mode="edit"
+			returnFocusFallback={document.querySelector<HTMLElement>("#opener")!} onSave={async () => "saved"}
+			onDelete={async () => { deletes++; return outcomes.shift()!; }} onClose={() => { closed++; }} /></InteractionLayersProvider>));
+		assert.equal(del().textContent, "Delete override");
+		await press();
+		assert.equal(del().textContent, "Confirm delete");
+		await leave("touch");
+		assert.equal(del().textContent, "Confirm delete", "a touch tap's own pointer leave keeps it armed");
+		await leave("mouse");
+		assert.equal(del().textContent, "Delete override", "the mouse leaving the button disarms");
+		await press();
+		await act(async () => { del().dispatchEvent(new dom.window.Event("focusout", { bubbles: true })); });
+		assert.equal(del().textContent, "Delete override", "focus leaving the button disarms");
+		await press();
+		await press();
+		assert.equal(deletes, 1);
+		assert.match(document.querySelector('[role="alert"]')?.textContent ?? "", /Settings is still saving/);
+		assert.equal(del().textContent, "Confirm delete", "the busy refusal keeps the confirm armed");
+		await press();
+		assert.equal(deletes, 2, "one more click deletes once saving is done");
+		assert.equal(closed, 1);
+		await act(async () => root.render(<></>));
+		await act(async () => { await new Promise(resolve => setTimeout(resolve, 5)); }); // the dialog's focus return
+		t.mock.timers.enable({ apis: ["setTimeout"] });
+		await act(async () => root.render(<InteractionLayersProvider><PromptSegmentDialog name="Doctrine" source="# Default" override="# Mine" mode="edit"
+			returnFocusFallback={document.querySelector<HTMLElement>("#opener")!} onSave={async () => "saved"}
+			onDelete={async () => "deleted"} onClose={() => {}} /></InteractionLayersProvider>));
+		await press();
+		assert.equal(del().textContent, "Confirm delete");
+		await act(async () => { t.mock.timers.tick(3900); });
+		assert.equal(del().textContent, "Confirm delete");
+		await act(async () => { t.mock.timers.tick(200); });
+		assert.equal(del().textContent, "Delete override", "about 4 s later the confirm disarms");
+	} finally {
+		t.mock.timers.reset();
+		await act(async () => root.unmount());
+		await new Promise(resolve => setTimeout(resolve, 5));
+		restoreModal();
 		for (const [key, descriptor] of descriptors) {
 			if (descriptor) Object.defineProperty(globalThis, key, descriptor);
 			else Reflect.deleteProperty(globalThis, key);

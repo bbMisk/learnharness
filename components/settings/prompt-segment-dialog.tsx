@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { HostDialog } from "@/components/host-dialog";
 import type { CloseOutcome } from "@/components/interaction-layers";
 import { Button } from "@/components/ui/button";
@@ -30,8 +30,10 @@ export function PromptSegmentDialog({ name, source, override, mode, returnFocusF
 	const [error, setError] = useState<string | null>(null);
 	const [confirmDiscard, setConfirmDiscard] = useState(false);
 	// Fork: deleting loses the user's text, so Delete arms and a second click
-	// confirms. Arming holds for the text it was armed on; an edit disarms.
+	// confirms. Arming holds for the text it was armed on; an edit, leaving the
+	// button (mouse or focus) or 4 s disarm. A busy refusal re-arms.
 	const [armedFor, setArmedFor] = useState<string | null>(null);
+	useEffect(() => { if (armedFor === null) return; const t = setTimeout(() => setArmedFor(null), 4000); return () => clearTimeout(t); }, [armedFor]);
 	const keepEditing = useRef<HTMLButtonElement>(null);
 	const returningToDraft = useRef(false);
 	const closeButton = useRef<HTMLButtonElement>(null);
@@ -97,7 +99,7 @@ export function PromptSegmentDialog({ name, source, override, mode, returnFocusF
 		try {
 			const result = await onDelete();
 			if (result === "deleted") onClose();
-			else if (result === "settings-busy") setError("Settings is still saving. Try deleting the override again after the save finishes.");
+			else if (result === "settings-busy") { setArmedFor(text); setError("Settings is still saving. Try deleting the override again after the save finishes."); }
 			else setError("Couldn't delete the override.");
 		} finally {
 			pending.current = false;
@@ -129,7 +131,7 @@ export function PromptSegmentDialog({ name, source, override, mode, returnFocusF
 					<Button type="button" variant="destructive" size="sm" onClick={onClose}>Discard changes</Button>
 				</div>
 			</div> : <div className="flex flex-wrap items-center justify-between gap-2">
-				{editing && savedText !== null && <button type="button" className="rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-xs text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-40" disabled={busy !== null || dirty} onClick={() => void remove()}>{busy === "delete" ? "Deleting…" : armedDelete ? "Confirm delete" : "Delete override"}</button>}
+				{editing && savedText !== null && <button type="button" className="rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-xs text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-40" disabled={busy !== null || dirty} onClick={() => void remove()} onBlur={() => setArmedFor(null)} onPointerLeave={e => { if (e.pointerType === "mouse") setArmedFor(null); }}>{busy === "delete" ? "Deleting…" : armedDelete ? "Confirm delete" : "Delete override"}</button>}
 				<div className="ml-auto flex gap-2">
 					<Button ref={closeButton} type="button" variant="ghost" size="sm" disabled={busy !== null} onClick={requestClose}>Close</Button>
 					{editing && <Button type="button" size="sm" disabled={busy !== null || (!dirty && !activationFailed)} onClick={() => void save()}>
