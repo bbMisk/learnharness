@@ -2,7 +2,6 @@ import React, { act, useState } from "react";
 (globalThis as Record<string, unknown>).React = React;
 
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { describe, it } from "node:test";
 import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
@@ -23,7 +22,7 @@ function assertImageBoundary(holder: Element, source: string) {
 	const image = holder.querySelector("img");
 	assert.ok(image, "figure is an image");
 	assert.equal(holder.children.length, 1, "no figure markup alongside the image");
-	assertSameNode(holder.querySelector("svg, style, script, foreignObject, a, [onload], [onclick]"), null,
+	assert.equal(holder.querySelector("svg, style, script, foreignObject, a, [onload], [onclick]"), null,
 		"generated elements and CSS never enter the app document");
 	assert.equal(image.getAttribute("alt"), "Figure");
 	assert.equal(image.getAttribute("draggable"), "false", "native image dragging must not interfere with panning");

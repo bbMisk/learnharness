@@ -1,6 +1,5 @@
 import React, { act, useCallback, useRef } from "react";
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, it } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime.js";
@@ -90,7 +89,7 @@ it("one Escape closes only the cheat sheet's original owner and cannot reach abo
 		const heading = document.querySelector<HTMLElement>("[role='heading']")!;
 		assert.ok(heading); assert.equal(document.querySelector("[role='dialog']")?.getAttribute("aria-labelledby"), heading.id);
 		await f.key(heading, "Escape");
-		assertSameNode(document.querySelector("[data-testid='cheat-sheet']"), null);
+		assert.equal(document.querySelector("[data-testid='cheat-sheet']"), null);
 		assert.equal(aborts, 0, "closing the top layer never aborts the turn underneath");
 		await f.key(document.body, "Escape"); assert.equal(aborts, 1);
 	} finally { window.removeEventListener("lh:kbd-abort-turn", onAbort); }
@@ -226,7 +225,7 @@ it("Session Find cannot open behind a content view, modal or popup", async () =>
 	for (const kind of ["view", "modal", "popup"] as const) {
 		const remove = f.addLayer(kind, kind, get("surface"));
 		await act(async () => { window.dispatchEvent(new CustomEvent("lh:kbd-find")); });
-		assertSameNode(document.querySelector("[data-testid='session-find']"), null, kind); remove();
+		assert.equal(document.querySelector("[data-testid='session-find']"), null, kind); remove();
 	}
 });
 

@@ -10,7 +10,6 @@ import React from "react";
 (globalThis as Record<string, unknown>).React = React;
 
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { describe, it } from "node:test";
 import { parseHTML } from "linkedom";
 import { renderToStaticMarkup as renderStatic } from "react-dom/server";
@@ -83,7 +82,7 @@ describe("SettingsDialog (the designed surface, SSR)", () => {
 			assert.equal(icon.getAttribute("aria-hidden"), "true");
 			assert.equal(icon.getAttribute("focusable"), "false");
 			assert.equal(icon.getAttribute("stroke"), "currentColor", "inherits the themed row color");
-			assertSameNode(icon.querySelector("title"), null, "icon must not add a second accessible label");
+			assert.equal(icon.querySelector("title"), null, "icon must not add a second accessible label");
 		}
 	});
 

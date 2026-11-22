@@ -1,7 +1,6 @@
 import React, { act, type ReactNode } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { it } from "node:test";
 import { PathnameContext } from "next/dist/shared/lib/hooks-client-context.shared-runtime.js";
 import { Home } from "../components/home.tsx";
@@ -126,7 +125,7 @@ for (const page of pages) it(`${page.name}: covers page content but not native c
 		assert.ok(content.closest("[inert]"), "all underlying page controls are covered");
 		assert.equal(header.closest("[inert]"), null);
 		assert.equal(f.document.querySelector("[data-page-sidebar]")?.closest("[inert]"), null);
-		assertSameNode(f.document.querySelector('[aria-modal="true"]'), null);
+		assert.equal(f.document.querySelector('[aria-modal="true"]'), null);
 		assert.equal(body.className, originalClass, "opening changes coverage, not page layout classes");
 		const layer = f.controller.getTopLayer(); assert.equal(layer?.kind, "view");
 		const frame = body.querySelector<HTMLElement>("[data-plugin-session-surface-frame]"); assert.ok(frame);
@@ -154,7 +153,7 @@ it("plugin loading content is inside the same body boundary while TopBar stays o
 	assert.ok(status?.textContent?.includes("Loading plugin"));
 	assert.equal(status?.parentElement?.hasAttribute("data-plugin-view-scroll"), true);
 	assert.ok(status?.parentElement?.classList.contains("overflow-y-auto"));
-	assertSameNode(body.querySelector("header"), null);
+	assert.equal(body.querySelector("header"), null);
 	assert.ok(document.querySelector('header [aria-label="Plugin settings"]'));
 });
 
@@ -166,8 +165,8 @@ it("page boundary expires on exact-path mismatch without disposing preserved plu
 	await f.render("/plugins/fixture/elsewhere");
 	assert.equal(old.signal.aborted, true); assert.equal(findSurfaceBoundary(old.target), undefined);
 	assert.equal(findCurrentSurfaceBoundary(f.document), undefined);
-	assertSameNode(f.document.querySelector("[data-plugin-session-surface]"), null);
-	assertSameNode(f.document.querySelector("[data-page-plugin-input]"), input);
+	assert.equal(f.document.querySelector("[data-plugin-session-surface]"), null);
+	assert.equal(f.document.querySelector("[data-page-plugin-input]"), input);
 	assert.equal(input.value, "Keep the page draft");
 	await f.render();
 	const current = findCurrentSurfaceBoundary(f.document); assert.ok(current);
@@ -227,7 +226,7 @@ it("a pending NewDraft picker becomes the interactive foreground above a later-o
 	try {
 		const pick = f.document.querySelector<HTMLElement>('[data-testid="practice-props-chip"]'); assert.ok(pick);
 		await act(async () => { pick.dispatchEvent(new window.Event("click", { bubbles: true })); });
-		assert.equal(graphRequests, 1); assertSameNode(f.document.querySelector('[data-testid="chain-table-overlay"]'), null);
+		assert.equal(graphRequests, 1); assert.equal(f.document.querySelector('[data-testid="chain-table-overlay"]'), null);
 		const handle = await f.open();
 		const surface = f.document.querySelector<HTMLElement>("[data-plugin-session-surface]"); assert.ok(surface);
 		const overlayInput = surface.querySelector<HTMLInputElement>('[aria-label="Overlay draft"]'); assert.ok(overlayInput);
@@ -247,7 +246,7 @@ it("a pending NewDraft picker becomes the interactive foreground above a later-o
 		assert.ok(f.document.activeElement === search);
 		const close = picker.querySelector<HTMLElement>('[aria-label="Close chains"]'); assert.ok(close);
 		await act(async () => { close.dispatchEvent(new window.Event("click", { bubbles: true })); });
-		assertSameNode(f.document.querySelector('[data-testid="chain-table-overlay"]'), null);
+		assert.equal(f.document.querySelector('[data-testid="chain-table-overlay"]'), null);
 		assert.ok(f.document.querySelector("[data-plugin-session-surface]") === surface);
 		assert.ok(!surface.closest("[inert]"));
 		assert.equal(f.controller.isElementEligible(overlayInput), true);
@@ -263,12 +262,12 @@ it("Activity hide expires the boundary and surfaces; show reconnects without rep
 	await f.open();
 	await f.render(undefined, true);
 	assert.equal(old.signal.aborted, true); assert.equal(findCurrentSurfaceBoundary(f.document), undefined);
-	assertSameNode(f.document.querySelector("[data-plugin-session-surface]"), null);
+	assert.equal(f.document.querySelector("[data-plugin-session-surface]"), null);
 	assert.ok(f.document.querySelector('[data-testid="composer"] [contenteditable]') === input);
 	await f.render();
 	const current = findCurrentSurfaceBoundary(f.document); assert.ok(current);
 	assert.notEqual(current.target, old.target);
-	assertSameNode(f.document.querySelector("[data-plugin-session-surface]"), null);
+	assert.equal(f.document.querySelector("[data-plugin-session-surface]"), null);
 	assert.ok(f.document.querySelector('[data-testid="composer"] [contenteditable]') === input);
 	assert.equal(input.textContent, text);
 }));

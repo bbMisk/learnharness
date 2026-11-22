@@ -95,7 +95,7 @@ it("abort confirmation busy is informational and does not lock dismissal", async
 	// Fork: the abort confirmation lands focus on its action so Enter confirms.
 	assertSameNode(document.activeElement, byTest("abort-turn-confirm"));
 	assert.equal((byTest("abort-turn-cancel") as HTMLButtonElement).disabled, false);
-	await f.escape(); assert.equal(closed, 1); assertSameNode(document.querySelector('[role="dialog"]'), null);
+	await f.escape(); assert.equal(closed, 1); assert.equal(document.querySelector('[role="dialog"]'), null);
 });
 
 it("setup remains dismissible while saving without cancelling its accepted settings write", async () => {
@@ -108,7 +108,7 @@ it("setup remains dismissible while saving without cancelling its accepted setti
 	function Harness() { const [open, setOpen] = React.useState(true); return <SetupDialog open={open} onClose={() => { closed++; setOpen(false); }} onDone={() => { completed++; }} />; }
 	await f.render(<Harness />); await click(byTest("setup-save"));
 	assert.equal(writes, 1); assert.equal((byTest("setup-save") as HTMLButtonElement).disabled, true);
-	await f.escape(); assert.equal(closed, 1); assertSameNode(document.querySelector("[data-testid='setup-dialog']"), null);
+	await f.escape(); assert.equal(closed, 1); assert.equal(document.querySelector("[data-testid='setup-dialog']"), null);
 	await act(async () => write.resolve(Response.json({ ok: true })));
 	assert.equal(completed, 1); assert.equal(writes, 1);
 });
@@ -160,7 +160,7 @@ it("public plugin menu belongs to its portaled modal anchor, reports errors, and
 	assert.equal(menu.isConnected, true); assert.equal(menuClosed, 0);
 	await act(async () => selected.resolve()); assert.equal(menuClosed, 1); assert.equal(menu.isConnected, false);
 	await act(async () => { ui.openMenu(anchor, { items: [], onClose: () => { menuClosed++; } }, { signal: lifetime.signal }); });
-	await f.escape(); assert.equal(menuClosed, 2); assert.equal(dialogClosed, 0); assertSameNode(document.activeElement, anchor);
+	await f.escape(); assert.equal(menuClosed, 2); assert.equal(dialogClosed, 0); assert.equal(document.activeElement, anchor);
 	await f.escape(); assert.equal(dialogClosed, 1);
 });
 

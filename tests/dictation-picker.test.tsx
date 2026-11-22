@@ -112,7 +112,7 @@ test("an initial load failure is visible and opening the menu again can retry", 
 	f.state.failRead = false;
 	await click(trigger());
 	await click(trigger());
-	assertSameNode(menu()!.querySelector('[role="alert"]'), null);
+	assert.equal(menu()!.querySelector('[role="alert"]'), null);
 	await search("Polish");
 	await key(input(), "Enter");
 	assert.match(trigger().textContent!, /Polish/);
@@ -136,8 +136,8 @@ test("the real picker searches by language, chooses with Arrow/Enter, and restor
 	await key(input(), "Enter");
 	assert.deepEqual(f.state.writes, ["pl"]);
 	assert.match(trigger().textContent!, /Polish/);
-	assertSameNode(menu(), null);
-	assertSameNode(document.activeElement, trigger());
+	assert.equal(menu(), null);
+	assert.equal(document.activeElement, trigger());
 	await f.remount();
 	assert.match(trigger().textContent!, /Polish/);
 });
@@ -159,7 +159,7 @@ test("Enter on a focused option preserves native button activation", async () =>
 	});
 	assert.equal(prevented, false, "focused option Enter must retain its native click");
 	assert.deepEqual(f.state.writes, ["multi"]);
-	assertSameNode(menu(), null);
+	assert.equal(menu(), null);
 	assert.match(trigger().textContent!, /Multilingual/);
 });
 
@@ -171,15 +171,15 @@ test("empty results cannot save; Escape and outside click close the menu without
 	await key(input(), "Enter");
 	assert.deepEqual(f.state.writes, []);
 	await key(input(), "Escape");
-	assertSameNode(menu(), null);
+	assert.equal(menu(), null);
 	assert.equal(f.state.outerEscapes, 0);
 	await click(trigger());
 	await key(trigger(), "Escape");
-	assertSameNode(menu(), null);
+	assert.equal(menu(), null);
 	assert.equal(f.state.outerEscapes, 0);
 	await click(trigger());
 	await act(async () => { document.body.dispatchEvent(new window.Event("pointerdown", { bubbles: true })); });
-	assertSameNode(menu(), null);
+	assert.equal(menu(), null);
 });
 
 test("failed saves retain the confirmed choice and the same menu can retry", async () => {
@@ -192,7 +192,7 @@ test("failed saves retain the confirmed choice and the same menu can retry", asy
 	assert.match(menu()!.querySelector('[role="alert"]')!.textContent!, /Could not save/);
 	f.state.failWrite = false;
 	await click(byTest("dictation-language-pl"));
-	assertSameNode(menu(), null);
+	assert.equal(menu(), null);
 	assert.match(trigger().textContent!, /Polish/);
 	assert.deepEqual(f.state.writes, ["pl", "pl"]);
 });
@@ -207,7 +207,7 @@ test("a remounted picker stays disabled throughout an outstanding save", async (
 	await f.remount();
 	assert.equal(trigger().disabled, true);
 	await click(trigger());
-	assertSameNode(menu(), null);
+	assert.equal(menu(), null);
 	f.state.record.dictation = { language: "multi" };
 	await act(async () => { complete(Response.json({ settings: f.state.record })); });
 	assert.equal(trigger().disabled, false);
@@ -221,7 +221,7 @@ test("capture locks the row and dismisses an open language menu until capture en
 	await act(async () => { setDictationActive(true); });
 	assert.equal(trigger().disabled, true);
 	assert.match(byTest("row-dictation-language").className, /opacity-40/);
-	assertSameNode(menu(), null);
+	assert.equal(menu(), null);
 	await act(async () => { setDictationActive(false); });
 	assert.equal(trigger().disabled, false);
 	await click(trigger());
@@ -255,7 +255,7 @@ for (const source of ["none", "file", "env"] as const) test(`Language is below t
 	await click(trigger());
 	assert(menu());
 	await key(input(), "Escape");
-	assertSameNode(menu(), null);
+	assert.equal(menu(), null);
 	assert.equal(f.state.outerEscapes, 0);
 	if (source !== "env") assert.ok(byTest("key-deepgram_api_key-editor"), "first Escape closes only the menu");
 });
@@ -272,7 +272,7 @@ test("the shared model menu preserves ranking, provider identity, keyboard clamp
 	await f.render(<ModelMenuList models={models} effectiveId="alpha" effectiveProvider="p2" onPick={(m) => picked.push(m)} footer="Model footer" />);
 	const modelInput = document.querySelector<HTMLInputElement>('[data-testid="model-search"]')!;
 	const options = () => [...document.querySelectorAll<HTMLButtonElement>('[data-testid="model-list"] button')];
-	assertSameNode(document.activeElement, modelInput);
+	assert.equal(document.activeElement, modelInput);
 	assert.match(options()[0]!.textContent!, /p1 · alpha/);
 	assert.match(options()[1]!.textContent!, /p2 · alpha/);
 	assert.ok(!options()[0]!.className.includes("bg-muted/60"));

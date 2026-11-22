@@ -1,7 +1,6 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { describe, it } from "node:test";
 import { parseHTML } from "linkedom";
 import { createRoot } from "react-dom/client";
@@ -84,7 +83,7 @@ describe("controlled plugin tree integration", () => {
 			inputs.forEach((input, index) => { input.value = `draft-${index}`; });
 			await act(async () => handle.update({ label: "Unrelated label update" }));
 			keys.forEach((key, index) => {
-				assertSameNode(target.querySelector(`input[aria-label="${key}"]`), inputs[index]);
+				assert.equal(target.querySelector(`input[aria-label="${key}"]`), inputs[index]);
 				assert.equal(inputs[index]!.value, `draft-${index}`); assert.equal(mounts.get(key), 1); assert.equal(signals.get(key)!.aborted, false);
 			});
 		} finally { await act(async () => { scope.abort(); root.unmount(); }); }
@@ -132,9 +131,9 @@ describe("controlled plugin tree integration", () => {
 			const input = target.querySelector<HTMLInputElement>('input[aria-label="Draft"]')!;
 			assert.ok(input); assert.equal(mounted, 1); assert.equal(contentSignal.aborted, false);
 			await act(async () => { handle.update({ label: "Updated drafts", rows: [other, parent(true)] }); });
-			assertSameNode(target.querySelector('input[aria-label="Draft"]'), input); assert.equal(input.value, "kept draft"); assert.equal(mounted, 1);
+			assert.equal(target.querySelector('input[aria-label="Draft"]'), input); assert.equal(input.value, "kept draft"); assert.equal(mounted, 1);
 			await act(async () => { handle.update({ rows: [other, parent(false)] }); });
-			assertSameNode(target.querySelector('input[aria-label="Draft"]'), null); assert.equal(contentSignal.aborted, true);
+			assert.equal(target.querySelector('input[aria-label="Draft"]'), null); assert.equal(contentSignal.aborted, true);
 			await act(async () => { finish(() => { cleaned++; }); });
 			assert.equal(cleaned, 1);
 			await act(async () => { handle.dispose(); scope.abort(); }); assert.equal(cleaned, 1);
@@ -193,17 +192,17 @@ describe("controlled plugin UI", () => {
 			await act(async () => { root.render(<PluginUiHost store={store} />); handle = ui.mountButton(target, { label: "Run", icon, onClick() { first++; } }, { signal: scope.signal }); });
 			const button = target.querySelector("button")!, held = store.getSnapshot()[0]!.props as PluginButtonProps;
 			await act(async () => { handle.update({ label: "Settings", iconOnly: true, size: "icon-sm", disabled: true, onClick() { latest++; } }); });
-			assertSameNode(target.querySelector("button"), button); assert.equal(button.getAttribute("aria-label"), "Settings");
+			assert.equal(target.querySelector("button"), button); assert.equal(button.getAttribute("aria-label"), "Settings");
 			assert.equal(button.hasAttribute("disabled"), true); assert.equal(button.hasAttribute("title"), false, "no implicit tooltip change");
 			await act(async () => { button.dispatchEvent(new dom.window.Event("click", { bubbles: true })); });
 			assert.equal(latest, 0);
 			await act(async () => { handle.update({ icon: icon.replace("first", "second"), disabled: false }); });
-			assert.ok(button.querySelector('[data-glyph="second"]')); assertSameNode(target.querySelector("button"), button);
+			assert.ok(button.querySelector('[data-glyph="second"]')); assert.equal(target.querySelector("button"), button);
 			await act(async () => { button.dispatchEvent(new dom.window.Event("click", { bubbles: true })); });
 			assert.equal(latest, 1); assert.equal(first, 0);
 			await act(async () => { handle.update({ label: "Plain", icon: undefined, iconOnly: false, size: "default" }); });
-			assertSameNode(target.querySelector("button"), button); assert.equal(button.textContent, "Plain");
-			assertSameNode(button.querySelector("svg"), null); assert.equal(button.hasAttribute("aria-label"), false);
+			assert.equal(target.querySelector("button"), button); assert.equal(button.textContent, "Plain");
+			assert.equal(button.querySelector("svg"), null); assert.equal(button.hasAttribute("aria-label"), false);
 			await act(async () => { scope.abort(); handle.update({ iconOnly: true }); await held.onClick(); });
 			assert.equal(latest, 1); assert.equal(target.children.length, 0);
 		} finally { await act(async () => { scope.abort(); root.unmount(); }); }
@@ -291,7 +290,7 @@ describe("controlled plugin UI", () => {
 			assert.equal(document.querySelector('[role="dialog"]')?.getAttribute("aria-modal"), "true");
 			assert.ok(document.body.textContent?.includes("Plugin content")); assert.equal(signal.aborted, false);
 			await act(async () => { scope.abort(); });
-			assert.equal(signal.aborted, true); assertSameNode(document.querySelector('[role="dialog"]'), null);
+			assert.equal(signal.aborted, true); assert.equal(document.querySelector('[role="dialog"]'), null);
 			await act(async () => { resolve(() => { cleaned++; }); });
 			assert.equal(cleaned, 1);
 		} finally { await act(async () => { lifetime.abort(); root.unmount(); }); }
@@ -317,8 +316,8 @@ describe("controlled plugin UI", () => {
 			const close = frame.querySelector<HTMLElement>('button[aria-label="Close dialog"]')!;
 			assert.equal(dialog.getAttribute("aria-label"), "Accessible dialog name");
 			assert.deepEqual([...frame.querySelectorAll("h2")].map(heading => heading.textContent), ["Plugin-owned heading"]);
-			assertSameNode(document.activeElement, frame.querySelector("h2"), "plugin heading remains the initial-focus fallback");
-			assertSameNode(frame.querySelector("header"), null);
+			assert.equal(document.activeElement, frame.querySelector("h2"), "plugin heading remains the initial-focus fallback");
+			assert.equal(frame.querySelector("header"), null);
 			assert.match(frame.className, /overflow-hidden/); assert.doesNotMatch(frame.className, /overflow-y-auto|p-5/);
 			assert.match(scroller.className, /overflow-y-auto p-5/);
 			assert.equal(close.parentElement, frame); assert.equal(scroller.contains(close), false);
@@ -405,7 +404,7 @@ describe("controlled plugin UI", () => {
 						dispatch(button, "click"); dispatch(button, "click");
 					}
 				});
-				assert.equal(closed, 1); assertSameNode(document.querySelector('[role="dialog"]'), null);
+				assert.equal(closed, 1); assert.equal(document.querySelector('[role="dialog"]'), null);
 			} finally { await act(async () => { scope.abort(); root.unmount(); }); }
 		}));
 	}
@@ -439,10 +438,10 @@ describe("controlled plugin UI", () => {
 		assert.ok(!preset.classList.contains("border"));
 		for (const token of ["rounded-2xl", "border", "bg-card", "shadow-lg"]) assert.ok(frame.classList.contains(token), token);
 		assert.ok(frame.querySelector('[data-testid="composer"]'));
-		assertSameNode(frame.querySelector("[data-testid=plugin-dictation-control], [data-plugin-model-picker], [data-plugin-thinking-picker]"), null);
+		assert.equal(frame.querySelector("[data-testid=plugin-dictation-control], [data-plugin-model-picker], [data-plugin-thinking-picker]"), null);
 		for (const selector of ["[data-testid=plugin-dictation-control]", "[data-plugin-model-picker]", "[data-plugin-thinking-picker]"]) assert.ok(controls.querySelector(selector), selector);
 		for (const token of ["font-ui", "text-xs", "text-muted-foreground", "pt-2"]) assert.ok(controls.classList.contains(token), token);
-		assertSameNode(controls.querySelector('[data-testid="composer"]'), null);
+		assert.equal(controls.querySelector('[data-testid="composer"]'), null);
 		assert.ok(document.querySelector('button[aria-label="Send"]')!.hasAttribute("disabled"));
 		assert.doesNotMatch(html, /data-file-path-input|data-file-path-default|Next problem|Usage/);
 	});

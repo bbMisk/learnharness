@@ -1,6 +1,5 @@
 import React, { act } from "react";
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { readFileSync } from "node:fs";
 import { afterEach, test } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -123,14 +122,14 @@ for (const imageOnly of [false, true]) test(`${imageOnly ? "image-only" : "text 
 		assert.equal(row.querySelector(".whitespace-pre-wrap")?.textContent ?? "", answer[channel] ?? "");
 	}
 	assert.equal(document.querySelectorAll("img").length, 4);
-	assertSameNode(document.querySelector(`img[src="${imageSrc(images.answer[0]!)}"]`), null, "answer images remain Part-owned outside the answered card");
+	assert.equal(document.querySelector(`img[src="${imageSrc(images.answer[0]!)}"]`), null, "answer images remain Part-owned outside the answered card");
 	assert.deepEqual(answer, before);
 });
 
 test("empty image arrays do not invent absent thinking channels", () => {
 	const document = ssr({ ...savedAnswer(), images: { readingThinking: [], thinking: [], answer: [] } });
-	assertSameNode(document.querySelector('[data-testid="reading-thinking-block"]'), null);
-	assertSameNode(document.querySelector('[data-testid="your-thinking"]'), null);
+	assert.equal(document.querySelector('[data-testid="reading-thinking-block"]'), null);
+	assert.equal(document.querySelector('[data-testid="your-thinking"]'), null);
 });
 
 test("custom answered code owns only its slot; native thinking and images remain host-owned", async () => {
@@ -153,9 +152,9 @@ test("custom answered code owns only its slot; native thinking and images remain
 	const card = document.querySelector('[data-testid="plugin-question-answered"]')!;
 	assert.ok(card.contains(slot));
 	assert.equal(slot.querySelector("code")?.textContent, code);
-	assertSameNode(slot.querySelector('[data-testid="reading-thinking-block"]'), null);
-	assertSameNode(slot.querySelector('[data-testid="your-thinking"]'), null);
-	assertSameNode(slot.querySelector("img"), null);
+	assert.equal(slot.querySelector('[data-testid="reading-thinking-block"]'), null);
+	assert.equal(slot.querySelector('[data-testid="your-thinking"]'), null);
+	assert.equal(slot.querySelector("img"), null);
 	for (const key of ["thinking", "readingThinking", "images"]) assert.equal(contextKeys.includes(key), false, `${key} is host-owned, not plugin answered-slot context`);
 	await expandAnswer(document);
 	assert.equal(document.querySelectorAll("img").length, 2);

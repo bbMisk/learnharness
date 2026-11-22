@@ -391,7 +391,7 @@ it("an older Settings failure cannot add a stale error after a newer accepted sa
 	await act(async () => second.resolve(Response.json({ settings: { version: 1, appearance: { proseFontSize: 20 } } })));
 	await act(async () => first.resolve(Response.json({ error: "Old save failed" }, { status: 400 })));
 	assert.equal(input.value, "20");
-	assertSameNode(document.querySelector('[data-testid="settings-error"]'), null);
+	assert.equal(document.querySelector('[data-testid="settings-error"]'), null);
 }));
 
 it("Settings ACK authority survives close/reopen and protects the live appearance", async () => fixture(async f => {

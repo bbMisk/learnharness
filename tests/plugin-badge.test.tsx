@@ -1,7 +1,6 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { it } from "node:test";
 import { parseHTML } from "linkedom";
 import { createRoot } from "react-dom/client";
@@ -49,11 +48,11 @@ it("mountBadge renders plugin-owned plain text through the shared native compone
 	assert.equal(badge.style.color, "#123456");
 	assert.equal(badge.style.backgroundColor, "color-mix(in oklab, #123456 15%, transparent)");
 	assert.equal(badge.hasAttribute("role"), false); assert.equal(badge.hasAttribute("aria-live"), false);
-	assertSameNode(f.target.querySelector("button"), null, "badges are not controls");
+	assert.equal(f.target.querySelector("button"), null, "badges are not controls");
 	assert.ok(badge.classList.contains("rounded")); assert.ok(badge.classList.contains("text-xs"));
 	await act(async () => { handle.update({ text: '<img src=x onerror="alert(1)">', color: "var(--plugin-accent)" }); });
 	assert.ok(f.target.querySelector('[data-slot="status-badge"]') === badge);
-	assert.equal(badge.textContent, '<img src=x onerror="alert(1)">'); assertSameNode(badge.querySelector("img"), null);
+	assert.equal(badge.textContent, '<img src=x onerror="alert(1)">'); assert.equal(badge.querySelector("img"), null);
 	assert.equal(badge.style.color, "var(--plugin-accent)");
 	assert.equal(badge.style.backgroundColor, "color-mix(in oklab, var(--plugin-accent) 15%, transparent)");
 	await act(async () => { handle.update({ color: undefined }); });

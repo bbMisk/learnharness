@@ -1,6 +1,5 @@
 import React, { act } from "react";
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { after, test, type TestContext } from "node:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -248,7 +247,7 @@ test("native row displays standalone metadata, has no session link, and END uses
 		assert.match(document.body.textContent!, /Panel fixture · registered-worker/);
 		const detail = document.querySelector("button[aria-expanded]")!;
 		await act(async () => { detail.dispatchEvent(new window.Event("click", { bubbles: true })); });
-		assertSameNode(document.querySelector("a[href^='/chat/']"), null);
+		assert.equal(document.querySelector("a[href^='/chat/']"), null);
 		assert.match(document.body.textContent!, /offline-fixture:held/);
 		assert.match(document.body.textContent!, /Context—/);
 		await act(async () => { document.querySelector("[data-testid='activity-abort']")!.dispatchEvent(new window.Event("click", { bubbles: true })); });
@@ -283,7 +282,7 @@ test("ActivityProvider refreshes worker rows from activity-changed without polli
 		assert.equal(fetches, 1, "no standing activity poll");
 		await act(async () => { f.service.cancel(task.id); t.mock.timers.tick(250); });
 		assert.equal(fetches, 2, "worker event schedules the existing refresh");
-		assertSameNode(document.querySelector("[data-testid='activity-blob-plugin-worker']"), null);
+		assert.equal(document.querySelector("[data-testid='activity-blob-plugin-worker']"), null);
 	} finally {
 		forward(); await act(async () => root.unmount()); t.mock.timers.reset(); globalThis.fetch = oldFetch;
 		for (const [key, descriptor] of saved) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); }

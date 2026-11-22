@@ -1,6 +1,5 @@
 import React, { act } from "react";
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, it } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
@@ -91,18 +90,18 @@ it("a covered Settings recorder ignores child keys/Escape, and resumes receiving
 	}
 	await f.render(<Harness />); await arm(); assert.equal(isArmed(), true);
 	await act(async () => openChild());
-	assertSameNode(document.activeElement, byTest("child-heading"));
+	assert.equal(document.activeElement, byTest("child-heading"));
 	// Escape is the first event after coverage: the original regression
 	// consumed it during window capture and stranded the child dialog.
 	const escape = await f.key("Escape");
 	assert.equal(escape.defaultPrevented, true); assert.equal(childCloses, 1); assert.equal(parentCloses, 0);
-	assertSameNode(document.querySelector("[data-testid='child-heading']"), null);
+	assert.equal(document.querySelector("[data-testid='child-heading']"), null);
 	assert.equal(isArmed(), true, "child Escape must not cancel the covered recorder");
 	await act(async () => openChild());
 	await f.key("k"); assert.deepEqual(loadOverrides(), {}); assert.equal(isArmed(), true);
 	const childTab = await f.key("Tab");
 	assert.equal(childTab.defaultPrevented, true); assert.deepEqual(loadOverrides(), {});
-	assert.equal(isArmed(), true); assertSameNode(document.activeElement, byTest("child-heading"));
+	assert.equal(isArmed(), true); assert.equal(document.activeElement, byTest("child-heading"));
 	await f.key("Escape"); assert.equal(childCloses, 2); assert.equal(parentCloses, 0);
 	assert.equal(isArmed(), true);
 	const tab = await f.key("Tab");

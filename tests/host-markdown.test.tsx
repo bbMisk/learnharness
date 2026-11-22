@@ -1,7 +1,6 @@
 import React, { act, type ReactNode } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { it } from "node:test";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -22,8 +21,8 @@ import { installModalDom } from "./modal-dom.ts";
 
 const source = "## Heading **ink**\n\nFirst line\nsecond line with `inline` and *emphasis*.\n\n> [!IMPORTANT]\n> Preserve this idea.\n\n| A | B |\n| --- | --- |\n| one | two |\n\n$x^2$ and \\(y^2\\).\n\n$$\n\\int_0^1 x^2\\,dx = \\tfrac13\n$$\n\n```js startLine=4\nconst answer = 42;\n```\n\n![Alt text](https://example.invalid/image.png \"Image title\")\n\n[Ordinary link](https://example.invalid/page)";
 const noControls = (container: ParentNode) => {
-	assertSameNode(container.querySelector("button, details, summary, input, select, textarea, [role='button'], [data-streamdown='link-safety-modal']"), null, "display-only means controls never mount, not CSS-hidden controls");
-	assertSameNode(container.querySelector("[data-testid='md-copy'], [data-testid='md-mermaid-expand'], [data-plugin-renderer], [data-streamdown='code-block-actions']"), null);
+	assert.equal(container.querySelector("button, details, summary, input, select, textarea, [role='button'], [data-streamdown='link-safety-modal']"), null, "display-only means controls never mount, not CSS-hidden controls");
+	assert.equal(container.querySelector("[data-testid='md-copy'], [data-testid='md-mermaid-expand'], [data-plugin-renderer], [data-streamdown='code-block-actions']"), null);
 };
 function deferred<T>() {
 	let resolve!: (value: T) => void;
@@ -86,10 +85,10 @@ it("SSRs the real host message pipeline with prose, math, code, callouts, tables
 	assert.equal(doc.querySelector("[data-streamdown='inline-code']")?.textContent, "inline");
 	assert.equal(doc.querySelector("[data-testid='md-callout']")?.getAttribute("data-alert-kind"), "important");
 	assert.ok(!doc.body.textContent?.includes("[!IMPORTANT]")); assert.equal(doc.querySelectorAll("table td").length, 2);
-	assert.equal(doc.querySelectorAll(".katex").length, 3); assert.ok(doc.querySelector(".katex-display")); assertSameNode(doc.querySelector(".katex-error"), null);
+	assert.equal(doc.querySelectorAll(".katex").length, 3); assert.ok(doc.querySelector(".katex-display")); assert.equal(doc.querySelector(".katex-error"), null);
 	const block = doc.querySelector("[data-streamdown='code-block-body']")!;
 	assert.ok(block.textContent?.includes("const answer = 42;")); assert.match(block.innerHTML, /counter-reset:line 3/);
-	assertSameNode(doc.querySelector("img, link[rel='preload'][as='image']"), null);
+	assert.equal(doc.querySelector("img, link[rel='preload'][as='image']"), null);
 	assert.ok(doc.body.textContent?.includes("[Image blocked: Alt text]"));
 	assert.ok(!html.includes("https://example.invalid/image.png"));
 	const link = doc.querySelector("a")!; assert.equal(link.getAttribute("href"), "https://example.invalid/page");
@@ -102,8 +101,8 @@ it("shares raw-HTML sanitization and URL hardening with MessageResponse, rather 
 	const render = (node: ReactNode) => parseHTML(`<html><body>${renderToStaticMarkup(node)}</body></html>`).document;
 	const host = render(<HostMarkdown text={text} />), transcript = render(<MessageResponse mode="static" controls={false} linkSafety={{ enabled: false }}>{text}</MessageResponse>);
 	for (const doc of [host, transcript]) {
-		assertSameNode(doc.querySelector("script, iframe, [onerror], [onclick]"), null);
-		assertSameNode(doc.querySelector("[src^='javascript:'], [href^='javascript:']"), null);
+		assert.equal(doc.querySelector("script, iframe, [onerror], [onclick]"), null);
+		assert.equal(doc.querySelector("[src^='javascript:'], [href^='javascript:']"), null);
 		assert.ok(doc.body.textContent?.includes("Safe HTML."));
 	}
 	assert.equal(host.body.textContent, transcript.body.textContent);
@@ -122,7 +121,7 @@ it("keeps invalid Mermaid heading/message and source visible with no disclosure 
 	const html = renderToStaticMarkup(<MermaidError displayOnly chart={"invalid <chart>\nA --> B"} error="Parse error on line 1" retry={() => assert.fail("static errors never retry")} />);
 	const doc = parseHTML(`<html><body>${html}</body></html>`).document;
 	assert.ok(doc.body.textContent?.includes("Diagram failed to render")); assert.ok(doc.body.textContent?.includes("Parse error on line 1"));
-	assert.equal(doc.querySelector("pre")?.textContent, "invalid <chart>\nA --> B"); assertSameNode(doc.querySelector("chart"), null);
+	assert.equal(doc.querySelector("pre")?.textContent, "invalid <chart>\nA --> B"); assert.equal(doc.querySelector("chart"), null);
 	noControls(doc);
 	const interactive = renderToStaticMarkup(<MermaidError chart="broken" error="bad" retry={() => {}} />);
 	assert.match(interactive, /<details/); assert.match(interactive, /Show diagram source/); assert.match(interactive, />Retry</);
@@ -133,10 +132,10 @@ it("blocks remote, same-origin and relative Markdown images before mounting any 
 	try {
 		for (const url of ["https://example.invalid/one.png", "http://localhost/image.png", "/image.png", "./image.png", "//example.invalid/image.png"]) {
 			await f.render(<HostMarkdown text={`![Markdown](${url})\n\n<img src="${url}" alt="Dimensioned" width="80" height="60">`} />);
-			assertSameNode(document.querySelector("img, link[rel='preload'][as='image']"), null, url);
+			assert.equal(document.querySelector("img, link[rel='preload'][as='image']"), null, url);
 			assert.ok(document.body.textContent?.includes("[Image blocked: Markdown]"), url);
 			assert.ok(document.body.textContent?.includes("[Image blocked: Dimensioned]"), url);
-			assertSameNode(document.querySelector("[data-streamdown='image-fallback']"), null);
+			assert.equal(document.querySelector("[data-streamdown='image-fallback']"), null);
 			noControls(document);
 		}
 	} finally { await f.close(); }
@@ -150,7 +149,7 @@ it("ordinary links keep native click behavior without mounting confirmation UI",
 		const click = new window.Event("click", { bubbles: true, cancelable: true });
 		await act(async () => link.dispatchEvent(click));
 		assert.equal(click.defaultPrevented, false, "the static renderer does not take over link navigation");
-		assertSameNode(document.querySelector("[role='dialog'], [data-streamdown='link-safety-modal']"), null);
+		assert.equal(document.querySelector("[role='dialog'], [data-streamdown='link-safety-modal']"), null);
 		noControls(document);
 	} finally { await f.close(); }
 });

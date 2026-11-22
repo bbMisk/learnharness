@@ -1,7 +1,6 @@
 import React, { act } from "react";
 (globalThis as { React?: typeof React }).React = React;
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createRoot } from "react-dom/client";
@@ -377,7 +376,7 @@ describe("probe conclusion Markdown", () => {
 			await act(async () => root.render(<ProbeDoneCard part={{ state: "output-available", input: { assessment: {
 				strands: [...input.assessment.strands, { strand: "Second $x$", assessment: "Second assessment" }],
 			} }, output: { ok: true } }} />));
-			assertSameNode(host.querySelector("details"), card);
+			assert.equal(host.querySelector("details"), card);
 			assert.ok(card.hasAttribute("open"));
 			assert.ok(card.querySelector("summary")?.textContent.includes("2 strands"));
 			assert.ok(card.textContent.includes("Second assessment"));

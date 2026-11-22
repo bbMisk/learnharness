@@ -226,8 +226,8 @@ test("Disconnect is the quiet red left-footer action below identity; confirmatio
  assert.deepEqual(CHATGPT_DISCONNECT_COPY, { title: "Disconnect account?", body: "This removes the saved account and its credentials from this device." });
  const f = fixture(connected()); await mount(); await click(button("Manage…"));
  assert.equal(byTest("chatgpt-account-actions").textContent, "Disconnect"); assert.match(byTest("chatgpt-disconnect").className, /text-error/);
- assertSameNode(byTest("chatgpt-account-footer").firstElementChild, byTest("chatgpt-account-actions"));
- assertSameNode(byTest("chatgpt-account-footer").lastElementChild?.lastElementChild, button("Close"));
+ assert.equal(byTest("chatgpt-account-footer").firstElementChild, byTest("chatgpt-account-actions"));
+ assert.equal(byTest("chatgpt-account-footer").lastElementChild?.lastElementChild, button("Close"));
  assert(!byTest("chatgpt-account-footer").contains(byTest("chatgpt-add-accounts")));
  await click(byTest("chatgpt-disconnect")); assert.equal(f.calls.disconnect.length, 0);
  assert.equal(byTest("chatgpt-account-dialog").querySelector("h2")?.textContent, "ChatGPT");
@@ -244,7 +244,7 @@ for (const count of [1, 3]) test(`Add accounts reuses the actual add flow with $
  const f = fixture(initial); const before = structuredClone(initial); await mount(); await click(button("Manage…"));
  assert.deepEqual([...byTest("chatgpt-account-footer").querySelectorAll("button")].map((b) => b.textContent), ["Disconnect", "Close"]);
  assert.equal(byTest("chatgpt-add-accounts").getAttribute("data-variant"), "ghost");
- assertSameNode(byTest("chatgpt-add-accounts").parentElement, byTest("chatgpt-account-strip"));
+ assert.equal(byTest("chatgpt-add-accounts").parentElement, byTest("chatgpt-account-strip"));
  assert.match(byTest("chatgpt-add-accounts").className, /cursor-pointer/);
  await click(byTest("chatgpt-add-accounts"));
  assert(byTest("chatgpt-privacy-notice").textContent?.includes(CHATGPT_NOTICE)); assert(byTest("chatgpt-proceed"));
@@ -553,7 +553,7 @@ for (const holdSave of [false, true]) test(`real main/control bridge: immediate 
    assert.equal(status.allowBackgroundUse, false); assert.equal(status.accounts[0]!.connected, true);
   });
   assert.equal(tokenCalls, 1); assert.equal(saved.allowBackgroundUse, false); assert.equal(saved.registrations[0].background, undefined);
-  assertSameNode(document.querySelector('[role="alert"]'), null);
+  assert.equal(document.querySelector('[role="alert"]'), null);
   assert(!document.querySelector('[data-testid="chatgpt-account-dialog"]')); assert(button("Manage…"));
  } finally { releaseSave.resolve(); await act(async () => service.close()); }
 });

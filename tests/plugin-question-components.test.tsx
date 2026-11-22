@@ -1,6 +1,5 @@
 import React, { act, useRef, useState } from "react";
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, test } from "node:test";
 import { parseHTML } from "linkedom";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime.js";
@@ -107,7 +106,7 @@ test("missing renderer keeps safe public fallback, thinking drafts and dismiss; 
 
 test("new mounts wait for canonical readiness; a current generation survives reconciliation without remounting", async () => {
 	const f = await fixture({ ready: false }); assert.equal(f.state.mounts, 0);
-	assertSameNode(document.querySelector('[role="status"]'), null, "canonical readiness is not a renderer failure");
+	assert.equal(document.querySelector('[role="status"]'), null, "canonical readiness is not a renderer failure");
 	assert.equal(Array.from(document.querySelectorAll("button")).some(button => button.textContent === "Dismiss question"), false);
 	f.state.ready = true; await f.render(); assert.equal(f.state.mounts, 1);
 	f.state.ready = false; await f.render(); assert.equal(f.state.mounts, 1); assert.equal(f.state.updates.at(-1), false);
@@ -126,7 +125,7 @@ test("canonical unknown availability is preparing or read-only failure, never re
 	f.state.reconciliation = "failed"; await f.render();
 	assert.match(document.body.textContent ?? "", /Public question/);
 	assert.doesNotMatch(document.body.textContent ?? "", /Preparing question|Question unavailable|Dismiss question|Retry|PRIVATE_/);
-	assertSameNode(document.querySelector('[role="status"]'), null, "canonical failure is explained by the parent Retry banner only");
+	assert.equal(document.querySelector('[role="status"]'), null, "canonical failure is explained by the parent Retry banner only");
 	f.state.reconciliation = "ready"; f.state.ready = false; await f.render();
 	assert.match(document.body.textContent ?? "", /Question unavailable/);
 	const dismiss = Array.from(document.querySelectorAll("button")).find(button => button.textContent === "Dismiss question");
@@ -221,7 +220,7 @@ for (const hook of ["absent", "pass"] as const) for (const field of ["thinking",
 	try { escape = await pressQuestionKey("Escape"); } finally { window.removeEventListener("lh:kbd-abort-turn", onAbort); }
 	assert.equal(escape.defaultPrevented, true); assert.equal(pluginQuestionKeySuppressed(escape), true);
 	assert.equal(aborts, 0); assert.equal(f.state.sent.length, 0);
-	assertSameNode(document.activeElement, next, "one Escape leaves the plugin without an intermediate unfocused state when a local host field exists");
+	assert.equal(document.activeElement, next, "one Escape leaves the plugin without an intermediate unfocused state when a local host field exists");
 	assert.deepEqual(calls, hook === "pass" ? ["Escape"] : []);
 	if (field !== "none") Object.defineProperty(next, "isContentEditable", { configurable: true, value: true });
 	await pressQuestionKey("Enter");
@@ -229,7 +228,7 @@ for (const hook of ["absent", "pass"] as const) for (const field of ["thinking",
 	if (field === "reading") { await pressQuestionKey("Enter", { ctrlKey: true }); assert.equal(f.state.sent.length, 1, "the reserved host chord still submits from reading"); }
 	assert.deepEqual(calls, hook === "pass" ? ["Escape"] : []);
 	if (field === "none") {
-		await pressQuestionKey("Tab"); assertSameNode(document.activeElement, editor, "Tab re-enters the existing local editor chain");
+		await pressQuestionKey("Tab"); assert.equal(document.activeElement, editor, "Tab re-enters the existing local editor chain");
 	}
 });
 
@@ -237,7 +236,7 @@ test("Escape chooses Your thinking before reading in the existing local chain", 
 	const f = await fixture({ thinking: true, check: true });
 	f.state.reveal = false; f.state.expanded = true; await f.render();
 	document.getElementById("plugin-editor")!.focus(); await pressQuestionKey("Escape");
-	assertSameNode(document.activeElement, document.querySelector('[data-testid="thinking-field"] [data-file-path-input]'));
+	assert.equal(document.activeElement, document.querySelector('[data-testid="thinking-field"] [data-file-path-input]'));
 	assert.equal(f.state.sent.length, 0);
 });
 
@@ -248,7 +247,7 @@ test("an editor-claimed Escape keeps focus and performs no host navigation or su
 	for (const key of ["Escape", "Tab"]) {
 		const event = await pressQuestionKey(key);
 		assert.equal(event.defaultPrevented, true); assert.equal(pluginQuestionKeySuppressed(event), true);
-		assertSameNode(document.activeElement, editor); assert.equal(f.state.sent.length, 0);
+		assert.equal(document.activeElement, editor); assert.equal(f.state.sent.length, 0);
 	}
 	assert.deepEqual(calls, ["Escape", "Tab"]);
 });
@@ -259,7 +258,7 @@ test("editor Escape ignores modifiers and IME/229, inactive and hidden docks, an
 	const editor = document.getElementById("plugin-editor")!; editor.focus();
 	const untouched = async (extra = {}) => {
 		const event = await pressQuestionKey("Escape", extra);
-		assert.equal(event.defaultPrevented, false); assertSameNode(document.activeElement, editor);
+		assert.equal(event.defaultPrevented, false); assert.equal(document.activeElement, editor);
 		assert.equal(f.state.sent.length, 0); assert.deepEqual(calls, []);
 	};
 	for (const extra of [{ shiftKey: true }, { ctrlKey: true }, { metaKey: true }, { altKey: true }, { isComposing: true }, { keyCode: 229 }]) await untouched(extra);
@@ -273,7 +272,7 @@ test("editor Escape ignores modifiers and IME/229, inactive and hidden docks, an
 	const modal = document.createElement("div"); modal.setAttribute("role", "dialog"); document.body.append(modal);
 	await untouched(); modal.remove();
 	await pressQuestionKey("Escape"); assert.deepEqual(calls, ["Escape"]);
-	assertSameNode(document.activeElement, document.querySelector('[data-testid="thinking-field"] [data-file-path-input]'));
+	assert.equal(document.activeElement, document.querySelector('[data-testid="thinking-field"] [data-file-path-input]'));
 });
 
 test("the same editor Escape claim suppresses the snapshotted layer close as well as the global fallback", async () => {
@@ -292,7 +291,7 @@ test("the same editor Escape claim suppresses the snapshotted layer close as wel
 		});
 		assert.equal(event.defaultPrevented, true); assert.equal(pluginQuestionKeySuppressed(event), true);
 		assert.equal(closes, 0); assert.equal(aborts, 0); assert.equal(f.state.sent.length, 0);
-		assertSameNode(document.activeElement, document.querySelector('[data-testid="thinking-field"] [data-file-path-input]'));
+		assert.equal(document.activeElement, document.querySelector('[data-testid="thinking-field"] [data-file-path-input]'));
 	} finally { remove(); window.removeEventListener("lh:kbd-abort-turn", onAbort); }
 });
 
@@ -302,12 +301,12 @@ test("a pending unadopted editor cannot claim Escape or move focus", async () =>
 	const editor = document.getElementById("plugin-editor")!; editor.focus();
 	const event = await pressQuestionKey("Escape");
 	assert.equal(event.defaultPrevented, false); assert.equal(pluginQuestionKeySuppressed(event), false);
-	assertSameNode(document.activeElement, editor); assert.deepEqual(calls, []);
+	assert.equal(document.activeElement, editor); assert.deepEqual(calls, []);
 });
 
 test("folding/canonical replacement preserve editor generation, active updates and ready-state drafts", async () => {
 	const f = await fixture(); assert.equal(f.state.mounts, 1); assert.equal(f.state.mic, false);
-	assertSameNode(document.querySelector('[data-testid="thinking-field"]'), null);
+	assert.equal(document.querySelector('[data-testid="thinking-field"]'), null);
 	assert.equal(Array.from(document.querySelectorAll("button")).some(button => button.textContent === "Dismiss question"), false, "healthy no-thinking questions have no dismissal action either");
 	f.state.expanded = false; await f.render(); assert.equal(f.state.updates.at(-1), false); await f.commandSubmit(); assert.equal(f.state.sent.length, 0);
 	f.state.snapshot = structuredClone(f.state.snapshot); f.state.expanded = true; await f.render();
@@ -543,7 +542,7 @@ test("framed PathInput preserves the thinking ref, typed draft and native editin
 		document.getElementById("plugin-editor")!.focus();
 		capturePluginQuestionKey({ key: "Tab", target: document.getElementById("plugin-editor"), preventDefault() {} } as unknown as KeyboardEvent);
 	});
-	assertSameNode(document.activeElement, input, "host Tab still reaches the thinking ref through its frame");
+	assert.equal(document.activeElement, input, "host Tab still reaches the thinking ref through its frame");
 	await act(async () => { input.textContent = "  typed thinking\nwith spaces  "; input.dispatchEvent(new window.Event("input", { bubbles: true })); });
 	assert.equal(f.draft.thinking, "  typed thinking\nwith spaces  ");
 	for (const extra of [{ shiftKey: true }, { altKey: true }, { ctrlKey: true, isComposing: true }, { ctrlKey: true, keyCode: 229 }]) {
@@ -577,7 +576,7 @@ for (const failure of ["backend", "missing", "editor", "presentation"] as const)
 		return { update() {}, focus() { editor.focus(); }, dispose() {} };
 	} } });
 	await f.render();
-	assertSameNode(document.querySelector('[role="status"]'), null);
+	assert.equal(document.querySelector('[role="status"]'), null);
 	assert.match(document.body.textContent ?? "", /Recovered question/);
 	assert.equal(Array.from(document.querySelectorAll("button")).some(button => button.textContent === "Dismiss question"), false);
 	assert.equal(document.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled, false);

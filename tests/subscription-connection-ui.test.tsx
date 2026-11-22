@@ -1,7 +1,6 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, test } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -60,7 +59,7 @@ for (const [id, label] of [["github-copilot", "GitHub Copilot"], ["xai", "Grok"]
 	const f = fixture(); await mount(); await click(button("Connect", row(id)));
 	assert.equal(dialog().querySelector("h2")?.textContent, label);
 	assert(dialog().querySelector('[data-testid="subscription-privacy-notice"]')); assert(!toggle());
-	assertSameNode(!!dialog().querySelector('[data-testid="copilot-policy-notice"]'), id === "github-copilot");
+	assert.equal(!!dialog().querySelector('[data-testid="copilot-policy-notice"]'), id === "github-copilot");
 	if (id === "github-copilot") assert(dialog().textContent?.includes(COPILOT_POLICY_NOTICE));
 	assert(!maybeButton("Connect", dialog())); assert.deepEqual(f.calls.login, []); assert.deepEqual(f.calls.consent, []);
 	await click(button("Continue", dialog()));
@@ -83,7 +82,7 @@ for (const phase of ["notice", "connection"] as const) test(`cancelling the nati
 test("native step transition uses the heading rather than an action as default focus", async () => {
 	const original = HTMLElement.prototype.focus, focused: HTMLElement[] = [];
 	HTMLElement.prototype.focus = function () { focused.push(this); };
-	try { fixture(); await mount(); await connectionStep("xai"); assertSameNode(focused.at(-1), dialog().querySelector("h2")); }
+	try { fixture(); await mount(); await connectionStep("xai"); assert.equal(focused.at(-1), dialog().querySelector("h2")); }
 	finally { HTMLElement.prototype.focus = original; }
 });
 test("healthy management has only controls, quiet Manage, destructive action left and Close right", async () => {
@@ -93,8 +92,8 @@ test("healthy management has only controls, quiet Manage, destructive action lef
 	assert.equal(dialog().querySelector("h2")?.textContent, "Grok");
 	assert(!dialog().querySelector("select")); assert(!dialog().textContent?.includes("Add accounts"));
 	assert(!dialog().querySelector('[data-testid="subscription-privacy-notice"]')); assert(!maybeButton("Reconnect", dialog())); assert(!maybeButton("Sign in again", dialog()));
-	assertSameNode(footer().firstElementChild, button("Disconnect", dialog())); assert.match(button("Disconnect", dialog()).className, /text-error/);
-	assertSameNode(footer().lastElementChild?.lastElementChild, button("Close", dialog()));
+	assert.equal(footer().firstElementChild, button("Disconnect", dialog())); assert.match(button("Disconnect", dialog()).className, /text-error/);
+	assert.equal(footer().lastElementChild?.lastElementChild, button("Close", dialog()));
 	await click(toggle()); assert.deepEqual(f.calls.consent, [["xai", false]]); assert.equal(f.statuses.find((s) => s.providerId === "github-copilot")!.allowBackgroundUse, true);
 	await click(button("Disconnect", dialog())); assert.equal(f.calls.disconnect.length, 0);
 	assert.equal(dialog().querySelector("h2")?.textContent, "Grok"); assert(dialog().textContent?.includes("does not cancel your subscription or revoke access"));

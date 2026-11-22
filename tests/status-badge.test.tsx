@@ -2,7 +2,6 @@ import React from "react";
 (globalThis as Record<string, unknown>).React = React;
 
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { readFileSync } from "node:fs";
 import { it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -106,7 +105,7 @@ for (const kind of ["ask", "explain"] as const) {
 	it(`AnsweredCard keeps ${kind} answers free of verdict badges`, () => {
 		const answer = buildAnswer(question(kind), { text: "An answer", values: ["a"] });
 		const { document } = parseHTML(renderToStaticMarkup(<AnsweredCard answer={answer} />));
-		assertSameNode(document.querySelector(badgeSelector), null);
+		assert.equal(document.querySelector(badgeSelector), null);
 	});
 }
 
@@ -114,7 +113,7 @@ it("AnsweredCard keeps dismissed questions as a skipped line without a badge", (
 	const answer = { ...buildAnswer(question(), { dontKnow: true }), dismissed: true };
 	const html = renderToStaticMarkup(<AnsweredCard answer={answer} />);
 	assert.match(html, /skipped/);
-	assertSameNode(parseHTML(html).document.querySelector(badgeSelector), null);
+	assert.equal(parseHTML(html).document.querySelector(badgeSelector), null);
 });
 
 function conclude(outcome?: string) {
@@ -146,12 +145,12 @@ for (const [outcome, label, color] of [
 it("ConcludeCard preserves dismissal as one muted line without badge, verdict or reveal", () => {
 	const html = conclude("dismissed");
 	assert.match(html, /Problem dismissed\./);
-	assertSameNode(parseHTML(html).document.querySelector(badgeSelector), null);
+	assert.equal(parseHTML(html).document.querySelector(badgeSelector), null);
 	assert.doesNotMatch(html, /Verdict fixture|Reveal fixture|Concluded/);
 });
 
 it("ConcludeCard keeps absent and unknown outcomes free of badges", () => {
 	for (const outcome of [undefined, "unknown"]) {
-		assertSameNode(parseHTML(conclude(outcome)).document.querySelector(badgeSelector), null);
+		assert.equal(parseHTML(conclude(outcome)).document.querySelector(badgeSelector), null);
 	}
 });

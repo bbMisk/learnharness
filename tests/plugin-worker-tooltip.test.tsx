@@ -1,7 +1,6 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { it, mock } from "node:test";
 import { createRoot } from "react-dom/client";
 import { parseHTML } from "linkedom";
@@ -83,12 +82,12 @@ for (const presentation of ["collapsed", "card", "plain"] as const) {
 			assert.equal(header.getAttribute("data-slot"), "tooltip-trigger");
 			assert.equal(header.getAttribute("title"), null);
 			assert.equal(header.getAttribute("tabindex"), null);
-			assertSameNode(document.querySelector("button"), null);
+			assert.equal(document.querySelector("button"), null);
 			if (presentation === "collapsed") assert.equal(document.querySelector("details")?.firstElementChild, header);
-			assertSameNode(document.querySelector('[role="tooltip"]'), null);
+			assert.equal(document.querySelector('[role="tooltip"]'), null);
 			await f.pointer(header, "pointermove");
 			await f.advance(TOOLTIP_DELAY_MS - 1);
-			assertSameNode(document.querySelector('[role="tooltip"]'), null, "normal application hover delay is preserved");
+			assert.equal(document.querySelector('[role="tooltip"]'), null, "normal application hover delay is preserved");
 			await f.advance(1);
 			const tooltip = document.querySelector('[role="tooltip"][data-slot="tooltip-content"]')!;
 			assert.ok(tooltip, "outcome is exposed in actual styled tooltip DOM, not only a title attribute");
@@ -97,7 +96,7 @@ for (const presentation of ["collapsed", "card", "plain"] as const) {
 			assert.equal(header.querySelector(".sr-only")?.textContent, ` ${status}`);
 			if (presentation === "collapsed") assert.equal(document.querySelector("details")?.firstElementChild, header);
 			await f.pointer(header, "pointerout");
-			assertSameNode(document.querySelector('[role="tooltip"]'), null);
+			assert.equal(document.querySelector('[role="tooltip"]'), null);
 		}
 	}));
 }

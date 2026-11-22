@@ -1,6 +1,5 @@
 import React, { act } from "react";
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, test } from "node:test";
 import { parseHTML } from "linkedom";
 import { PluginProblemDockContent } from "../components/plugin-problem-dock.tsx";
@@ -167,7 +166,7 @@ test("collapse and busy reconciliation preserve the current editor generation an
 test("missing/disabled renderer leaves the plugin problem unavailable with no native editor fallback", async () => {
   const f = await fixture({ missing: true });
   assert.match(document.body.textContent ?? "", /Problem unavailable/); assert.doesNotMatch(document.body.textContent ?? "", /PRIVATE_SOLUTION/);
-  assertSameNode(document.querySelector("#code-editor"), null); assert.ok(document.querySelector('[data-testid="practice-send"]')?.hasAttribute("disabled"));
+  assert.equal(document.querySelector("#code-editor"), null); assert.ok(document.querySelector('[data-testid="practice-send"]')?.hasAttribute("disabled"));
   await f.submit(); assert.equal(f.state.inputs.length, 0); assert.equal(f.draft.thinking, "original thinking");
 });
 
@@ -182,7 +181,7 @@ test("late renderer publications cannot mutate a revoked generation's draft", as
 test("unhandled editor Escape moves directly to thinking without submitting or discarding", async () => {
   const f = await fixture(); const textarea = document.querySelector("#code-editor") as HTMLElement; textarea.focus(); let claimed = false;
   await act(async () => { capturePluginQuestionKey({ key: "Escape", target: textarea, preventDefault() { claimed = true; } } as unknown as KeyboardEvent); });
-  assert.equal(claimed, true); assertSameNode(document.activeElement, document.querySelector('[data-testid="practice-thinking-field"] [data-file-path-input]'));
+  assert.equal(claimed, true); assert.equal(document.activeElement, document.querySelector('[data-testid="practice-thinking-field"] [data-file-path-input]'));
   assert.equal(f.state.inputs.length, 0); assert.equal(f.draft.thinking, "original thinking");
 });
 

@@ -1,6 +1,5 @@
 import React, { act, useState } from "react";
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { test } from "node:test";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -20,8 +19,8 @@ test("raster images reuse the figure viewport without SVG markup, white backing 
 	assert.equal(overlay.getAttribute("aria-label"), "Image focus");
 	assert.equal(overlay.querySelector("img")?.getAttribute("src"), source);
 	assert.equal(overlay.querySelector("img")?.getAttribute("draggable"), "false");
-	assertSameNode(overlay.querySelector("svg image"), null);
-	assertSameNode(overlay.querySelector("[data-lh-overlay-chart]"), null);
+	assert.equal(overlay.querySelector("svg image"), null);
+	assert.equal(overlay.querySelector("[data-lh-overlay-chart]"), null);
 	assert.ok(overlay.querySelector('[aria-label="Zoom in"]'));
 	assert.ok(overlay.querySelector('[aria-label="Fit image to view"]'));
 	assert.doesNotMatch(html, /filter:invert|bg-white/);
@@ -50,8 +49,8 @@ test("clicking a thumbnail opens the same accepted bytes in the shared viewer an
 		const expanded = document.querySelector('[data-testid="mermaid-overlay"] img')!;
 		assert.equal(expanded.getAttribute("src"), thumbnail.getAttribute("src"));
 		await act(async () => { document.querySelector('[data-testid="mermaid-overlay-close"]')!.dispatchEvent(new dom.window.Event("click", { bubbles: true })); });
-		assertSameNode(document.querySelector('[data-testid="mermaid-overlay"]'), null);
-		assertSameNode(document.querySelector('[data-testid="submitted-images"] img'), thumbnail);
+		assert.equal(document.querySelector('[data-testid="mermaid-overlay"]'), null);
+		assert.equal(document.querySelector('[data-testid="submitted-images"] img'), thumbnail);
 	} finally {
 		await act(async () => root.unmount());
 		for (const [key, descriptor] of previous) {

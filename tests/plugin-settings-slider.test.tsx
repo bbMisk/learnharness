@@ -1,7 +1,6 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { it } from "node:test";
 import { parseHTML } from "linkedom";
 import type { PluginSettingsSchema, PluginWidgetHandle } from "../src/core/index.ts";
@@ -81,7 +80,7 @@ it("synchronous controlled slider updates retain the native input without any pe
 			assert.equal(f.accepted(), value);
 			assert.equal(f.input.value, String(value));
 			assert.equal(f.input.disabled, false);
-			assertSameNode(document.querySelector('input[type="range"]'), f.input);
+			assert.equal(document.querySelector('input[type="range"]'), f.input);
 			assert.equal(f.input.isConnected, true);
 		}
 		assert.deepEqual(values, [52, 40, 28, 16]);
@@ -112,7 +111,7 @@ for (const outcome of ["resolve", "reject"] as const) {
 			await f.change(16);
 			assert.deepEqual(values, [52, 16]);
 			assert.equal(f.accepted(), 16);
-			assertSameNode(document.querySelector('[role="alert"]'), null);
+			assert.equal(document.querySelector('[role="alert"]'), null);
 		});
 	});
 }

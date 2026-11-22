@@ -7,7 +7,6 @@ import assert from "node:assert/strict";
 import { ActivitySection, formatElapsed, toBlobs, type ActivityFeed, type FeedExtraction } from "../components/activity-dock.tsx";
 import { formatTokens, formatUsd } from "../components/usage-format.ts";
 import { jobCost } from "../src/server/pricing.ts";
-import { assertSameNode } from "./helpers/same-node.ts";
 
 // The section's pure layer: folds, formatting, and blob order — then the SSR
 // render (blobs, "—" doctrine, the abort affordance, the always-present
@@ -354,7 +353,7 @@ describe("activity section render", () => {
 			assert.match(dom.document.querySelector("[data-testid='activity-blob-detail']")!.textContent!, /Stopping…/);
 			await act(async () => { finish(Response.json({ ok: true })); });
 			await act(async () => { root.render(<ActivitySection feed={{ jobs: [], extractions: [] }} />); });
-			assertSameNode(dom.document.querySelector("[data-testid='activity-abort']"), null, "settled feed removes the control");
+			assert.equal(dom.document.querySelector("[data-testid='activity-abort']"), null, "settled feed removes the control");
 		} finally {
 			finish(Response.json({ ok: true }));
 			await act(async () => root.unmount());

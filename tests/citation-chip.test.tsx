@@ -1,7 +1,6 @@
 import React from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
@@ -28,7 +27,7 @@ describe("CitationChip", () => {
 
 	it("transcript variant has no pencil", () => {
 		const document = documentFor(<CitationChip citation={citation} variant="transcript" />);
-		assertSameNode(document.querySelector('button[aria-label="Add comment to citation"]'), null);
+		assert.equal(document.querySelector('button[aria-label="Add comment to citation"]'), null);
 		assert.ok(document.querySelector('[data-testid="citation-chip"]'));
 	});
 });

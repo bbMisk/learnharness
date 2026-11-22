@@ -1,7 +1,6 @@
 import React from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { describe, it } from "node:test";
 import { renderWithInteractionLayers as renderToStaticMarkup } from "./interaction-layer-render.tsx";
 import { PluginViewScreen } from "../components/plugin-view.tsx";
@@ -26,7 +25,7 @@ describe("plugin view host shell", () => {
 		const viewport = document.querySelector("[data-plugin-view-scroll]"); assert.ok(viewport);
 		assert.equal(viewport.className, "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto");
 		assert.ok(viewport.querySelector('[role="status"]'));
-		assertSameNode(viewport.querySelector("header"), null);
+		assert.equal(viewport.querySelector("header"), null);
 		const region = document.querySelector("[data-session-surface-region]"); assert.ok(region);
 		assert.equal(region.parentElement, viewport.parentElement);
 		assert.equal(viewport.contains(region), false);
@@ -49,7 +48,7 @@ describe("plugin view host shell", () => {
 			assert.equal(f.document.querySelector("h1")?.textContent, "Fixture overview");
 			assert.ok(f.document.body.textContent?.includes("View content"));
 			assert.ok(f.document.querySelector('[data-plugin-action="fixture/own-top"]'));
-			assertSameNode(f.document.querySelector('[data-plugin-action="fixture/other-top"]'), null);
+			assert.equal(f.document.querySelector('[data-plugin-action="fixture/other-top"]'), null);
 			assert.equal(settingsMounts, 0);
 			await f.click(f.document.querySelector<HTMLButtonElement>('[aria-label="Plugin settings"]')!);
 			assert.equal(settingsMounts, 1);

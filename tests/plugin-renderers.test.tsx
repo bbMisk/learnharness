@@ -1,7 +1,6 @@
 import React, { act, type ReactNode } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { describe, it } from "node:test";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -131,7 +130,7 @@ describe("shared Markdown renderer dispatch", () => {
 			assert.ok(document.body.textContent?.includes("rendered new"), "a late orphan cleanup cannot clear the replacement's DOM");
 			await act(async () => { h.manager.reconcile([{ ...packageInfo, enabled: false, status: "disabled" }]); });
 			assert.equal(blocks[1]!.signal.aborted, true); assert.equal(cleaned, 1);
-			assertSameNode(document.querySelector("[data-plugin-renderer]"), null); assert.ok(document.body.textContent?.includes("raw new"));
+			assert.equal(document.querySelector("[data-plugin-renderer]"), null); assert.ok(document.body.textContent?.includes("raw new"));
 			finishCleanup.resolve();
 		} finally { finishOldMount.resolve(() => {}); finishCleanup.resolve(); await h.close(); }
 	});
@@ -202,7 +201,7 @@ describe("native tool renderer dispatch", () => {
 			await h.render(<><MessageResponse isAnimating>{"```mermaid\ngraph TD\nA-->B"}</MessageResponse><ToolPartRenderer part={{ type: "tool-read", toolCallId: "read-1", state: "output-available", input: { path: "fixture.txt" }, output: "builtin output" }} /><ToolPartRenderer part={{ type: "tool-plan_init", toolCallId: "plan-1", state: "output-available", output: { ok: true } }} /></>);
 			assert.equal(pluginMounts, 0); assert.ok(document.querySelector('[data-testid="md-mermaid"]'));
 			assert.ok(document.querySelector('[data-testid="tool-call-card"][data-tool="read"]'));
-			assertSameNode(document.querySelector('[data-tool="plan_init"]'), null);
+			assert.equal(document.querySelector('[data-tool="plan_init"]'), null);
 		} finally { await h.close(); }
 	});
 
@@ -260,7 +259,7 @@ describe("plugin background result rendering", () => {
 			assert.match(document.querySelector('[data-testid="plugin-worker-header"]')!.textContent!, /custom_tool succeeded/);
 			assert.match(document.querySelector('[role="alert"]')!.textContent!, /formatter unavailable/);
 			assert.ok(document.body.textContent?.includes("custom task result"));
-			assertSameNode(document.querySelector('[data-testid="plugin-worker-fallback"]'), null);
+			assert.equal(document.querySelector('[data-testid="plugin-worker-fallback"]'), null);
 			assert.ok(!document.body.textContent?.includes("Persisted fallback text"));
 			assert.ok(!document.body.textContent?.includes("persisted raw outcome"));
 			await h.render(<PluginWorkerCard result={{ ...result, input: { broken: true } }} toolCallId="original-call" />);
@@ -269,7 +268,7 @@ describe("plugin background result rendering", () => {
 			await h.render(<PluginWorkerCard result={{ ...result, pluginId: "uninstalled-plugin" }} toolCallId="original-call" />);
 			assert.equal(mounts, 3, "the global tool-name renderer remains usable even when its producer is uninstalled");
 			assert.ok(document.body.textContent?.includes("custom task result"));
-			assertSameNode(document.querySelector('[data-testid="plugin-worker-fallback"]'), null);
+			assert.equal(document.querySelector('[data-testid="plugin-worker-fallback"]'), null);
 			await act(async () => { h.manager.reconcile([{ ...packageInfo, enabled: false, status: "disabled" }]); });
 			await h.render(<PluginWorkerCard result={result} toolCallId="original-call" />);
 			assert.ok(document.body.textContent?.includes("Persisted fallback text"));

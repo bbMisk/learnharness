@@ -1,7 +1,6 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { it } from "node:test";
 import { createRoot } from "react-dom/client";
 import { parseHTML } from "linkedom";
@@ -68,7 +67,7 @@ it("dedicated plugin settings pages cover schema/custom/empty/loading/error, dee
 		assert.equal(nav.querySelectorAll("svg").length, 8, "only built-in navigation entries receive icons");
 		for (const button of nav.querySelectorAll("button")) {
 			if (button.getAttribute("data-testid")?.startsWith("settings-nav-plugin:")) {
-				assertSameNode(button.querySelector("svg"), null, "individual plugin entries remain unchanged");
+				assert.equal(button.querySelector("svg"), null, "individual plugin entries remain unchanged");
 			}
 		}
 		assert.equal(nav.querySelectorAll("hr").length, 2);
@@ -103,7 +102,7 @@ it("dedicated plugin settings pages cover schema/custom/empty/loading/error, dee
 		await act(async () => { owner.manager.reconcile([info("schema"), info("backend")]); });
 		assert.equal(customCleanups, 2);
 		assert.ok(page()?.querySelector('[data-testid="section-plugins"]'), "uninstall active plugin returns to management");
-		assertSameNode(document.querySelector('[data-testid="settings-nav-plugin:custom"]'), null);
+		assert.equal(document.querySelector('[data-testid="settings-nav-plugin:custom"]'), null);
 		await act(async () => { root.render(shell(<SettingsDialogBody initialSection="plugin:not-installed" onClose={() => {}} />)); });
 		assert.ok(page()?.querySelector('[data-testid="section-plugins"]'), "missing deep link falls back to management");
 
@@ -115,7 +114,7 @@ it("dedicated plugin settings pages cover schema/custom/empty/loading/error, dee
 		// Backend app.openSettings uses a browser event bridge into this provider.
 		await act(async () => { root.render(shell(<SettingsDialogProvider><p>App</p></SettingsDialogProvider>)); });
 		await act(async () => { window.dispatchEvent(new dom.window.CustomEvent("lh:open-plugin-settings", { detail: { id: "schema" } })); });
-		assertSameNode(document.querySelector('[role="dialog"]'), null, "non-string event details are ignored");
+		assert.equal(document.querySelector('[role="dialog"]'), null, "non-string event details are ignored");
 		await act(async () => { window.dispatchEvent(new dom.window.CustomEvent("lh:open-plugin-settings", { detail: "schema" })); });
 		assert.ok(document.querySelector('[data-testid="section-plugin-schema"]'));
 		await act(async () => { window.dispatchEvent(new dom.window.CustomEvent("lh:open-plugin-settings", { detail: "backend" })); });

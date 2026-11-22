@@ -25,7 +25,6 @@ import React from "react";
 (globalThis as Record<string, unknown>).React = React;
 
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { katexMatrixRows } from "./katex-html-fixture.ts";
 import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
@@ -338,7 +337,7 @@ describe("ChainTableBody — chain rows (chips + connectors)", () => {
 		assert.ok(row.querySelector('[aria-label="Copy code"]'));
 		assert.ok(row.querySelector('[data-testid="md-code"]')?.textContent?.includes('const text = "\\n";'));
 		assert.ok(row.querySelector("table"));
-		assertSameNode(row.querySelector("img"), null);
+		assert.equal(row.querySelector("img"), null);
 		assert.ok(row.innerHTML.includes("[Image blocked: untrusted]"));
 		const prose = row.querySelector(".lh-prose")!;
 		for (const token of ["[--font-prose:var(--font-ui)]", "[--lh-prose-size:var(--text-xs)]",

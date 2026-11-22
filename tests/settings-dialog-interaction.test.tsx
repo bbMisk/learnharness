@@ -1,6 +1,5 @@
 import React, { act, useState } from "react";
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, it } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
@@ -104,7 +103,7 @@ it("Settings remains painted, mounted and stateful beneath a child; one Escape r
 	assert.equal(content.scrollTop, 47); assert.equal(f.settingsReads(), 1);
 	await new Promise(resolve => setTimeout(resolve, 5));
 	assert.ok(document.activeElement === invoker, `focus returned to ${document.activeElement?.getAttribute("data-testid") ?? document.activeElement?.tagName}`);
-	await f.escape(); assertSameNode(document.querySelector('[data-testid="settings-dialog"]'), null);
+	await f.escape(); assert.equal(document.querySelector('[data-testid="settings-dialog"]'), null);
 });
 
 for (const outcome of ["blocked", "handled-without-close", "pending"] as const) {

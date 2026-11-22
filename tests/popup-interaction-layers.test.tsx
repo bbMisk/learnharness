@@ -73,33 +73,33 @@ test("popup is portaled into its modal host; focused leaf Escape precedes menu t
 	assert(menu.parentElement?.hasAttribute("data-interaction-popup-host"));
 	assert(document.querySelector('[role="dialog"]')!.contains(menu));
 	const search = document.querySelector<HTMLInputElement>('[data-testid="search"]')!;
-	assertSameNode(document.activeElement, search, "existing search autofocus survives owned portal placement");
+	assert.equal(document.activeElement, search, "existing search autofocus survives owned portal placement");
 	await key(controller(), search, "Escape");
 	assert.equal(search.dataset.edited, "false");
 	assert(document.querySelector('[data-testid="test-menu"]'));
 	await key(controller(), search, "Escape");
-	assertSameNode(document.querySelector('[data-testid="test-menu"]'), null);
+	assert.equal(document.querySelector('[data-testid="test-menu"]'), null);
 	assert(document.querySelector('[data-testid="parent"]'), "one physical Escape cannot dismiss the newly exposed modal");
 	await key(controller(), document.querySelector('[data-testid="parent"]')!, "Escape");
-	assertSameNode(document.querySelector('[data-testid="parent"]'), null);
+	assert.equal(document.querySelector('[data-testid="parent"]'), null);
 }));
 
 test("popup keeps arrow wrapping and consumes blocked Escape without native Tab loops", async () => withDom(async (controller, render) => {
 	await render(<ModalMenu blocked />);
 	await click('[data-testid="trigger"]');
 	const menu = document.querySelector<HTMLElement>('[data-testid="test-menu"]')!;
-	assertSameNode(document.activeElement, menu);
+	assert.equal(document.activeElement, menu);
 	await key(controller(), menu, "ArrowDown");
-	assertSameNode(document.activeElement, document.querySelector('[data-testid="first"]'));
+	assert.equal(document.activeElement, document.querySelector('[data-testid="first"]'));
 	await key(controller(), document.activeElement!, "ArrowDown");
-	assertSameNode(document.activeElement, document.querySelector('[data-testid="last"]'));
+	assert.equal(document.activeElement, document.querySelector('[data-testid="last"]'));
 	await key(controller(), document.activeElement!, "ArrowDown");
-	assertSameNode(document.activeElement, document.querySelector('[data-testid="first"]'));
+	assert.equal(document.activeElement, document.querySelector('[data-testid="first"]'));
 	for (const shift of [false, true]) {
 		const focused: Element | null = document.activeElement;
 		const event = await key(controller(), focused!, "Tab", shift);
 		assert.equal(event.defaultPrevented, true);
-		assertSameNode(document.activeElement, focused);
+		assert.equal(document.activeElement, focused);
 	}
 	const escape = await key(controller(), menu, "Escape");
 	assert.equal(escape.defaultPrevented, true);
@@ -134,8 +134,8 @@ test("graph folder filter has scoped keyboard focus, including Show all and Esca
 	assert.equal((await key(controller(), document.activeElement!, "Tab")).defaultPrevented, true);
 	assert.equal(focusedLabel(), "Show folder Alpha");
 	await key(controller(), document.activeElement!, "Escape");
-	assertSameNode(document.querySelector('[data-testid="graph-folder-filter-panel"]'), null);
-	assertSameNode(document.activeElement, trigger);
+	assert.equal(document.querySelector('[data-testid="graph-folder-filter-panel"]'), null);
+	assert.equal(document.activeElement, trigger);
 	assert(document.querySelector('[aria-label="Filter parent"]'));
 }));
 
@@ -168,12 +168,12 @@ test("nested popups share the unclipped modal host, integer paint order, and one
 	assert.equal(modal.hasAttribute("inert"), false);
 	assert.equal(controller().isElementEligible(outer), false);
 	await key(controller(), inner, "ArrowDown");
-	assertSameNode(document.activeElement, document.querySelector('[data-testid="inner-first"]'), "portaled React bubbling cannot also run the parent arrow machine");
+	assert.equal(document.activeElement, document.querySelector('[data-testid="inner-first"]'), "portaled React bubbling cannot also run the parent arrow machine");
 	await key(controller(), inner, "Escape");
-	assertSameNode(document.querySelector('[data-testid="inner-menu"]'), null);
+	assert.equal(document.querySelector('[data-testid="inner-menu"]'), null);
 	assert(document.querySelector('[data-testid="outer-menu"]'));
 	await key(controller(), outer, "Escape");
-	assertSameNode(document.querySelector('[data-testid="outer-menu"]'), null);
+	assert.equal(document.querySelector('[data-testid="outer-menu"]'), null);
 	assert(document.querySelector('[role="dialog"]'));
 }));
 
@@ -213,7 +213,7 @@ test("separate popup registration ref preserves legacy metadata outside-pointer 
 	await click('[data-testid="metadata-trigger"]');
 	assert(document.querySelector('[data-testid="metadata-panel"]'));
 	await act(async () => { document.querySelector('[data-testid="metadata-panel"]')!.dispatchEvent(new window.Event("pointerdown", { bubbles: true })); });
-	assertSameNode(document.querySelector('[data-testid="metadata-panel"]'), null, "do not silently fix the separately deferred metadata containment behavior");
+	assert.equal(document.querySelector('[data-testid="metadata-panel"]'), null, "do not silently fix the separately deferred metadata containment behavior");
 }));
 
 function KeysSettings() {
@@ -265,7 +265,7 @@ test("Keys popup precedes editor Escape; a folded editor's draft is discarded, w
 		const alpha = byTest("key-alpha-input") as HTMLInputElement;
 		await click('[data-testid="add-provider"]');
 		await key(controller(), byTest("provider-search"), "Escape");
-		assertSameNode(document.querySelector('[data-testid="add-provider-menu"]'), null);
+		assert.equal(document.querySelector('[data-testid="add-provider-menu"]'), null);
 		assert.equal(byTest("key-alpha-editor").hidden, false, "child popup closes before the editor folds");
 		await key(controller(), alpha, "Escape");
 		assertSameNode(document.querySelector('[data-testid="key-alpha-editor"]'), null, "Escape folds the editor and discards its draft");
@@ -274,7 +274,7 @@ test("Keys popup precedes editor Escape; a folded editor's draft is discarded, w
 		await chooseProvider("beta");
 		const beta = byTest("key-beta-input") as HTMLInputElement;
 		assert.equal(beta.value, "", "provider A's typing never leaks to B");
-		assertSameNode(document.activeElement, beta);
+		assert.equal(document.activeElement, beta);
 		await type("key-beta-input", "draft-beta");
 		await chooseProvider("alpha");
 		assertSameNode(document.querySelector('[data-testid="key-beta-editor"]'), null, "switching providers folds (discards) the other editor");
@@ -284,13 +284,13 @@ test("Keys popup precedes editor Escape; a folded editor's draft is discarded, w
 		assert.equal(mock.writes.length, 0, "Escape, provider switches and reopening cannot save credentials");
 		await type("key-alpha-input", "draft-alpha");
 		await click('[data-testid="key-alpha-cancel"]');
-		assertSameNode(document.querySelector('[data-testid="key-alpha-input"]'), null, "Add-provider Cancel keeps its old discard behavior");
+		assert.equal(document.querySelector('[data-testid="key-alpha-input"]'), null, "Add-provider Cancel keeps its old discard behavior");
 		await chooseProvider("alpha");
 		assert.equal((byTest("key-alpha-input") as HTMLInputElement).value, "");
 		await type("key-alpha-input", "saved-alpha");
 		await click('[data-testid="key-alpha-save"]');
 		assert.deepEqual(mock.writes, [{ path: "/api/keys/ALPHA_API_KEY", body: { value: "saved-alpha" } }]);
-		assertSameNode(document.querySelector('[data-testid="key-alpha-input"]'), null);
+		assert.equal(document.querySelector('[data-testid="key-alpha-input"]'), null);
 		await chooseProvider("beta");
 		assert.equal((byTest("key-beta-input") as HTMLInputElement).value, "");
 		await key(controller(), byTest("key-beta-input"), "Escape");

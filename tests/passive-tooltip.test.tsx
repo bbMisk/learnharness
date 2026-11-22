@@ -1,7 +1,6 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, it, mock } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
@@ -182,7 +181,7 @@ it("keeps outside callbacks current without a reattachment gap, respects vetoes 
 	await f.event(document.body, "pointerdown"); assert.deepEqual(calls, ["new"]); assert.ok(document.querySelector("[data-slot='tooltip-content']"));
 	await f.render(tree("accepted", false));
 	await f.event(document.body, "pointerdown", { pointerType: "touch" }); assert.deepEqual(calls, ["new"]);
-	await f.event(document.body, "click"); assert.deepEqual(calls, ["new", "accepted"]); assertSameNode(document.querySelector("[data-slot='tooltip-content']"), null);
+	await f.event(document.body, "click"); assert.deepEqual(calls, ["new", "accepted"]); assert.equal(document.querySelector("[data-slot='tooltip-content']"), null);
 });
 
 it("supports Content asChild, closes on pointerdown and cancels delayed work on leave/unmount", async () => {
@@ -192,10 +191,10 @@ it("supports Content asChild, closes on pointerdown and cancels delayed work on 
 	</Tooltip></TooltipProvider>);
 	const trigger = element("[data-testid='cancel-trigger']");
 	await f.event(trigger, "pointermove"); await f.advance(250); await f.event(trigger, "pointerout", { relatedTarget: document.body }); await f.advance(500);
-	assertSameNode(document.querySelector("[data-testid='content-child']"), null); assert.deepEqual(calls, []);
+	assert.equal(document.querySelector("[data-testid='content-child']"), null); assert.deepEqual(calls, []);
 	await f.focus(trigger); const child = element("[data-testid='content-child']");
 	assert.equal(child.tagName, "SECTION"); assert.ok(child.classList.contains("kept")); assert.ok(child.querySelector("[role='tooltip']"));
-	await f.event(trigger, "pointerdown"); assertSameNode(document.querySelector("[data-testid='content-child']"), null);
+	await f.event(trigger, "pointerdown"); assert.equal(document.querySelector("[data-testid='content-child']"), null);
 	await f.event(trigger, "pointerup"); await f.advance(300);
 	await f.event(trigger, "pointermove"); await f.render(null); await f.advance(1000);
 	assert.deepEqual(calls, [true, false], "disposed delayed work never invokes a stale callback");
@@ -224,7 +223,7 @@ it("places modal tooltips in the unclipped owned host and one Escape dismisses t
 	assert.ok(content()?.closest("[data-interaction-popup-host='modal']")); assert.equal(content()?.closest("[data-testid='visual']"), null);
 	assert.deepEqual(f.controller().getSnapshot().map(layer => layer.id), ["modal"]);
 	await f.event(element("[data-testid='trigger-one']"), "keydown", { key: "Escape" });
-	assert.equal(closes, 1); assertSameNode(document.querySelector("[role='dialog']"), null);
+	assert.equal(closes, 1); assert.equal(document.querySelector("[role='dialog']"), null);
 });
 
 it("a focused menu action's tooltip never intercepts the menu's first physical Escape", async () => {
@@ -238,7 +237,7 @@ it("a focused menu action's tooltip never intercepts the menu's first physical E
 	await f.render(<Harness />); await f.focus(element("[data-testid='trigger-one']")); assert.ok(content());
 	assert.equal(f.controller().getSnapshot().length, 2);
 	await f.event(element("[data-testid='trigger-one']"), "keydown", { key: "Escape" });
-	assert.equal(menuCloses, 1); assert.equal(modalCloses, 0); assertSameNode(document.querySelector("[data-testid='menu']"), null);
+	assert.equal(menuCloses, 1); assert.equal(modalCloses, 0); assert.equal(document.querySelector("[data-testid='menu']"), null);
 });
 
 // Fork: CommitInput's Escape reverts an edit in progress (no write) and is

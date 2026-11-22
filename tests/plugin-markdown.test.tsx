@@ -1,7 +1,6 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { it } from "node:test";
 import { parseHTML } from "linkedom";
 import { createRoot } from "react-dom/client";
@@ -51,13 +50,13 @@ it("public Markdown mount uses host formatting, updates in place and disposes on
 	assert.ok(widget.querySelector(".lh-prose"));
 	assert.equal(widget.querySelector("strong")?.textContent, "First");
 	assert.ok(widget.querySelector(".katex"));
-	assertSameNode(widget.querySelector("button"), null);
-	assertSameNode(widget.querySelector('[data-testid="plugin-worker-header"]'), null);
+	assert.equal(widget.querySelector("button"), null);
+	assert.equal(widget.querySelector('[data-testid="plugin-worker-header"]'), null);
 	assert.equal(target.querySelector("[data-plugin-owned]")?.textContent, "Keep me");
 	await act(async () => handle.update({ text: "## Replacement\n\n[Link](https://example.invalid/)" }));
 	assert.ok(target.querySelector("[data-plugin-ui-widget]") === widget, "updates preserve widget ownership");
 	assert.equal(widget.querySelector("h2")?.textContent, "Replacement");
-	assertSameNode(widget.querySelector("strong"), null);
+	assert.equal(widget.querySelector("strong"), null);
 	assert.equal(widget.querySelector("a")?.getAttribute("href"), "https://example.invalid/");
 	await act(async () => { handle.dispose(); handle.dispose(); handle.update({ text: "Too late" }); });
 	assert.equal(store.getSnapshot().length, 0);
@@ -85,7 +84,7 @@ it("saved coding question immediately renders host Markdown, math and fenced cod
 it("saved coding question removes its wrapper when the Markdown mount fails", async () => withHost(async ({ target }) => {
 	assert.throws(() => mountSavedQuestion(target, { mountMarkdown() { throw new Error("fixture mount failed"); } }, "Original question", new AbortController().signal), /fixture mount failed/);
 	assert.equal(target.textContent, "Keep me");
-	assertSameNode(target.querySelector(".lh-coding-prompt"), null);
+	assert.equal(target.querySelector(".lh-coding-prompt"), null);
 }));
 
 it("coding model solution lazily uses real host Markdown for fenced code and explanation, then disposes on close and abort", async () => withHost(async ({ ui, store, target }) => {
@@ -103,10 +102,10 @@ it("coding model solution lazily uses real host Markdown for fenced code and exp
 	const widget = target.querySelector("[data-plugin-ui-widget]")!;
 	assert.match(widget.querySelector("[data-streamdown='code-block-body']")!.textContent!, /function square\(x\) \{ return x \* x; \}/);
 	assert.equal(widget.querySelector("strong")?.textContent, "Why:");
-	assertSameNode(widget.querySelector("[data-testid='md-copy'], [data-streamdown='code-block-actions']"), null);
+	assert.equal(widget.querySelector("[data-testid='md-copy'], [data-streamdown='code-block-actions']"), null);
 	await act(async () => { toggle.click(); });
 	assert.equal(store.getSnapshot().length, 0);
-	assertSameNode(target.querySelector("[data-plugin-ui-widget]"), null);
+	assert.equal(target.querySelector("[data-plugin-ui-widget]"), null);
 	await act(async () => { toggle.click(); scope.abort(); dispose(); dispose(); });
 	assert.equal(store.getSnapshot().length, 0);
 	assert.equal(target.textContent, "Keep me");
@@ -165,6 +164,6 @@ it("Markdown in a public dialog follows the dialog content signal, not an indepe
 	await act(async () => { dialog.dispose(); dialog.dispose(); });
 	assert.equal(mountedSignal.aborted, true);
 	assert.equal(cleaned, 1);
-	assertSameNode(document.querySelector("[data-plugin-ui-dialog]"), null);
+	assert.equal(document.querySelector("[data-plugin-ui-dialog]"), null);
 	assert.equal(store.getSnapshot().length, 0);
 }));

@@ -1,6 +1,5 @@
 import React, { act } from "react";
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { test } from "node:test";
 import { parseHTML } from "linkedom";
 import { createRoot } from "react-dom/client";
@@ -26,7 +25,7 @@ for (const slot of ["question", "answered"] as const) test(`${slot} rich present
 		const replacement = registration(container => { replacements++; container.textContent = `Recovered rich ${slot}`; });
 		await act(async () => { root.render(<PluginQuestionPresentation snapshot={saved} chatId="chat" answer={slot === "answered" ? accepted : undefined} registration={replacement} />); });
 		assert.equal(replacements, 1); assert.match(document.body.textContent ?? "", new RegExp(`Recovered rich ${slot}`));
-		assertSameNode(document.querySelector("[hidden]"), null);
+		assert.equal(document.querySelector("[hidden]"), null);
 	} finally {
 		await act(async () => { root.unmount(); });
 		for (const [key, descriptor] of previous) if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete (globalThis as Record<string, unknown>)[key];

@@ -126,7 +126,7 @@ it("Chains source deletion is a logically owned child and busy Escape never clos
 	assert.equal((await escape()).defaultPrevented, true);
 	assert.ok(document.querySelector('[data-testid="delete-source-dialog"]')); assert.equal(closes, 0);
 	await act(async () => { finishDelete!(); });
-	assertSameNode(document.querySelector('[data-testid="delete-source-dialog"]'), null); assert.equal(closes, 0);
+	assert.equal(document.querySelector('[data-testid="delete-source-dialog"]'), null); assert.equal(closes, 0);
 	await escape(); assert.equal(closes, 1);
 });
 

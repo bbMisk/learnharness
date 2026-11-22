@@ -1,7 +1,6 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createRoot } from "react-dom/client";
@@ -646,12 +645,12 @@ describe("plugin frontend surface and native importer", () => {
 			assert.ok(document.querySelector('[data-testid="section-plugins"] [role="alert"]')?.textContent?.includes("Synthetic refresh failure"));
 			pendingRefresh = undefined;
 			await click(refresh); assert.equal(refreshPosts, 2);
-			assertSameNode(document.querySelector('[data-testid="section-plugins"] [role="alert"]'), null);
-			assertSameNode(document.querySelector('nav[aria-label="Plugin views"]'), null, "enabled plugin views do not create automatic navigation");
+			assert.equal(document.querySelector('[data-testid="section-plugins"] [role="alert"]'), null);
+			assert.equal(document.querySelector('nav[aria-label="Plugin views"]'), null, "enabled plugin views do not create automatic navigation");
 			const gear = document.querySelector<HTMLButtonElement>('[aria-label="Settings for Plugin fixture"]')!;
 			assert.ok(gear);
 			assert.equal(gear.nextElementSibling?.getAttribute("role"), "switch", "gear sits immediately left of toggle");
-			assertSameNode(document.querySelector('[data-testid="section-plugins"] a[href^="/plugins/"]'), null, "management does not list plugin views");
+			assert.equal(document.querySelector('[data-testid="section-plugins"] a[href^="/plugins/"]'), null, "management does not list plugin views");
 			assert.equal(document.body.textContent?.includes("Run fixture"), false, "management does not list actions");
 			await click(gear); assert.equal(settingsMounts, 1);
 			assert.ok(document.body.textContent?.includes("Fixture custom settings"), "plugin settings work despite core fetch failure");
@@ -662,10 +661,10 @@ describe("plugin frontend surface and native importer", () => {
 			assert.deepEqual(events, [{ type: "record-changed", chatId: "external" }]);
 			await click(document.querySelector<HTMLButtonElement>('[role="switch"]')!);
 			assert.equal(document.querySelector('[role="switch"]')?.getAttribute("aria-checked"), "false");
-			assertSameNode(document.querySelector('nav[aria-label="Plugin views"]'), null);
+			assert.equal(document.querySelector('nav[aria-label="Plugin views"]'), null);
 			assert.equal(activated, 1);
-			assertSameNode(document.querySelector('[aria-label="Settings for Plugin fixture"]'), null, "disabled plugins have no settings gear");
-			assertSameNode(document.querySelector('[data-testid="settings-nav-plugin:fixture"]'), null);
+			assert.equal(document.querySelector('[aria-label="Settings for Plugin fixture"]'), null, "disabled plugins have no settings gear");
+			assert.equal(document.querySelector('[data-testid="settings-nav-plugin:fixture"]'), null);
 			await act(async () => { await window.__lhPluginWindow!.manager.setEnabled("fixture", true); });
 			await click(document.querySelector<HTMLButtonElement>('[data-testid="settings-nav-plugin:fixture"]')!);
 			assert.equal(settingsMounts, 2);

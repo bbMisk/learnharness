@@ -1,7 +1,6 @@
 import React, { act, type ReactNode } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { it } from "node:test";
 import { createRoot } from "react-dom/client";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime.js";
@@ -42,7 +41,7 @@ it("registered renderers override native plugin dispatch/result bodies; disable 
 	try {
 		await render(<ToolPartRenderer part={ack} />);
 		assert.match(document.body.textContent!, /Custom dispatch body/);
-		assertSameNode(document.querySelector('[data-testid="dispatch-card"]'), null);
+		assert.equal(document.querySelector('[data-testid="dispatch-card"]'), null);
 		assert.deepEqual(seen[0]!.result, ack.result);
 		await render(<PluginWorkerCard result={result} toolCallId="original-call" />);
 		assert.match(document.body.textContent!, /Custom result body/);
@@ -50,13 +49,13 @@ it("registered renderers override native plugin dispatch/result bodies; disable 
 		assert.equal(details.hasAttribute("open"), false);
 		assert.match(document.querySelector('[data-testid="plugin-worker-header"]')!.textContent!, /check_sources succeeded/);
 		assert.match(document.querySelector('[role="alert"]')!.textContent!, /Formatter unavailable/);
-		assertSameNode(document.querySelector('[data-testid="plugin-worker-fallback"]'), null);
+		assert.equal(document.querySelector('[data-testid="plugin-worker-fallback"]'), null);
 		assert.equal(seen[0]!.signal.aborted, true);
 		for (const presentation of ["card", "plain"] as const) {
 			await render(<PluginWorkerCard result={{ ...result, toolName: `check_sources_${presentation}` }} toolCallId="original-call" />);
 			const surface = document.querySelector(`[data-testid="plugin-worker-result-${presentation}"]`)!;
 			assert.ok(surface, `the registered ${presentation} presentation controls the host surface`);
-			assertSameNode(document.querySelector("details"), null, "elaborate/unframed custom results are not nested inside collapsed results");
+			assert.equal(document.querySelector("details"), null, "elaborate/unframed custom results are not nested inside collapsed results");
 			assert.ok(surface.querySelector('[data-testid="custom-rich-body"]'));
 			assert.equal(surface.querySelector('[data-testid="plugin-worker-header"]')!.textContent, `check_sources_${presentation} succeeded`);
 			assert.equal(surface.className.includes("border"), presentation === "card");
@@ -67,10 +66,10 @@ it("registered renderers override native plugin dispatch/result bodies; disable 
 		assert.equal(seen[1]!.signal.aborted, true);
 		assert.match(document.querySelector('[data-testid="plugin-worker-fallback"]')!.textContent!, /Persisted result textTask details/);
 		assert.match(document.body.textContent!, /Authoritative outcome/);
-		assertSameNode(document.querySelector("[data-plugin-renderer]"), null);
+		assert.equal(document.querySelector("[data-plugin-renderer]"), null);
 		await render(<ToolPartRenderer part={ack} />);
 		assert.match(document.querySelector('[data-testid="dispatch-card"]')!.textContent!, /Plugin workerDispatched/);
-		assertSameNode(document.querySelector('[data-testid="tool-call-card"]'), null);
+		assert.equal(document.querySelector('[data-testid="tool-call-card"]'), null);
 	} finally {
 		try { await act(async () => { root.unmount(); }); await owner.manager.dispose(); }
 		finally { for (const key of keys) { const descriptor = saved.get(key); if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); } }

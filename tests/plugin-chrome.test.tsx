@@ -1,7 +1,6 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { describe, it } from "node:test";
 import { renderWithInteractionLayers as renderToStaticMarkup } from "./interaction-layer-render.tsx";
 import { placedPluginActions, pluginActionDisabled, fitPluginTopBarActions, PluginSidebarActions, PluginGraphActions, PluginTopBarActions } from "../components/plugin-chrome.tsx";
@@ -122,10 +121,10 @@ describe("explicit plugin chrome", () => {
 			assert.equal(f.document.querySelector('[data-testid="plugin-top-bar-menu"] [data-plugin-action="fixture/top"]')?.getAttribute("role"), "menuitem");
 			await f.click(f.document.querySelector<HTMLButtonElement>('[data-testid="plugin-top-bar-menu"] button')!);
 			assert.deepEqual(runs[1], session);
-			assertSameNode(f.document.querySelector('[data-testid="plugin-top-bar-menu"]'), null);
+			assert.equal(f.document.querySelector('[data-testid="plugin-top-bar-menu"]'), null);
 			await act(async () => { release(); });
 			await f.resize(900);
-			assertSameNode(f.document.querySelector('[aria-label="More plugin actions"]'), null, "wide header restores inline action");
+			assert.equal(f.document.querySelector('[aria-label="More plugin actions"]'), null, "wide header restores inline action");
 		} finally { await f.close(); }
 	});
 });

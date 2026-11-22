@@ -9,7 +9,6 @@ import { questionCardStandIn } from "../components/question-dock.tsx";
 import { AppearanceProvider } from "../components/settings/appearance.tsx";
 import { DEFAULT_THEME } from "../src/core/themes.ts";
 import { buildAnswer, normalizeOptions, resolveCorrect, type QuestionData } from "../src/core/question-core.ts";
-import { assertSameNode } from "./helpers/same-node.ts";
 
 // Synthetic geometry seam (linkedom has no layout): every box is 100px tall
 // and as wide as its inline width; the card is 1200px inside. Proves the
@@ -94,7 +93,7 @@ test("answered card: stacked until it nears the screen, then the question card's
 		assert.deepEqual([...answers!.querySelectorAll("[data-option-letter]")].map((el) => el.textContent), ["A", "B", "C"], "old answer renders letters without a saved map");
 		assert.match(answers!.className, /justify-center/);
 		assert.equal(grid.contains(card.querySelector('[data-testid="your-thinking"]')), false, "thinking stays full width below");
-		assertSameNode(document.querySelector("[data-question-layout-probe]"), null, "probe removed");
+		assert.equal(document.querySelector("[data-question-layout-probe]"), null, "probe removed");
 	} finally { await act(async () => root.unmount()); host.remove(); }
 });
 
@@ -116,7 +115,7 @@ test("answered card: a remount reuses its solved layout; adaptation off keeps to
 		await comeNear();
 		const card = off.host.querySelector('[data-testid="answered-card"]')!;
 		assert.equal(card.getAttribute("data-question-layout"), "stacked");
-		assertSameNode(card.querySelector(":scope > .grid"), null);
+		assert.equal(card.querySelector(":scope > .grid"), null);
 		assert.equal(measurements, 0);
 	} finally { await act(async () => off.root.unmount()); off.host.remove(); }
 });

@@ -1,6 +1,5 @@
 import React, { act, useLayoutEffect, useRef, type ReactNode } from "react";
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { afterEach, test } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
@@ -104,12 +103,12 @@ test("flat text-only trees are safe named groups with no selection, disclosure o
 	const group = document.querySelector('[role="group"]')!;
 	assert.equal(group.getAttribute("aria-label"), "Example tree");
 	assert.match(group.textContent ?? "", /<img src=x onerror=alert\(1\)>/);
-	assertSameNode(group.querySelector("img"), null);
-	assertSameNode(group.querySelector("input, button, [role='treegrid'], [role='tree'], [role='toolbar'], [data-plugin-tree-column]"), null);
+	assert.equal(group.querySelector("img"), null);
+	assert.equal(group.querySelector("input, button, [role='treegrid'], [role='tree'], [role='toolbar'], [data-plugin-tree-column]"), null);
 	const rows = group.querySelectorAll("[data-plugin-tree-row]"); assert.equal(rows.length, 3);
 	assert.equal(rows[0]!.children.length, 1, "flat primary content has no empty selection/disclosure columns");
 	assert.equal(group.querySelectorAll(".border-b").length, 2, "native separators appear only between top-level occurrences");
-	assertSameNode(group.querySelector(".sticky"), null);
+	assert.equal(group.querySelector(".sticky"), null);
 });
 
 test("optional aligned columns reserve missing cells, preserve widths and default to left alignment", () => {
@@ -169,7 +168,7 @@ test("selection and disclosure are controlled, independent callbacks with no cas
 	assert.equal(checkbox.indeterminate, true);
 	await act(async () => { disclosure.click(); });
 	assert.deepEqual(expanded, [true]); assert.deepEqual(selected, []);
-	assert.equal(disclosure.getAttribute("aria-expanded"), "false"); assertSameNode(document.querySelector('[data-plugin-tree-row="child"]'), null);
+	assert.equal(disclosure.getAttribute("aria-expanded"), "false"); assert.equal(document.querySelector('[data-plugin-tree-row="child"]'), null);
 	await f.render(props([{ ...row, disclosure: { ...row.disclosure!, expanded: true } }]));
 	assert.equal(document.querySelectorAll('[data-plugin-tree-row]').length, 2);
 	assert.equal((document.querySelector('.w-px') as HTMLElement).style.left, "37px");
@@ -208,7 +207,7 @@ test("arbitrary content in headers, primary cells and trailing cells keeps DOM i
 	await f.render({ ...tree, rows: [{ ...a, selection: { ...a.selection!, checked: true } }, { ...b }], columns: tree.columns?.map(column => ({ ...column })) });
 	await f.render({ ...tree, rows: [b, a] });
 	assert.deepEqual(life.mounted, names); assert.deepEqual(life.cleaned, []);
-	for (const [name, node] of nodes) assertSameNode(document.querySelector(`[data-content="${name}"]`), node, name);
+	for (const [name, node] of nodes) assert.equal(document.querySelector(`[data-content="${name}"]`), node, name);
 	assert.equal(input.value, "uncontrolled edit");
 	assert.deepEqual(Array.from(document.querySelectorAll("[data-plugin-tree-row]"), row => row.getAttribute("data-plugin-tree-row")), ["b", "a"]);
 	let clicks = 0; document.querySelector('[data-content="primary-a"] button')!.addEventListener("click", () => { clicks++; });
@@ -222,9 +221,9 @@ test("collapse unmounts descendant content and aborts its lifetime; expanding mo
 	const f = await fixture(props([row(true)], { columns: [{ key: "detail", header: "Detail", width: 80 }] }));
 	const oldSignal = life.signals.get("child")!; const rootNode = document.querySelector('[data-content="root"]');
 	await f.render(props([row(false)], { columns: [{ key: "detail", header: "Detail", width: 80 }] }));
-	assertSameNode(document.querySelector('[data-content="child"]'), null); assertSameNode(document.querySelector('[data-content="child-cell"]'), null);
+	assert.equal(document.querySelector('[data-content="child"]'), null); assert.equal(document.querySelector('[data-content="child-cell"]'), null);
 	assert.equal(oldSignal.aborted, true); assert.deepEqual(life.cleaned.sort(), ["child", "child-cell"]);
-	assertSameNode(document.querySelector('[data-content="root"]'), rootNode); assert.equal(life.signals.get("root")?.aborted, false);
+	assert.equal(document.querySelector('[data-content="root"]'), rootNode); assert.equal(life.signals.get("root")?.aborted, false);
 	await f.render(props([row(true)], { columns: [{ key: "detail", header: "Detail", width: 80 }] }));
 	assert.notEqual(life.signals.get("child"), oldSignal); assert.equal(life.signals.get("child")?.aborted, false);
 	assert.equal(life.mounted.filter(name => name === "child").length, 2);
@@ -235,9 +234,9 @@ test("HTMLElement content is delegated unchanged rather than cloned or interpret
 	const life = lifecycle(); const f = await fixture(props([]));
 	const node = document.createElement("input"); node.setAttribute("aria-label", "Plugin input"); node.value = "keep me";
 	await f.render(props([{ key: "", content: node }]));
-	assertSameNode(document.querySelector('input[aria-label="Plugin input"]'), node);
+	assert.equal(document.querySelector('input[aria-label="Plugin input"]'), node);
 	await f.render(props([{ key: "", content: node }]));
-	assertSameNode(document.querySelector('input[aria-label="Plugin input"]'), node); assert.equal(node.value, "keep me");
+	assert.equal(document.querySelector('input[aria-label="Plugin input"]'), node); assert.equal(node.value, "keep me");
 	assert.deepEqual(life.mounted, []);
 });
 
@@ -267,19 +266,19 @@ test("default typography keeps primary labels on the native small ladder and wid
 test("root-local arrows reuse sibling/parent/open-branch navigation without autofocus or global Tab claims", async () => {
 	const toggles: boolean[] = [];
 	const f = await fixture(props([{ key: "", content: "Root", disclosure: { label: "Root children", expanded: true, onChange: value => { toggles.push(value); } }, children: [{ key: "child-a", content: "Child a" }, { key: "child-b", content: "Child b" }] }, { key: "peer", content: "Peer" }]));
-	assertSameNode(document.activeElement, document.body, "mounting an arbitrary embedded tree never steals focus");
+	assert.equal(document.activeElement, document.body, "mounting an arbitrary embedded tree never steals focus");
 	const first = treeRow(""), childA = treeRow("child-a"), childB = treeRow("child-b"), peer = treeRow("peer");
 	assert.equal(first.getAttribute("tabindex"), "-1"); assert.equal(childA.dataset.pluginTreeDepth, "1"); assert.equal(first.dataset.pluginTreeExpanded, "true");
 	assert.equal((await f.key(document.body, "ArrowDown")).defaultPrevented, false, "there is no document/window tree listener");
 	await f.pointer(first.querySelector("div")!);
-	assertSameNode(document.activeElement, first); assert.equal(first.dataset.pluginTreeActive, "true");
+	assert.equal(document.activeElement, first); assert.equal(first.dataset.pluginTreeActive, "true");
 	assert.ok(first.classList.contains("data-[plugin-tree-active=true]:bg-accent/50"));
-	assert.equal((await f.key(first, "ArrowDown")).defaultPrevented, true); assertSameNode(document.activeElement, peer, "Down skips expanded descendants to visit siblings");
-	await f.key(peer, "ArrowUp"); assertSameNode(document.activeElement, first);
-	await f.key(first, "ArrowRight"); assertSameNode(document.activeElement, childA);
-	await f.key(childA, "ArrowDown"); assertSameNode(document.activeElement, childB);
-	await f.key(childB, "ArrowUp"); assertSameNode(document.activeElement, childA);
-	await f.key(childA, "ArrowLeft"); assertSameNode(document.activeElement, first); assert.deepEqual(toggles, [false], "Left reaches and requests collapse of the expanded parent");
+	assert.equal((await f.key(first, "ArrowDown")).defaultPrevented, true); assert.equal(document.activeElement, peer, "Down skips expanded descendants to visit siblings");
+	await f.key(peer, "ArrowUp"); assert.equal(document.activeElement, first);
+	await f.key(first, "ArrowRight"); assert.equal(document.activeElement, childA);
+	await f.key(childA, "ArrowDown"); assert.equal(document.activeElement, childB);
+	await f.key(childB, "ArrowUp"); assert.equal(document.activeElement, childA);
+	await f.key(childA, "ArrowLeft"); assert.equal(document.activeElement, first); assert.deepEqual(toggles, [false], "Left reaches and requests collapse of the expanded parent");
 	assert.equal((await f.key(first, "Tab")).defaultPrevented, false); assert.equal((await f.key(first, "Tab", { shiftKey: true })).defaultPrevented, false);
 });
 
@@ -289,13 +288,13 @@ test("controlled Right-open waits through unrelated updates and focuses the firs
 	const f = await fixture(props([row(false)]));
 	const parent = treeRow("parent"); await f.pointer(parent);
 	await f.key(parent, "ArrowRight");
-	assert.deepEqual(changes, [true]); assertSameNode(document.activeElement, parent); assertSameNode(document.querySelector('[data-plugin-tree-row="child"]'), null);
+	assert.deepEqual(changes, [true]); assert.equal(document.activeElement, parent); assert.equal(document.querySelector('[data-plugin-tree-row="child"]'), null);
 	await f.render(props([row(false)], { label: "Unrelated controlled update" }));
-	assertSameNode(document.activeElement, parent);
+	assert.equal(document.activeElement, parent);
 	await f.render(props([row(true)]));
-	assertSameNode(document.activeElement, treeRow("child"));
+	assert.equal(document.activeElement, treeRow("child"));
 	await f.render(props([row(true)], { label: "No new focus request" }));
-	assertSameNode(document.activeElement, treeRow("child"));
+	assert.equal(document.activeElement, treeRow("child"));
 });
 
 for (const intent of ["another row pointer", "another row navigation", "custom input", "outside focus"] as const) test(`delayed Right-open cannot steal focus after ${intent}`, async () => {
@@ -340,21 +339,21 @@ test("typing retains caret keys and plugin key claims win, while unclaimed arrow
 	const f = await fixture(props([{ key: "a", content: custom }, { key: "b", content: "Peer" }]));
 	const row = treeRow("a");
 	for (const input of row.querySelectorAll<HTMLElement>('input,textarea,select,[contenteditable]')) {
-		input.focus(); await f.pointer(input); assertSameNode(document.activeElement, input, "pointer interaction never redirects a plugin editor's focus");
+		input.focus(); await f.pointer(input); assert.equal(document.activeElement, input, "pointer interaction never redirects a plugin editor's focus");
 		assert.equal((await f.key(input, "ArrowDown")).defaultPrevented, false); assert.equal((await f.key(input, "ArrowUp")).defaultPrevented, false); assert.equal((await f.key(input, " ")).defaultPrevented, false);
-		assertSameNode(document.activeElement, input);
+		assert.equal(document.activeElement, input);
 	}
 	const button = row.querySelector<HTMLButtonElement>("button")!;
-	button.focus(); await f.pointer(button); assertSameNode(document.activeElement, button, "pointer input does not steal button focus");
-	await f.key(button, "ArrowDown"); assertSameNode(document.activeElement, treeRow("b"), "native Chains also navigates an unclaimed button arrow");
+	button.focus(); await f.pointer(button); assert.equal(document.activeElement, button, "pointer input does not steal button focus");
+	await f.key(button, "ArrowDown"); assert.equal(document.activeElement, treeRow("b"), "native Chains also navigates an unclaimed button arrow");
 	button.focus(); const claim = (event: Event) => { event.preventDefault(); }; button.addEventListener("keydown", claim);
-	await f.key(button, "ArrowDown"); assertSameNode(document.activeElement, button, "leaf preventDefault wins"); button.removeEventListener("keydown", claim);
+	await f.key(button, "ArrowDown"); assert.equal(document.activeElement, button, "leaf preventDefault wins"); button.removeEventListener("keydown", claim);
 	const widget = row.querySelector<HTMLElement>('[role="slider"]')!;
 	widget.addEventListener("keydown", event => { event.stopPropagation(); }); widget.focus();
-	assert.equal((await f.key(widget, "ArrowDown")).defaultPrevented, false); assertSameNode(document.activeElement, widget, "a custom widget's own event ownership is preserved");
+	assert.equal((await f.key(widget, "ArrowDown")).defaultPrevented, false); assert.equal(document.activeElement, widget, "a custom widget's own event ownership is preserved");
 	const outside = document.createElement("input"); document.body.append(outside); outside.focus();
 	await f.render(props([{ key: "a", content: custom }, { key: "b", content: "Peer" }], { label: "Updated label" }));
-	assertSameNode(document.activeElement, outside, "ordinary prop updates never autofocus the tree");
+	assert.equal(document.activeElement, outside, "ordinary prop updates never autofocus the tree");
 });
 
 test("two sibling trees and nested trees navigate only their own visible DOM occurrences", async () => {
@@ -368,14 +367,14 @@ test("two sibling trees and nested trees navigate only their own visible DOM occ
 	const outerRoot = document.querySelector<HTMLElement>('[data-plugin-tree][aria-label="Outer"]')!;
 	const innerRoot = document.querySelector<HTMLElement>('[data-plugin-tree][aria-label="Inner"]')!;
 	const peerRoot = document.querySelector<HTMLElement>('[data-plugin-tree][aria-label="Peer"]')!;
-	await f.pointer(innerRoot); assertSameNode(document.activeElement, document.body, "the inner root does not accidentally own its containing outer row");
+	await f.pointer(innerRoot); assert.equal(document.activeElement, document.body, "the inner root does not accidentally own its containing outer row");
 	await f.pointer(treeRow("same", innerRoot)); await f.key(treeRow("same", innerRoot), "ArrowDown");
-	assertSameNode(document.activeElement, treeRow("inner-peer", innerRoot));
+	assert.equal(document.activeElement, treeRow("inner-peer", innerRoot));
 	assert.equal(treeRow("same", outerRoot).dataset.pluginTreeActive, undefined, "nested events never activate the containing row");
 	await f.pointer(treeRow("same", outerRoot)); await f.key(treeRow("same", outerRoot), "ArrowDown");
-	assertSameNode(document.activeElement, treeRow("outer-peer", outerRoot), "outer navigation excludes nested widget rows");
+	assert.equal(document.activeElement, treeRow("outer-peer", outerRoot), "outer navigation excludes nested widget rows");
 	await f.pointer(treeRow("same", peerRoot)); await f.key(treeRow("same", peerRoot), "ArrowDown");
-	assertSameNode(document.activeElement, treeRow("peer-last", peerRoot));
+	assert.equal(document.activeElement, treeRow("peer-last", peerRoot));
 	assert.equal(treeRow("outer-peer", outerRoot).dataset.pluginTreeActive, "true");
 	assert.equal(treeRow("inner-peer", innerRoot).dataset.pluginTreeActive, "true");
 });
@@ -389,16 +388,16 @@ test("hidden or covered trees and composing, modified or prevented keys cannot c
 	const first = treeRow("a"), group = document.querySelector<HTMLElement>("[data-plugin-tree]")!;
 	await f.pointer(first);
 	for (const extra of [{ isComposing: true }, { keyCode: 229 }, { ctrlKey: true }, { metaKey: true }, { altKey: true }, { shiftKey: true }]) {
-		assert.equal((await f.key(first, "ArrowDown", extra)).defaultPrevented, false); assertSameNode(document.activeElement, first);
+		assert.equal((await f.key(first, "ArrowDown", extra)).defaultPrevented, false); assert.equal(document.activeElement, first);
 	}
 	group.hidden = true; assert.equal((await f.key(first, "ArrowDown")).defaultPrevented, false); group.hidden = false;
 	for (const kind of ["modal", "view"] as const) {
 		const cover = document.createElement("div"); document.body.append(cover);
 		const off = controller.register({ id: `cover-${kind}`, kind, rootRef: { current: cover } });
 		assert.equal((await f.key(first, "ArrowDown")).defaultPrevented, false, `${kind} foreground blocks the underlying widget`);
-		assertSameNode(document.activeElement, first); off(); cover.remove();
+		assert.equal(document.activeElement, first); off(); cover.remove();
 	}
-	assert.equal((await f.key(first, "ArrowDown")).defaultPrevented, true); assertSameNode(document.activeElement, treeRow("b"));
+	assert.equal((await f.key(first, "ArrowDown")).defaultPrevented, true); assert.equal(document.activeElement, treeRow("b"));
 	await act(async () => { f.lifetime.abort(); });
 	assert.equal((await f.key(treeRow("b"), "ArrowUp")).defaultPrevented, false);
 });

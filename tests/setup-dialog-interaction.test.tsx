@@ -118,7 +118,7 @@ describe("setup polish interactions", () => {
 		await click(element('[data-testid="setup-key-provider"]'));
 		assert.ok(document.querySelector('[data-testid="setup-key-provider-menu"]'));
 		await click(element('[data-testid="setup-dialog"] h2'));
-		assertSameNode(document.querySelector('[data-testid="setup-key-provider-menu"]'), null);
+		assert.equal(document.querySelector('[data-testid="setup-key-provider-menu"]'), null);
 		assert.ok(document.querySelector('[data-testid="setup-dialog"]'));
 		assert.equal(closed, 0);
 	});
@@ -127,10 +127,10 @@ describe("setup polish interactions", () => {
 		await mount();
 		await click(element('[data-testid="setup-key-provider"]'));
 		await click(element('[data-testid="setup-key-provider"]'));
-		assertSameNode(document.querySelector('[data-testid="setup-key-provider-menu"]'), null);
+		assert.equal(document.querySelector('[data-testid="setup-key-provider-menu"]'), null);
 		await click(element('[data-testid="setup-key-provider"]'));
 		await click(element('[data-testid="provider-option-openrouter"]'));
-		assertSameNode(document.querySelector('[data-testid="setup-key-provider-menu"]'), null);
+		assert.equal(document.querySelector('[data-testid="setup-key-provider-menu"]'), null);
 		assert.ok(document.querySelector('[data-testid="setup-key-input"]'));
 		assert.equal(closed, 0);
 	});
@@ -145,7 +145,7 @@ describe("setup polish interactions", () => {
 		assert.equal(closed, 0);
 		await escape();
 		assert.equal(closed, 1);
-		assertSameNode(document.querySelector('[data-testid="setup-dialog"]'), null);
+		assert.equal(document.querySelector('[data-testid="setup-dialog"]'), null);
 	});
 
 	it("a genuine backdrop click closes setup and its open dropdown", async () => {
@@ -153,8 +153,8 @@ describe("setup polish interactions", () => {
 		await click(element('[data-testid="setup-key-provider"]'));
 		await click(element('[data-testid="setup-backdrop"]'));
 		assert.equal(closed, 1);
-		assertSameNode(document.querySelector('[data-testid="setup-dialog"]'), null);
-		assertSameNode(document.querySelector('[data-testid="setup-key-provider-menu"]'), null);
+		assert.equal(document.querySelector('[data-testid="setup-dialog"]'), null);
+		assert.equal(document.querySelector('[data-testid="setup-key-provider-menu"]'), null);
 	});
 
 	it("inside press followed by backdrop release and ancestor click does not dismiss setup", async () => {
@@ -171,13 +171,13 @@ describe("setup polish interactions", () => {
 		assert.equal(element('[data-testid="setup-stage-pickers"] > p').textContent, "Pick the model for each tier. All three are required before chats can start.");
 		await click(element('[data-testid="setup-trigger-strong"]'));
 		await click(element('[data-testid="setup-dialog"] h2'));
-		assertSameNode(document.querySelector('[data-testid="setup-menu-strong"]'), null);
+		assert.equal(document.querySelector('[data-testid="setup-menu-strong"]'), null);
 		await click(element('[data-testid="setup-trigger-strong"]'));
 		await click(element('[data-testid="model-option-fixture-text"]'));
 		await click(element('[data-testid="setup-thinking-strong"]'));
 		assert.ok(document.querySelector('[data-testid="setup-thinking-menu-strong"]'));
 		await click(element('[data-testid="setup-dialog"] h2'));
-		assertSameNode(document.querySelector('[data-testid="setup-thinking-menu-strong"]'), null);
+		assert.equal(document.querySelector('[data-testid="setup-thinking-menu-strong"]'), null);
 		assert.equal(closed, 0);
 	});
 

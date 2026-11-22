@@ -1,6 +1,5 @@
 import React, { act } from "react";
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { it } from "node:test";
 import { parseHTML } from "linkedom";
 import { createRoot } from "react-dom/client";
@@ -138,10 +137,10 @@ it("actual host button clicks are 1/0/1; other button, Escape/focus, keyboard an
 		await click(f.other); assert.equal(document.querySelectorAll('[role="menu"]').length, 0);
 		await click(gear);
 		await act(async () => { f.event(document, "keydown", { key: "Escape" }); });
-		assert.equal(document.querySelectorAll('[role="menu"]').length, 0); assertSameNode(document.activeElement, gear);
+		assert.equal(document.querySelectorAll('[role="menu"]').length, 0); assert.equal(document.activeElement, gear);
 		await click(gear);
 		await act(async () => { f.event(document.querySelector('[data-testid="plugin-menu"]')!, "keydown", { key: "ArrowDown" }); });
-		assertSameNode(document.activeElement, document.querySelector('[role="menuitem"]'));
+		assert.equal(document.activeElement, document.querySelector('[role="menuitem"]'));
 		await click(document.querySelector<HTMLElement>('[role="menuitem"]')!);
 		assert.equal(actions, 1); assert.equal(closes, 4); assert.equal(document.querySelectorAll('[role="menu"]').length, 0);
 	} finally { await act(async () => { f.lifetime.abort(); root.unmount(); }); }

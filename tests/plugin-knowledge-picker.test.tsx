@@ -1,6 +1,5 @@
 import React, { act, useState } from "react";
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { after, it } from "node:test";
 import fs from "node:fs";
 import os from "node:os";
@@ -182,14 +181,14 @@ for (const strict of [false, true]) it(`synchronous controlled checkbox acknowle
 		assert.ok(overlay(), "synchronous acknowledgment must not dismiss the picker");
 		assert.equal(owner.owns(), true, "effect replay retains the accepted opening's authority");
 		assert.equal(f.controller.getLayer("knowledge-picker")?.openingLease, owner);
-		assertSameNode(document.querySelector('[data-testid="chain-table-search"]'), search);
-		assertSameNode(document.activeElement, search, "entry focuses the actual registered picker search");
+		assert.equal(document.querySelector('[data-testid="chain-table-search"]'), search);
+		assert.equal(document.activeElement, search, "entry focuses the actual registered picker search");
 		assert.ok(document.querySelector('[data-testid="chain-selection-bar"]'), "the existing shared native selection pill appears");
 		assert.equal(f.store.getSnapshot()[0]!.runtime, runtime); assert.equal(runtime.signal.aborted, false);
 		for (let cycle = 0; cycle < 2; cycle++) {
 			await act(async () => { document.querySelector<HTMLInputElement>('[data-testid="cluster-checkbox-chat"]')!.click(); });
 			assert.deepEqual(changes.at(-1), []); assert.equal(overlay() === original, true);
-			assertSameNode(document.querySelector('[data-testid="chain-selection-bar"]'), null);
+			assert.equal(document.querySelector('[data-testid="chain-selection-bar"]'), null);
 			await act(async () => { document.querySelector<HTMLInputElement>('[data-testid="cluster-checkbox-chat"]')!.click(); });
 			assert.deepEqual(changes.at(-1), ["a", "b"]); assert.equal(overlay() === original, true);
 			assert.ok(document.querySelector('[data-testid="chain-selection-bar"]'));
@@ -208,7 +207,7 @@ for (const strict of [false, true]) it(`synchronous controlled checkbox acknowle
 			await click(f, "practice-props-chip");
 			const reopened = f.controller.getLayer("knowledge-picker")!.openingLease!;
 			assert.notEqual(reopened, closing); assert.equal(reopened.owns(), true); assert.ok(overlay());
-			assertSameNode(document.activeElement, document.querySelector('[data-testid="chain-table-search"]'));
+			assert.equal(document.activeElement, document.querySelector('[data-testid="chain-table-search"]'));
 			assert.ok(document.querySelector('[data-testid="chain-selection-bar"]'));
 		}
 		assert.equal(f.requests.filter(request => request.url === "/api/graph").length, 1, "explicit reopen uses the widget's cached graph without replaying the logical opening");
@@ -264,7 +263,7 @@ it("StrictMode Activity hide releases picker ownership and show preserves drafts
 		assert.equal(f.controller.getLayer("knowledge-picker")?.openingLease, next, "the explicit post-show click must render its newly accepted opening");
 		assert.notEqual(next, owner); assert.equal(next.owns(), true); assert.equal(owner.owns(), false);
 		assert.equal(f.store.getSnapshot()[0]!.runtime.signal.aborted, false);
-		assertSameNode(document.activeElement, document.querySelector('[data-testid="chain-table-search"]'));
+		assert.equal(document.activeElement, document.querySelector('[data-testid="chain-table-search"]'));
 		assert.equal(f.requests.filter(request => request.url === "/api/graph").length, 1);
 		assert.deepEqual(f.errors, []);
 	} finally { await f.dispose(); }
@@ -318,17 +317,17 @@ it("lazily loads the real Chains interface as one nonmodal main-pane view, prese
 		assert.equal(document.querySelector("#sidebar")!.closest("[inert]"), null);
 		assert.equal(document.body.style.overflow ?? "", "");
 		assert.equal(f.controller.isElementEligible(document.querySelector("#chrome")), true);
-		assertSameNode(document.activeElement, document.querySelector('[data-testid="chain-table-search"]'));
+		assert.equal(document.activeElement, document.querySelector('[data-testid="chain-table-search"]'));
 		assert.equal((document.querySelector("#sidebar") as HTMLElement).style.display, "");
 		assert.match(overlay()!.className, /absolute inset-0/);
 		assert.equal(document.querySelector("#sidebar")!.children.length, 0);
 		assert.ok(overlay()!.querySelector('[data-testid="chain-table"]'));
-		assertSameNode(overlay()!.querySelector('[aria-label="Open sidebar"]'), null);
+		assert.equal(overlay()!.querySelector('[aria-label="Open sidebar"]'), null);
 		assert.ok(overlay()!.querySelector('header.lh-native-window-clearance'));
 		assert.ok(overlay()!.querySelector('[data-testid="add-source-folder"]'));
 		assert.ok(overlay()!.querySelector('button[title="Rename"]'));
 		assert.equal(overlay()!.querySelector("[data-source-drag-row]")?.getAttribute("draggable"), "true");
-		assertSameNode(document.querySelector('[data-testid="chain-delete"]'), null);
+		assert.equal(document.querySelector('[data-testid="chain-delete"]'), null);
 	} finally { await f.dispose(); }
 });
 
@@ -347,7 +346,7 @@ it("actual checkbox changes emit immediately; controlled updates, Done/X/Escape 
 			else if (action === "X") await click(f, "chain-table-close");
 			else await escape(f);
 			assert.equal(overlay(), null);
-			assertSameNode(document.activeElement, f.target.querySelector('[data-testid="practice-props-chip"]'));
+			assert.equal(document.activeElement, f.target.querySelector('[data-testid="practice-props-chip"]'));
 			assert.match(f.target.textContent!, /2 nodes selected/);
 			await click(f, "practice-props-chip");
 			assert.equal((document.querySelector('[data-testid="cluster-checkbox-chat"]') as HTMLInputElement).checked, true);
@@ -357,7 +356,7 @@ it("actual checkbox changes emit immediately; controlled updates, Done/X/Escape 
 		await click(f, "chain-clear");
 		assert.deepEqual(f.calls.at(-1), []);
 		await act(async () => { f.handle.update({ value: [] }); });
-		assertSameNode(document.querySelector('[data-testid="chain-practice-done"]'), null);
+		assert.equal(document.querySelector('[data-testid="chain-practice-done"]'), null);
 		await click(f, "chain-table-close");
 		await act(async () => { f.handle.update({ value: ["b"] }); });
 		await click(f, "practice-props-clear");
@@ -461,7 +460,7 @@ it("one Escape closes an actual foreground core dialog, not the picker beneath i
 		assert.ok(document.querySelector('[data-testid="delete-source-dialog"]'));
 		await escape(f);
 		assert.equal(f.dialogClosed, 1);
-		assertSameNode(document.querySelector('[data-testid="delete-source-dialog"]'), null);
+		assert.equal(document.querySelector('[data-testid="delete-source-dialog"]'), null);
 		assert.ok(overlay(), "the foreground dialog must own the first Escape");
 		await escape(f); assert.equal(overlay(), null);
 	} finally { await f.dispose(); }
@@ -476,7 +475,7 @@ it("an actual host menu takes Escape before the picker and preserves controlled 
 		});
 		assert.ok(document.querySelector("[data-lh-menu]"));
 		await escape(f);
-		assertSameNode(document.querySelector("[data-lh-menu]"), null);
+		assert.equal(document.querySelector("[data-lh-menu]"), null);
 		assert.ok(overlay()); assert.match(f.target.textContent!, /1 node selected/);
 		await escape(f); assert.equal(overlay(), null); assert.deepEqual(f.calls, []);
 	} finally { await f.dispose(); }
@@ -514,7 +513,7 @@ for (const stale of ["response", "error"] as const) it(`source reads abort on cl
 			else reads[0]!.reject(new Error("stale source failure"));
 		});
 		assert.equal(overlay()!.textContent?.includes("Stale label"), false);
-		assertSameNode(overlay()!.querySelector('[role="alert"]'), null);
+		assert.equal(overlay()!.querySelector('[role="alert"]'), null);
 		assert.ok(overlay()!.querySelector('[data-testid="add-source-folder"]'));
 		const second = f.requests[2]!.init!.signal!;
 		await act(async () => { f.lifetime.abort(); });
@@ -549,7 +548,7 @@ it("StrictMode modal-origin acknowledgment retains the leased HostDialog, focus 
 		await click(f, "practice-props-chip", origin.target);
 		const original = overlay(), layer = f.controller.getLayer("knowledge-picker")!;
 		const owner = layer.openingLease!; assert.equal(layer.kind, "modal"); assert.equal(owner.owns(), true);
-		assertSameNode(document.activeElement, document.querySelector('[data-testid="chain-table-search"]'));
+		assert.equal(document.activeElement, document.querySelector('[data-testid="chain-table-search"]'));
 		await act(async () => document.querySelector<HTMLInputElement>('[data-testid="cluster-checkbox-chat"]')!.click());
 		assert.deepEqual(origin.selections.at(-1), ["a", "b"]);
 		assert.equal(overlay() === original, true); assert.equal(f.controller.getLayer("knowledge-picker")?.openingLease, owner);
@@ -585,7 +584,7 @@ for (const action of ["Done", "X", "Escape"] as const) it(`a public dialog origi
 		assert.equal(overlay(), null); assert.equal(origin.mounts, 1); assert.equal(origin.cleanups, 0);
 		assert.equal(origin.input.isConnected, true); assert.equal(origin.input.value, "edited parent draft");
 		assert.equal(parent.hasAttribute("inert"), false); assert.notEqual(parent.getAttribute("aria-hidden"), "true");
-		assertSameNode(document.activeElement, origin.target.querySelector('[data-testid="practice-props-chip"]'));
+		assert.equal(document.activeElement, origin.target.querySelector('[data-testid="practice-props-chip"]'));
 		assert.match(origin.target.textContent!, /1 node selected/); assert.equal(origin.selections.length, 0);
 	} finally { await f.dispose(); }
 });
@@ -617,7 +616,7 @@ it("invocation ownership walks a popup's actual modal ancestor instead of treati
 		await act(async () => { f.ui.mountKnowledgePicker(target, { value: [], onChange() {} }, { signal: f.scope.signal }); });
 		await click(f, "practice-props-chip", target);
 		assert.ok(overlay()!.closest('[role="dialog"]'));
-		assertSameNode(document.querySelector("[data-plugin-knowledge-picker-pane]"), null);
+		assert.equal(document.querySelector("[data-plugin-knowledge-picker-pane]"), null);
 		assert.equal(f.controller.getSnapshot().filter(layer => layer.kind === "modal").length, 2);
 		await act(async () => { f.routeLifetime.abort(); }); assert.ok(overlay());
 		await act(async () => { menu.dispose(); }); assert.equal(overlay(), null, "exact popup owner retirement expires its selector");
@@ -659,11 +658,11 @@ it("Tab retains native-default prevention and never cycles into covered composer
 			const event = new f.dom.window.Event("keydown", { bubbles: true, cancelable: true });
 			Object.assign(event, { key: "Tab", shiftKey });
 			await act(async () => { search.dispatchEvent(event); });
-			assert.equal(event.defaultPrevented, true); assertSameNode(document.activeElement, search);
+			assert.equal(event.defaultPrevented, true); assert.equal(document.activeElement, search);
 		}
 		await click(f, "chain-table-close");
 		await act(async () => { window.dispatchEvent(new f.dom.window.CustomEvent("lh:kbd-cycle-fields")); });
-		assertSameNode(document.activeElement, document.querySelector("#background-composer"), "the existing explicit binding still works after dismissal");
+		assert.equal(document.activeElement, document.querySelector("#background-composer"), "the existing explicit binding still works after dismissal");
 	} finally { await f.dispose(); }
 });
 
@@ -758,14 +757,14 @@ for (const action of ["Done", "X", "Escape"] as const) it(`Settings origin stays
 		await click(f, "practice-props-chip", custom);
 		assert.ok(overlay()); assert.equal(boundary.hidden, false); assert.notEqual(boundary.style.display, "none");
 		assert.equal(frame.hidden, false); assert.notEqual(frame.style.display, "none"); assert.equal(boundary.hasAttribute("inert"), true);
-		assertSameNode(document.querySelector('[data-testid="input-background"]'), background);
+		assert.equal(document.querySelector('[data-testid="input-background"]'), background);
 		if (action === "Done") await click(f, "chain-practice-done");
 		else if (action === "X") await click(f, "chain-table-close");
 		else await escape(f);
-		assert.equal(overlay(), null); assertSameNode(document.querySelector('[data-testid="settings-dialog"]'), frame);
-		assertSameNode(document.querySelector('[data-testid="input-background"]'), background);
+		assert.equal(overlay(), null); assert.equal(document.querySelector('[data-testid="settings-dialog"]'), frame);
+		assert.equal(document.querySelector('[data-testid="input-background"]'), background);
 		assert.equal(content.scrollTop, 53); assert.equal(input.value, "custom settings draft");
-		assertSameNode(document.activeElement, custom.querySelector('[data-testid="practice-props-chip"]'));
+		assert.equal(document.activeElement, custom.querySelector('[data-testid="practice-props-chip"]'));
 		assert.equal(boundary.hasAttribute("inert"), false);
 		await act(async () => { handle.dispose(); }); custom.remove();
 	} finally { await f.dispose(); }
@@ -779,7 +778,7 @@ it("fresh Settings nests above an active picker and closing it returns focus int
 		const boundary = picker.closest<HTMLElement>('[data-plugin-knowledge-picker-pane]')!;
 		assert.equal(boundary.isConnected, true); assert.equal(boundary.hidden, false); assert.notEqual(boundary.style.display, "none");
 		assert.ok(boundary.closest('[aria-hidden="true"]'));
-		await escape(f); assertSameNode(document.querySelector('[data-testid="settings-dialog"]'), null);
+		await escape(f); assert.equal(document.querySelector('[data-testid="settings-dialog"]'), null);
 		assert.equal(overlay(), picker); assert.equal(boundary.contains(document.activeElement), true);
 		await escape(f); assert.equal(overlay(), null);
 	} finally { await f.dispose(); }
@@ -853,14 +852,14 @@ it("session surfaces, their popup hosts, and pane pickers share causal local pai
 		assert.equal(Number(olderPopup.style.zIndex), Number(olderFrame.style.zIndex));
 		assert.equal(olderRoot.isConnected, true, "covering preserves the source DOM");
 		assert.equal(f.controller.getLayer(olderLayer.id), olderLayer, "covering preserves the exact invocation owner registration; inertness is not lifetime expiry");
-		assertSameNode(f.controller.getPortalContainer(picker.querySelector("button")), picker.querySelector("[data-interaction-popup-host]"));
+		assert.equal(f.controller.getPortalContainer(picker.querySelector("button")), picker.querySelector("[data-interaction-popup-host]"));
 		const input = document.createElement("input");
 		let newer!: ReturnType<typeof f.ui.openSurface>;
 		await act(async () => { newer = f.ui.openSurface(f.surfaceTarget, { title: "Newer surface", content: input }, { signal: f.scope.signal }); });
 		const newerLayer = f.controller.getTopLayer()!;
 		const newerFrame = newerLayer.rootRef.current!.querySelector<HTMLElement>("[data-plugin-session-surface-frame]")!;
 		assert.ok(Number(newerFrame.style.zIndex) > Number(picker.style.zIndex));
-		assertSameNode(document.querySelector("[data-plugin-knowledge-picker-pane]"), picker, "covering is not expiry");
+		assert.equal(document.querySelector("[data-plugin-knowledge-picker-pane]"), picker, "covering is not expiry");
 		assert.equal(olderRoot.hasAttribute("inert"), true, "session-region coverage policy remains intact");
 		assert.doesNotMatch(document.querySelector("[data-session-surface-region]")!.className, /\bz-40\b/);
 		await act(async () => { f.ui.openDialog({ title: "Global dialog", content: document.createElement("input") }, { signal: f.scope.signal }); });
@@ -885,9 +884,9 @@ it("pane view does not trap sidebar focus or mutate sidebar attributes, and Done
 		const button = document.createElement("button"); sidebar.append(button);
 		const before = sidebar.outerHTML;
 		await click(f, "practice-props-chip");
-		assertSameNode(document.querySelector('[data-testid="chain-practice-done"] svg'), null);
+		assert.equal(document.querySelector('[data-testid="chain-practice-done"] svg'), null);
 		button.focus(); await Promise.resolve();
-		assertSameNode(document.activeElement, button);
+		assert.equal(document.activeElement, button);
 		assert.equal(sidebar.outerHTML, before);
 	} finally { await f.dispose(); }
 });
@@ -920,7 +919,7 @@ it("picker-only native clearance tracks real pane position through resize, scrol
 		left = 72; zoom(); assert.equal(header.style.getPropertyValue("--lh-header-left"), "72px");
 		left = 0; window.dispatchEvent(new f.dom.window.Event("scroll"));
 		assert.equal(header.style.getPropertyValue("--lh-header-left"), "0px");
-		assertSameNode(header.querySelector('[aria-label="Open sidebar"]'), null);
+		assert.equal(header.querySelector('[aria-label="Open sidebar"]'), null);
 		const css = fs.readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
 		assert.match(css, /\[data-lh-platform="darwin"\] \.lh-native-window-clearance\s*\{\s*padding-left: calc\(0\.75rem \+ max\(0px, calc\(92px \/ var\(--lh-zoom\) - var\(--lh-header-left, 0px\)\)\)\);/);
 		assert.match(css, /--lh-wco-right: max\(0px, calc\(100vw - env\(titlebar-area-x, 0px\) - env\(titlebar-area-width, 100vw\)\)\);/);

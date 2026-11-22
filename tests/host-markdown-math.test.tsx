@@ -1,7 +1,6 @@
 import React from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
@@ -19,14 +18,14 @@ function render(text: string, host = true) {
 }
 const annotations = (doc: Document) => [...doc.querySelectorAll(".katex[data-tex]")].map(node => node.getAttribute("data-tex"));
 function displayOnly(doc: Document) {
-  assertSameNode(doc.querySelector("button,details,summary,input,[role='button'],[data-plugin-renderer]"), null);
+  assert.equal(doc.querySelector("button,details,summary,input,[role='button'],[data-plugin-renderer]"), null);
 }
 it("plugin Markdown matches native question presentation for the exact overescaped determinant and all four normally escaped options", () => {
   const source = [determinant, ...options].join("\n\n");
   const host = render(source), native = render(source, false);
   assert.equal(native.querySelectorAll(".katex").length, 5);
   assert.equal(host.querySelectorAll(".katex").length, 5);
-  assertSameNode(host.querySelector(".katex-error"), null);
+  assert.equal(host.querySelector(".katex-error"), null);
   assert.deepEqual(annotations(host), annotations(native));
   assert.equal(annotations(host)[0], String.raw`\det\begin{pmatrix} 1-\lambda & 2 \\ 3 & 4-\lambda \end{pmatrix}`);
   displayOnly(host);
@@ -41,7 +40,7 @@ $$
 $$`;
   const literal = String.raw`$\\det\\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix}$`;
   const host = render(valid + "\n\n`" + literal + "`\n\n```text\n" + literal + "\n```"), native = render(valid, false);
-  assert.equal(host.querySelectorAll(".katex").length, 4); assertSameNode(host.querySelector(".katex-error"), null);
+  assert.equal(host.querySelectorAll(".katex").length, 4); assert.equal(host.querySelector(".katex-error"), null);
   assert.deepEqual(annotations(host), annotations(native));
   assert.equal(host.querySelector("[data-streamdown='inline-code']")?.textContent, literal);
   assert.ok(host.querySelector("[data-streamdown='code-block-body']")?.textContent?.includes(literal));

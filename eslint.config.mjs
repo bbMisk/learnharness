@@ -2,6 +2,8 @@ import { defineConfig, globalIgnores } from "eslint/config";
 import nextPlugin from "@next/eslint-plugin-next";
 import tsParser from "@typescript-eslint/parser";
 import importPlugin from "eslint-plugin-import";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 /**
  * ESLint with one job here: ENFORCE THE IMPORT LAW (the shell/core
@@ -71,10 +73,14 @@ export default defineConfig([
 			],
 		},
 	},
-	// A failing assert.equal on a DOM node prints the node; a linkedom node
-	// reaches the whole document and the message grows without bound.
+	// FORK: a failing assert.equal on a DOM node prints the node; a linkedom
+	// node reaches the whole document and the message grows without bound.
+	// Fork-owned tests only: test files that exist at upstream/main keep
+	// upstream's assertions, so a merge never rewrites them. Without that ref
+	// (a clone with no upstream remote) the rule is skipped.
 	{
 		files: ["tests/**/*.{ts,tsx}"],
+		ignores: upstreamTestFiles() ?? ["tests/**"],
 		rules: {
 			"no-restricted-syntax": [
 				"error",
@@ -91,3 +97,18 @@ export default defineConfig([
 		},
 	},
 ]);
+
+/** Test files that exist at upstream/main (read from git on each lint run,
+ *  so a newly merged upstream test is exempt with no manual step), or
+ *  null when the ref is unavailable. */
+function upstreamTestFiles() {
+	try {
+		const out = execFileSync("git", ["-C", fileURLToPath(new URL(".", import.meta.url)), "ls-tree", "-r", "--name-only", "upstream/main", "--", "tests"], {
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "ignore"],
+		});
+		return out.split("\n").filter(Boolean);
+	} catch {
+		return null;
+	}
+}

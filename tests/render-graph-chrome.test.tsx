@@ -12,7 +12,6 @@ import React from "react";
 (globalThis as Record<string, unknown>).React = React;
 
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { parseHTML } from "linkedom";
@@ -121,7 +120,7 @@ describe("node detail card text", () => {
 		assert.equal(document.querySelector("strong")?.textContent, "Meaning");
 		assert.equal(document.querySelector('[data-streamdown="inline-code"]')?.textContent, "literal");
 		assert.ok(document.querySelector("table"), "ordinary Markdown tables use the shared renderer");
-		assertSameNode(document.querySelector("img"), null, "node content cannot load a remote image");
+		assert.equal(document.querySelector("img"), null, "node content cannot load a remote image");
 		assert.ok(html.includes("[Image blocked: untrusted]"));
 		assert.deepEqual(source, before);
 	});

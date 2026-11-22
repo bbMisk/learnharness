@@ -1,7 +1,6 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { test } from "node:test";
 import { parseHTML } from "linkedom";
 import { createRoot } from "react-dom/client";
@@ -58,7 +57,7 @@ test("a citation comment popup respects the current Escape owner and survives ke
 	await uncover();
 	await f.escape();
 	assert.equal(f.dismissals(), 1);
-	assertSameNode(document.querySelector("[data-testid='citation-comment-popover']"), null);
+	assert.equal(document.querySelector("[data-testid='citation-comment-popover']"), null);
 }, true));
 
 test("the sent citation quote card has a real Escape owner; a covering modal cannot close it", async () => fixture(async f => {
@@ -71,6 +70,6 @@ test("the sent citation quote card has a real Escape owner; a covering modal can
 	await uncover();
 	const escape = await f.escape();
 	assert.equal(escape.defaultPrevented, true);
-	assertSameNode(document.querySelector("[data-testid='citation-quote-card']"), null);
+	assert.equal(document.querySelector("[data-testid='citation-quote-card']"), null);
 	assert.equal(f.controller.getTopLayer(), null);
 }));

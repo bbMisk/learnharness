@@ -8,7 +8,6 @@ import { parseHTML } from "linkedom";
 import { MessageResponse, ToolContentResponse } from "../components/ai-elements/message.tsx";
 import { Reasoning, ReasoningContent } from "../components/ai-elements/reasoning.tsx";
 import { transformMathDelimiters } from "../src/core/math-delims.ts";
-import { assertSameNode } from "./helpers/same-node.ts";
 
 const surfaces = {
 	// Streaming surfaces: unfinished-Markdown repair runs only while text streams (owner, 2026-11-05).
@@ -36,7 +35,7 @@ for (const [name, surface] of Object.entries(surfaces)) describe(`streaming math
 		const document = documentFor(surface(`${source}\n\nTAIL`));
 		assert.deepEqual(annotations(document), [tex]);
 		assert.ok(document.querySelector(".katex-html"));
-		assertSameNode(document.querySelector(".katex-mathml, math"), null);
+		assert.equal(document.querySelector(".katex-mathml, math"), null);
 		assert.ok(document.body.textContent.includes("TAIL"));
 		assert.ok(!document.body.textContent.includes("[blocked]"));
 		assert.equal(document.querySelectorAll(".katex-error").length, 0);

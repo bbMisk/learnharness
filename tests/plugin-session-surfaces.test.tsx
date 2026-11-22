@@ -1,7 +1,6 @@
 import React, { act, useEffect, useRef } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { it } from "node:test";
 import { parseHTML } from "linkedom";
 import { createRoot } from "react-dom/client";
@@ -184,7 +183,7 @@ it("late targetless content completion is cleaned once without remapping to or t
 	await f.openCurrent("Fresh page content", inputContent("Fresh input"));
 	const focus = document.activeElement;
 	await act(async () => { complete(); handle.update({ title: "Late stale update" }); });
-	assert.equal(cleaned, 1); assertSameNode(document.activeElement, focus);
+	assert.equal(cleaned, 1); assert.equal(document.activeElement, focus);
 	assert.equal(surface("Late stale update"), undefined); assert.ok(surface("Fresh page content"));
 	await act(async () => handle.dispose()); assert.equal(cleaned, 1);
 }));
@@ -198,7 +197,7 @@ for (const timing of ["before", "after"] as const) {
 			signal = mountedSignal; const input = document.createElement("input"); input.dataset.behindModal = ""; container.append(input);
 		});
 		if (timing === "after") await f.render({ settings: true });
-		else assertSameNode(document.activeElement, before, "opening a late page surface cannot steal modal focus");
+		else assert.equal(document.activeElement, before, "opening a late page surface cannot steal modal focus");
 		const modal = f.controller.getActiveModal()!;
 		const root = surface("Page-owned beneath Settings"), input = root.querySelector<HTMLElement>("input")!;
 		const layer = f.controller.getSnapshot().find(candidate => candidate.rootRef.current === root)!;
@@ -221,7 +220,7 @@ it("targetless caller abort disposes content once without onClose and Activity h
 	const old = f.target(), native = document.querySelector("[data-native-body]");
 	await f.openCurrent("Direct Activity");
 	await f.render({ retainedHidden: true });
-	assertSameNode(document.querySelector("[data-native-body]"), native);
+	assert.equal(document.querySelector("[data-native-body]"), native);
 	assert.equal(findCurrentSurfaceBoundary(document), undefined); assert.equal(findSurfaceBoundary(old), undefined);
 	assert.equal(f.store.getSnapshot().length, 0);
 	assert.throws(() => f.ui.openSurface({ title: "Hidden page", content: document.createElement("div") }, { signal: new AbortController().signal }), /Surface target is no longer active/);
@@ -265,7 +264,7 @@ it("surfaces share the exact session body/local paint stratum, leaving chrome an
 	await f.open("Drawing", inputContent("Canvas note"));
 	const root = surface("Drawing");
 	assert.ok(region.contains(root));
-	assertSameNode(document.querySelector('[aria-modal="true"]'), null);
+	assert.equal(document.querySelector('[aria-modal="true"]'), null);
 	assert.equal(f.controller.getTopLayer()?.kind, "view");
 	assert.equal(Number(frame(root).style.zIndex), 100 + f.controller.getTopLayer()!.order);
 	assert.equal(f.controller.isElementEligible(native), false);
@@ -273,14 +272,14 @@ it("surfaces share the exact session body/local paint stratum, leaving chrome an
 	assert.equal(f.controller.isElementEligible(document.querySelector("[data-chrome]")), true);
 	assert.equal(document.querySelector("aside")?.closest("[inert]"), null);
 	assert.equal(root.getAttribute("aria-label"), "Drawing");
-	assertSameNode(root.querySelector("h2"), null, "the accessible title creates no host heading or row");
+	assert.equal(root.querySelector("h2"), null, "the accessible title creates no host heading or row");
 	assert.doesNotMatch(frame(root).className, /\bp-4\b/);
 	const scroller = root.querySelector("input")!.parentElement!.parentElement!;
 	assert.match(scroller.className, /overflow-y-auto/);
 	const close = root.querySelector('button[aria-label="Close"]')!;
 	assert.equal(close.parentElement, frame(root), "floating X is outside the content scroller");
 	assert.match(close.className, /absolute right-2 top-2/);
-	assertSameNode(root.querySelector("[data-plugin-ui-widget]"), null);
+	assert.equal(root.querySelector("[data-plugin-ui-widget]"), null);
 	assert.match(root.querySelector("input")!.parentElement!.className, /h-full w-full/);
 }));
 
@@ -297,7 +296,7 @@ it("surface background defaults to dimmed and controlled presets preserve conten
 	assert.equal(frame(surface("Background")), painted);
 	assert.match(painted.className, /\bbg-background\b/);
 	assert.doesNotMatch(painted.className, /bg-background\/80|backdrop-blur/);
-	assertSameNode(document.activeElement, focus); assert.equal(mounts, 1); assert.equal(signal.aborted, false);
+	assert.equal(document.activeElement, focus); assert.equal(mounts, 1); assert.equal(signal.aborted, false);
 	await act(async () => handle.update({ background: "dimmed" }));
 	assert.match(painted.className, /bg-background\/80 backdrop-blur-sm/);
 	await act(async () => handle.update({ background: undefined }));
@@ -340,7 +339,7 @@ it("visual siblings stay mounted and painted; unloading a lower owner cannot clo
 	await act(async () => f.lifetime.abort());
 	assert.equal(surface("A"), undefined); assert.equal(surface("B"), b);
 	assert.equal(cleanedA, 1); assert.equal(cleanedB, 0);
-	assertSameNode(document.activeElement, focus, "covered owner unload never steals foreground focus");
+	assert.equal(document.activeElement, focus, "covered owner unload never steals foreground focus");
 	await act(async () => ownerB.abort());
 	assert.equal(cleanedB, 1);
 }));
@@ -354,7 +353,7 @@ it("one Escape closes only the foreground surface; close notifications use lates
 	assert.equal(closes, 1); assert.equal(surface("Upper updated"), undefined);
 	assert.ok(surface("Lower")); assert.equal(f.store.getSnapshot().length, 1);
 	await f.escape();
-	assertSameNode(document.querySelector("[data-plugin-session-surface]"), null);
+	assert.equal(document.querySelector("[data-plugin-session-surface]"), null);
 	assert.equal(document.querySelector("[data-native-body]")?.hasAttribute("inert"), false);
 }));
 
@@ -405,7 +404,7 @@ it("React Activity hide-retains native DOM but expires surfaces and never revive
 	const native = document.querySelector("[data-native-body]");
 	await f.render({ retainedHidden: true });
 	assert.equal(f.store.getSnapshot().length, 0); assert.equal(cleaned, 1);
-	assertSameNode(document.querySelector("[data-native-body]"), native, "native view DOM is retained");
+	assert.equal(document.querySelector("[data-native-body]"), native, "native view DOM is retained");
 	assert.throws(() => f.ui.openSurface(old, { title: "Old", content: document.createElement("div") }, { signal: new AbortController().signal }), /Surface target is no longer active/);
 	await f.render({ retainedHidden: false });
 	assert.notEqual(f.target(), old);
@@ -440,7 +439,7 @@ it("entry honors explicit eligible focus, otherwise first editable field, plugin
 		container.append(document.createElement("input"));
 		explicit = document.createElement("button"); explicit.textContent = "Explicit focus"; container.append(explicit); explicit.focus();
 	});
-	assertSameNode(document.activeElement, explicit);
+	assert.equal(document.activeElement, explicit);
 	await act(async () => one.dispose());
 	const two = await f.open("Editable", container => {
 		const readonly = document.createElement("input"); readonly.setAttribute("readonly", ""); container.append(readonly);
@@ -452,7 +451,7 @@ it("entry honors explicit eligible focus, otherwise first editable field, plugin
 	const three = await f.open("Heading only", container => {
 		const heading = document.createElement("h2"); heading.textContent = "Plugin heading"; container.append(heading);
 	});
-	assertSameNode(document.activeElement, surface("Heading only").querySelector("h2"));
+	assert.equal(document.activeElement, surface("Heading only").querySelector("h2"));
 	assert.equal(document.activeElement?.getAttribute("tabindex"), "-1");
 	await act(async () => three.dispose());
 	const native = document.querySelector<HTMLElement>("[data-native-input]")!;
@@ -463,7 +462,7 @@ it("entry honors explicit eligible focus, otherwise first editable field, plugin
 	assert.equal(root.getAttribute("aria-label"), "Accessible name only");
 	assert.equal(painted.getAttribute("aria-label"), "Accessible name only");
 	assert.equal(painted.getAttribute("tabindex"), "-1");
-	assertSameNode(document.activeElement, painted, "empty content focuses the painted frame, not the display:contents root, floating X, or covered composer");
+	assert.equal(document.activeElement, painted, "empty content focuses the painted frame, not the display:contents root, floating X, or covered composer");
 	assert.equal(f.controller.isElementEligible(native), false);
 }));
 
@@ -573,12 +572,12 @@ it("foreground close restores an uncovered chrome opener, else remembered surviv
 	chrome.focus();
 	const one = await f.open("One", inputContent("One field"));
 	const oneField = surface("One").querySelector<HTMLElement>("input")!;
-	assertSameNode(document.activeElement, oneField);
+	assert.equal(document.activeElement, oneField);
 	const two = await f.open("Two", inputContent("Two field"));
 	await act(async () => two.dispose());
-	assertSameNode(document.activeElement, oneField);
+	assert.equal(document.activeElement, oneField);
 	await act(async () => one.dispose());
-	assertSameNode(document.activeElement, chrome);
+	assert.equal(document.activeElement, chrome);
 	const native = document.querySelector<HTMLElement>("[data-native-input]")!; native.focus();
 	const fallback = await f.open("Fallback");
 	native.remove();
@@ -597,16 +596,16 @@ it("a delayed covered mount completion never steals focus from a newer view", as
 	await f.open("Newer", inputContent("Newer field"));
 	const focus = document.activeElement;
 	await act(async () => complete());
-	assertSameNode(document.activeElement, focus);
+	assert.equal(document.activeElement, focus);
 	await act(async () => first.dispose());
-	assert.equal(cleaned, 1); assertSameNode(document.activeElement, focus);
+	assert.equal(cleaned, 1); assert.equal(document.activeElement, focus);
 }));
 
 it("native views and surfaces share ordered local paint; an older global modal remains eligible above a late surface", async () => withFixture(async f => {
 	await f.open("Surface");
 	await f.render({ nativeView: true });
 	const native = document.querySelector<HTMLElement>("[data-native-view]")!;
-	assertSameNode(native.parentElement, document.querySelector("[data-session-surface-region]"));
+	assert.equal(native.parentElement, document.querySelector("[data-session-surface-region]"));
 	assert.ok(Number(native.style.zIndex) > Number(frame(surface("Surface")).style.zIndex));
 	assert.equal(surface("Surface").hasAttribute("inert"), true);
 	assert.equal(native.hasAttribute("inert"), false);
@@ -617,7 +616,7 @@ it("native views and surfaces share ordered local paint; an older global modal r
 	await f.open("Late surface");
 	assert.equal(f.controller.getTopLayer(), modal);
 	assert.equal(f.controller.isElementEligible(settings), true);
-	assertSameNode(document.activeElement, settingsFocus);
+	assert.equal(document.activeElement, settingsFocus);
 	const region = document.querySelector<HTMLElement>("[data-session-surface-region]")!;
 	assert.doesNotMatch(region.className, /\bz-40\b/);
 	const main = region.closest<HTMLElement>("[data-host-main]")!;
@@ -658,8 +657,8 @@ for (const expiry of ["dispose", "leave"] as const) {
 		assert.equal(closes, 0, "parent teardown is disposal, not a fabricated user close");
 		assert.equal(f.store.getSnapshot().length, 0);
 		assert.equal(f.controller.getTopLayer(), null);
-		assertSameNode(document.querySelector("[data-testid='plugin-menu']"), null);
-		assertSameNode(document.querySelector("[data-lh-menu]"), null);
+		assert.equal(document.querySelector("[data-testid='plugin-menu']"), null);
+		assert.equal(document.querySelector("[data-lh-menu]"), null);
 		// A plugin callback that ignored its old surface signal and resumes late
 		// cannot create a new globally portaled popup from the detached anchor.
 		await act(async () => {

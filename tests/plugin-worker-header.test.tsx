@@ -1,7 +1,6 @@
 import React from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
-import { assertSameNode } from "./helpers/same-node.ts";
 import { it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
@@ -21,7 +20,7 @@ for (const status of ["succeeded", "failed", "cancelled", "interrupted"] as cons
 			assert.equal(header.getAttribute("title"), null, "outcomes use the application Hint, not a browser-only tooltip");
 			assert.equal(header.getAttribute("data-slot"), "tooltip-trigger");
 			assert.equal(header.getAttribute("tabindex"), null, "Hint does not add a focus stop");
-			assertSameNode(header.querySelector("button"), null);
+			assert.equal(header.querySelector("button"), null);
 			assert.equal(header.querySelector(".sr-only")?.textContent, ` ${status}`);
 			assert.equal(header.textContent, `Example worker ${status}`);
 			const visibleHeader = header.cloneNode(true) as HTMLElement;
@@ -45,9 +44,9 @@ for (const status of ["succeeded", "failed", "cancelled", "interrupted"] as cons
 				assert.equal(chevron.getAttribute("aria-hidden"), "true");
 				assert.equal(header.querySelectorAll("svg").length, 2);
 			} else {
-				assertSameNode(document.querySelector("details"), null);
+				assert.equal(document.querySelector("details"), null);
 				assert.equal(header.querySelectorAll("svg").length, 1);
-				assertSameNode(header.querySelector(".lucide-chevron-right"), null);
+				assert.equal(header.querySelector(".lucide-chevron-right"), null);
 			}
 		});
 	}
@@ -59,7 +58,7 @@ it("shared native brief disclosure retains its default check and view/hide wordi
 	const summary = document.querySelector("summary")!;
 	assert.equal(summary.textContent, "Native briefview briefhide brief");
 	assert.ok(summary.querySelector(".lucide-check"));
-	assertSameNode(summary.querySelector(".lucide-chevron-right"), null);
+	assert.equal(summary.querySelector(".lucide-chevron-right"), null);
 	assert.equal(summary.getAttribute("title"), null);
 	assert.equal(summary.getAttribute("data-slot"), null, "native brief defaults do not opt into a Hint");
 	assert.equal(document.querySelector("details")!.hasAttribute("open"), false);
@@ -91,6 +90,6 @@ it("native Research and PDF completion callers keep their captions and brief dis
 		assert.equal(summary.getAttribute("data-slot"), null, "Research/PDF keep their unwrapped, tooltip-free summaries");
 		assert.equal(details.firstElementChild, summary);
 		assert.ok(summary.querySelector(".lucide-check"));
-		assertSameNode(summary.querySelector(".lucide-chevron-right"), null);
+		assert.equal(summary.querySelector(".lucide-chevron-right"), null);
 	}
 });

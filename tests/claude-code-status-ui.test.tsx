@@ -1,7 +1,6 @@
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 import assert from "node:assert/strict";
-import { assertSameNode, assertNotSameNode } from "./helpers/same-node.ts";
 import { afterEach, test } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -64,8 +63,8 @@ test("off by default; enabling persists before probing and reveals the version/a
 	await act(async () => toggle().click());
 	assert.equal(toggle().getAttribute("aria-checked"), "true"); assert.equal(label(), "Not found");
 	assert(calls.indexOf("PUT /api/settings/claudeCode") < calls.indexOf("GET /api/claude-code"));
-	assertNotSameNode(toggle().parentElement, button().parentElement);
-	assertSameNode(document.querySelector('[role="status"]')?.parentElement, button().parentElement);
+	assert.notEqual(toggle().parentElement, button().parentElement);
+	assert.equal(document.querySelector('[role="status"]')?.parentElement, button().parentElement);
 	assert.match(document.body.textContent ?? "", /no background process required/);
 	assert.match(document.body.textContent ?? "", /not authentication, model access, or quota/);
 	assert.match(document.body.textContent ?? "", /Claude Code controls billing/);
