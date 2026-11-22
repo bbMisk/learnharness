@@ -110,6 +110,9 @@ export * from "./coverage.ts";
 // ONE session→markdown formatter — the extractor's view and the user-facing
 // export share it. Pure, browser-safe.
 export * from "./session-markdown.ts";
+// side-chat.ts (shared side conversations): ask-input validation,
+// thread lookup and the side model's lesson document. Pure, browser-safe.
+export * from "./side-chat.ts";
 
 export * from "./demo-document.ts";
 export * from "./fork-config.ts";

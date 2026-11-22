@@ -31,6 +31,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { PATHS, PROMPTS_OVERRIDE_DIR } from "../../config.ts";
 import { FRAGMENT_RE, isValidSegmentPath, type PromptAgent, type PromptSegmentInfo } from "../core/prompt-segments.ts";
+import { sideQuestionsEnabled } from "../core/fork-config.ts";
 
 const PROMPTS_DIR = path.join(PATHS.root, "src", "agent", "prompts");
 
@@ -40,7 +41,7 @@ const PROMPTS_DIR = path.join(PATHS.root, "src", "agent", "prompts");
  *  truth contract, and the thinking-fields doctrine are ONE law across
  *  every agent. The question/confidence/file mechanics stay out
  *  (practice has no such tools). */
-const PRACTICE_SHARED_FRAGMENTS = ["10-voice.md", "15-accuracy.md", "16-mental-model.md", "22-self-contained-questions.md", "40-formatting.md"];
+const PRACTICE_SHARED_FRAGMENTS = ["10-voice.md", "15-accuracy.md", "16-mental-model.md", "22-self-contained-questions.md", "35-side-conversations.md", "40-formatting.md"];
 
 /** Absolute path for an override file (unchecked — validate first). */
 function overrideFileFor(segmentPath: string): string {
@@ -88,6 +89,7 @@ export function listSourceSegments(agent: PromptAgent): Array<{ path: string; sh
 		const sharedFragments = fs
 			.readdirSync(sharedDir)
 			.filter((f) => FRAGMENT_RE.test(f) && (allow === null || allow.includes(f)))
+			.filter((f) => sideQuestionsEnabled || f !== "35-side-conversations.md") // FORK: the side-questions fragment composes only with them on
 			.sort();
 		for (const f of sharedFragments) {
 			segments.push({ path: `shared/${f}`, shared: true, file: path.join(sharedDir, f) });

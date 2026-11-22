@@ -55,7 +55,8 @@ export type ModelRole =
 	| "visualMaker"
 	| "pdfReader"
 	| "extractor"
-	| "auditor";
+	| "auditor"
+	| "sideQuestion";
 
 /**
  * The LIVE graph store (src/store/graph.ts) — owned by the app's extraction

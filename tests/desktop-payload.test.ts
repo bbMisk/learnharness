@@ -65,6 +65,8 @@ function withPayload(test: (fixture: {
 		for (const asset of ["jbig2.wasm", "openjpeg.wasm", "qcms_bg.wasm"]) write(path.join(STANDALONE, "node_modules", "pdfjs-dist", "wasm", asset));
 		write(path.join(STANDALONE, PROMPT));
 		write(path.join(STANDALONE, "src", "agent", "prompts", "teacher", "20-teaching.md"));
+		write(path.join(STANDALONE, "src", "agent", "prompts", "side-chat", "00-base.md"));
+		write(path.join(STANDALONE, "src", "agent", "prompts", "side-chat", "90-style.md"));
 		test({ root, write, run: () => spawnSync(process.execPath, [path.join(root, "scripts", "build-server.mjs")], {
 			cwd: root, encoding: "utf8", timeout: 10_000,
 		}) });
@@ -209,13 +211,12 @@ describe("desktop standalone payload", () => {
 		});
 	});
 
-	// Fork: side questions are not merged, so there are no side-chat prompt assets to require.
-	it("still refuses a missing runtime prompt asset", () => {
-		withPayload(({ root, run }) => {
-			fs.rmSync(path.join(root, STANDALONE, PROMPT));
+	it("still refuses missing runtime prompt assets, including the side brevity fragment", () => {
+		for (const asset of [PROMPT, path.join("src", "agent", "prompts", "side-chat", "90-style.md")]) withPayload(({ root, run }) => {
+			fs.rmSync(path.join(root, STANDALONE, asset));
 			const result = run();
 			assert.equal(result.status, 1);
-			assert.match(String(result.stderr), /runtime asset missing.*system-prompt/);
+			assert.match(String(result.stderr), new RegExp(`runtime asset missing.*${path.basename(asset)}`));
 		});
 	});
 

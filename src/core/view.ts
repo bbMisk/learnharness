@@ -619,6 +619,12 @@ function projectMarker(marker: LhMarkerMessage, state: ViewFoldState): void {
 			});
 			return;
 		}
+		case "side-question":
+		case "side-question-told":
+			// Raw context entries do not split the teaching segment or render
+			// loud transcript pills. Its quiet speech-bubble reopens the saved
+			// conversation in the floating/docked companion.
+			return;
 		case "problem-dismissed":
 			// UI-only (the ask-style dismissal): the synthesized conclude
 			// pair — which rides the NEXT input — carries the record's face.

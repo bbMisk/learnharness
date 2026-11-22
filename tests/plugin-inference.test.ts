@@ -25,7 +25,7 @@ function output(model: PluginModelSpec = spec): AssistantMessage {
 }
 function listing(model: PluginModelSpec = spec): ModelCatalogResponse {
 	return { models: [{ provider: model.provider, id: model.id, name: "Explicit fixture model", reasoning: true, input: ["text"], supportedLevels: ["off", "medium"], cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 }, contextWindow: 8192, maxTokens: 1024 }],
-		providers: [{ id: model.provider, envVar: "FIXTURE_KEY", keyPresent: true }], defaults: { model }, rolePins: { researcher: { model }, demoBuilder: null, visualMaker: null, extractor: null, auditor: null }, slots: { strong: { model }, cheap: null, vision: null } };
+		providers: [{ id: model.provider, envVar: "FIXTURE_KEY", keyPresent: true }], defaults: { model }, rolePins: { researcher: { model }, demoBuilder: null, visualMaker: null, extractor: null, auditor: null, sideQuestion: null }, slots: { strong: { model }, cheap: null, vision: null } };
 }
 function request(model: PluginModelSpec = spec): PluginInferenceRequest {
 	return { model, purpose: "background", context: { systemPrompt: "Plugin task instructions", messages: [{ role: "user", content: "Explicit task", timestamp: 1 }] } };

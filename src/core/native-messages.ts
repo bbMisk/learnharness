@@ -82,7 +82,9 @@ export interface LhMarkerMessage {
 		| "plugin-problem-submission"
 		| "practice-next"
 		| "problem-dismissed"
-		| "compaction";
+		| "compaction"
+		| "side-question"
+		| "side-question-told";
 	/** The model-facing text ("" for plan blocks — UI-only). */
 	content: string;
 	display: boolean;
@@ -128,6 +130,21 @@ export function cliContextWindowOf(messages: readonly LhMessage[]): { model: str
  *  the replay (ui-stream/chat-handler assign it to initialState.messages). */
 export function asAgentMessages(messages: readonly LhMessage[]): AgentMessage[] {
 	return messages as unknown as AgentMessage[];
+}
+
+/** Side-question markers (#16) never change what the record's tail
+ *  means: a closed side thread leaves a dismissal pause, a Retry, a
+ *  recovery, or an owed continuation exactly as it found them. */
+export function isSideQuestionMarker(m: LhMessage | AgentMessage | undefined): boolean {
+	if ((m as { role?: string } | undefined)?.role !== "custom") return false;
+	const type = (m as LhMarkerMessage).customType;
+	return type === "side-question" || type === "side-question-told";
+}
+
+function tailIgnoringSideQuestions<T>(messages: readonly T[]): readonly T[] {
+	let end = messages.length;
+	while (end > 0 && isSideQuestionMarker(messages[end - 1] as never)) end--;
+	return end === messages.length ? messages : messages.slice(0, end);
 }
 
 // ─── explicit learner-facing output ─────────────────────────────────────────
@@ -708,7 +725,9 @@ export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
 			const marker = m as LhMarkerMessage;
 			// UI-only markers: plan blocks, and problem dismissals (the
 			// synthesized conclude pair carries the model's face).
+			// Empty side markers carry no model-facing exchange.
 			if (marker.customType === "plan-block" || marker.customType === "problem-dismissed") continue;
+			if (marker.customType === "side-question" && !marker.content) continue;
 			// The head supersedes every compaction marker, not only its own
 			// stored position. Without a resolved head, preserve the existing
 			// full-history fallback, including the summary text.
@@ -717,7 +736,7 @@ export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
 			out.push({
 				role: "user",
 				content: problemSubmission ? nativeAnswerContent(marker.content, { answer: problemSubmission.images?.submission, thinking: problemSubmission.images?.thinking })
-					: [{ type: "text", text: marker.customType === "practice-thinking" ? expandCitationsForModel(marker.content) : marker.content }, ...(marker.customType === "practice-thinking"
+					: [{ type: "text", text: marker.customType === "practice-thinking" || marker.customType === "side-question" ? expandCitationsForModel(marker.content) : marker.content }, ...(marker.customType === "practice-thinking"
 						? (marker.details as { images?: ImageContent[] } | null)?.images ?? [] : [])],
 				timestamp: marker.timestamp,
 			});
@@ -966,12 +985,14 @@ function isDismissedResult(m: LhMessage): boolean {
 	return details?.dismissed === true || readPluginQuestionCancellation((m as ToolResultMessage).details) !== null;
 }
 
-/** The dismissal pause: the record ends in user dismissal — the session waits
- *  for the USER. While paused, nothing auto-wakes: the continuation fold
- *  demands nothing (below) and the wake pipeline holds job deliveries in the
- *  steer queue until the next send. Derived from the tail — no latch to persist
- *  or clear; any user message flips it off by changing the record. */
-export function endsInDismissal(messages: readonly LhMessage[]): boolean {
+/** The dismissal pause (owner design 2026-10-03, "A2"): the record ends
+ *  in user dismissal — the session waits for the USER. While paused,
+ *  nothing auto-wakes: the continuation fold demands nothing (below) and
+ *  the wake pipeline holds job deliveries in the steer queue until the
+ *  next send. Derived from the tail — no latch to persist or clear; any
+ *  user message flips it off by changing the record. */
+export function endsInDismissal(record: readonly LhMessage[]): boolean {
+	const messages = tailIgnoringSideQuestions(record);
 	const last = messages[messages.length - 1];
 	return last !== undefined && isDismissedResult(last);
 }
@@ -979,7 +1000,8 @@ export function endsInDismissal(messages: readonly LhMessage[]): boolean {
 /** The recovery click authorizes its immediate replacement turn, not an
  * automatic restart if only the write-ahead error results survived. No new
  * stored latch: explicit input or replacement output changes this tail. */
-export function endsInQuestionRecovery(messages: readonly LhMessage[]): boolean {
+export function endsInQuestionRecovery(record: readonly LhMessage[]): boolean {
+	const messages = tailIgnoringSideQuestions(record);
 	const last = messages[messages.length - 1];
 	return last?.role === "toolResult" && last.isError &&
 		(last.details as { questionRecovery?: unknown } | null)?.questionRecovery === true;
@@ -995,7 +1017,7 @@ export function nativeInputCause(message: AgentMessage, history: readonly AgentM
 	if (message.role === "custom") {
 		if (["probe-handoff", "subagent-steer", "subagent-abort"].includes(message.customType)) return "automatic";
 		if (["practice-thinking", "plugin-problem-submission", "practice-next"].includes(message.customType)) return "learner";
-		return ["graph-context", "plan-block", "problem-dismissed", "compaction"].includes(message.customType) ? "neutral" : "unrecognizable";
+		return ["graph-context", "plan-block", "problem-dismissed", "compaction", "side-question", "side-question-told"].includes(message.customType) ? "neutral" : "unrecognizable";
 	}
 	if (message.role === "toolResult") {
 		const pluginAnswer = readPluginQuestionAnswer(message.details);
@@ -1044,19 +1066,8 @@ export function reconstructRequestCause(messages: readonly LhMessage[]): Reconst
 	return resolve();
 }
 
-/**
- * Does the record END on un-consumed tool results — a turn that stopped
- * after its tools ran (a job dispatch's ack, an aborted answer turn),
- * leaving the agent owing a continuation? This is the mount/sync
- * continuation seam's gate (chat.tsx): when true and nothing runs, the
- * client sends {type:"continue"} and the teacher picks up from the record.
- *
- * The fold: the last message is a toolResult, and the results' OWNING
- * assistant message has at least one call, ALL of them answered (a
- * dangling question — the dock's domain — fails the all-answered rule and
- * never fires a turn).
- */
-export function needsContinuation(messages: readonly LhMessage[]): boolean {
+export function needsContinuation(record: readonly LhMessage[]): boolean {
+	const messages = tailIgnoringSideQuestions(record);
 	if (pluginQuestionCallsOf(messages).some(call => call.status === "answerable" || call.status === "unreadable")) return false;
 	const last = messages[messages.length - 1];
 	if (!last || (last as { role?: string }).role !== "toolResult") return false;

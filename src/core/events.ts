@@ -41,6 +41,9 @@ export interface ServerEvents {
 	 * true, the server gates model interaction and the client disables related
 	 * composer/dock submission. This is live state, not a persisted marker. */
 	"compaction-changed": { chatId: string; running: boolean };
+	/** A side conversation changed. Notify-then-fetch: open views refetch
+	 *  GET /api/chats/:id/side-chats. Closing never deletes it. */
+	"side-chats-changed": { chatId: string };
 	/** Plugin availability/lifecycle changed; refetch installed packages. */
 	"plugins-changed": Record<string, never>;
 	/** Live-only, plugin-scoped notifications. Reconnect requires snapshot resync. */
@@ -64,6 +67,7 @@ export const SERVER_EVENT_TYPES = [
 	"chat-settings-changed",
 	"settings-changed",
 	"compaction-changed",
+	"side-chats-changed",
 	"plugins-changed",
 	"plugin-message",
 ] as const satisfies readonly ServerEventType[];

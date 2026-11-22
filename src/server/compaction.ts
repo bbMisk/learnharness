@@ -118,6 +118,9 @@ export interface CompactionDeps {
 	/** The composed system prompt's token estimate (chars/4) — the
 	 *  projection the provider actually receives starts with it. */
 	systemPromptTokens: number;
+	/** Trigger against a prospective request without recording/summarizing
+	 * its new cargo. The cut and summary still use only saved history. */
+	projectMessages?: (record: ChatRecord) => readonly LhMessage[];
 	/** Injectable summarizer (tests); default = the sub-agent one-shot. */
 	summarize?: Summarizer;
 }
@@ -200,7 +203,7 @@ async function compact(deps: CompactionDeps, chatId: string, thresholdTokens: nu
 	if (!record) return;
 	const messages = record.messages;
 	const model = deps.includeReasoning ? deps.engine.model : undefined;
-	const tokensBefore = projectedContextTokens(messages, deps.systemPromptTokens, model);
+	const tokensBefore = projectedContextTokens(deps.projectMessages?.(record) ?? messages, deps.systemPromptTokens, model);
 	if (tokensBefore <= thresholdTokens) return; // settled beneath while we waited
 
 	const cut = compactionCutIndex(messages, undefined, model);
@@ -353,7 +356,7 @@ export async function ensureCompacted(deps: CompactionDeps, chatId: string): Pro
 	const record = deps.chatStore.getChat(chatId);
 	if (!record) return;
 	const model = deps.includeReasoning ? deps.engine.model : undefined;
-	if (projectedContextTokens(record.messages, deps.systemPromptTokens, model) <= thresholdTokens) return;
+	if (projectedContextTokens(deps.projectMessages?.(record) ?? record.messages, deps.systemPromptTokens, model) <= thresholdTokens) return;
 	const admitted = state().inFlight.get(chatId);
 	if (admitted) {
 		await admitted;

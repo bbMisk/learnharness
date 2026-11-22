@@ -18,6 +18,7 @@
  *   "shift+tab", "alt+arrowdown", "mod+shift+f", "?", "f2", "escape"
  * Order is fixed: mod, alt, shift, then the key.
  */
+import { sideQuestionsEnabled } from "./fork-config.ts";
 
 export type KeyAction =
 	| "toggle-dictation"
@@ -37,7 +38,8 @@ export type KeyAction =
 	| "question-submit"
 	| "open-settings"
 	| "toggle-user-thinking"
-	| "toggle-side-tutor";
+	| "toggle-side-tutor"
+	| "toggle-question-thread";
 
 /** Where the cheat sheet groups an action (display only — dispatch is
  *  global; a seam that isn't mounted simply no-ops). */
@@ -71,6 +73,7 @@ export const KEYBOARD_ACTIONS: readonly KeyActionDef[] = [
 	{ id: "rename-session", label: "Rename chat", scope: "chat", binding: "f2" },
 	{ id: "toggle-user-thinking", label: "Toggle all your thinking", scope: "chat", binding: "mod+t" },
 	{ id: "toggle-side-tutor", label: "Temporary side tutor", scope: "chat", binding: "mod+shift+s" },
+	{ id: "toggle-question-thread", label: "Question · ask for a nudge (side thread)", scope: "chat", binding: "mod+j" },
 	// Mod+F is surface-scoped: graph node search and session text Find share
 	// one action/binding. Only the currently mounted surface listens.
 	{ id: "find", label: "Find", scope: "global", binding: "mod+f" },
@@ -88,6 +91,8 @@ export const KEYBOARD_ACTIONS: readonly KeyActionDef[] = [
 	{ id: "question-pick-row", label: "Question · pick row", scope: "chat", binding: "space", displayOnly: true },
 	{ id: "question-submit", label: "Question · submit", scope: "chat", binding: "enter", displayOnly: true },
 ];
+// FORK: only the switched-on side conversation keeps its shortcut (core/fork-config.ts).
+(KEYBOARD_ACTIONS as KeyActionDef[]).splice(KEYBOARD_ACTIONS.findIndex((a) => a.id === (sideQuestionsEnabled ? "toggle-side-tutor" : "toggle-question-thread")), 1);
 
 export type KeymapAction = KeyAction | `plugin:${string}:${string}`;
 export type KeymapOverrides = Partial<Record<KeymapAction, string>>;

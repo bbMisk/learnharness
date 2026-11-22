@@ -123,6 +123,13 @@ export interface AgentBuildOptions {
 	messages?: AgentMessage[];
 	/** Money channel: one call per model request. */
 	onUsage?: StepUsageCollector;
+	/** Append-only reference updates before each already-scheduled internal
+	 * model call. Does not schedule an extra call or interrupt live output. */
+	contextUpdates?: (messages: readonly AgentMessage[]) => AgentMessage[];
+	/** Validate the actual selected context after prepared/queued messages
+	 * join, before dispatch. Throws through the SDK's normal failed-response
+	 * lifecycle, never through the conversion seam. */
+	validateContext?: (messages: readonly AgentMessage[]) => void;
 	/** Tests may pass a bare tool registry to drive deterministic flows.
 	 *  An explicit registry is NEVER toggle-filtered — the caller owns it. */
 	tools?: Record<string, AgentTool<any>>;
@@ -420,6 +427,10 @@ function baseAgentOptions(
 		// an abort's dangling question call gets its INTERRUPTED result. It
 		// must never throw (pi's convertToLlm contract).
 		convertToLlm: toLlmMessages,
+		...(opts.contextUpdates ? { prepareNextTurnWithContext: ({ context }: { context: { messages: AgentMessage[] } }) => {
+			const messages = opts.contextUpdates!(context.messages);
+			return messages.length ? { messages } : undefined;
+		} } : {}),
 		prepareRequest: (prepared) => {
 			const update = questionTypeSwap(prepared);
 			const request = update?.context ? { ...prepared, context: update.context } : prepared;
@@ -439,6 +450,11 @@ function baseAgentOptions(
 				else if (learner) opts.callPurpose.background = false;
 			}
 			opts.requestCycle?.prepare(request);
+			try { opts.validateContext?.(request.context.messages); }
+			catch (error) {
+				opts.requestCycle?.rejectLocalRequest();
+				throw error;
+			}
 			return update;
 		},
 	});

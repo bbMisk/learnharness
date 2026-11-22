@@ -14,7 +14,7 @@ import { PATHS } from "../../config.ts";
 import { mergeLearningEvents } from "../core/learning-history.ts";
 import { emit } from "../core/events.ts";
 import type { ChatStore } from "../core/ports.ts";
-import type { ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, ImageSnapshot, PlanTree, TurnUsage } from "../core/contracts.ts";
+import type { ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, ImageSnapshot, PlanTree, SideChatThread, TurnUsage } from "../core/contracts.ts";
 import { cleanName, CURRENT_CHAT_VERSION } from "../core/contracts.ts";
 import type { LhMessage } from "../core/native-messages.ts";
 import { activeProblemOf, danglingQuestionOf } from "../core/native-messages.ts";
@@ -199,7 +199,7 @@ function summaryOf(id: string): { summary: ChatSummary; estimatedSpans: StudySpa
 	// Archived chats are listed, not kept in memory: they are rarely opened,
 	// and a cold list would otherwise hold every one of them parsed.
 	if (record.archived) forgetRecord(id);
-	const { messages, tree, turns, extractions, learningEvents, imageSnapshots: _imageSnapshots, ...summary } = record;
+	const { messages, tree, turns, extractions, learningEvents, imageSnapshots: _imageSnapshots, sideChats: _sideChats, ...summary } = record;
 	// Per-record isolation (Wave B): a record whose messages fail the
 	// projection (e.g. pre-Wave-B UIMessage-format scratch — the
 	// zero-back-compat wipe makes these "corrupt") must not blank the
@@ -295,6 +295,8 @@ function listChats(): ChatSummary[] {
 function saveMessages(id: string, messages: LhMessage[], usage?: TurnUsage): void {
 	const record = getChat(id);
 	if (!record) throw new Error(`Chat not found: ${id}`);
+	// Side-delivery watermarks are part of the appended native entries,
+	// so input + updates commit together without mutating thread history.
 	const previous = mergeLearningEvents(record.learningEvents, record.messages);
 	record.learningEvents = mergeLearningEvents(previous, messages);
 	record.messages = messages;
@@ -413,6 +415,21 @@ function saveTree(id: string, tree: PlanTree): void {
 	writeChat(record);
 }
 
+/** Side-question threads (2026-11-02): one synchronous read-modify-write,
+ *  so a concurrent turn's saveMessages (which re-reads the record) never
+ *  loses a thread and a thread write never loses messages. Null when the
+ *  chat is gone (a side answer finishing after session deletion). Silent
+ *  and not conversation activity, like saveSettings. */
+function updateSideChats(id: string, update: (threads: SideChatThread[]) => SideChatThread[]): SideChatThread[] | null {
+	const record = getChat(id);
+	if (!record) return null;
+	const next = update(record.sideChats ?? []);
+	if (next.length > 0) record.sideChats = next;
+	else delete record.sideChats;
+	writeChat(record);
+	return next;
+}
+
 export const chatStore: ChatStore = {
 	createChat,
 	getChat,
@@ -425,6 +442,7 @@ export const chatStore: ChatStore = {
 	deleteChat,
 	appendTurnUsage,
 	appendExtractionUsage,
+	updateSideChats,
 };
 
 /** Organization does not count as lesson activity or rewrite conversation history. */

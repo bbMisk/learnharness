@@ -19,14 +19,9 @@ import type { EmissionStats } from "./graph.ts";
  * graph writes. Reading an absent kind does not require a record migration. */
 export type ChatKind = "teach" | "practice";
 
-/** One persisted session: data/chats/<id>.json. The stored messages are
- * pi-NATIVE history (LhMessage — the agent loop's own shapes,
- * provider/model/usage/thinkingSignature stamped by pi) — the canonical
- * session record IS the agent state; replay is
- * `state.messages = record.messages` + continue(). The client-shaped view
- * is the client's own grouping fold (core/view.ts) — a pending quiz is an
- * unanswered question tool call, which is exactly what makes
- * resume-mid-question free. */
+/** One persisted native session under data/chats/<id>.json. Messages retain
+ * native agent history; transcript rendering groups them into a separate view.
+ * Usage, images, plan state and side conversations are session-owned records. */
 export interface ChatRecord {
 	pinned?: boolean;
 	archived?: boolean;
@@ -60,10 +55,13 @@ export interface ChatRecord {
 	extractions?: ExtractionRunUsage[];
 	/** Per-chat model/thinking overrides for the conversation agents. */
 	settings?: ChatSettings;
-	/** SCHEMA STAMP: LAZY v1 — existing records stay unstamped (absence reads
-	 *  as v1); every write stamps the current version. A record stamped NEWER
-	 *  than this build (the downgrade scenario) is REFUSED on read: a
-	 *  read-modify-write store must never rewrite what it doesn't understand. */
+	/** Durable clarification threads. Each explanation and associated check
+	 * shares one thread. Every main request appends new raw exchanges across
+	 * all threads; already-recorded teacher history is never rewritten. */
+	sideChats?: SideChatThread[];
+	/** Schema version. Absence denotes version 1; writes stamp the current
+	 * supported version. Reads refuse records stamped newer than this build
+	 * so a downgraded app cannot rewrite an unsupported record. */
 	version?: number;
 }
 
@@ -129,9 +127,66 @@ export interface ExtractionRunUsage {
 
 // ─── Usage accounting (the money channel) ─────────────────────────────────────
 
-/** One model call's token accounting — pi's per-step Usage flattened to
- * the fields we persist (undefined = provider didn't report;
- * renderers show absent, never zero). */
+// ─── Side questions (inline clarification threads, 2026-11-02) ──────────────
+
+/** Where a side thread sits in the transcript: after one paragraph-level
+ *  block (Streamdown's markdown block split) of one teacher prose part.
+ *  Settled teacher prose never changes, so (partId, blockIndex) is stable. */
+export interface SideChatAnchor {
+	/** The native assistant message carrying the prose. */
+	messageId: string;
+	/** projectView's text-part identity (`<messageId>-t<n>`). */
+	partId: string;
+	/** 0-based block index inside that part's rendered markdown. */
+	blockIndex: number;
+	/** The block's markdown source when the thread was opened — the
+	 *  default quote, and the anchor's text if the record is ever re-split. */
+	blockText: string;
+}
+
+/** One message in a side thread. Plain text, never native pi history: the
+ *  thread is replayed to the side model as user/assistant text turns. */
+export interface SideChatMessage {
+	id: string;
+	role: "user" | "assistant";
+	/** The learner's question, or the side answer (markdown). */
+	text: string;
+	/** user only: the passages the learner attached to this question. */
+	quotes?: string[];
+	/** Matching canonical Tutor quote links retain each passage's actual
+	 * native source and exact-text selector, independent of segment identity.
+	 * Legacy string-only quotes remain readable without a guessed target. */
+	quoteCitations?: string[];
+	/** ISO time the message was saved. */
+	at: string;
+	/** assistant only: provider-qualified model ("provider:id"). */
+	model?: string;
+	/** Idempotency identity of the ask/retry producing this reply. */
+	requestId?: string;
+	/** assistant only: the learner stopped the answer; `text` is partial. */
+	stopped?: boolean;
+	/** Delivery snapshot only: this reply was still generating at capture. */
+	pending?: boolean;
+	/** assistant only: the call failed; `text` is whatever arrived. */
+	error?: string;
+}
+
+/** One side thread per explanation and associated question, displayed in
+ * the shared floating/docked companion rather than inline windows. */
+export interface SideChatThread {
+	id: string;
+	anchor: SideChatAnchor;
+	/** Saved open/closed state for this thread. */
+	open: boolean;
+	createdAt: string;
+	messages: SideChatMessage[];
+	/** Compatibility snapshot retained when reading records that use a one-shot
+	 * context cutoff. Current delivery uses immutable native update entries. */
+	contextSnapshot?: SideChatMessage[];
+}
+
+/** Persisted token accounting for one model call. Undefined means the
+ * provider did not report that field; absence must not be interpreted as zero. */
 export interface CallUsage {
 	/** Pi-normalized fresh input tokens; cache buckets are disjoint. */
 	inputTokens: number | undefined;

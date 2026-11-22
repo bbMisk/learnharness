@@ -52,15 +52,19 @@ import { modelsNotConfigured, providerKeyMissing as providerKeyMissingEnvelope, 
 import { beginTurn, endTurn, isTurnRunning } from "./turn-liveness.ts";
 import { claimPreparingTurn, type TurnPreparation } from "./turn-preparation.ts";
 import { applyParkedDismissal } from "./dismissal-park.ts";
+import { sideConversationEntries } from "../core/side-chat.ts";
+import { sideChats, type SideChatService } from "./side-chat.ts";
+import { SIDE_CONTEXT_BUDGET_ERROR, sideBudgetRetryDrops, sideContextWindow } from "./side-context-budget.ts";
 import { registerTurn, rememberTurnFailure, unregisterTurn } from "./turn-runs.ts";
 import { persistSettledTurn, triggerExtraction, TurnPersistenceError } from "./turn-service.ts";
-import { hasProbeDone, hasUnresolvedQuestion, pendingPluginQuestionOf } from "../core/native-messages.ts";
+import { hasProbeDone, hasUnresolvedQuestion, pendingPluginQuestionOf, pluginQuestionCallsOf, questionCallsOf } from "../core/native-messages.ts";
 import { samePluginQuestionOccurrence } from "../core/plugin-questions.ts";
 import { withTeachingStyle } from "../core/cram.ts";
 import { effectiveQuestionType } from "../core/question-type.ts";
 import { composeInstructions } from "../agent/teacher-agent.ts";
-import { ensureCompacted, kickCompaction, compactionInFlight } from "./compaction.ts";
-import { prepareConnectionCatalog } from "./model-catalog.ts";
+import { ensureCompacted, kickCompaction, effectiveThresholdTokens, projectedContextTokens, compactionInFlight } from "./compaction.ts";
+import { COMPACTION_RESERVE_TOKENS } from "../core/compaction.ts";
+import { catalogContextLimits, prepareConnectionCatalog } from "./model-catalog.ts";
 import { emit } from "../core/events.ts";
 import { settledTurnResponse } from "./turn-runs.ts";
 import { asAgentMessages, type LhMessage } from "../core/native-messages.ts";
@@ -202,6 +206,7 @@ export function turnStepUsage(usage: Usage, request?: RequestFingerprint): TurnS
 export async function handleChatRequest(
 	req: Request,
 	buildAgent?: (opts: AgentBuildOptions & { teaching: boolean }) => TeachingAgent,
+	sideContext: Pick<SideChatService, "snapshot"> = sideChats,
 ): Promise<Response> {
 	let body: { chatId?: unknown; input?: unknown };
 	try {
@@ -221,7 +226,7 @@ export async function handleChatRequest(
 		}
 		throw err;
 	}
-	return handleChatInput(chatId, input, buildAgent);
+	return handleChatInput(chatId, input, buildAgent, sideContext);
 }
 
 /**
@@ -233,6 +238,7 @@ export async function handleChatInput(
 	chatId: string,
 	input: TurnInput,
 	buildAgent?: (opts: AgentBuildOptions & { teaching: boolean }) => TeachingAgent,
+	sideContext: Pick<SideChatService, "snapshot"> = sideChats,
 ): Promise<Response> {
 	await reconcilePluginQuestionCompatibility(stores.chatStore, chatId);
 	const initialRecord = stores.chatStore.getChat(chatId);
@@ -339,9 +345,13 @@ export async function handleChatInput(
 	// record re-reads after because compaction appends the marker.
 	const callPurpose = { background: input.type === "steers" || (input.type === "continue" && reconstructRequestCause(record.messages) !== "foreground") };
 	let requestCycle: SubscriptionRequestCycle | undefined;
+	const tentativeSideIds = new Set<string>();
+	const admittedSideIds = new Set<string>();
+	let preparedSideIds = new Set<string>();
+	const admitSideContext = () => { for (const id of preparedSideIds) admittedSideIds.add(id); };
 	const lifecycle: SubscriptionDispatchLifecycle = {
 		captured: (scope) => requestCycle?.captured(scope),
-		beforeDispatch: (scope) => requestCycle?.beforeDispatch(scope),
+		beforeDispatch: (scope) => { requestCycle?.beforeDispatch(scope); admitSideContext(); },
 		noDispatch: (kind) => requestCycle?.noDispatch(kind),
 	};
 	let conversationEngine: PiEngine;
@@ -378,6 +388,28 @@ export async function handleChatInput(
 		if (err instanceof ChatInputError) return Response.json({ error: err.message }, { status: 400 });
 		throw err;
 	}
+	const modelIdForCompaction = `${conversationEngine.model.provider}:${conversationEngine.model.id}`;
+	const contextWindow = catalogContextLimits().get(modelIdForCompaction);
+	const thresholdTokens = effectiveThresholdTokens(effective.compaction?.thresholdTokens, contextWindow);
+	const systemPromptTokens = Math.ceil(composeInstructions(record.kind === "practice" ? "practice" : "teacher").length / 4);
+	const estimateModel = effective.compaction.includeReasoning ? conversationEngine.model : undefined;
+	const fitsSideContext = (messages: readonly LhMessage[]) => {
+		const live = messages.filter((message) => (message as { role: string }).role !== "system");
+		// Hard admission is not the compaction trigger. CLI capacity comes from
+		// this request's latest matching session report, never catalog placeholders.
+		// Re-resolve at every gate: new responses/compaction can invalidate it.
+		// Retry's transient SDK prefix omits ALL tail failures. Keep the saved
+		// history in the metadata-only view so omission cannot revive a report
+		// invalidated by a genuine provider failure. New live responses win.
+		const saved = conversation.provider === CLAUDE_CODE_PROVIDER ? stores.chatStore.getChat(chatId)?.messages ?? [] : [];
+		const savedIds = new Set(saved.map((message) => message.id));
+		const reportHistory = saved.length ? [...saved, ...live.filter((message) => !savedIds.has(message.id))] : live;
+		const window = sideContextWindow(reportHistory, conversationEngine.model, contextWindow, input.type === "retry");
+		const budget = window === undefined ? thresholdTokens : Math.max(1, window - Math.min(COMPACTION_RESERVE_TOKENS, conversationEngine.model.maxTokens));
+		return projectedContextTokens(live, systemPromptTokens, estimateModel) <= budget;
+	};
+	const sideBudgetError = () => new Error(SIDE_CONTEXT_BUDGET_ERROR);
+	const beforeCompaction = record.messages;
 	await ensureCompacted(
 		{
 			chatStore: stores.chatStore,
@@ -387,6 +419,37 @@ export async function handleChatInput(
 			includeReasoning: effective.compaction.includeReasoning,
 			thresholdTokens: effective.compaction?.thresholdTokens,
 			systemPromptTokens: Math.ceil((composeInstructions(record.kind === "practice" ? "practice" : "teacher").length + projectContext.length) / 4),
+			projectMessages: (current) => {
+				try {
+					if (input.type === "plugin-question-answer" || input.type === "plugin-problem-submission") {
+						// The processed result does not exist yet. Count only saved
+						// history + raw side cargo, never a guessed result or an early
+						// plugin callback. The exact assembled request is checked later.
+						if (input.type === "plugin-question-answer") {
+							const pending = pendingPluginQuestionOf(current.messages);
+							if (!pending || pending.questionId !== input.questionId || !samePluginQuestionOccurrence(pending.occurrence, input.occurrence)) return current.messages;
+							if (questionCallsOf(current.messages).length || pluginQuestionCallsOf(current.messages).some(call =>
+								(call.status === "answerable" || call.status === "unreadable") && !samePluginQuestionOccurrence(call.occurrence, pending.occurrence))) return current.messages;
+						} else {
+							requirePluginProblemTarget(current, input);
+							if (hasUnresolvedQuestion(current.messages)) return current.messages;
+						}
+						const updates = sideConversationEntries({ messages: current.messages, sideChats: sideContext.snapshot(chatId) });
+						return updates.length ? [...current.messages, ...updates] : current.messages;
+					}
+					const next = input.type === "steers" ? input.steers.filter((entry) => !steerDelivered(current.messages, entry.id)) : inputAppends(current, input);
+					const after = [...current.messages, ...next];
+					if (hasUnresolvedQuestion(after)) return current.messages;
+					const updates = sideConversationEntries({ messages: current.messages, sideChats: sideContext.snapshot(chatId) }, after);
+					if (!updates.length) return current.messages;
+					const projected = [...current.messages, ...(input.type === "answer" || input.type === "retry-question" ? [...next, ...updates] : [...updates, ...next])];
+					const omitted = input.type === "retry" ? retryDrops(current.messages) : new Set<string>();
+					return projected.filter((message) => !omitted.has(message.id));
+				} catch (error) {
+					if (error instanceof ChatInputError) return current.messages; // normal input validation follows the gate
+					throw error;
+				}
+			},
 		},
 		chatId,
 	);
@@ -432,7 +495,7 @@ export async function handleChatInput(
 	let retryOmissions = new Set<string>();
 	if (input.type === "retry") {
 		try {
-			retryOmissions = retryDrops(record.messages);
+			retryOmissions = sideBudgetRetryDrops(beforeCompaction, record.messages) ?? retryDrops(record.messages);
 		} catch (err) {
 			if (err instanceof ChatInputError) return Response.json({ error: err.message }, { status: 400 });
 			throw err;
@@ -536,6 +599,26 @@ export async function handleChatInput(
 	// same write-ahead (the pump de-queued them at fire, so this is the ONLY
 	// copy ever appended); subscription steers stay staged until the request
 	// cycle commits them.
+	// Prospectively check new exchanges from ALL threads for early automatic
+	// refusal. This snapshot does not authorize the final assembled request;
+	// SDK preparation re-collects live text and validates queued steering too.
+	const sideContextSnapshots = sideContext.snapshot(chatId);
+	const afterInput = [...record.messages, ...appends];
+	const sideQuestions = hasUnresolvedQuestion(afterInput) ? [] : sideConversationEntries({
+		messages: record.messages, sideChats: sideContextSnapshots,
+	}, afterInput);
+	const withSideQuestions = input.type === "answer" || input.type === "retry-question" || input.type === "plugin-question-answer" ? [...appends, ...sideQuestions] : [...sideQuestions, ...appends];
+	const prospective = [...record.messages, ...withSideQuestions].filter((message) => !retryOmissions.has(message.id));
+	const sideContextBlocked = sideQuestions.length > 0 && !fitsSideContext(prospective);
+	// An automatic batch has not been admitted; refuse it without persisting
+	// its markers. Its existing caller retains/restores the queued work.
+	if (sideContextBlocked && isSubscriptionProvider(conversation.provider) && input.type === "steers") {
+		endTurn(chatId);
+		return new Response(sideBudgetError().message, { status: 400 });
+	}
+	// Only the learner/automatic input is write-ahead. Raw exchanges are
+	// already durable in sideChats; their delivery entries join the SDK
+	// request at its preparation boundary, and publish only if admitted.
 	const merged = [...record.messages, ...appends];
 	// Retry preserves every persisted attempt. Pi needs a non-assistant
 	// tail to start continue(), so its temporary history omits the trailing
@@ -637,12 +720,51 @@ export async function handleChatInput(
 		current: () => effectiveQuestionType(stores.chatStore.getChat(chatId)?.settings?.questionType, cramLesson, effectiveSettings().agent.tools),
 		projectContextFor: styleFor,
 	};
+	let pendingSideBudgetError: Error | undefined;
 	const agentOpts: AgentBuildOptions = {
 		pluginContributions,
 		engine,
 		callPurpose,
 		requestCycle,
 		messages: asAgentMessages(agentMessages),
+		validateContext: (messages) => {
+			// This is the SDK's ACTUAL request, after both prepared references
+			// and already-drained steering have joined it. A pre-queue estimate
+			// cannot authorize this combined payload.
+			preparedSideIds = new Set(messages.map((message) => (message as LhMessage).id).filter((id) => tentativeSideIds.has(id)));
+			if (pendingSideBudgetError || (preparedSideIds.size > 0 && !fitsSideContext(messages as readonly LhMessage[]))) {
+				pendingSideBudgetError = sideBudgetError();
+				const rejected = new Set([...tentativeSideIds].filter((id) => !admittedSideIds.has(id)));
+				// Only unadmitted reference entries are withdrawn from transient
+				// loop state. No saved prefix, learner steer or completed tool is removed.
+				constructed.state.messages = constructed.state.messages.filter((message) => !rejected.has((message as LhMessage).id));
+				requestCycle?.rejectLocalRequest(rejected);
+				throw pendingSideBudgetError;
+			}
+			if (!requestCycle) admitSideContext(); // BYOK has no subscription admission gate
+		},
+		contextUpdates: (messages) => {
+			pendingSideBudgetError = undefined;
+			const current = stores.chatStore.getChat(chatId);
+			if (!current) return [];
+			const saved = new Set(current.messages.map((message) => message.id));
+			// Only unsaved null-detail SDK acknowledgements are placeholders;
+			// real graded answers and legacy saved null results still resolve.
+			const live = messages.filter((message) => message.role !== "toolResult" || message.isError || message.details !== null ||
+				saved.has((message as LhMessage).id) || !(QUESTION_TOOLS as readonly string[]).includes(message.toolName)) as LhMessage[];
+			if (hasUnresolvedQuestion(live)) return [];
+			// Include the loop's already-injected entries, but don't fold saved
+			// suffixes twice. Full disk history keeps the pre-compaction ledger.
+			const pending = live.filter((message) => message.role === "custom" && message.customType === "side-question" && !saved.has(message.id));
+			const history = [...current.messages, ...pending];
+			const updates = sideConversationEntries({ messages: history, sideChats: sideContext.snapshot(chatId) });
+			if (updates.length && !fitsSideContext([...live, ...updates])) {
+				pendingSideBudgetError = sideBudgetError();
+				return []; // no delivery watermark for exchanges the model cannot receive
+			}
+			for (const update of updates) tentativeSideIds.add(update.id);
+			return asAgentMessages(updates);
+		},
 		onUsage: collectUsage,
 		toolToggles: effective.agent.tools,
 		questionType,
@@ -733,6 +855,12 @@ export async function handleChatInput(
 		const handle = runPiTurn({
 			agent: constructed,
 			requestCycle,
+			// The next-turn SDK hook covers internal calls. The steering poll
+			// supplies the same fresh cargo on the first/recovery call, with
+			// normal lifecycle events and no extra provider request.
+			beforeCycle: () => {
+				for (const message of agentOpts.contextUpdates!(constructed.state.messages)) constructed.steer(message);
+			},
 			// The update-coalescing window: tests tighten it via
 			// LH_UPDATE_FLUSH_MS; production rides the 100ms default in ui-stream.
 			...(process.env.LH_UPDATE_FLUSH_MS ? { updateFlushMs: Number(process.env.LH_UPDATE_FLUSH_MS) } : {}),
@@ -777,7 +905,10 @@ export async function handleChatInput(
 				// assistant message and rides the messages' own atomic write. A
 				// usage failure still saves the messages and throws below, after
 				// the steer-visibility bookkeeping.
-				const { stamped, usageError } = persistSettledTurn(stores.chatStore, chatId, persistBaseCount, turnMessages, isAborted, (saved) => {
+				// Unadmitted reference entries cannot become delivery watermarks
+				// merely because a local/provider refusal settled the running turn.
+				const admittedMessages = turnMessages.filter((message) => !tentativeSideIds.has((message as LhMessage).id) || admittedSideIds.has((message as LhMessage).id));
+				const { stamped, usageError } = persistSettledTurn(stores.chatStore, chatId, persistBaseCount, admittedMessages, isAborted, (saved) => {
 					const response = saved.find((m) => (m as { role?: string }).role === "assistant");
 					return response && steps.length > 0
 						? { id: turnUsageId, messageId: response.id, at: new Date().toISOString(), model: modelId, steps }
@@ -825,7 +956,7 @@ export async function handleChatInput(
 				// engine or a beneath-threshold record is a silent no-op. Skipped
 				// under tests (scripted chats are fixtures; the service is tested
 				// directly).
-				if (process.env.NODE_ENV !== "test" && (!requestCycle || requestCycle.dispatched))
+				if (process.env.NODE_ENV !== "test" && !pendingSideBudgetError && (!requestCycle || requestCycle.dispatched))
 					kickCompaction(() => {
 						const fresh = effectiveSettings();
 						const freshRecord = stores.chatStore.getChat(chatId);
