@@ -15,6 +15,9 @@
 - [ImageSnapshot](#imagesnapshot) — supporting declaration
 - [QuestionType](#questiontype) — supporting declaration
 - [RequestFingerprint](#requestfingerprint) — supporting declaration
+- [SideChatAnchor](#sidechatanchor) — supporting declaration
+- [SideChatMessage](#sidechatmessage) — supporting declaration
+- [SideChatThread](#sidechatthread) — supporting declaration
 - [TurnStepUsage](#turnstepusage) — supporting declaration
 - [TurnUsage](#turnusage) — supporting declaration
 
@@ -22,9 +25,8 @@
 
 Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
 
-One model call's token accounting — pi's per-step Usage flattened to
-the fields we persist (undefined = provider didn't report;
-renderers show absent, never zero).
+Persisted token accounting for one model call. Undefined means the
+provider did not report that field; absence must not be interpreted as zero.
 
 ```ts
 export interface CallUsage {
@@ -146,14 +148,9 @@ compacting: boolean;
 
 Public SDK type, exported as `ChatRecord`. Import with `import type`; the SDK has no runtime exports.
 
-One persisted session: data/chats/<id>.json. The stored messages are
-pi-NATIVE history (LhMessage — the agent loop's own shapes,
-provider/model/usage/thinkingSignature stamped by pi) — the canonical
-session record IS the agent state; replay is
-`state.messages = record.messages` + continue(). The client-shaped view
-is the client's own grouping fold (core/view.ts) — a pending quiz is an
-unanswered question tool call, which is exactly what makes
-resume-mid-question free.
+One persisted native session under data/chats/<id>.json. Messages retain
+native agent history; transcript rendering groups them into a separate view.
+Usage, images, plan state and side conversations are session-owned records.
 
 ```ts
 export interface ChatRecord {
@@ -173,11 +170,12 @@ export interface ChatRecord {
     turns?: TurnUsage[];
     extractions?: ExtractionRunUsage[];
     settings?: ChatSettings;
+    sideChats?: SideChatThread[];
     version?: number;
 }
 ```
 
-**Related types:** [ChatKind](contracts-chat.md#chatkind), [ChatSettings](contracts-chat.md#chatsettings), [ExtractionRunUsage](contracts-chat.md#extractionrunusage), [ImageSnapshot](contracts-chat.md#imagesnapshot), [LearningEvent](learning-history.md#learningevent), [LhMessage](native-messages.md#lhmessage), [PlanTree](contracts-plan.md#plantree), [TurnUsage](contracts-chat.md#turnusage).
+**Related types:** [ChatKind](contracts-chat.md#chatkind), [ChatSettings](contracts-chat.md#chatsettings), [ExtractionRunUsage](contracts-chat.md#extractionrunusage), [ImageSnapshot](contracts-chat.md#imagesnapshot), [LearningEvent](learning-history.md#learningevent), [LhMessage](native-messages.md#lhmessage), [PlanTree](contracts-plan.md#plantree), [SideChatThread](contracts-chat.md#sidechatthread), [TurnUsage](contracts-chat.md#turnusage).
 
 **Member index** (including nested object members; inherited members are defined in the linked base types):
 
@@ -197,6 +195,7 @@ export interface ChatRecord {
 - [turns](#chatrecord-turns)
 - [extractions](#chatrecord-extractions)
 - [settings](#chatrecord-settings)
+- [sideChats](#chatrecord-sidechats)
 - [version](#chatrecord-version)
 
 ### ChatRecord pinned
@@ -319,12 +318,21 @@ Per-chat model/thinking overrides for the conversation agents.
 settings?: ChatSettings;
 ```
 
+### ChatRecord sideChats
+
+Durable clarification threads. Each explanation and associated check
+shares one thread. Every main request appends new raw exchanges across
+all threads; already-recorded teacher history is never rewritten.
+
+```ts
+sideChats?: SideChatThread[];
+```
+
 ### ChatRecord version
 
-SCHEMA STAMP: LAZY v1 — existing records stay unstamped (absence reads
-as v1); every write stamps the current version. A record stamped NEWER
-than this build (the downgrade scenario) is REFUSED on read: a
-read-modify-write store must never rewrite what it doesn't understand.
+Schema version. Absence denotes version 1; writes stamp the current
+supported version. Reads refuse records stamped newer than this build
+so a downgraded app cannot rewrite an unsupported record.
 
 ```ts
 version?: number;
@@ -790,6 +798,256 @@ fingerprinted call in this process.
 
 ```ts
 extendsPrevious?: boolean;
+```
+
+## SideChatAnchor
+
+Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
+
+Where a side thread sits in the transcript: after one paragraph-level
+block (Streamdown's markdown block split) of one teacher prose part.
+Settled teacher prose never changes, so (partId, blockIndex) is stable.
+
+```ts
+export interface SideChatAnchor {
+    messageId: string;
+    partId: string;
+    blockIndex: number;
+    blockText: string;
+}
+```
+
+**Member index** (including nested object members; inherited members are defined in the linked base types):
+
+- [messageId](#sidechatanchor-messageid)
+- [partId](#sidechatanchor-partid)
+- [blockIndex](#sidechatanchor-blockindex)
+- [blockText](#sidechatanchor-blocktext)
+
+### SideChatAnchor messageId
+
+The native assistant message carrying the prose.
+
+```ts
+messageId: string;
+```
+
+### SideChatAnchor partId
+
+projectView's text-part identity (`<messageId>-t<n>`).
+
+```ts
+partId: string;
+```
+
+### SideChatAnchor blockIndex
+
+0-based block index inside that part's rendered markdown.
+
+```ts
+blockIndex: number;
+```
+
+### SideChatAnchor blockText
+
+The block's markdown source when the thread was opened — the
+default quote, and the anchor's text if the record is ever re-split.
+
+```ts
+blockText: string;
+```
+
+## SideChatMessage
+
+Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
+
+One message in a side thread. Plain text, never native pi history: the
+thread is replayed to the side model as user/assistant text turns.
+
+```ts
+export interface SideChatMessage {
+    id: string;
+    role: "user" | "assistant";
+    text: string;
+    quotes?: string[];
+    quoteCitations?: string[];
+    at: string;
+    model?: string;
+    requestId?: string;
+    stopped?: boolean;
+    pending?: boolean;
+    error?: string;
+}
+```
+
+**Member index** (including nested object members; inherited members are defined in the linked base types):
+
+- [id](#sidechatmessage-id)
+- [role](#sidechatmessage-role)
+- [text](#sidechatmessage-text)
+- [quotes](#sidechatmessage-quotes)
+- [quoteCitations](#sidechatmessage-quotecitations)
+- [at](#sidechatmessage-at)
+- [model](#sidechatmessage-model)
+- [requestId](#sidechatmessage-requestid)
+- [stopped](#sidechatmessage-stopped)
+- [pending](#sidechatmessage-pending)
+- [error](#sidechatmessage-error)
+
+### SideChatMessage id
+
+```ts
+id: string;
+```
+
+### SideChatMessage role
+
+```ts
+role: "user" | "assistant";
+```
+
+### SideChatMessage text
+
+The learner's question, or the side answer (markdown).
+
+```ts
+text: string;
+```
+
+### SideChatMessage quotes
+
+user only: the passages the learner attached to this question.
+
+```ts
+quotes?: string[];
+```
+
+### SideChatMessage quoteCitations
+
+Matching canonical Tutor quote links retain each passage's actual
+native source and exact-text selector, independent of segment identity.
+Legacy string-only quotes remain readable without a guessed target.
+
+```ts
+quoteCitations?: string[];
+```
+
+### SideChatMessage at
+
+ISO time the message was saved.
+
+```ts
+at: string;
+```
+
+### SideChatMessage model
+
+assistant only: provider-qualified model ("provider:id").
+
+```ts
+model?: string;
+```
+
+### SideChatMessage requestId
+
+Idempotency identity of the ask/retry producing this reply.
+
+```ts
+requestId?: string;
+```
+
+### SideChatMessage stopped
+
+assistant only: the learner stopped the answer; `text` is partial.
+
+```ts
+stopped?: boolean;
+```
+
+### SideChatMessage pending
+
+Delivery snapshot only: this reply was still generating at capture.
+
+```ts
+pending?: boolean;
+```
+
+### SideChatMessage error
+
+assistant only: the call failed; `text` is whatever arrived.
+
+```ts
+error?: string;
+```
+
+## SideChatThread
+
+Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
+
+One side thread per explanation and associated question, displayed in
+the shared floating/docked companion rather than inline windows.
+
+```ts
+export interface SideChatThread {
+    id: string;
+    anchor: SideChatAnchor;
+    open: boolean;
+    createdAt: string;
+    messages: SideChatMessage[];
+    contextSnapshot?: SideChatMessage[];
+}
+```
+
+**Related types:** [SideChatAnchor](contracts-chat.md#sidechatanchor), [SideChatMessage](contracts-chat.md#sidechatmessage).
+
+**Member index** (including nested object members; inherited members are defined in the linked base types):
+
+- [id](#sidechatthread-id)
+- [anchor](#sidechatthread-anchor)
+- [open](#sidechatthread-open)
+- [createdAt](#sidechatthread-createdat)
+- [messages](#sidechatthread-messages)
+- [contextSnapshot](#sidechatthread-contextsnapshot)
+
+### SideChatThread id
+
+```ts
+id: string;
+```
+
+### SideChatThread anchor
+
+```ts
+anchor: SideChatAnchor;
+```
+
+### SideChatThread open
+
+Saved open/closed state for this thread.
+
+```ts
+open: boolean;
+```
+
+### SideChatThread createdAt
+
+```ts
+createdAt: string;
+```
+
+### SideChatThread messages
+
+```ts
+messages: SideChatMessage[];
+```
+
+### SideChatThread contextSnapshot
+
+Compatibility snapshot retained when reading records that use a one-shot
+context cutoff. Current delivery uses immutable native update entries.
+
+```ts
+contextSnapshot?: SideChatMessage[];
 ```
 
 ## TurnStepUsage

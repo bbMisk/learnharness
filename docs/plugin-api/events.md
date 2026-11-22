@@ -65,6 +65,9 @@ export interface ServerEvents {
         chatId: string;
         running: boolean;
     };
+    "side-chats-changed": {
+        chatId: string;
+    };
     "plugins-changed": Record<string, never>;
     "plugin-message": {
         pluginId: string;
@@ -95,6 +98,8 @@ export interface ServerEvents {
 - ["compaction-changed"](#serverevents-compaction-changed)
 - ["compaction-changed".chatId](#serverevents-compaction-changedchatid)
 - ["compaction-changed".running](#serverevents-compaction-changedrunning)
+- ["side-chats-changed"](#serverevents-side-chats-changed)
+- ["side-chats-changed".chatId](#serverevents-side-chats-changedchatid)
 - ["plugins-changed"](#serverevents-plugins-changed)
 - ["plugin-message"](#serverevents-plugin-message)
 - ["plugin-message".pluginId](#serverevents-plugin-messagepluginid)
@@ -261,6 +266,23 @@ chatId: string;
 
 ```ts
 running: boolean;
+```
+
+### ServerEvents "side-chats-changed"
+
+A side conversation changed. Notify-then-fetch: open views refetch
+GET /api/chats/:id/side-chats. Closing never deletes it.
+
+```ts
+"side-chats-changed": {
+    chatId: string;
+};
+```
+
+### ServerEvents "side-chats-changed".chatId
+
+```ts
+chatId: string;
 ```
 
 ### ServerEvents "plugins-changed"

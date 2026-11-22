@@ -204,6 +204,9 @@ These are reachable through public data, event, inheritance or helper-type relat
 - [ImageSnapshot](contracts-chat.md#imagesnapshot) — `contracts-chat`
 - [QuestionType](contracts-chat.md#questiontype) — `contracts-chat`
 - [RequestFingerprint](contracts-chat.md#requestfingerprint) — `contracts-chat`
+- [SideChatAnchor](contracts-chat.md#sidechatanchor) — `contracts-chat`
+- [SideChatMessage](contracts-chat.md#sidechatmessage) — `contracts-chat`
+- [SideChatThread](contracts-chat.md#sidechatthread) — `contracts-chat`
 - [TurnStepUsage](contracts-chat.md#turnstepusage) — `contracts-chat`
 - [TurnUsage](contracts-chat.md#turnusage) — `contracts-chat`
 - [Cluster](contracts-graph.md#cluster) — `contracts-graph`
@@ -258,4 +261,4 @@ These are reachable through public data, event, inheritance or helper-type relat
 
 Standard JavaScript/DOM types (`Promise`, `AbortSignal`, `File`, `HTMLElement`, and utility types) use their standard contracts. Pi model/messages/tools and TypeBox schemas use the exact peer versions declared by the bundled SDK's `package.json`. Supply those peers when typechecking; they are development types, not permission to import private LearnHarness runtime modules.
 
-Coverage: **140 public types**, **58 supporting declarations**, **901 declared member signatures/variants**. Generation contains no build timestamps or absolute source paths.
+Coverage: **140 public types**, **61 supporting declarations**, **925 declared member signatures/variants**. Generation contains no build timestamps or absolute source paths.
