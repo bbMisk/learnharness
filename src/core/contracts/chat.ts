@@ -14,10 +14,9 @@ import type { EmissionStats } from "./graph.ts";
 
 // ─── Chat records (the session store's on-disk format) ───────────────────────
 
-/** The session's kind: "teach" is the default and ABSENT on pre-practice
- *  records (no migration — absence reads as teach); "practice" marks an
- *  adaptive-practice session — the practice agent, its two tools, no
- *  extraction, no graph writes. */
+/** Session kind: teach is the default when a saved record omits kind.
+ * Practice uses the adaptive-practice agent without teaching extraction or
+ * graph writes. Reading an absent kind does not require a record migration. */
 export type ChatKind = "teach" | "practice";
 
 /** One persisted session: data/chats/<id>.json. The stored messages are
@@ -55,10 +54,9 @@ export interface ChatRecord {
 	 * messageId so the transcript view can fold each entry onto its message;
 	 * aggregates are folds over this log (core/prices.ts). */
 	turns?: TurnUsage[];
-	/** Append-only background-extraction usage log: one entry per finished
-	 *  pipeline job on THIS chat — extraction is real spend too. Same
-	 *  parallel-log discipline as `turns` (nothing rides inside messages).
-	 *  Keyed by startedAt; idempotent appends. */
+	/** Append-only background-extraction usage for this chat, separate from
+	 * messages. Finished runs include failed runs with usage; appends are
+	 * idempotent by startedAt. */
 	extractions?: ExtractionRunUsage[];
 	/** Per-chat model/thinking overrides for the conversation agents. */
 	settings?: ChatSettings;
@@ -191,17 +189,34 @@ export interface TurnStepUsage extends CallUsage, Partial<RequestFingerprint> {}
 
 // ─── Plan blocks (the plan lives in the chat) ────────────────────────────────
 
-/** The model-facing text of the probe→teach handoff wake: the probe-handoff
- *  marker's content, flattened to a user message by toLlmMessages.
- *  Single-sourced so the prober's seam, the tests, and reality can't drift
- *  apart.
+/** Payload of the persisted `data-plan-block` UI part (2026-09 design): a
+ * SNAPSHOT of the plan at the moment it changed, rendered as a block in the
+ * chat flow. Attached to the assistant message that carries the plan_init
+ * tool call (kind "full") or the answered check quiz part (kind
+ * "neighborhood"). Data parts never reach the model (convertToModelMessages
+ * drops them) — the block is pure UI history, reappearing identically on
+ * reload because it lives in the record.
  *
- *  REASONING-FIRST PACING: the wake is the one per-turn cue on the launch
- *  turn, so it asks the teacher to reason out the optimal way to teach THIS
- *  person THIS thing BEFORE plan_init (a bare "author now" cue skips that
- *  deliberation). plan_init is still the first tool, the plan map still the
- *  first artifact, and presenting still ends the turn: the learner's next
- *  message is a natural reply — a change request or the go-ahead. */
+ * Rendering contract: a "full" block renders the whole DAG borderless,
+ * horizontally filling the chat column, natural height; a "neighborhood"
+ * block renders current node + direct parents + direct children in its own
+ * small container, the current node glowing — clearly a fragment, not the
+ * whole plan. Clicking either opens the full plan in a popup. */
+
+/** The model-facing text of the probe→teach handoff wake (the custom-message
+ *  scheme): the wake message carries only the data-probe-handoff part, and
+ *  the adapter flattens it to THIS. Single-sourced so the prober's seam, the
+ *  tests, and reality can't drift apart.
+ *
+ *  REASONING-FIRST PACING (owner, 2026-09-26): the wake is the one per-turn
+ *  cue on the launch turn — the old one-liner read as a dispatch order
+ *  ("author now") and the teacher skipped the deliberation the planning
+ *  fragment asks for. So the wake paces it: reason out the optimal way to
+ *  teach THIS person THIS thing BEFORE plan_init. Honest to the machinery
+ *  — plan_init is still the first tool, the plan map still the first
+ *  artifact, and presenting still ends the turn (the verdict death,
+ *  2026-09-26: the learner's next message is a natural reply — a change
+ *  request or the go-ahead). */
 export const HANDOFF_TEXT =
 	"Next: plan the full teaching arc from my current understanding to the goal understanding. " +
 	"Apply the teaching methodology in your system prompt, and find the optimal way to teach me this. " +
@@ -209,49 +224,51 @@ export const HANDOFF_TEXT =
 	"Take your time here and really think this through. " +
 	"When it's genuinely reasoned out, call plan_init and present the plan; I'll accept it or ask for changes.";
 
-// ─── Practice sessions — marker + ack texts ──────────────────────────────────
+// ─── Practice sessions (owner, 2026-10-04) — marker + ack texts ──────────────
 // Single-sourced here per the marker law: the model-facing text of every
 // custom marker lives in core/contracts, never in the flattening seam.
 
-/** The single submission label (newThinkingMessage prefixes the learner's
- *  text with it): one send lane — whether a submission claims an answer is
- *  read from the text, not declared by a button. */
+/** The model-facing register of a thinking submission (newThinkingMessage
+ *  prefixes the learner's text with this label). Hints and commits ride
+ *  one channel — the label is the ONLY difference the model sees. */
+/** The single submission label (owner round, 2026-10-05): one send
+ *  lane — whether a submission claims an answer is read from the text,
+ *  not declared by a button. */
 export const THINKING_LABEL = "Your thinking";
 
-/** The conclude tool's ack — shared by the executed call (agent layer) and the
- *  dismissal-synthesized pair (input-events), so a concluded problem reads
- *  identically to the model however it concluded. The turn ENDS after
- *  concluding (a system-prompt law, no tool-level terminate — the model may
- *  speak its closing words first, then must stop calling tools); the next
- *  problem waits for the learner's explicit go-ahead. */
+/** The conclude tool's ack — shared by the executed call (agent layer) and
+ *  the dismissal-synthesized pair (input-events), so a concluded problem
+ *  reads identically to the model however it concluded. Owner round 16:
+ *  the turn ENDS after concluding (a system-prompt law, no tool-level
+ *  terminate — the model may speak its closing words first, then must
+ *  stop calling tools); the next problem waits for the learner's
+ *  explicit go-ahead. */
 export const CONCLUDE_ACK_TEXT =
 	"Problem concluded. Say your closing words about the learner's work if useful, then END YOUR TURN — no further tool calls. The next problem is NEVER posed here: it waits for the learner's explicit go-ahead (a *Next problem* message, or their own words asking for the next one). Between problems, answer their questions about the concluded one.";
 
-/** The learner's explicit move-on signal: the model-facing text of the
- *  practice-next marker — single-sourced like THINKING_LABEL. The
- *  button/Enter-on-empty path appends the marker; the model reads this and
- *  poses (or wraps) per the doctrine. */
+/** The learner's explicit move-on signal (owner round 16, 2026-10-06):
+ *  the model-facing text of the practice-next marker — single-sourced
+ *  like THINKING_LABEL. The button/Enter-on-empty path appends the
+ *  marker; the model reads this and poses (or wraps) per the doctrine. */
 export const NEXT_PROBLEM_TEXT =
 	"[NEXT PROBLEM] — the learner's explicit go-ahead: pose the next problem now per the selection rules, or wrap the session in text if the arc is complete.";
 
-/** The compaction marker's model-facing header. The marker's content is this
- *  header + the summary — the single text the provider sees in place of the
- *  dropped span. Wording law: it must tell the model (a) a cut happened and is
- *  routine, (b) the summary replaces everything before it, (c) what follows is
- *  verbatim recent transcript — so the model neither re-asks covered ground nor
+/** The compaction marker's model-facing header (owner round 14,
+ *  2026-10-05). The marker's content is this header + the summary — the
+ *  single text the provider sees in place of the dropped span. Wording
+ *  law: it must tell the model (a) a cut happened and is routine, (b) the
+ *  summary replaces everything before it, (c) what follows is verbatim
+ *  recent transcript — so the model neither re-asks covered ground nor
  *  distrusts the seam. */
 export const COMPACTED_HISTORY_HEADER =
 	"[SESSION HISTORY COMPACTED] The transcript before this point was summarized to fit the context window; the summary below replaces it. Everything after this message is the verbatim recent transcript.";
 
 
-/** Payload of the plan-block marker (details.block): a SNAPSHOT of the plan
- * at authoring, spliced by projectView into the assistant group right after
- * the successful plan_init call. The marker never reaches the model
- * (toLlmMessages filters it) — the block is pure UI history, reappearing
- * identically on reload because it lives in the record. */
 export interface PlanBlockData {
-	/** The plan renders IN FLOW once, at authoring; live position derives
-	 *  from the transcript (the persistent DAG window). */
+	/** Only "full" survives (the 2026-09-11 pivot): the plan renders IN
+	 *  FLOW once, at authoring. The neighborhood fragments are retired —
+	 *  position derives live from the transcript (the persistent DAG
+	 *  window is the successor). */
 	kind: "full";
 	at: string;
 	/** The current node at snapshot time (the glow target; null = none). */
@@ -295,12 +312,9 @@ export interface ChatSummary {
 	settings?: ChatSettings;
 }
 
-/** The sidebar's session row: a summary + live liveness. The chats list
- *  route attaches `busy` from the turn-liveness registry ONLY — the row
- *  spinner means exactly "a turn is in flight" (background jobs show in
- *  the sidebar's Background agents section instead). The store itself
- *  can't see liveness (import law: store never imports server), hence the
- *  split at exactly the record/liveness seam. */
+/** Session-list row combining a saved summary with live server state.
+ * busy means a native conversation turn is in flight; detached background
+ * jobs do not make the session busy. These flags are not persisted status. */
 export interface ChatListItem extends ChatSummary {
 	busy: boolean;
 	/** True while background context compaction holds the chat's model gate.
@@ -308,7 +322,7 @@ export interface ChatListItem extends ChatSummary {
 	compacting: boolean;
 }
 
-// ─── Learner images in the lesson ────────────────────────────────────────────
+// ─── Learner images in the lesson (issue #363) ──────────────────────────────
 
 /** One upright, metadata-free picture, stored once per session. */
 export interface ImageSnapshot {
@@ -347,12 +361,13 @@ export interface ArtifactPartProps {
 		toolCallId: string;
 		input?: unknown;
 		output?: unknown;
-		/** The pose-side fold: the whole problem-call arguments joined onto the
-		 * conclude part by projectView — the observability drawer's data. */
+		/** The pose-side fold (owner round 17): the whole problem-call
+		 * arguments joined onto the conclude part by projectView — the
+		 * observability drawer's data. */
 		problemInput?: unknown;
-		/** The view-seam join for conclude cards: the modelSolution committed
-		 *  at POSE time, folded onto the part by projectView — the reveal is
-		 *  never re-authored. */
+		/** The view-seam join for conclude cards (owner round, 2026-10-05):
+		 *  the modelSolution committed at POSE time, folded onto the part by
+		 *  projectView — the reveal is never re-authored. */
 		reveal?: unknown;
 	};
 }

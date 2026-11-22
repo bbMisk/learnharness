@@ -77,7 +77,7 @@ import { isTurnRunning } from "./turn-liveness.ts";
 import type { Agent } from "@earendil-works/pi-agent-core";
 
 /** Fires one server-side teacher turn: (chatId, input) → HTTP-ish status.
- *  The input is the idle wake: every queued marker as the turn's
+ *  Wave C: the input is the IDLE WAKE — every queued marker as the turn's
  *  input appends (the handler appends them natively under the wake's own
  *  turn claim; one composition for every turn). */
 export type TurnRunner = (chatId: string, input: TurnInput) => Promise<number>;
@@ -113,11 +113,11 @@ interface WakeState {
 	respawn?: JobRespawn;
 	recoverPlugin?: PluginJobRecovery;
 	/** chatId → steers awaiting delivery, in arrival order. The single
-	 *  delivery registry (the agent's own steering queue is a per-run
-	 *  vehicle, not the registry; settlement reconciles here). */
+	 *  delivery registry (Wave C: the agent's own follow-up queue is a
+	 *  per-run VEHICLE, not the registry — settlement reconciles here). */
 	queues: Map<string, QueuedSteer[]>;
-	/** chatId → user-steered messages awaiting drain. Same
-	 *  deliver-or-requeue lifecycle as job markers: the
+	/** chatId → user-steered messages awaiting drain (composer steering,
+	 *  2026-10-03). Same deliver-or-requeue lifecycle as job markers: the
 	 *  live agent's steering queue is the VEHICLE, this is the registry —
 	 *  a steer stranded behind a question or an abort stays parked here
 	 *  and rides the chat's NEXT run (handOffEligible). */
@@ -156,13 +156,17 @@ export function setJobRespawn(respawn: JobRespawn): void {
 /** After the gates open, wait a beat before firing — a client that just
  *  answered a question is about to send its continuation; don't 409 it.
  *
- *  Why 750: the race window is the learner's answer→POST flight; the
- *  answer hits the record only at the write-ahead persist, and beginTurn
- *  flips the turn registry immediately after (localhost RTT ~10ms; typical
- *  LAN/production RTT <300ms). 750ms is 2.5× the worst realistic flight. A
- *  miss self-heals: the pump rechecks the gates after the grace, the wake
- *  pipeline retries 409s with a backoff ramp, and client 409s are
- *  non-fatal (the session model's identity retry). */
+ *  Evidence for 750: the race window is exactly the learner's answer→POST
+ *  flight — sendAutomaticallyWhen dispatches synchronously on addToolOutput,
+ *  the answer hits the record only at the write-ahead persist, and beginTurn
+ *  flips the turn registry immediately after, all before the grace can fire
+ *  (measured localhost RTT ~10ms; typical LAN/production RTT <300ms). 750ms
+ *  is 2.5× the worst realistic flight. A miss self-heals: the pump rechecks
+ *  the gates after the grace AND the wake pipeline retries 409s with a
+ *  backoff ramp — and since the transport's merge-retry (chat-transport.ts)
+ *  made client 409s non-fatal, even a pathological RTT degrades gracefully.
+ *  (Was 1500 — pure guess; 750 claws back 750ms of post-answer delivery
+ *  latency without weakening the guard.) */
 const GRACE_MS = 750;
 /** 409 backoff: capped ramp so a busy client can't spin the pump. */
 const RETRY_BACKOFF_MS = [500, 1000, 2000, 5000] as const;
@@ -270,7 +274,7 @@ function handOffEligible(chatId: string, agent: Agent): void {
 			}
 		}
 	}
-	// User steers: same hand-off, any live run; a steer
+	// User steers (2026-10-03): same hand-off, any live run — a steer
 	// stranded behind a question or abort rides the chat's next run's
 	// first boundary. No probe-handoff exclusion: these are learner
 	// words, owed to whatever run is live.
@@ -380,7 +384,7 @@ export function restoreUncommittedAutomatic(chatId: string, agent: Agent, automa
 	}
 }
 
-/** TURN SETTLEMENT RECONCILIATION: the handler calls this AFTER
+/** TURN SETTLEMENT RECONCILIATION (Wave C): the handler calls this AFTER
  * unregisterLiveAgent, with the run's persisted messages. Two jobs:
  *
  *   - entries whose marker the run DELIVERED (in-run follow-up injection —
@@ -425,7 +429,7 @@ export interface AbortOutcome {
 }
 
 /**
- * ABORT: real kill, error with
+ * ABORT (2026-09 dock semantics, user-decided): real kill, error with
  * reason, the teacher still learns. The dock's END button reaches this
  * through POST /api/activity/abort (body {kind: "job", id: jobId}); the
  * route is master's thin composition — this is the job-side mechanism.

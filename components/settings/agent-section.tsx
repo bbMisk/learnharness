@@ -1,8 +1,9 @@
 "use client";
 /**
- * The Agent section: the THREE MODEL SLOTS, the tool toggles + the
- * search-engine preference, and the prompt override switches — three
- * GROUPS (Models / Tools / System prompts).
+ * The Agent section (settings-app wave): the THREE MODEL SLOTS, the tool
+ * toggles + the search-engine preference, and the prompt override
+ * switches — three GROUPS (owner, 2026-09-20: clear separation — Models /
+ * Tools / System prompts).
  *
  * Model slots (per-role overrides exist in the schema but have no UI):
  * Strong = Prober + Teacher, Cheap = the five workhorse roles, Vision =
@@ -18,15 +19,17 @@
  * VISIBLE even when its provider's key lapsed out of the catalog — the
  * trigger must never lie about the record.
  *
- * Search engine (no default — an engine is live iff its key is present;
- * with a key the engine AUTO-activates, the explicit choice is only a
- * preference between live engines): a row in the Tools group, with the
- * same shared-menu look and the live reason line from /api/search. No
- * engine key at all → the row grays whole-row (a choice without a key
- * would only BLOCK another engine's auto-activation).
+ * Search engine (search wave, 2026-09-20, owner: no default — an engine
+ * is live iff its key is present; with a key the engine AUTO-activates,
+ * the explicit choice is only a preference between live engines): a row
+ * in the Tools group, with the same shared-menu look and
+ * the live reason line from /api/search. No engine key at all → the row
+ * grays whole-row (a choice without a key would only BLOCK another
+ * engine's auto-activation).
  *
- * Tools: research, demo, visual, pdf. Absent key = enabled in the schema;
- * the UI writes explicit booleans (sanitize-equivalent).
+ * Tools — the owner's final list (2026-09-19): research, demo, visual, pdf.
+ * Absent key = enabled in the schema; the UI writes explicit booleans for
+ * all four (simpler to reason about, sanitize-equivalent).
  *
  * Prompts: GET /api/settings/prompts segments — Teacher, Prober, Practice,
  * then Shared LAST. The server returns each agent's actual segments,
@@ -87,8 +90,8 @@ const SLOT_META: Record<ModelSlotName, { label: string; roster: string }> = {
 	vision: { label: "Vision", roster: "The assistants that draw and read PDFs" },
 };
 
-/** The toggleable-tool list (a product decision — confirm before
- *  changing). */
+/** The owner's final toggleable-tool list (confirm with the user before
+ *  changing — the Teacher stream settled this 2026-09-19). */
 export const TOGGLE_TOOLS = ["research", "demo", "visual", "pdf"] as const;
 
 const CATALOG_REFRESH_MESSAGES: Record<ModelCatalogRefreshOutcome | "pending" | "failed", string> = {
@@ -226,7 +229,7 @@ export function composeWorkerRequestConcurrency(
 	return { ok: true, settings: next };
 }
 
-/** The quizzing mechanics: a segmented control, not a
+/** The quizzing mechanics (owner 2026-09-27): a segmented control, not a
  *  toggle — exactly one mechanic is ever active. `explain: true` arms
  *  free-recall (explain in, quiz out); anything else is multiple choice.
  *  `quiz` itself is never written (mechanics-managed — see quizMechanics
@@ -235,18 +238,18 @@ export function composeQuizMechanics(agent: AgentSettings | undefined, mechanics
 	return { ...agent, tools: { ...agent?.tools, explain: mechanics === "free" } };
 }
 
-/** Compose the prober graph-tools toggle: its own key in the agent
- *  section — never in the tool-toggles map. Absent = ON; the write is
- *  explicit either way, so an
+/** Compose the prober graph-tools toggle (wave 7): its own key in the
+ *  agent section — never in the tool-toggles map (owner ruling). Absent =
+ *  ON (the toggle discipline); the write is explicit either way, so an
  *  explicit-off record stays visible as stored. Pure — exported for tests. */
 export function composeGraphTools(agent: AgentSettings | undefined, on: boolean): AgentSettings {
 	return { ...agent, graphTools: { enabled: on } };
 }
 
-/** Compose: one slot's model/thinking pick. All-empty = the slot is
- *  removed (unset); an empty model keeps the stored one; empty thinking =
- *  the level is unset (the engine resolves its default). Per-field
- *  independence, same as the schema's ModelSlot. Pure — exported for tests. */
+/** Compose: one slot's model/thinking override. Empty model = absent
+ *  override (Default — falls to the factory pin); empty thinking = the
+ *  tier keeps its resolved thinking budget. Per-field independence, same
+ *  as the schema's ModelSlot. Pure — exported for tests. */
 export function composeSlotModel(
 	models: ModelsSettings | undefined,
 	slot: ModelSlotName,
@@ -359,9 +362,10 @@ function MenuTrigger({
 	testid: string;
 	open: boolean;
 	onClick: () => void;
-	/** The thinking trigger is FIXED width (varying values would shift the
-	 *  row mid-edit); the model trigger takes its width as a MINIMUM — its
-	 *  values genuinely vary in length. */
+	/** Owner (2026-09-20): the thinking trigger is FIXED at the width the
+	 *  Default state needs (values shifting it mid-edit shifted the row);
+	 *  the model trigger takes the same width as a MINIMUM — its values
+	 *  genuinely vary in length. */
 	widthClass: string;
 	/** The no-key search state grays the whole row; the trigger follows. */
 	disabled?: boolean;
@@ -476,7 +480,8 @@ export function AgentSection({
 			.then((body: { available: boolean; engine: string | null; reason: string }) => setSearch(body))
 			.catch(() => setSearch(null));
 
-	/** Re-read the prompt-segment view: its `enabled` flags DERIVE from
+	/** Re-read the prompt-segment view — the signal seam for the
+	 *  2026-09-26 state-echo fix: the view's `enabled` flags DERIVE from
 	 *  the settings record's agent switches (the toggle's truth lives
 	 *  here, not in the `agent` prop), so an agent-section write must
 	 *  re-read it or the toggle keeps painting its pre-write state until
@@ -499,6 +504,8 @@ export function AgentSection({
 		}
 	}, []);
 
+	// The shared catalog seeds the first frame and refreshes per mount and
+	// keys/models signal. Settings props still own saved selections/levels.
 	useSettingsSaved((section) => {
 		// THE state-echo root cause: the prompt switches write through the
 		// agent section, but this view (the toggles' truth) never re-read —
@@ -530,7 +537,11 @@ export function AgentSection({
 		refreshSearch();
 	}, [agent?.search?.engine]);
 
-	// Any click outside the open menu closes it; Esc is the menu layer's.
+	// The dropdown contract (the chat model selector's, mirrored): any
+	// click outside the open menu — or an Esc — closes it. Esc is CLAIMED
+	// with stopPropagation so the settings dialog behind does NOT also
+	// close. A pointerdown on the backdrop is left for the dialog (its own
+	// click closes everything); a click inside the dialog just closes us.
 	useEffect(() => {
 		if (openMenu === null) return;
 		const onPointerDown = (e: PointerEvent) => {
@@ -641,8 +652,8 @@ export function AgentSection({
 
 
 	// Resolved through the SAME core resolver the server's effective
-	// settings use: the hint and placeholder report exactly the number the
-	// trigger waits for.
+	// settings use (the GraphSection precedent): the hint and placeholder
+	// report exactly the number the trigger waits for.
 	const resolvedAgent = resolveSettings(agent === undefined ? null : { version: 1, agent }).agent;
 	const resolvedCompaction = resolveSettings(
 		compaction === undefined ? null : { version: 1, compaction },
@@ -664,10 +675,15 @@ export function AgentSection({
 					const modelId = override?.model?.id ?? "";
 					const provider = override?.model?.provider ?? "";
 					const thinking = override?.thinkingLevel ?? "";
+					// The tier's resolved pin is machinery only now (owner, fix
+					// wave): the UI never names the factory fallback — the hint
+					// carries the roster, the triggers read "—" when unpicked — but
+					// the pin still governs the thinking level LIST when no override
+					// names a model to read levels from.
 					const pin = slots?.[slot];
-					// The model whose levels govern the thinking list: the stored
-					// pick, else the catalog's resolved slot (when it's in the
-					// federated catalog); the standard ladder as the last fallback.
+					// The model whose levels govern the thinking list: the
+					// override, else the resolved pin (when it's in the federated
+					// catalog); the standard ladder as the last fallback.
 					const coord = override?.model ?? pin?.model;
 					const chosen = coord ? catalog?.find((m) => m.id === coord.id && m.provider === coord.provider) : undefined;
 					const levels = chosen ? chosen.supportedLevels : THINKING_LEVELS;
@@ -699,9 +715,9 @@ export function AgentSection({
 									widthClass="min-w-20"
 								/>
 								<MenuTrigger
-									// No stored level + a known model → the RESOLVED level (the
-									// ordering's first supported — what the engine build runs).
-									// Display-only until a pick writes.
+									// Legacy display (chunk 2 item 4): no stored level + a known
+									// model → the RESOLVED level (the ordering's first supported —
+									// what the engine build runs). Display-only until a pick writes.
 									value={thinking || (chosen ? defaultOrderLevel(levels) : "")}
 									emptyLabel="—"
 									ariaLabel={`${SLOT_META[slot].label} thinking`}
@@ -746,9 +762,9 @@ export function AgentSection({
 											effectiveProvider={provider}
 											vision={slot === "vision"}
 											onPick={(entry) => {
-												// Auto-populate: the fresh pick writes a level — the stored
-												// one rides as-is (the write clamps server-side), else the
-												// ordering's level.
+												// Auto-populate (chunk 2, owner: "populate everywhere"): the
+												// fresh pick writes a level — the stored one rides as-is
+												// (the write clamps server-side), else the ordering's level.
 												const next = populateLevel(thinking || undefined, entry.supportedLevels);
 												onModelsChange(composeSlotModel(models, slot, entry.provider, entry.id, next));
 												setOpenMenu(null);
@@ -771,8 +787,8 @@ export function AgentSection({
 									>
 										<ThinkingMenuList
 											levels={levels.map(String)}
-											// The ✓ sits on the RESOLVED level for unset records — the
-											// same one the trigger shows.
+											// The ✓ sits on the RESOLVED level for legacy unset records —
+											// the same one the trigger shows.
 											effectiveLevel={thinking || (chosen ? defaultOrderLevel(levels) : undefined)}
 											onPick={(level) => {
 												onModelsChange(composeSlotModel(models, slot, provider, modelId, level));
@@ -1008,7 +1024,8 @@ export function AgentSection({
 						ariaLabel="compaction threshold"
 						testid="input-compaction-threshold"
 						onCommit={(v) => {
-							// Empty = factory default: absence is the unset for numbers.
+							// Empty = factory default (the budget row's discipline):
+							// absence is the unset for numbers.
 							if (v === "") {
 								return onCompactionChange({ ...compaction, thresholdTokens: undefined });
 							}

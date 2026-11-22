@@ -1,17 +1,18 @@
 "use client";
 /**
- * The model menu: the agent settings' role selects use the EXACT same
- * dropdown as the chat model selector — same look, same machine. The fuzzy
- * search + arrow-walk + Enter pick machine lives here once; each mount owns
- * only the popover shell (positioning, outside-click, Esc — the chat
- * control opens UP from the bottom bar, the settings rows open DOWN inside
- * the dialog).
+ * The model menu (extracted 2026-09-20 from model-picker.tsx, owner ask:
+ * the agent settings' role selects use the EXACT same dropdown as the
+ * chat model selector — same look, same machine). The fuzzy search +
+ * arrow-walk + Enter pick machine lives here once; each mount owns only
+ * the popover shell (positioning, outside-click, Esc — the chat control
+ * opens UP from the bottom bar, the settings rows open DOWN inside the
+ * dialog).
  *
- * The same machine also drives the provider picker (ProviderMenuList) and
- * the reading-font picker (FontMenuList: families instead of models, plus
- * the always-offerable DEFAULT row and a custom-family action row).
+ * The appearance wave (2026-09-26) added the reading-font picker over the
+ * same machine: FontMenuList (families instead of models, plus the
+ * always-offerable DEFAULT row and a custom-family escape input).
  *
- * Keyboard machine: focus STAYS in the search
+ * Keyboard machine (owner polish, 2026-09-17): focus STAYS in the search
  * field — ↑/↓ walk the filtered results (clamped, no wrap), Enter picks
  * the walked row (or the first result when nothing is walked).
  * stopPropagation keeps these keys out of every other listener while the
@@ -47,8 +48,8 @@ export function ModelMenuList({
 	models: ModelCatalogEntry[] | undefined;
 	/** Currently effective id (the row gets the quiet highlight). */
 	effectiveId: string | undefined;
-	/** The effective id's provider (the catalog federates multiple
-	 *  providers and ids can collide across them —
+	/** The effective id's provider (model-slots wave: the catalog
+	 *  federates multiple providers and ids can collide across them —
 	 *  the highlight must match BOTH coordinates or it lands on the
 	 *  wrong row). */
 	effectiveProvider?: string;
@@ -180,7 +181,7 @@ export function ProviderMenuList({
 }
 
 /** The reading-font dropdown's row set — the SAME fuzzy + arrow-walk +
- *  Enter machine over font families. The
+ *  Enter machine over font families (appearance wave, 2026-09-26). The
  *  DEFAULT row (null) is a candidate like any family: it matches empty
  *  and "source"/"sans"/"default" queries, so an unfiltered list opens
  *  with the default first and a searched list drops it honestly — Enter
@@ -199,7 +200,7 @@ export function fontMenuResults(query: string, families: string[]): Array<string
 	return scored;
 }
 
-/** The custom-family action row's decision (pure): a typed
+/** The custom-family action row's decision (pure, 2026-09-26): a typed
  *  query that matches NO family becomes the "Use '<query>'" custom pick —
  *  a matching family is the better pick, so the action row only exists
  *  when there is nothing else to pick. Exported for tests. */

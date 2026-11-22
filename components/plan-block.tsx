@@ -26,19 +26,21 @@ import { useAppearance } from "@/components/settings/appearance";
 import { InteractionLayerOwner, useInteractionLayer } from "./interaction-layers";
 
 /**
- * PLAN BLOCKS — the plan lives in the chat: persisted `data-plan-block`
- * parts render as DAG blocks in the transcript flow.
+ * PLAN BLOCKS — the plan lives in the chat (wave 4): persisted
+ * `data-plan-block` parts render as DAG blocks in the transcript flow, and
+ * the right sidebar is retired.
  *
  * - kind "full": the whole DAG, BORDERLESS — no wrapping chrome, the SVG
  *   scales to the full column width (viewBox = layout extent + GRAPH_PAD,
  *   so strokes/glow never clip), natural height, labels capped at the
  *   chat's reading size (textCap: fills the column, never oversizes text).
  * - Clicking opens the full plan in a session-scoped focus overlay
- *   (absolute inside the session area, below the drag bar) — the LIVE
- *   plan: the latest tree from the transcript with statuses derived at
- *   click time (contracts/plan.ts derivePlanStatuses). Blocks are frozen
- *   snapshots rendered exactly as carried (never re-derived); the popup
- *   is the live view.
+ *   (absolute inside the session area, below the drag bar — chrome-melt
+ *   wave, 2026-09-19; was a fixed inset-0 full-screen popup) —
+ *   the LIVE plan: the latest tree from the transcript with statuses
+ *   derived at click time (contracts/plan.ts derivePlanStatuses). Blocks
+ *   are frozen snapshots rendered exactly as carried (never re-derived);
+ *   the popup is the live view (user decision, 2026-09).
  *
  * Hand-built SVG everywhere (user decision): placement runs on dagre
  * (mermaid's engine) in components/plan-layout.ts; the skin is ours — no
@@ -250,33 +252,37 @@ export function usePlanLayout(plan: { nodes: readonly LayoutNode[]; edges: Reado
  *  without this pad the outermost node borders clip at the svg edge. */
 export const GRAPH_PAD = 8;
 /** The current node's yellow glow: a fill blurred so it bleeds over the
- *  node's edges. A Gaussian's visible spread is ≈3σ, so the glow reaches
- *  GLOW_MARGIN + 3·GLOW_BLUR past the node — any surface that shows the
- *  glow must pad its viewBox by GLOW_REACH or the blur clips at the frame
- *  edge. */
+ *  node's edges (owner). A Gaussian's visible spread is ≈3σ, so the glow
+ *  reaches GLOW_MARGIN + 3·GLOW_BLUR past the node — any surface that
+ *  shows the glow must pad its viewBox by GLOW_REACH or the blur clips
+ *  at the frame edge (owner: extend the container padding to fit it). */
 export const GLOW_MARGIN = 8;
 export const GLOW_BLUR = 5;
 export const GLOW_REACH = GLOW_MARGIN + 3 * GLOW_BLUR;
 
-// ─── The arrowhead ───────────────────────────────────────────────────────────
+// ─── The owner's arrowhead (plan-graph round 5) ──────────────────────────────
 
 /** Baked from arrowhead_1.svg (the CM/MJX long-arrow head), transform chain
  *  collapsed: viewBox 0 0 50.2 104, tip at (50.2, 52), notch mouth at
- *  x 27.2 with a 9.6-tall opening. Solid white fill, no padding. */
+ *  x 27.2 with a 9.6-tall opening — at full height 104 the tail opening
+ *  is ≈10, per the owner's spec. Solid strong-ink fill, no padding. */
 export const ARROW_HEAD = "M48,55.2C49.4,54.6 50.2,53.4 50.2,52C50.2,50.6 49.4,49.4 48,48.8C38.2,45.6 29.2,38.8 21,28.4C15.2,21.4 11.4,13.2 9.6,3.8C9,1.2 7.4,0 4.8,0C1.6,0 0,1.6 0,5L0.2,5.6C3.6,23 12.6,36.8 27.2,47.2L27.2,56.8C12.6,67.2 3.6,81 0.2,98.4L0,99C0,102.4 1.6,104 4.8,104C7.4,104 9,102.8 9.6,100.2C11.4,90.8 15.2,82.6 21,75.6C29.2,65.2 38.2,58.4 48,55.2Z";
 
-// ─── Status styling ──────────────────────────────────────────────────────────
+// ─── Status styling (the retired panel's color language, unchanged) ──────────
 
-// Rectangular boxes, white outlines/arrows/text; no fill on visited, gray on
-// upcoming, and the current node carries a faint yellow glow (a blurred
-// yellow fill bleeding over the edges). The IN-CHAT block is monochrome
-// instead — no status language; the popup/window show the progression.
+// The simple look (owner, plan-graph round 4): rectangular boxes,
+// outlines/arrows/text in the strong line ink (white in dark, the
+// foreground in light); no fill on visited, today's gray look on upcoming,
+// and the current node carries a faint yellow glow (a blurred yellow fill
+// bleeding over the edges). The IN-CHAT block is monochrome instead — no
+// status language; the popup/window show the progression.
 const BOX: Record<PlanNodeStatus, string> = {
 	// 50%-opacity app background instead of true transparency: a routed
 	// edge passing behind the box composites UNDER the fill — dimmed to
-	// half, not shown straight through.
+	// half, not shown straight through (owner, round 9).
 	visited: "fill-background/50 stroke-line-strong",
 	current: "fill-background/50 stroke-line-strong",
+	// The grayed-out not-yet-visited look stays as-is (owner).
 	upcoming: "fill-card stroke-border",
 };
 // Every label's size + weight must stay within PROBE_TYPE (the probe
@@ -286,9 +292,10 @@ const TEXT: Record<PlanNodeStatus, string> = {
 	current: `fill-line-strong ${LABEL_TYPE} font-medium`,
 	upcoming: `fill-muted-foreground/80 ${LABEL_TYPE}`,
 };
-// The in-chat block uses the dock language: boxes in the lighter
-// background variant like the composer/dock shells, with outlines in the
-// strong line ink (white in dark).
+// The in-chat block speaks the dock language now (owner, plan-hug
+// round 2026-10-07): boxes in the lighter background variant like
+// the composer/dock shells — but the outlines STAY the strong line ink,
+// white in dark (owner follow-up: the gray fill is good, white box edges).
 const MONO_BOX = "fill-card stroke-line-strong";
 const MONO_TEXT = `fill-foreground ${LABEL_TYPE}`;
 
@@ -330,11 +337,11 @@ export function PlanDiagram({
 	 *  size (Appearance proseFontSize), so plan text never outgrows prose. */
 	textCap?: number;
 	/** Renders at the viewBox width in px (1 svg unit = 1 px at zoom 1) —
-	 *  the popup's transform math depends on it (w-full inside the popup's
-	 *  shrink-to-fit wrapper would resolve to the popup width). */
+	 *  the popup's transform math depends on it; w-full inside the popup's
+	 *  shrink-to-fit wrapper resolved to the popup width and broke fit. */
 	naturalSize?: boolean;
-	/** The in-chat block's mode: every node white (fill-none, white stroke
-	 *  and text, no glow) — statuses never show in the transcript. */
+	/** The in-chat block's mode: every node in the strong line ink (stroke
+	 *  and text, no glow) — statuses never show in the transcript (owner). */
 	monochrome?: boolean;
 	/** Meet-fits the diagram inside a fixed box (h-full w-full — the svg's
 	 *  default preserveAspectRatio centers + contains the viewBox): the
@@ -349,8 +356,9 @@ export function PlanDiagram({
 	const h = Math.max(layout.height, 1);
 	const vbW = w + 2 * pad;
 	const vbH = h + 2 * pad;
-	// The origin rides the ink extent: an arrow bulging past zero shifts
-	// the viewBox with it instead of clipping.
+	// The origin rides the ink extent (owner, 2026-10-10): an arrow
+	// bulging past zero shifts the viewBox with it instead of clipping.
+	// Zero-origin plans (the ordinary case) render exactly as before.
 	const ox = viewBoxOverride ? 0 : (layout.originX ?? 0);
 	const oy = viewBoxOverride ? 0 : (layout.originY ?? 0);
 	return (
@@ -358,10 +366,8 @@ export function PlanDiagram({
 			viewBox={viewBoxOverride ?? `${ox - pad} ${oy - pad} ${vbW} ${vbH}`}
 			className={`block ${fill ? "h-full w-full" : `h-auto${naturalSize ? "" : " w-full"}`}${textCap ? " mx-auto" : ""}`}
 			style={{
-				// The READING font via the runtime var, NOT the font-prose
-				// utility: @theme inline bakes the literal into utilities, which
-				// would ignore the Appearance reading-font override.
-				// var(--font-prose) follows it.
+				// The READING font (owner, 2026-09-26) — the same runtime token
+				// consumed by font-prose, so Appearance changes reach SVG text.
 				fontFamily: "var(--font-prose)",
 				...(textCap
 					? { maxWidth: `${Math.round(((vbW * textCap) / layout.fontSize) * 100) / 100}px` }
@@ -383,12 +389,12 @@ export function PlanDiagram({
 					markerUnits="userSpaceOnUse"
 					orient="auto"
 				>
-					{/* The arrowhead. The mouth (x 27.2) sits at refX so the
+					{/* The owner's arrowhead. The mouth (x 27.2) sits at refX so the
 					    line ends AT the notch — the tip beyond it is solid fill. */}
 					<path d={ARROW_HEAD} className="fill-line-strong" />
 				</marker>
-				{/* Same head, grayed — for arrows drawn in the dim style (see
-				    the both-ends rule below). */}
+				{/* Same head, grayed — arrows into not-yet-visited nodes are
+				    grayed out like the nodes themselves (owner, round 6). */}
 				<marker
 					id={`${markerId}-dim`}
 					viewBox="0 0 50.2 104"
@@ -402,7 +408,7 @@ export function PlanDiagram({
 					<path d={ARROW_HEAD} className="fill-border" />
 				</marker>
 				{/* The current node's highlight: a faint yellow fill BLURRED so it
-				    bleeds out over the node's edges. Generous filter region
+				    bleeds out over the node's edges (owner). Generous filter region
 				    so the blur never clips at its own bounds. */}
 				<filter id={`${markerId}-glow`} x="-60%" y="-60%" width="220%" height="220%">
 					<feGaussianBlur stdDeviation={GLOW_BLUR} />
@@ -410,8 +416,9 @@ export function PlanDiagram({
 			</defs>
 			{edges.map((e) => {
 				// Dagre's route for this edge: border-intersected waypoints —
-				// the line leaves/enters nodes on whatever side dagre chose.
-				// Unroutable edges (dangling endpoints) draw nothing.
+				// the line leaves/enters nodes on whatever side dagre chose
+				// (mermaid's drawing, owner round 11). Unroutable edges
+				// (dangling endpoints) draw nothing.
 				const pts = layout.edgePts.get(`${e.from}->${e.to}`);
 				if (!pts) return null;
 				// The target's box — drives the docking gap + entry-angle clamp.
@@ -421,10 +428,11 @@ export function PlanDiagram({
 					tx !== undefined && ty !== undefined
 						? { x: tx, y: ty, w: layout.nodeW.get(e.to) ?? NODE_W_MIN, h: layout.nodeH.get(e.to) ?? 0 }
 						: undefined;
-				// An arrow is white only when BOTH its ends are white (origin AND
-				// terminal covered) — a gray box's outgoing arrows stay gray even
-				// when they point into covered territory; the in-chat block stays
-				// all-white.
+				// An arrow is white only when BOTH its ends are white (owner,
+				// 2026-09-26): origin AND terminal covered — a gray box's outgoing
+				// arrows stay gray even when they point into covered territory
+				// (supersedes round 6's target-only rule); the in-chat block
+				// stays all-white.
 				const dim =
 					!monochrome &&
 					(statusOf(e.from) === "upcoming" || statusOf(e.to) === "upcoming");
@@ -456,7 +464,7 @@ export function PlanDiagram({
 						data-testid={`plan-node-${n.id}`}
 						data-status={status}
 					>
-						{/* Rectangular — no corner rounding. */}
+						{/* Rectangular — no corner rounding (owner). */}
 						<rect
 							width={w}
 							height={h}
@@ -465,8 +473,9 @@ export function PlanDiagram({
 						/>
 						{glow && (
 							// The current node's highlight: faint yellow, blurred so it
-							// bleeds over the edges — static, no pulse. Paints ABOVE the
-							// box fill so the fill never dims the glow inside the box,
+							// bleeds over the edges — static, no pulse (owner, round 6).
+							// Paints ABOVE the box fill (owner, round 10): the round-9
+							// background fill no longer dims the glow inside the box,
 							// while edges behind the box still dim under that fill.
 							<rect
 								x={-GLOW_MARGIN}
@@ -521,7 +530,7 @@ export function PlanBlock({ data }: { data: PlanBlockData }) {
 		>
 			{/* pad keeps centered strokes + the glow halo inside the frame; the
 		    cap keeps node text at or below chat prose size while still filling
-		    the column when it can. */}
+		    the column when it can (owner, plan-graph refinement round 1). */}
 		<PlanDiagram
 			layout={plan.layout}
 			nodes={data.nodes}
@@ -633,7 +642,7 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 	const atFloor = view.zoom <= fitZoom + 1e-9;
 	// The transition stays off until the FIRST fit has been applied — the
 	// popup paints at the fit directly instead of flying in from the initial
-	// top-left zoom:1 state.
+	// top-left zoom:1 state (owner, plan-graph round 4).
 	const [settled, setSettled] = useState(false);
 
 	useEffect(() => {
@@ -643,8 +652,9 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 		if (userAdjustedRef.current || !size.w || !size.h) return;
 		setView(fitGraphView(box, size, fitZoom));
 		// Enable the transition only AFTER the fit has painted: flipping
-		// settled in the SAME commit would let the browser animate from the
-		// initial top-left zoom:1 state (a fly-in).
+		// settled in the SAME commit lets the browser animate from the
+		// initial top-left zoom:1 state — the fly-in the owner keeps
+		// seeing (round 4's gate wasn't enough; round 7 fix).
 		const raf = requestAnimationFrame(() => setSettled(true));
 		return () => cancelAnimationFrame(raf);
 	}, [fitZoom, size, box]);
@@ -763,8 +773,9 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 								transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`,
 								// Hidden until the first fit has APPLIED — the fit runs in an
 								// effect (after paint), so an opacity-gated chart can never flash
-								// at the initial top-left zoom:1 state (as in the mermaid
-								// overlay; transition-gating alone doesn't hide the fly-in).
+								// at the initial top-left zoom:1 state (same fix as the mermaid
+								// overlay; transition-gating alone didn't hide the fly-in the
+								// owner kept seeing in rounds 4–7).
 								opacity: settled ? 1 : 0,
 								transition:
 									panning || !settled

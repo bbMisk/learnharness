@@ -183,9 +183,10 @@ export interface QuestionDockProps {
 	/** Collapse state, owned by the DockOverlay (it drives the shell's height morph). */
 	expanded: boolean;
 	/**
-	 * Teach-phase check awaiting its reveal: while collapsed, the bar is the
-	 * "Check your understanding" invitation instead of the scroll-collapse
-	 * strip. Owned by DockOverlay; false once the learner has revealed.
+	 * Teach-phase check awaiting its reveal (vision §2, W5): while collapsed,
+	 * the bar is the "Check your understanding" invitation instead of the
+	 * scroll-collapse strip. Owned by the DockOverlay; false once the learner
+	 * has revealed (afterwards the normal collapse machine rules apply).
 	 */
 	reveal?: boolean;
 	onExpand: () => void;
@@ -205,9 +206,10 @@ export interface QuestionDockProps {
 	/** Session phase at the question — scales the thinking field: probing
 	 *  stays quick (one row), teaching invites dumping (three rows). */
 	phase?: Phase3;
-	/** Dictation claim: false while a teach-phase check sits unrevealed (the
-	 *  reading-thinking field owns dictated speech during the reading); the
-	 *  dock reclaims on reveal. Default true. */
+	/** Dictation claim (owner 2026-10-03): false while a teach-phase check
+	 *  sits UNREVEALED — the reading-thinking field owns dictated speech
+	 *  during the reading; the dock reclaims on reveal. Default true (probe
+	 *  questions, predictions, old callers). */
 	dictationClaim?: boolean;
 	/** Compaction is running for this chat: the answer POST would block on
 	 *  the server's compaction gate, so submit disables and the hint row says
@@ -250,13 +252,16 @@ export function QuestionDock({
 	// explain-shaped. Old records keep the teach names.
 	const canonical =
 		toolName === "probe" ? "quiz" : toolName === "recall" ? "explain" : toolName;
-	// The chip's display name: probe-phase questions label Probe/Recall; teach
-	// tools keep the standing labels.
+	// The chip's display name carries the tool's OWN name (owner
+	// 2026-10-09): probe-phase questions label Probe/Recall in the
+	// composer; teach tools keep the standing labels.
 	const toolLabel = toolName === "probe" ? "Probe" : toolName === "recall" ? "Recall" : undefined;
 	// Parse, don't cast (src/core/tool-parts.ts): the model authored this
-	// input. It was validated upstream, so this is defense in depth: anything
-	// that slips through renders the quiet fallback, never a crash on `.map`
-	// over model-authored bytes.
+	// input, and only the schema the tool declared vouches for its shape.
+	// The dock mounts on input-available parts (already validated at the
+	// bridge), so this is pure defense in depth — but it is STRUCTURAL now:
+	// anything that slips through renders the quiet fallback, never a
+	// crash on `.map` over model-authored bytes.
 	const parsed = useMemo(() =>
 		canonical === "quiz" ? parseQuizInput(input) : canonical === "explain" ? parseExplainInput(input) : parseAskInput(input), [canonical, input]);
 	if (!parsed) {
@@ -340,10 +345,12 @@ export function QuestionDockBar({
 	question: string;
 	onExpand: () => void;
 	variant?: "collapsed" | "reveal";
-	/** The kind chip's text: "Prediction" when a predict-type quiz is folded
-	 *  by scroll (predictions never use the reveal variant). */
+	/** The kind chip's text (owner 2026-10-03): "Prediction" when a
+	 *  predict-type quiz minimizes by scroll — predictions never use the
+	 *  reveal variant, but the scroll-collapse strip can still hide them. */
 	label?: string;
-	/** The chip's tool display name: probe-phase calls label Probe/Recall. */
+	/** The chip's TOOL display name (owner 2026-10-09): probe-phase calls
+	 *  label Probe/Recall — the phase boundary visible in the composer. */
 	toolLabel?: string;
 }) {
 	if (variant === "reveal") {
@@ -439,8 +446,8 @@ function QuestionDockForm({
 		const q: QuestionData = {
 			id: toolCallId,
 			kind,
-			// Predict questions gate by it in the view and the answered card
-			// tucks the explanation.
+			// The role (owner 2026-10-03): predict questions gate by it in the
+			// view (never collapsed) and the answered card tucks the explanation.
 			questionType: kind === "quiz" ? normalizeQuizType((input as { type?: unknown }).type) : undefined,
 			question: input.question,
 			context: input.details,
@@ -456,9 +463,10 @@ function QuestionDockForm({
 			q.explanation = quizInput.explanation;
 		}
 		if (explainInput) {
-			// The commitment rides the question data (never shown before
-			// answering) and snapshots into the answer at submit. One field,
-			// reasoning included.
+			// The commitment rides the question data (never sent to the
+			// client before answering) and snapshots into the answer at submit.
+			// One field, reasoning included — no separate explanation
+			// (owner ruling 2026-09-27).
 			q.committedAnswer = explainInput.correctAnswer;
 		}
 		return q;
@@ -469,7 +477,7 @@ function QuestionDockForm({
 	// "Other…" row in a multi-select must never clear already-picked
 	// options, and picking an option must never clear a typed custom answer.
 	const [sel, setSel] = useState<DockSelection>(() => initialDraft?.selection ?? emptyDockSelection());
-	// The learner's transfer channel: thinking, never "a note".
+	// The learner's transfer channel — thinking, never "a note".
 	const [thinking, setThinking] = useState(initialDraft?.thinking ?? "");
 	const [other, setOther] = useState(initialDraft?.other ?? "");
 	const [text, setText] = useState(initialDraft?.text ?? "");
@@ -550,11 +558,12 @@ function QuestionDockForm({
 			onPrepareSubmission({ question: qd, isCurrent: () => mounted.current && currentQuestion.current === qd && isInteractionScopeEligible(rootRef.current, controller), capture: captureRequest });
 			return;
 		}
-		/* Finish dictation first: Enter may arrive while a run is live with
-		 * reasoning still in the transcriber's hands. Stop the run, let the
-		 * last finals land, and only then build the answer. The field values
-		 * come from the ref mirrors because the flush lands via setState after
-		 * an await. */
+		/* FINISH DICTATION FIRST (owner, 2026-10-01): Enter may arrive while
+		 * a run is live with reasoning still in Deepgram's hands. Stop the
+		 * run, let the last finals land in the target field, and only then
+		 * build the answer — the spoken reasoning is never lost to a
+		 * forgotten stop. The field values below come from the REF mirrors
+		 * because the flush lands via setState after an await. */
 		if (!isDictationActive()) {
 			doSubmit();
 			return;
@@ -569,8 +578,8 @@ function QuestionDockForm({
 			other: sel.otherSelected ? other : undefined,
 			text: qd.mode === "text" ? answerTextRef.current : undefined,
 			thinking: qd.mode !== "text" ? thinkingTextRef.current.trim() || undefined : undefined,
-			// Always sent on quiz answers (50 means 50, never "untouched");
-			// buildAnswer drops it on "I don't know".
+			// Always sent on quiz answers (owner: 50 must mean 50, never
+			// "untouched"); buildAnswer drops it on "I don't know".
 			confidence: kind === "quiz" ? CONFIDENCE_STOPS[confIdx] : undefined,
 		};
 		// Snapshot before optimistic submission unmounts the form. Ref values
@@ -601,14 +610,16 @@ function QuestionDockForm({
 	// reasoning behind it are separate channels.
 	const selectOther = () => setSel(toggleOther(selectMode, sel));
 
-	/* ── The keyboard machine ──
-	   ↑/↓ walk every answerable row in order (options, then the quiz's
-	   "I don't know" or the ask's "Other…"), clamped at the ends, no wrap.
-	   Space acts on the walked row like a click (multi toggles, single
-	   displaces; Other also focuses its input), Enter submits once an answer
-	   exists. Tab toggles focus between the thinking field and the answer
-	   rows, nothing else; Shift+Tab is not ours (the global thinking-level
-	   cycle owns it). Two guards keep native behavior
+	/* ── The keyboard machine (shortcut wave B, owner rounds 2026-09-17) ──
+	   ↑/↓ walk EVERY answerable row in order — options first, then the
+	   quiz's "I don't know" or the ask's "Other…" (whichever exists) —
+	   CLAMPED at the ends, no wrap (owner: faster to navigate when the
+	   walk stops at the last row). Space acts on the walked row exactly
+	   like a click (multi toggles, single displaces; Other also focuses
+	   its input for typing), Enter submits once an answer exists.
+	   Tab toggles FOCUS between the thinking field and the answer rows
+	   (owner round 3) — nothing else; Shift+Tab is NOT ours (the global
+	   thinking-level cycle owns it). Two guards keep native behavior
 	   intact: keys from a TYPING SURFACE keep their meaning (arrows move
 	   the caret, space types), and modifier combos are never ours
 	   (Alt+arrows cycle sessions — they must not ALSO walk the rows).
@@ -629,11 +640,14 @@ function QuestionDockForm({
 		else if (kind === "quiz")
 			setSel((prev) => ({ ...prev, selected: new Set(), otherSelected: false, dontKnow: !prev.dontKnow }));
 		else {
-			// Space on the ask's Other row: selecting it focuses the input, but
-			// the Space that deselects an already-selected Other must not drop
-			// the user back into the field. The core's toggleOther has no
-			// single-select off-path (it displaces), so it lives here: clear
-			// the pick, keep the typed text, leave focus where it is.
+			// Space on the ask's Other row (owner refinement round,
+			// 2026-09-24): SELECTING it focuses the input for typing, but
+			// the Space that DESELECTS an already-selected Other must never
+			// drop the user back into the typing field — the core's
+			// toggleOther has no single-select off-path (it displaces), so
+			// the off-path lives here: clear the pick, keep the typed text,
+			// focus stays where it is. Re-selecting is the way back into
+			// the field.
 			if (sel.otherSelected) setSel((prev) => ({ ...prev, otherSelected: false, dontKnow: false }));
 			else {
 				otherInputRef.current?.focus();
@@ -660,9 +674,10 @@ function QuestionDockForm({
 			// treat that as a claim. Eligibility, not focus alone, owns rows.
 			if (!isInteractionScopeEligible(rootRef.current, controller)) return;
 			const t = e.target as HTMLElement | null;
-			// A typing field is where keys mean text (the thinking/answer
-			// fields, search boxes, renames), never a range input, whose focus
-			// after a click or drag must not kill the arrow cycling.
+			// A TYPING field is where keys mean text (owner round 4): the
+			// thinking/answer fields, search boxes, renames — never a range
+			// input, whose focus after a click or drag must not kill the
+			// arrow cycling. Everywhere else the arrows act.
 			const typing =
 				!!t &&
 				((t.tagName === "INPUT" && (t as HTMLInputElement).type !== "range") ||
@@ -671,8 +686,9 @@ function QuestionDockForm({
 			// Alt/Cmd/Ctrl combos are never ours (Alt+arrows cycle sessions
 			// globally — they must not ALSO walk the question rows).
 			const modded = e.altKey || e.metaKey || e.ctrlKey;
-			// Plain Tab toggles focus: rows → thinking. The confidence slider
-			// never joins the chain (global ←/→ own its keyboard).
+			// Plain Tab toggles focus: rows → thinking. The confidence
+			// slider takes NO focus at all (owner, UI round 2026-10-01) —
+			// global ←/→ own its keyboard, so it never joins the chain.
 			// Shift+Tab falls through (the global thinking-level cycle owns
 			// it), so the shift check matters.
 			if (e.key === "Tab" && !e.shiftKey && !modded) {
@@ -702,9 +718,10 @@ function QuestionDockForm({
 				setKbdIdx(next);
 				if (t?.closest?.("[data-kbdrow]")) focusRow(next);
 			} else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-				// Global confidence cycling, like ↑/↓ over the rows: works
-				// wherever focus sits. Dead on "I don't know" (the slider grays
-				// out and nothing is sent).
+				// Global confidence cycling (owner, UI round 2026-10-01): the
+				// SAME pattern as ↑/↓ over the rows — works wherever focus
+				// sits, no click-in, no focus ring. Dead on "I don't know"
+				// (the slider grays out and nothing is sent).
 				if (kind !== "quiz" || sel.dontKnow) return;
 				e.preventDefault();
 				setConfIdx((i) =>
@@ -953,9 +970,13 @@ function QuestionDockForm({
 							<span>
 								<ToolContentResponse>{opt.label}</ToolContentResponse>
 								{kind !== "quiz" && opt.description && (
-									// Option subtext renders as full markdown (LaTeX included)
-									// through the label's path. Quiz options render no description:
-									// it could telegraph correctness, and old records must not leak.
+									// Option subtext renders in Source Sans 3 (owner's mockup);
+									// the "I don't know" copy stays JetBrains Mono. QUIZ options render
+									// NO description (owner ruling 2026-09-26): the model used them to
+									// telegraph correctness — the schema dropped the field and old
+									// records must not leak either. Same MessageResponse path as the
+									// label (owner, 2026-10-12): descriptions are full markdown —
+									// LaTeX included — not plain text.
 									<ToolContentResponse className="lh-prose block text-xs text-muted-foreground">
 										{opt.description}
 									</ToolContentResponse>
@@ -1141,8 +1162,9 @@ function QuestionDockForm({
 							}}
 							onKeyDown={(e) => {
 								if (!isInteractionScopeEligible(e.currentTarget, controller)) return;
-								// Esc ends dictation; stopPropagation claims it so the
-								// window chain doesn't also abort a turn.
+								// Esc ends dictation (the dictate decisions: click-again
+								// or Esc) — stopPropagation claims it (keyboard wave
+								// A) so the window chain doesn't also abort a turn.
 								if (e.key === "Escape" && onEscape) {
 									e.preventDefault();
 									e.stopPropagation();
@@ -1179,8 +1201,9 @@ function QuestionDockForm({
 									onEscape();
 									return;
 								}
-								// The standard chord: Enter submits, Shift+Enter is a
-								// newline, ⌘/Ctrl+Enter works too (as in the composer).
+								// THE STANDARD CHORD (owner round 5, 2026-10-05): Enter
+								// submits, Shift+Enter is a newline, ⌘/Ctrl+Enter works
+								// too — identical to the practice dock and the composer.
 								if (e.key === "Enter" && (!e.shiftKey || e.metaKey || e.ctrlKey)) {
 									e.preventDefault();
 									submit();

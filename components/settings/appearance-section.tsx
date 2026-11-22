@@ -1,27 +1,34 @@
 "use client";
 /**
- * The Appearance + Graph sections.
+ * The Appearance + Graph sections (thin settings wave).
  *
  * Appearance controls resolve against the factory in the provider; writes
  * PUT the whole appearance section and hand the delta back so the CSS
  * variables move IMMEDIATELY (the section's whole point — it must DO
- * something). Hex inputs commit on blur/Enter; the background derives the
- * raised/accent/edge palette in code (components/settings/appearance.tsx).
- * Mode is dark-only for now: the control renders DISABLED with a note — a
- * lying control is worse than an honest disabled one.
+ * something). Theme wave (2026-11-04): the theme grid (./theme-cards.tsx)
+ * sits on top and sets every color; the "Colors" block below holds one
+ * hex override per theme color (empty = the theme's), kept across theme
+ * switches; "Typography" holds the type knobs. Hex inputs commit on
+ * blur/Enter.
  *
- * Reading font: a searchable dropdown of the user's INSTALLED fonts
- * (FontMenuList over model-menu's machine) fed by window.queryLocalFonts()
- * in the desktop shell — the
+ * Graph graying (owner, 2026-09-20) follows the graph viewer's render-panel
+ * convention: the whole row dims when a parent is off (stored values
+ * persist but resolve inert — the switch shows stored, the dim effective).
+ *
+ * Reading font (appearance wave, 2026-09-26, owner ruling): a searchable
+ * dropdown of the user's INSTALLED fonts (FontMenuList over model-menu's
+ * machine) fed by window.queryLocalFonts() in the desktop shell — the
  * enumeration is click-bound (the API requires user activation), deduped
  * to unique families, the factory family excluded (the DEFAULT row is
  * it). In a plain dev browser the API is absent → a small curated list
  * + a footer that says exactly that — never a fabricated system list.
- * A query matching no family offers a "Use '<query>'" row, the manual
- * escape path. Empty/unset keeps meaning Source Sans 3.
+ * The custom-family input inside the menu is the manual escape path.
+ * Empty/unset keeps meaning Source Sans 3.
  *
- * Emphasis inks: the factory tokens default to the regular text color
- * (globals.css); the rows' empty-state labels say "same as text".
+ * Overrides live in two homes by design: `background` and
+ * `mdRendering.boldColor/italicColor` keep their pre-theme keys (existing
+ * records keep their colors); the other nine sit in `colors`. core/
+ * themes.ts effectiveColors is the one place they merge.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -255,8 +262,9 @@ export function AppearanceSection({
 	// The font dropdown's open state + its enumeration cache. undefined =
 	// not enumerated yet (desktop: click-bound queryLocalFonts pending);
 	// null = enumeration UNAVAILABLE (the API is absent in a plain
-	// browser, rejected, or resolved EMPTY — an Electron grant can pass and
-	// still yield zero fonts) → the curated fallback; a list = the deduped
+	// browser, rejected, or resolved EMPTY — Electron 44's local-fonts
+	// grant passes and the enumeration still yields zero fonts,
+	// reproduced 2026-09-26) → the curated fallback; a list = the deduped
 	// families. enumEmpty distinguishes WHY it fell back, for the footer.
 	const [fontMenuOpen, setFontMenuOpen] = useState(false);
 	const [localFonts, setLocalFonts] = useState<string[] | null | undefined>(undefined);
@@ -288,8 +296,9 @@ export function AppearanceSection({
 								.filter((f) => f !== DEFAULT_READING_FONT)
 								.sort((a, b) => a.localeCompare(b));
 							if (families.length === 0) {
-								// Resolved-but-empty: not a failure the catch sees,
-								// but still unavailable.
+								// Resolved-but-empty: not a failure the catch sees —
+								// an honest unavailable (this Electron 44 build
+								// enumerates nothing even granted).
 								setLocalFonts(null);
 								setEnumEmpty(true);
 							} else {
@@ -311,7 +320,9 @@ export function AppearanceSection({
 		onSectionChange(composeFontFamily(appearance, family));
 	};
 
-	// Any click outside the open menu closes it; Esc is the menu layer's.
+	// The dropdown contract (agent-section's, mirrored): any click
+	// outside the open menu — or an Esc — closes it. Esc is CLAIMED with
+	// stopPropagation so the settings dialog behind does NOT also close.
 	useEffect(() => {
 		if (!fontMenuOpen) return;
 		const onPointerDown = (e: PointerEvent) => {
@@ -433,9 +444,9 @@ export function AppearanceSection({
 					ariaLabel="prose font size"
 					testid="input-prose-size"
 					onCommit={(v) => {
-						// Empty = factory default: omit the key so the record UNSETS and
-						// the field stays empty (absence, not null, is the unset for
-						// numbers). Number("") is 0, so clamping would write 12.
+						// Empty = factory default (owner, fix wave): omit the key so the record
+						// UNSETS and the field stays empty (absence, not null, is the
+						// unset for numbers). Number("") is 0, so the old clamp wrote 12.
 						if (v === "") {
 							return onSectionChange({ ...appearance, proseFontSize: undefined });
 						}
@@ -474,8 +485,8 @@ export function AppearanceSection({
 					ariaLabel="heading weight"
 					testid="input-heading-weight"
 					onCommit={(v) => {
-						// Empty = factory default: absence is the unset representation
-						// (Number("") is 0, so clamping would write 100).
+						// Empty = factory default (owner, fix wave): Number("") is 0, so
+						// Absence is the unset representation — the old clamp wrote 100.
 						if (v === "") {
 							return onSectionChange({ ...appearance, mdRendering: { ...md, headingWeight: undefined } });
 						}
@@ -519,26 +530,32 @@ export function GraphSection({
 	// the run).
 	//
 	// Resolved through the SAME core resolver the server's effective
-	// settings use, so the hint and placeholder report exactly the number
-	// the trigger waits for — never a second hand-rolled default.
+	// settings use (one source of truth, the 4096-fallback fix 2026-10-02):
+	// the hint and placeholder report exactly the number the trigger waits
+	// for — never a second hand-rolled default.
 	const resolved = resolveSettings(graph === undefined ? null : { version: 1, graph }).graph;
 	return (
 		<>
-			{/* EXTRACTION: the DATA channel — the pipeline, the auditor, the
-			    prober's graph tools. Off ≠ no graph; off = the graph stops
-			    growing. The testid keeps the stored key's name (enabled). */}
+			{/* EXTRACTION (renamed, owner 2026-10-06): this switch is the DATA
+			    channel — the pipeline, the auditor, the prober's graph tools. It
+			    was born labeled "Graph" and that label lied once the rendering
+			    switch below arrived: off ≠ no graph, off = the graph stops
+			    growing. The testid keeps the old name's shape (row-enabled) so
+			    this stays one rename, not a test re-pin. */}
 			<SettingsRow label="Extraction" hint="Off = the graph stops growing" testid="graph-row-enabled">
 				<Toggle
 					checked={graph?.enabled ?? true}
 					label="extraction enabled"
 					onChange={(on) =>
-						// Compose: the section PUT is replace-whole, so the row must
-						// not drop its sibling fields (a stored budget).
+						// Compose, never replace-whole (the section PUT is, but the
+					// row must not drop its sibling field — fixed with the budget
+					// row's arrival: the old { enabled: on } wiped a stored budget).
 						onSectionChange({ ...graph, enabled: on })
 					}
 				/>
 			</SettingsRow>
-			{/* GRAPH RENDERING: display-only. Off = the home shows the chains view
+			{/* GRAPH RENDERING (owner, 2026-10-06 — the release graph-controls
+			    round): display-only. Off = the home shows the chains view
 			    instead of the canvas. The ledgers, the pipeline, everything
 			    data keeps working — that is the extraction switch above. */}
 			<SettingsRow label="Graph rendering" hint="Off = home shows the chains view" testid="graph-row-rendering">
@@ -560,8 +577,9 @@ export function GraphSection({
 					ariaLabel="extraction chunk budget"
 					testid="input-chunk-tokens"
 					onCommit={(v) => {
-						// Empty = factory default: absence is the unset for numbers —
-						// Number("") is 0, so clamping would write the floor instead.
+						// Empty = factory default (the fix-wave discipline): absence is
+						// the unset for numbers — Number("") is 0, so clamping would
+						// write the floor instead of unsetting.
 						if (v === "") {
 							return onSectionChange({ ...graph, extractionChunkTokens: undefined });
 						}

@@ -12,7 +12,7 @@ import {
 	type RectLike, type SelectionActionPoint,
 } from "./selection-actions";
 
-/** One button on the toolbar (Cite). */
+/** One button on the toolbar. Cite is the first; side questions adds more. */
 export interface SelectionAction {
 	id: string;
 	label: string;

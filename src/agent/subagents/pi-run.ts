@@ -21,12 +21,10 @@ import type { ModelRole } from "../../../config.ts";
  */
 
 export interface SubagentRunOptions {
-	/** Named core role for opt-in captures. Optional: plugin runs do not
-	 * invent core roles. */
+	/** Named core role for engine resolution and opt-in captures. Optional when
+	 * an explicit engine is supplied; plugin runs do not invent core roles. */
 	role?: ModelRole;
-	/** The settings-resolved engine (model + thinking level) this run uses;
-	 *  tests pass a scripted one. Required at run time: there is no role
-	 *  fallback (BYOK). */
+	/** Explicit engine (also the off-network test seam); required without a role. */
 	engine?: PiEngine;
 	systemPrompt: string;
 	/** Initial transcript (continuation semantics: ends user / toolResult). */

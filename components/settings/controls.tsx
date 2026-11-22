@@ -77,8 +77,8 @@ export function SettingsSection({
 	);
 }
 
-/** A labeled sub-group inside a section (e.g. Models / Tools / Prompts
- *  read as three blocks). */
+/** A labeled sub-group inside a section (owner, 2026-09-20: clear
+ *  separation — Models / Tools / Prompts read as three blocks). */
 export function SettingsGroup({
 	label,
 	children,
@@ -109,8 +109,8 @@ export function SettingsRow({
 	hint?: ReactNode;
 	children: React.ReactNode;
 	testid?: string;
-	/** Dependency graying: the whole row dims when the control is inert
-	 *  (parent off, no file yet, …). */
+	/** Dependency graying, graph-view style: the whole row dims when the
+	 *  control is inert (parent off, no file yet, …). */
 	dimmed?: boolean;
 }) {
 	return (
@@ -181,7 +181,8 @@ export function Toggle({
 	onChange: (next: boolean) => void;
 	/** Accessible name for the switch role. */
 	label: string;
-	/** Optional icon disc: the figure cards' invert toggle renders the half-filled contrast circle AS the disc — the icon
+	/** Optional icon disc (owner round, 2026-10-07): the figure cards' invert
+	 *  toggle renders the half-filled contrast circle AS the disc — the icon
 	 *  carries the meaning; plain toggles keep the plain disc. */
 	discIcon?: ReactNode;
 	/** Optional native tooltip on the switch. */
@@ -199,8 +200,9 @@ export function Toggle({
 			onClick={() => onChange(!checked)}
 			className={cn(
 				"relative h-4.5 w-8 shrink-0 rounded-full border border-border transition-colors",
-				// On is the theme accent track with a WHITE disc (Default's
-				// accent IS the gray of the old track); off stays the muted track.
+				// Owner (2026-09-20): on is a gray track with a WHITE disc (a full-white
+				// track was too loud); off stays the muted track. Theme wave: the on
+				// track is the theme accent (Default's accent IS that gray).
 				checked ? "bg-(--lh-accent)" : "bg-muted",
 				disabled && "cursor-not-allowed",
 			)}
@@ -220,7 +222,8 @@ export function Toggle({
 				<span
 					className={cn(
 						"absolute left-0 top-0.5 size-3 rounded-full transition-transform",
-						// 2px inset from each inner edge, both states.
+						// 2px inset from each inner edge, both states (owner round: the on
+						// disc used to touch the pill's right edge).
 						checked ? "translate-x-4 bg-foreground" : "translate-x-0.5 bg-muted-foreground",
 					)}
 				/>
@@ -310,7 +313,8 @@ export function CommitInput({
 }: {
 	/** "" = unset (the factory default). Mirrors the STORED record —
 	 *  after a clamped/normalized commit this flows back and the field
-	 *  snaps to the stored truth (a typed "-5" shows the stored 12). */
+	 *  snaps to the stored truth (owner repro: a negative size kept
+	 *  displaying "-5" while 12 was stored). */
 	value: string;
 	placeholder?: string;
 	/** Refusal: a message (shown under the field until the next commit)
@@ -324,11 +328,9 @@ export function CommitInput({
 	max?: number;
 	step?: number;
 }) {
-	// The native editing buffer is the draft (uncontrolled): number inputs
-	// can display an incomplete token while exposing value="" — writing a
-	// controlled value back would erase text we cannot reconstruct. A
-	// commit (blur/Enter) shows the record's value again; Enter and Esc
-	// keep focus in the field.
+	// Keep the native editing buffer: number inputs can display an incomplete
+	// token while exposing value="" and badInput=true. Writing a controlled
+	// value back on blur/render would erase text we cannot reconstruct.
 	const [initialValue] = useState(value);
 	const [, renderAcknowledgement] = useState(0);
 	const [error, setError] = useState<string | null>(null);

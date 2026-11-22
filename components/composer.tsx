@@ -146,9 +146,7 @@ export function Composer({
 	/** The signal's dispatcher (send({type:"next"})) — the chip and the
 	 *  empty-Enter share it. */
 	onNext?: () => void;
-	/** Neutral plugin composers opt out of files: no paperclip, no drop or
-	 *  paste target, no path insertion. The chat composer's drops go
-	 *  through the global file drop, so it is not a default path target. */
+	/** Neutral plugin composers opt out without changing core defaults. */
 	defaultDropTarget?: boolean;
 	fileInsertion?: boolean;
 }) {

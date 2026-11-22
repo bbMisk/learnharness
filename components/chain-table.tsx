@@ -65,7 +65,7 @@ import { actionError } from "@/components/rename";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { TreeCell, TreeCheckbox, TreeDisclosure, TreeGuide, TreeHeader, TreeSelectionSpacer, TreeSeparator, treeBranchLayout, treeColumnLayout, treeRowLayout } from "./tree-presentation";
 
-/** The sortable columns. */
+/** The sortable columns (owner ruling: all three — consistency). */
 export type ChainSortCol = "name" | "props" | "created";
 export interface ChainSort {
 	col: ChainSortCol;
@@ -73,7 +73,7 @@ export interface ChainSort {
 	dir: 1 | -1;
 }
 
-/** A cluster's chains share the conclusion's birth. This
+/** A cluster's chains share the conclusion's birth (owner ruling). This
  *  record is assembled per render from the visible chains. */
 interface ClusterGroup {
 	key: string;
@@ -144,10 +144,10 @@ export function ChainTableBody({
 	 *  proposition checks all reduce to this. */
 	onToggleNodes: (ids: string[], next: boolean) => void;
 	onClear: () => void;
-	/** Opens the delete confirm dialog for the selected sources/folders. */
+	/** Opens the full-death confirm dialog (owner, 2026-09-29 night). */
 	onDelete: () => void;
 	onClose: () => void;
-	/** Practice select: the floating bar's confirm becomes
+	/** PRACTICE SELECT (2026-10-04): the floating bar's confirm becomes
 	 *  "Practice these" — no delete fence; the caller owns what the
 	 *  selection becomes. */
 	selectMode?: boolean;
@@ -218,8 +218,8 @@ export function ChainTableBody({
 			.map(({ chain }) => chain);
 	}, [sourceChains, byId, query, searching, matchesSource]);
 
-	// Group the visible chains by their CONCLUSION's birth.
-	// Unlabeled births (provenance gone / never named) form one
+	// Group the visible chains by their CONCLUSION's birth (owner ruling).
+	// Unlabeled births (provenance gone / never named) form one honest
 	// muted group, sorted last under name-sort.
 	const groups = useMemo(() => {
 		// Session kinds must arrive before provenance-only source rows can render.
@@ -254,7 +254,8 @@ export function ChainTableBody({
 		// Existing graph groups retain their newest-member date. Inventory-only
 		// rows fall back to record dates; a re-import must not redraft old dates.
 		for (const group of list) if (!group.newestCreatedAt && group.birth) group.newestCreatedAt = sourceRecords.get(group.birth)?.createdAt ?? "";
-		// Sort: the active column orders BOTH cluster rows and chains within; name
+		// Sort law (owner ruling: all three columns sortable — consistency):
+		// the active column orders BOTH cluster rows and chains within; name
 		// is the universal tiebreak (asc). Unlabeled clusters sort last under
 		// name-sort (￿ sentinel).
 		const nameKey = (g: ClusterGroup) => g.label ?? "\uffff";
@@ -339,13 +340,15 @@ export function ChainTableBody({
 				</button>
 			</TopBar>
 
-			{/* The list: NO per-row lines — the ONLY horizontal separators sit
-			    between cluster groups; the ALIGNMENT STAIRCASE carries the
-			    hierarchy (two-column steps — chains pl-12 aligned with the folder
-			    icon, statements pl-21 where a chain icon would sit). */}
+			{/* The list: NO per-row lines (owner ruling) — the ONLY horizontal
+			    separators sit between cluster groups; the ALIGNMENT STAIRCASE
+			    carries the hierarchy (owner round 4, "double the indentation":
+			    two-column steps — chains pl-12 aligned with the folder icon,
+			    statements pl-21 where a chain icon would sit).
+			    All three columns sort, small chevron on active. */}
 			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-				{/* The TOP rule: the table is framed — a line under the header,
-			    a line under the last group, lines between groups. */}
+				{/* The TOP rule (owner round 5: the table is framed — a line under
+			    the header, a line under the last group, lines between groups). */}
 				<TreeHeader sticky>
 					<button
 						type="button"
@@ -401,19 +404,18 @@ export function ChainTableBody({
 						<div
 							key={group.key}
 							data-testid={`cluster-group-${group.key}`}
-							// The horizontal rules: between cluster groups AND under the
-							// last one — the table is framed top (header) and bottom.
-							// Never on individual rows.
+							// The horizontal rules (owner rulings, rounds 2 + 5): between
+							// cluster groups AND under the last one — the table is framed
+							// top (header) and bottom. Never on individual rows.
 							{...treeBranchLayout({ depth, className: "border-b border-transparent", style: { marginLeft: depth * 36 } })}
 						>
-							{/* The TREE THREAD: a vertical guide at the
+							{/* The TREE THREAD (owner rounds 5–6): a vertical guide at the
 							    expander arrow's column (center 37px: pl-3 + checkbox 14 +
 							    gap 4 + half the 14px expander), BRACKETED by checkbox
 							    bottom edges — it starts at the cluster row's own checkbox
 							    bottom (top-[23px], leaving the arrow's stroke a visible
-							    gap) and terminates exactly at the LAST checkbox bottom
-							    (bottom-[8px] = 9px from the border box minus the 1px group
-							    rule). */}
+							    gap, live-measured) and terminates exactly at the LAST
+							    checkbox bottom (bottom-[8px] = 9px from the border box minus the 1px group rule, measured). */}
 							{open && group.chains.length > 0 && (
 								<TreeGuide selectionColumn depth={0} data-testid={`cluster-thread-${group.key}`} />
 							)}
@@ -444,9 +446,9 @@ export function ChainTableBody({
 								</TreeCell>
 							</SourceDragRow>
 
-							{/* The chain rows — clearly indented under the folder;
-							    visible only when the cluster is open (searching
-							    auto-expands). */}
+							{/* The chain rows — clearly indented under the folder
+							    (owner ruling); visible only when the cluster is open
+							    (searching auto-expands). */}
 							{open &&
 								group.chains.map((chain) => {
 									const memberIds = [...chain.premises, chain.conclusion];
@@ -454,10 +456,11 @@ export function ChainTableBody({
 									const selectedInChain = memberIds.filter((id) => selection.has(id)).length;
 									return (
 										<div key={chain.id} data-testid={`chain-block-${chain.id}`} {...treeBranchLayout()}>
-												{/* The chain's own thread: the same bracket rule one
-												    level down — at the chain arrow's column (center 73px),
-												    from the chain row's checkbox bottom (top-[22px]) to the
-												    LAST statement row's checkbox bottom (bottom-[8px]). */}
+												{/* The chain's own thread (owner rounds 5–6): the same
+												    bracket law one level down — at the chain arrow's column
+												    (center 73px), from the chain row's checkbox bottom
+												    (top-[22px]) to the LAST statement row's checkbox bottom
+												    (bottom-[8px]) — live-measured anchors. */}
 												{chainOpen && memberIds.length > 0 && (
 													<TreeGuide selectionColumn depth={1} variant="compact" data-testid={`chain-thread-${chain.id}`} />
 												)}
@@ -476,10 +479,15 @@ export function ChainTableBody({
 												/> : <TreeSelectionSpacer />}
 												<Expander open={chainOpen} onClick={() => onToggleChain(chain.id)} testid={`chain-toggle-${chain.id}`} label={`Expand chain ${nameOf(chain.conclusion)}`} />
 												{/* The chain line: proposition names as faint-outlined
-												    chips joined by KaTeX ∧ / ⟹ (see the module doc). A
-												    lonely chip reads as a standalone proposition (no
-												    glyphs); the row's aria-label keeps the plain-text
-												    form. */}
+												    chips. THE LOGIC IS THE PAYLOAD (owner rulings,
+												    2026-09-30): premises join with the LaTeX LAND (∧),
+												    the conclusion separates by the LaTeX IMPLICATION
+												    (⟹) — `A ∧ B ⟹ C`, never the misleading `A → B →
+												    C` — the glyphs render through KaTeX (the app's
+												    math engine), PROMINENT in the theme foreground
+												    (white), not the old dim gray. A lonely chip reads
+												    as a standalone proposition (no glyphs at all);
+												    the row's aria-label keeps the plain-text form. */}
 												<span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-0.5 gap-y-1 text-[13px] leading-tight">
 													{memberIds.map((id, i) => {
 														const isConclusion = i === memberIds.length - 1;
@@ -516,9 +524,9 @@ export function ChainTableBody({
 												</TreeCell>
 											</div>
 
-											{/* The propositions — their STATEMENT text directly (names
-											    live in the line; a singleton reveals its one statement
-											    in one click). PLAIN rows: the derivation
+											{/* The propositions — their STATEMENT text directly (owner
+											    ruling: names live in the line; a singleton reveals its
+											    one statement in one click). PLAIN rows: the derivation
 											    is already encoded in the chain line — no conclusion
 											    marker down here. Deepest indent. */}
 											{chainOpen &&
@@ -559,8 +567,9 @@ export function ChainTableBody({
 				}} />
 			</div>
 
-			{/* The floating selection bar (never shifts layout). Appears only
-			    when something is selected; floats over the table's bottom edge. */}
+			{/* The floating selection bar (owner ruling: never shifts layout —
+			    the Google-Photos pattern). Appears only when something is
+			    selected; floats over the table's bottom edge. */}
 			{(selectMode ? selection.size > 0 : selectedSources.size > 0 || fullySelectedFolders.size > 0) && (
 				<div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center pb-4">
 					<div
@@ -591,9 +600,10 @@ export function ChainTableBody({
 							</button>
 						) : (
 							<>
-							{/* The danger fence: a divider quarantines the
-								    destructive action at the bar's right end. The
-								    delete confirm dialog catches the misclick. */}
+							{/* The danger fence (owner ruling): a divider quarantines
+								    the destructive action at the bar's right end — the
+								    safe actions and the kill switch never blend. The
+								    full-death confirm dialog catches the misclick. */}
 							<span data-testid="chain-danger-divider" aria-hidden="true" className="h-4 w-px bg-border/70" />
 							<button
 								type="button"
@@ -615,7 +625,7 @@ export function ChainTableBody({
 }
 
 /** The rotating chevron — collapsed points right, expanded rotates down
- *  (the affordance must read on every expandable row). */
+ *  (owner ruling: the affordance must read on every expandable row). */
 function Expander({ open, onClick, testid, label }: { open: boolean; onClick: () => void; testid: string; label: string }) {
 	return <TreeDisclosure open={open} onClick={onClick} data-testid={testid} aria-label={label} />;
 }
@@ -654,8 +664,8 @@ export function ChainTableOverlay({
 	sessions,
 	fileSources,
 	onClose,
-	/** Practice select: the selection is PERSISTENT and caller-owned —
-	 *  when these props are present the
+	/** PRACTICE SELECT (owner vision, 2026-10-04): the selection is
+	 *  PERSISTENT and caller-owned — when these props are present the
 	 *  table is CONTROLLED (every check/clear/delete-prune reports up
 	 *  immediately; the composer-side chip reflects it live). selectMode
 	 *  only changes the floating bar: Done instead of the delete fence

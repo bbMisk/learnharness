@@ -27,13 +27,11 @@ export interface GraphEdge {
 	to: string;
 }
 
-/** One stored REASONING CHAIN — an argument: premises that JOINTLY entail the
- *  conclusion. Independent arguments for the same conclusion are separate
- *  chains (they may share `conclusion`); co-premises within one chain are used
- *  TOGETHER. The snapshot derives an implication NODE per chain (id = the chain
- *  id — the arg_ namespace is its own, collision-free with n_) plus untyped
- *  edges premises → imp → conclusion. A chain referencing a dead node dies with
- *  it (full death cascades through every referencing chain). */
+/** Stored argument whose premises jointly entail its conclusion. Independent
+ * arguments remain separate chains even when their conclusion is shared.
+ * Multi-premise chains produce a derived implication node with the chain's
+ * arg_ ID; single-premise chains render as direct arrows. Removing a
+ * proposition cascades to chains referencing it. */
 export interface GraphChain {
 	/** "arg_" + nanoid-like (store-assigned, the node-minting pattern). */
 	id: string;
@@ -48,31 +46,27 @@ export interface GraphChain {
 	createdAt: string;
 }
 
-/** What one extraction run merged into the graph ledgers — the merger's
- *  output, also persisted in extraction-run usage records (contracts/chat).
- *  `chains` is OPTIONAL IN OLD RECORDS ONLY: older usage history carries
- *  `edges` instead — tolerated at read, never written. */
+/** Counts merged into graph ledgers by one extraction run, also saved with
+ * extraction usage. Older usage records may omit chains and carry edge counts
+ * instead; current merges write chain counts. */
 export interface EmissionStats {
 	/** New graph nodes appended. */
 	nodes: number;
 	/** New reasoning chains appended. */
 	chains?: number;
-	/** Chains the simplification pass removed in this merge
-	 *  (ancestry-cover / prefer-fewest-premises).
-	 *  Maintenance, not extraction: appends are counted in `chains`
-	 *  regardless. Undefined when nothing dropped (pre-simplification
-	 *  records read as zero). */
+	/** Chains removed by simplification during this merge, separate from new
+	 * appends counted in chains. Omitted when none are removed; records without
+	 * this field contribute zero removals. */
 	droppedChains?: number;
 }
 
-/** One provenance point — message-granular: nodes and chains record every
- *  (chat, message) where they came up, deep-linkable to the exact
- *  transcript point. messageId is "" for a chat-level point (chains, notes
- *  imports). */
+/** Source location for a proposition or reasoning-chain assertion. A message
+ * ID anchors to a native transcript passage; chat-level and imported-file
+ * provenance can omit that anchor by using an empty messageId. */
 export interface ProvenancePoint {
 	/** The chat this point anchors to — or a notes source id ("src_…"):
 	 *  imports carry no message anchors (provenance is the file itself,
-	 *  recorded through the source record). */
+	 *  recorded through the mapping line + the source record). */
 	chatId: string;
 	messageId: string;
 }
@@ -128,12 +122,11 @@ export interface GraphNode {
 	provenance: ProvenancePoint[];
 }
 
-/** sessions.jsonl line — the whole-source extraction checkpoint, written
- *  by merges that carry no coverage (notes imports: chatId is the "src_"
- *  id). Chat extractions write CoverageEntry lines instead. */
+/** sessions.jsonl line — the emission checkpoint for one chat (which chats
+ *  have been folded, and through which updatedAt — never fold twice). */
 export interface SessionCheckpoint {
 	chatId: string;
-	/** ISO stamp of the merge (a notes import's importedAt). */
+	/** The chat record's `updatedAt` at the time of the fold. */
 	foldedAt: string;
 }
 
@@ -157,10 +150,9 @@ export interface CoverageEntry {
 
 /**
  * Store format (src/store/graph.ts): JSONL ledgers at config.LEDGER_FILES
- * (nodes/chains/sessions/coverage), appended by merges (the simplification
- * pass and deletions rewrite them). Edges are NEVER stored — the derived
- * view (implication nodes + untyped arrows) is rebuilt from chains on
- * every read.
+ * (nodes/chains/sessions), all append-only. Edges are NEVER stored — the
+ * derived view (implication nodes + untyped arrows) is rebuilt from chains
+ * on every read (chains-primary, owner 2026-09-30).
  *
  *   nodes.jsonl    one line per node — the FIRST line for an id defines
  *                  name/statement/createdAt; later lines for the
@@ -173,27 +165,31 @@ export interface CoverageEntry {
  *                  first line's arg_ id is the chain's identity.
  *
  * The derived graph is rebuilt by reading the ledgers — store events,
- * derive state. coverage.jsonl (per message) and sessions.jsonl (per notes
- * source) record what the pipeline has extracted (never extract the same
- * turns twice).
+ * derive state. sessions.jsonl is the extraction checkpoint: which chats
+ * the extraction pipeline has processed, and through which updatedAt
+ * (never extract the same turns twice).
  *
  * The EXTRACTION PIPELINE is the sole graph writer (extractor → auditor →
- * merger), tree-blind and post-hoc: the extractor is the ONLY stage that
- * sees the raw source (the session's teacher prose, or raw notes) and
- * extracts the reasoning chains — propositions (lonely relevant ones
- * included) plus chains; the auditor NEVER sees the source — its job is
- * identity verdicts (link-or-create, merging equivalent forms of the same
- * proposition) from ranked candidates plus graph-exploration tools, and it
- * never mints edges or chains; the merger (core/graph.ts, deterministic)
- * applies the verdicts and appends. The pipeline is the only
- * session→graph bridge, and it carries propositions + chains, nothing else.
+ * merger), tree-blind and post-hoc (2026-09-27 cleanup — clear separation
+ * of work): the extractor is the ONLY stage that sees the raw source
+ * (whole session as readable markdown, or raw notes) and extracts the
+ * reasoning chains — propositions (lonely relevant ones included) plus
+ * follows/supports edges; the auditor NEVER sees
+ * the source — its job is preparing the merge: identity verdicts
+ * (link-or-create, merging equivalent forms of the same proposition) via
+ * graph-exploration tools (find / list_sessions / list_propositions), and
+ * it may draw BRIDGING edges from existing graph nodes to the new
+ * propositions; the merger (core/graph.ts, deterministic) applies the
+ * verdicts and appends. Quiz events and understanding observations are
+ * GONE — the pipeline is the only session→graph bridge, and it carries
+ * propositions + edges, nothing else.
  */
 
 // ─── Extraction findings (extractor output → audit → merger input) ───────────
 
 /** One proposed proposition — a node candidate (or a re-encounter of one). */
 export interface ExtractedProposition {
-	/** Extractor-local id ("p1", …) referenced by chains. */
+	/** Extractor-local id ("p1", …) referenced by edges. */
 	id: string;
 	/** A very short label — a few words, a compact handle like a glossary
 	 *  headword. Not a sentence, needn't be unique or self-contained: the
@@ -203,26 +199,31 @@ export interface ExtractedProposition {
 	/** The minimal proposition — a true, self-contained, world-facing
 	 *  statement, at full precision. No learner / teacher / session
 	 *  references: misconceptions are stated as the true correction, and
-	 *  wrongness is never recorded in the graph. */
+	 *  wrongness is never recorded in the graph (2026-09-27: the event
+	 *  ledger is gone). */
 	statement: string;
 	/** Verbatim phrasings the session used. */
 	aliases: string[];
-	/** OPTIONAL, SESSION PATH ONLY: the message id of the ONE teacher passage
-	 *  this proposition came from — the extractor copies it from the view's
-	 *  "TEACHER [id]" label (core/coverage.ts messageViewLines) and the submit
-	 *  seam validates it against the CURRENT batch. The merger stamps it into
-	 *  the node's provenance point {chatId, messageId} (new nodes AND
-	 *  link-appends); chains stay chat-level. Notes imports and legacy/core
-	 *  callers have none: undefined → messageId "" (chat-level), so NO
-	 *  persisted shape or format version changes (GraphNode / ProvenancePoint
-	 *  untouched). */
+	/* Submit-schema slim (owner, 2026-09-28): `messages` and `evidence`
+	 * are GONE. The verbatim-quote fields were never persisted and weak
+	 * models burned their retries on them ("propositions.0: must be
+	 * object" — the stringified-payload collapse). The extractor reports
+	 * propositions + structure, nothing else. */
+	/** OPTIONAL, SESSION PATH ONLY (owner, 2026-10-13): the message id of
+	 *  the ONE teacher passage this proposition came from — the extractor
+	 *  copies it from the view's "TEACHER [id]" label (core/coverage.ts
+	 *  messageViewLines) and the submit seam validates it against the
+	 *  CURRENT batch. The merger stamps it into the node's provenance
+	 *  point {chatId, messageId} (new nodes AND link-appends); chains
+	 *  stay chat-level. Notes imports and legacy/core callers have none:
+	 *  undefined → messageId "" (chat-level), so NO persisted shape or
+	 *  format version changes (GraphNode / ProvenancePoint untouched). */
 	messageId?: string;
 }
 
-/** One proposed argument. Endpoints are extractor-local proposition ids
- *  ("p1", …) or existing node ids from the source digest — the extractor is
- *  the ONLY stage that ever proposes chains; the merger resolves them to
- *  node ids. */
+/** One proposed argument (extractor redesign, 2026-09-30). Endpoints are
+ *  extractor-local proposition ids ("p1", …) — the extractor is the ONLY
+ *  stage that ever proposes chains; the merger resolves them to node ids. */
 export interface ExtractedChain {
 	/** Proposition ids that JOINTLY entail the conclusion. */
 	premises: string[];
@@ -236,42 +237,44 @@ export interface SessionFindings {
 	chains: ExtractedChain[];
 }
 
-/** One identity verdict: the extractor's local proposition id → the EXISTING
- *  graph node that proposition IS. On link, the session's phrasings (statement,
- *  aliases) join the node's aliases and the provenance unions. EQUIVALENCE
- *  BIAS: paraphrases, rewordings, and compressions of the same claim MERGE — do
- *  not create a duplicate because the wording differs. Only genuinely distinct
+/** One identity verdict: the extractor's local proposition id → the
+ *  EXISTING graph node that proposition IS. On link, the session's
+ *  phrasings (statement, aliases) join the node's aliases and the
+ *  provenance unions. EQUIVALENCE BIAS (2026-09-27): paraphrases,
+ *  rewordings, and compressions of the same claim MERGE — do not create
+ *  a duplicate because the wording differs. Only genuinely distinct
  *  propositions stay apart. */
 export interface IdentityLink {
 	id: string;
 	linkTo: string;
 }
 
-/** The auditor's output — VERDICTS ONLY: the auditor never alters the
- *  extractor's findings, so it does not restate them; the deterministic
- *  merger joins findings + verdicts. `links` = the identity verdicts (local
- *  id ⇄ existing node) — the auditor's ENTIRE deliverable (it never mints
- *  edges; the graph connects across sources solely through identified
- *  equivalences). No drop channel — the auditor never rejects; the
- *  extractor is fully trusted. */
+/** The auditor's output — VERDICTS ONLY (owner, 2026-09-28): the auditor
+ *  never alters the extractor's findings, so it does not restate them;
+ *  the deterministic merger joins findings + verdicts. `links` = the
+ *  identity verdicts (local id ⇄ existing node) — the auditor's ENTIRE
+ *  deliverable (owner, 2026-09-28 evening: the edges argument is GONE —
+ *  the auditor never mints edges; the graph connects across sources
+ *  solely through identified equivalences). No drop channel — the
+ *  auditor never rejects; the extractor is fully trusted (2026-09-27). */
 export interface AuditVerdicts {
 	links: IdentityLink[];
 }
 
-/** One rendered cluster in the snapshot payload (vision §1). Members are
- * node ids; the renderer draws the hull from member positions at draw
- * time and gates the label inversely on the node-label zoom control. */
+/** Rendered cluster in a graph snapshot. Members are proposition node IDs;
+ * hull geometry is derived from their positions at render time. */
 export interface Cluster {
-	/** The birth session's id — a chatId or a notes source id ("src_…"). */
+	/** The labeling record id when claimed; unlabeled clusters still
+	 * appear (hull, no name) with a member-hash id. */
 	id: string;
-	/** The session's name (chat title / file label); null when its record
-	 * is gone — the hull still renders, unlabeled. */
+	/** null until the naming call has minted/claimed a labeling. */
 	label: string | null;
 	/** Node ids, sorted. Hull + centroid are renderer concerns. */
 	members: string[];
 }
 
-/** The GET /api/graph payload — everything the home view's PURE renderer needs. */
+/** Graph projection containing stored propositions/chains and derived rendering,
+ * layout and provenance data. Derived arrows/junctions are not stored arguments. */
 export interface GraphSnapshot {
 	/** Canvas nodes: propositions plus derived implication nodes for multi-premise
 	 * chains. Each implication node uses its chain's ID. */
@@ -284,15 +287,11 @@ export interface GraphSnapshot {
 	 * chains, or premise → implication node → conclusion for multi-premise chains.
 	 * Rebuilt from chains, not stored separately. */
 	edges: GraphEdge[];
-	/** DERIVED LOGICAL arrows: every chain contracted to direct premise→
-	 *  conclusion over PROPOSITION ids only (the imp hop collapsed). The
-	 *  depth pass consumes these — inference depth is a property of
-	 *  propositions, never of the geometry point. */
+	/** Derived direct premise → conclusion arrows over proposition IDs only.
+	 * Depth calculations use these rather than implication-node geometry. */
 	logicalEdges: GraphEdge[];
-	/** DERIVED imp linkage (one per MULTI-premise live chain): the depth pass
-	 *  anchors each junction at the average of the highest premise row and the
-	 *  conclusion's row — strictly above the premises, strictly below the
-	 *  conclusion. */
+	/** Derived junction linkage for each live multi-premise chain. Layout uses
+	 * premise/conclusion rows to position its implication node between them. */
 	impLinks: Array<{ id: string; premises: string[]; conclusion: string }>;
 	/** The STORED reasoning chains (merged by (premises, conclusion) at
 	 *  read): the chain table's and the practice pipeline's input — they
@@ -314,7 +313,7 @@ export interface GraphSnapshot {
 	 * depends on layout. */
 	clusters: Cluster[];
 	/** Resting layout positions per node id, when a positions ledger
-	 *  exists (core/layout-settle.ts writes it). Absent on a fresh graph —
+	 *  exists (core/layout.ts settle writes it). Absent on a fresh graph —
 	 *  the view then falls back to its own one-shot forceAtlas2 pass. */
 	positions?: Record<string, Position>;
 }
@@ -325,9 +324,10 @@ export interface Position {
 	y: number;
 }
 
-/** The auto-title's character cap: long enough to stay informative in the
- *  sidebar and the top bar, short enough that a first message never reads as a
- *  paragraph. Tunable — one number, one place. */
+/** The auto-title's character cap (owner, 2026-10-06): long enough to
+ *  stay informative in the sidebar and the top bar, short enough that a
+ *  first message never reads as a paragraph. Tunable — one number, one
+ *  place. */
 export const TITLE_MAX_CHARS = 72;
 
 /** Derive a short chat title from the learner's first message (pure). Smart

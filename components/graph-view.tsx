@@ -1,38 +1,42 @@
 "use client";
 
 /**
- * The home knowledge-graph view.
+ * The home knowledge-graph view (W4; vision §1 "Rendering (DECIDED)").
  *
  * Drawing is delegated to the single-canvas renderer (./graph-canvas.ts):
  * plain data in, one camera, rendering scheduled on demand (at most one
  * draw per frame, no frame at all while idle). The camera lives in the
  * renderer, so data refetches and settings changes never move it.
  *
- * Layout fallback (positions ledger absent): ONE synchronous
- * incrementalLayout pass (d3-force, core/layout.ts) inside a useEffect
- * writes world-space x/y, then the positions are handed to the renderer
- * as data. No layout animation starts on load.
+ * Layout fallback (ledger absent): ONE synchronous incrementalLayout
+ * pass (d3-force, core/layout.ts) inside a useEffect writes world-space
+ * x/y, then the positions are handed to the renderer as data. No layout
+ * animation ever starts; the only animation is the
+ * short hover fade, strictly bounded in time — idle CPU is zero (the
+ * loop schedules no rAF until something actually changes).
  *
  * The component's job is everything AROUND drawing: fetch + refetch the
  * snapshot, run the layout, resolve theme colors to hex, filter via the
  * search box, own the settings panel / detail card / import button /
  * pipeline chips, and FEED the renderer (data, settings, visibility).
- * The renderer stays presentation-only: it draws whatever data it is
- * given.
+ * The renderer's contract stays presentation-only — which is exactly
+ * what the upcoming playground and cluster-first layout work needs: a
+ * renderer that draws whatever data it is given, never questioning it.
  *
- * Visual semantics:
+ * Visual semantics, all preserved verbatim from the sigma era:
  *   - Node labels (the short extractor-coined names) wrap under the
  *     node; one GLOBAL zoom gate fades them together (no per-node pop).
- *   - Hover: a soft glow halo in the node's own color, opacity
- *     cross-faded with the name brightening on the same factor; the
- *     whole halo is hit-testable (picking pad).
- *   - Cluster regions: blurred translucent tints per cluster, stable hue
- *     from the cluster id; the region label at the centroid fades in over
- *     the exact zoom span node labels fade out. Region paint and cluster
- *     labels are independently toggleable in the settings panel.
- *   - labelZoom uses the camera-ratio convention (1 = fit zoom, SMALLER =
- *     zoomed in): labels until zoom 0.5x means labels appear once zoomed
- *     in past 2x fit.
+ *   - Hover: a soft glow halo in the node's own color at a constant
+ *     radius, opacity cross-faded ~180ms with the name brightening on
+ *     the same factor; the whole halo is hit-testable (picking pad).
+ *   - Cluster hulls (vision §1): soft layered translucent fills + a
+ *     dashed boundary per cluster, stable hue from the cluster id; the
+ *     region label at the centroid fades in over the exact zoom span
+ *     node labels fade out (THE single zoom control) — and is
+ *     toggleable in the settings panel (hulls always draw).
+ *   - The persisted labelZoom setting keeps sigma's camera-ratio
+ *     convention (1 = fit zoom, SMALLER = zoomed in): labels until
+ *     zoom 0.5x means labels appear once zoomed in past 2x fit.
  *   - Click a node -> the detail card anchored just below it (flipping
  *     above near the bottom edge); any camera move dismisses it.
  *     Clicking the empty stage closes it. Search filtering hides nodes
@@ -109,8 +113,7 @@ import {
 const NODE_COLOR_TOKEN = "--primary";
 
 /** Per-device graph camera persistence (zoom+pan view state). v1 in the
- *  key: the stored shape is the renderer's d3 transform {k, x, y}, plus
- *  the canvas size {w, h} it was saved at (optional: older entries lack it). */
+ *  key: the stored shape is the renderer's d3 transform {k, x, y}. */
 const CAMERA_STORAGE_KEY = "lh.graph.camera.v1";
 
 /** The stored camera ({k, x, y} plus the canvas size it was saved at),
@@ -177,9 +180,10 @@ export function renameSessionsPatch(snapshot: Pick<GraphSnapshot, "sessions">, i
 	snapshot.sessions[id] = title;
 }
 
-/** Seed positions for nodes the ledger doesn't know yet, so they don't
- *  pile up at the origin. Place them on a deterministic ring around the
- *  known positions' centroid — angle hashed from the id (FNV-1a), golden-angle
+/** Seed positions for nodes the ledger doesn't know yet (hygiene,
+ *  2026-09-23 fix wave): they used to fall through to a ?? 0 and dump
+ *  at the origin. Place them on a deterministic ring around the known
+ *  positions' centroid — angle hashed from the id (FNV-1a), golden-angle
  *  spiral offset so even hash collisions spread. Stable across
  *  remounts, far enough off the mass to see, and they relax with the
  *  pack on the next drag. In-place on the provided map; pure otherwise. */
@@ -253,6 +257,7 @@ interface Selection {
 	anchor: { x: number; y: number };
 }
 
+/** One labeled range row for the rendering-settings panel. */
 /** Compact size display for the log sliders: "2", "1.6", "0.75". */
 function sizeDisplay(v: number): string {
 	return `${v >= 1 ? Math.round(v * 10) / 10 : Math.round(v * 100) / 100}`;
@@ -271,8 +276,8 @@ function GraphSettingsControl({
 	changeSettings: (update: (cur: RenderSettings) => RenderSettings) => void;
 }) {
 	const [open, setOpen] = useState(false);
-	// Click anywhere outside (or Escape) closes the panel — the root wraps
-	// button + panel, so the toggle itself keeps working.
+	// Click anywhere outside (or Escape) closes the panel (2026-09-17) —
+	// the root wraps button + panel, so the toggle itself keeps working.
 	const rootRef = useRef<HTMLDivElement>(null);
 	const panelRef = useRef<HTMLDivElement>(null);
 	const popupLayer = usePopoverDismiss(rootRef, open, () => setOpen(false), { layerRootRef: panelRef });
@@ -281,7 +286,7 @@ function GraphSettingsControl({
 	return (
 		<div ref={rootRef} className="relative">
 			<Hint
-				// User language — "rendering" is internal.
+				// User language (tooltip wave) — "rendering" is internal.
 				label="Graph display settings"
 				side="bottom"
 			>
@@ -298,12 +303,17 @@ function GraphSettingsControl({
 			</button>
 			</Hint>
 			{open && (
-				// Viewport-capped + internally scrollable (the coverage
-				// dropdown's pattern): max-h keeps free space above the window
-				// bottom, and the overflow-y-auto column (which also zeroes the
-				// flex item's min-height) scrolls instead of stretching the
-				// page. Spacing is concentric: content -> 10px (pr-2.5) ->
-				// scrollbar -> 10px (p-2.5) -> panel edge.
+				// Viewport-capped + internally scrollable — the coverage
+				// dropdown's exact pattern (owner, 2026-09-17): max-h keeps a
+				// floor of free space above the window bottom at any height,
+				// and the overflow-y-auto column (which also zeroes the flex
+				// item's min-height) scrolls instead of stretching the page.
+				// w-72 + inner pr (owner, 2026-09-20): the scrollbar used to
+				// press against the content — the panel widens so the scroll
+				// gutter gets real air. Spacing concentric: content -> 10px
+				// (pr-2.5) -> scrollbar -> 10px (p-2.5) -> panel edge. The
+				// scrollbar itself does NOT move: it stays pinned at the same
+				// distance from the panel's right border.
 				<div ref={panelRef} style={{ zIndex: INTERACTION_LAYER_Z_BASE + popupLayer.order }} className="absolute right-0 top-full mt-2 flex max-h-[60vh] w-72 flex-col rounded-xl border bg-card/85 p-2.5 shadow-lg backdrop-blur">
 					<div className="flex flex-col gap-2 overflow-y-auto pr-2.5">
 							{/* Size/zoom/region sliders: LADDER-mapped 0-100, step 10 (11
@@ -350,7 +360,7 @@ function GraphSettingsControl({
 								onChange={(p) =>
 									changeSettings((cur) => ({ ...cur, labelSize: fromLadderPosition(p, LABEL_SIZE_LADDER) }))}
 							/>
-							{/* Display is absolute (ratio / 0.5): "1×" is the default, dead-center. */}
+							{/* Display is absolute (ratio / 0.5): "1×" is the default, dead-center (owner, 2026-10-07). */}
 							<SettingSlider
 								label="Labels until zoom"
 								min={0}
@@ -362,9 +372,12 @@ function GraphSettingsControl({
 									changeSettings((cur) => ({ ...cur, labelZoom: fromLadderPosition(p, LABEL_ZOOM_LADDER) }))}
 							/>
 							{/* Regions: the blurred cluster tints. Sliders + a fixed-set
-						    dropdown for the bitmap resolution. The enable switch is
-						    a COMPUTE switch: off skips the whole build, not just the
-						    paint. */}
+						    dropdown for the bitmap resolution (it's a discrete
+						    choice, not a free number). Server-persisted like the
+						    sizes; every range end was sweep-validated on the real
+						    graph. The enable switch is a COMPUTE switch: off skips
+						    the whole build (splat/blur/readback/blit), not just
+						    the paint. */}
 						<div className="mt-1.5 flex flex-col gap-1.5 border-t pt-1.5">
 							<span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
 								Regions
@@ -447,9 +460,11 @@ function GraphSettingsControl({
 									))}
 								</select>
 							</label>
-							{/* Cluster labels follow their own clusterLabels toggle,
-							    independent of the Background colors switch above. Size
-							    is screen px (constant at any zoom, unlike node labels). */}
+							{/* Cluster labels moved here 2026-09-16 (user: cluster
+							    stuff lives in the regions section). Decoupled from
+							    the Background colors switch above — labels follow
+							    their own clusterLabels toggle. Size is screen px
+							    (constant at any zoom, unlike node labels). */}
 							<label className="flex cursor-pointer items-center justify-between text-[11px] text-muted-foreground">
 								<span>Cluster labels</span>
 								<input
@@ -476,12 +491,14 @@ function GraphSettingsControl({
 						</div>
 						{/* Physics: the live sim's forces. Every value feeds the SAME
 						    engine the server settle runs (createGraphSimulation);
-						    changing one rebuilds the sim from the current positions
-						    and re-anneals; pins survive. Ranges live in
-						    src/core/render-settings.ts. Repulsion is displayed as
+						    changing one rebuilds the sim from the current positions —
+						    drag mid-settle re-anneals, pins survive. Sliders over
+						    sweep-validated ranges (src/core/render-settings.ts):
+						    range ends and all four corners settle cleanly — no NaN,
+						    no explosion, no non-settle. Repulsion is displayed as
 						    the negative it is; cluster pull's far left = off.
-						    General forces first; depth anchor + its dependent
-						    controls last. */}
+						    Order (user 2026-09-17): general forces first; depth
+						    anchor + its gray-out-able controls last. */}
 						<div className="mt-1.5 flex flex-col gap-1.5 border-t pt-1.5">
 							<span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
 								Physics
@@ -564,8 +581,10 @@ function GraphSettingsControl({
 										physics: { ...cur.physics, velocityDecay: fromSliderPosition(p, VELOCITY_DECAY_RANGE.min, VELOCITY_DECAY_RANGE.max) },
 									}))}
 							/>
-							{/* Depth anchor last: the mode + its conditional controls
-							    read as a self-contained sub-section. */}
+							{/* Depth anchor LAST (user 2026-09-17): general
+							    forces first, then the mode + its conditional
+							    controls at the very bottom — the grayed group reads
+							    as a self-contained sub-section. */}
 							<label className="flex items-center justify-between gap-2 text-xs">
 								Depth anchor
 								<select
@@ -707,8 +726,8 @@ export function GraphChromeRow({
 					)}
 				</div>
 			)}
-			{/* The chain table: own container (36px band), between the
-			    search and Import. */}
+			{/* The chain table (chains overlay, owner plan 2026-09-29). Own
+			    container (36px band), between the search and Import. */}
 			<div className="graph-chrome-fade-in shrink-0 rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
 					<Hint label="Every reasoning chain" side="bottom">
 						<button
@@ -742,8 +761,8 @@ export function GraphChromeRow({
 			)}
 			{!isEmpty && (
 				// Rendering settings — own component; the gear toggles it. The
-				// gear sits at the far right so its panel drops at the very
-				// right edge, over less of the graph. The fade wrapper
+				// gear sits at the far right (owner, round 3) so its panel drops
+				// at the very right edge, over less of the graph. The fade wrapper
 				// is a plain shrink-0 flex child — the panel itself positions
 				// within GraphSettingsControl's own relative root, unaffected.
 				<div className="graph-chrome-fade-in shrink-0">
@@ -840,17 +859,18 @@ export function GraphView({
 	const snapshotRef = useRef<GraphSnapshot | null>(null);
 	snapshotRef.current = snapshot;
 
-	// Search panel state: the query text.
+	// Search panel state: the query text + the settings section toggle.
 	const [query, setQuery] = useState("");
 	// Surface-scoped Find: the chains overlay owns it while open.
 	const searchInputRef = useRef<HTMLInputElement>(null);
 	// Render settings: SERVER-persisted (data/render-settings.json via
-	// /api/graph/render-settings) — sizes AND the region/physics sections.
-	// Loaded once after mount; every user change saves back, debounced.
-	// Defaults render until the load resolves.
+	// /api/graph/render-settings) — sizes AND the region/physics sections
+	// (user-facing since 2026-09-13; the dev-session era is over). Loaded
+	// once after mount; every user change saves back, debounced. Defaults
+	// render until the load resolves — a fraction of a second at worst.
 	const [settings, setSettings] = useState<GraphRenderSettings>(DEFAULT_RENDER_SETTINGS);
 	// The two nested sections, unpacked for the renderer feed effects
-	// below.
+	// below (same names the old session state had).
 	const regionTuning = settings.regions;
 	const physicsTuning = settings.physics;
 	const settingsRef = useRef(settings);
@@ -959,7 +979,7 @@ export function GraphView({
 		window.addEventListener("lh:kbd-find", onFind);
 		return () => window.removeEventListener("lh:kbd-find", onFind);
 	}, [chainsOpen, interactions]);
-	// Practice select: the parent's chip drives the select
+	// PRACTICE SELECT (2026-10-04): the parent's chip drives the select
 	// mode; closing (either the picker's confirm or its X) reports back so
 	// the chip's open state and the table's never disagree.
 	useEffect(() => {
@@ -981,11 +1001,11 @@ export function GraphView({
 	// Notes import (the format-agnostic front door): file picker → POST
 	// /api/graph/import; the runs surface in the status chips below, and the
 	// graph refetches when they finish (the runs-empty transition).
-	// The dock's start-site nudge: the import POST awaits the WHOLE
-	// pipeline server-side, so the run registers long before the response —
-	// nudge at click and again at +600ms to catch the start; from its first
-	// setPhase the run announces itself on the events channel, and the dock
-	// rides those announcements thereafter.
+	// The dock's start-site nudge (accuracy wave, 2026-09-19): the import
+	// POST awaits the WHOLE pipeline server-side, so the run registers long
+	// before the response — nudge at click and again at +600ms to catch the
+	// start; from its first setPhase the run announces itself on the events
+	// channel (S5), and the dock rides those announcements thereafter.
 	const refreshActivity = useActivity().refresh;
 	const notesImport = useNotesImport({
 		onStart: () => {
@@ -999,12 +1019,15 @@ export function GraphView({
 	// LEAVES the feed (finished / aborted / failed), refetch the graph.
 	// A run only leaves the registry after its merge + settle + usage
 	// persist complete, so disappearance ⇒ the graph change is already on
-	// disk. Each run's merge must surface immediately, not wait for the
-	// whole feed to drain. A redundant fetch on aborted runs is harmless.
+	// disk. The old some→none transition batched PARALLEL runs into one
+	// reveal (owner 2026-09-28): with serialized audits, the first run's
+	// merge is its own graph change and must surface immediately, not wait
+	// for the whole feed to drain. A redundant fetch on aborted runs is
+	// free — the same doctrine as the deletion-refresh path below.
 	// Tracked by ROW id (the registry JOB key — source id, or "src#i" for
-	// chunk jobs), NOT chatId: chatId-scoping would batch per-chunk jobs
-	// into one end-of-import reveal — a chunk's row leaving IS its merge
-	// landing.
+	// chunk jobs), NOT chatId: chatId-scoping re-batched per-chunk jobs
+	// into one end-of-import reveal (the exact bug this rule exists to
+	// prevent — a chunk's row leaving IS its merge landing).
 	const [pipelineRuns, setPipelineRuns] = useState<{ id: string; chatId: string; title: string; phase: string; startedAt: number }[]>([]);
 	const rowIdsRef = useRef<Set<string>>(new Set());
 	const readPipelineStatus = useCallback(() => {
@@ -1018,11 +1041,13 @@ export function GraphView({
 			})
 			.catch(() => {}); // status is cosmetic — never surface read errors
 	}, []);
-	// Push-driven: the extraction registry announces every phase
-	// transition and every finish (activity-changed), so each read lands
-	// when truth moved. setPhase + finishExtraction fire per part, so a
-	// chunk's row leaving is its own, immediately-visible merge landing.
-	// Debounced; resync heals a reconnect that ate events.
+	// PUSH (S7, 2026-10-02): the standing 2s poll is RETIRED — the
+	// extraction registry announces every phase transition and every
+	// finish (activity-changed), so each read lands exactly when truth
+	// moved. The per-chunk reveal semantics are PRESERVED event-for-event:
+	// setPhase + finishExtraction fire per part, so a chunk's row leaving
+	// is still its own, immediately-visible merge landing. Debounced (the
+	// S4 law); resync heals a reconnect that ate events.
 	const statusDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	useServerEvent("activity-changed", () => {
 		if (statusDebounceRef.current) clearTimeout(statusDebounceRef.current);
@@ -1054,9 +1079,9 @@ export function GraphView({
 	useEffect(() => {
 		refreshCosts();
 	}, [refreshCosts]);
-	// The same disappearance rule as the snapshot refresh: usage persists
-	// per JOB (per-chunk jobs), so costs refresh per job row — not only
-	// when the whole feed drains.
+	// The same disappearance rule as the snapshot refresh (owner
+	// 2026-09-28): usage persists per JOB (per-chunk jobs), so costs refresh
+	// per job row — not only when the whole feed drains.
 	const prevRunIds = useRef(new Set<string>());
 	useEffect(() => {
 		const gone = [...prevRunIds.current].some((id) => !pipelineRuns.some((r) => r.id === id));
@@ -1064,11 +1089,13 @@ export function GraphView({
 		prevRunIds.current = new Set(pipelineRuns.map((r) => r.id));
 	}, [pipelineRuns, refreshCosts]);
 
-	/* Deletion refresh: the DELETE /api/chats/:id response carries the new
-	   graphRevision, and the sidebar (which owns the delete flow) announces
-	   it as lh:graph-revision. The status feed above can't see a deletion —
-	   no pipeline run disappears for it — so this event is the one seam.
-	   Refetch the snapshot and the costs on every announcement. */
+	/* Deletion refresh (wave 6 chunk A): the DELETE /api/chats/:id response
+	   carries the new graphRevision, and the sidebar (which owns the delete
+	   flow) announces it as lh:graph-revision. The status poll above can't
+	   see a deletion — no pipeline run ever disappears from the feed for
+	   it — so this event is the one seam. Refetch the snapshot and the
+	   costs on every announcement: deletions are rare, a redundant fetch
+	   is free. */
 	useEffect(() => {
 		const onRevision = () => {
 			setRefreshTick((t) => t + 1);
@@ -1078,16 +1105,18 @@ export function GraphView({
 		return () => window.removeEventListener("lh:graph-revision", onRevision);
 	}, [refreshCosts]);
 
-	/* Live rename labels: a session rename anywhere (sidebar inline row,
-	   chat header) announces itself as lh:chat-renamed {id, title} — and
-	   the birth-session partition means that title IS the cluster label.
-	   The label update goes through the renderer's label-only channel
-	   (setClusterLabels): NO new snapshot object, NO setData — so the
+	/* Live rename labels (rename-shuffle fix, 2026-09-23): a session
+	   rename anywhere (sidebar inline row, chat header) announces itself
+	   as lh:chat-renamed {id, title} — and the birth-session partition
+	   means that title IS the cluster label. The label update goes
+	   through the renderer's label-only channel (setClusterLabels): NO
+	   new snapshot object, NO setData, NO geometry rebuild — so the
 	   position ledger can't assert itself and a pending drag commit
 	   survives. The sessions map (the detail card's provenance line)
-	   patches in place; a tick bump re-renders so an open detail card
-	   reads the fresh title. Unlabeled clusters stay unlabeled — the
-	   null-label guard lives in applyClusterLabels. */
+	   patches in place; a tick bump re-renders the view so an open
+	   detail card reads the fresh title. Unlabeled clusters keep their
+	   hull-only silence — the null-label guard lives in the channel
+	   (applyClusterLabels): a rename can't reach a gone record. */
 	const [, setLabelTick] = useState(0);
 	useEffect(() => {
 		const onRenamed = (e: Event) => {
@@ -1109,11 +1138,11 @@ export function GraphView({
 		return () => { window.removeEventListener("lh:chat-renamed", onRenamed); window.removeEventListener("lh:source-renamed", onSourceRenamed); };
 	}, []);
 
-	// The node context menu: right-click a node → Delete. The anchor is a
-	// zero-size div positioned at the pointer inside the canvas container —
-	// MenuShell's placement measures it like any element. Camera moves
-	// close the menu (it would float stale); the dismissal contract matches
-	// the sidebar's session menu.
+	// The node context menu (node interlude): right-click a node → Delete.
+	// The anchor is a zero-size div positioned at the pointer inside the
+	// canvas container — MenuShell's placement machine measures it like
+	// any element. Camera moves close the menu (it would float stale);
+	// the dismissal contract is the sidebar's (wave 6).
 	const [ctxNode, setCtxNode] = useState<{ id: string; name: string; x: number; y: number } | null>(null);
 	const ctxAnchorRef = useRef<HTMLDivElement | null>(null);
 	const [deletingNode, setDeletingNode] = useState<{ id: string; name: string } | null>(null);
@@ -1126,7 +1155,9 @@ export function GraphView({
 	// pipeline, e.g. tests or a fresh install).
 	useEffect(() => {
 		if (!snapshot || snapshot.nodes.length === 0) return;
-		// The ledger path: every positioned node uses its resting position.
+		// The ledger path: every positioned node uses its resting position;
+		// nodes the ledger doesn't know yet (raced mid-settle) fall through
+		// to seeded scatter below.
 		const ledger = snapshot.positions;
 		if (ledger) {
 			const positions = new Map<string, { x: number; y: number }>();
@@ -1135,8 +1166,9 @@ export function GraphView({
 				if (p) positions.set(node.id, { x: p.x, y: p.y });
 			}
 			if (positions.size > 0) {
-				// Nodes the ledger doesn't know yet (raced mid-settle) get
-				// seeded ring positions.
+				// Hygiene (2026-09-23 fix wave): nodes the ledger doesn't know
+				// yet (raced mid-settle) get seeded ring positions instead of
+				// the old ?? 0 origin dump.
 				posRef.current = seedMissingNodePositions(snapshot.nodes, positions);
 				return () => {
 					posRef.current = null;
@@ -1161,9 +1193,10 @@ export function GraphView({
 		if (isEmpty) return;
 		const canvas = canvasRef.current;
 		if (!canvas) return;
-		// Persisted camera: the graph reopens where the user left it — zoom
-		// AND pan, in localStorage (per-device view state, deliberately NOT
-		// the server settings). Absent or corrupt → the renderer fits.
+		// Persisted camera (2026-09-15): the graph reopens exactly where the
+		// user left it — zoom AND pan, in localStorage (per-device view
+		// state, deliberately NOT the server settings ledger). Absent or
+		// corrupt → undefined → the renderer fits on first open, ever.
 		let initialCamera: { k: number; x: number; y: number } | null = null;
 		try {
 			initialCamera = restoreCamera(localStorage.getItem(CAMERA_STORAGE_KEY), canvas.clientWidth, canvas.clientHeight);
@@ -1202,7 +1235,7 @@ export function GraphView({
 					});
 				},
 				onStageClick: () => setSelected(null),
-				// Right-click → the node context menu. Null
+				// Right-click → the node context menu (node interlude). Null
 				// (empty stage) closes a stale menu; a pick opens one anchored
 				// at the pointer. The name comes from the snapshot — what the
 				// canvas shows is what the menu and dialog speak.
@@ -1287,8 +1320,8 @@ export function GraphView({
 		});
 	}, [snapshot, isEmpty, resolvedMode, colors]);
 
-	// Feed #2 — settings: the renderer rebuilds cached geometry on its next
-	// frame. No re-layout, no camera touch.
+	// Feed #2 — settings: just marks the frame dirty. No rebuild, no
+	// re-layout, no camera touch (the whole point of the new renderer).
 	const deferredSettings = useDeferredValue(settings);
 	useEffect(() => {
 		rendererRef.current?.setSettings(deferredSettings);
@@ -1344,8 +1377,8 @@ export function GraphView({
 				</div>
 			) : (
 				<div ref={containerRef} className="relative h-full w-full">
-					{/* THE single canvas: every layer (regions, edges, nodes, both
-					    label systems, hover) draws into it, at most once per frame. */}
+					{/* THE single canvas: every layer (hulls, edges, nodes, both
+					    label systems, hover) draws into it, once per frame. */}
 					<canvas ref={canvasRef} className="block h-full w-full touch-none" />
 					{/* The context menu's anchor: a zero-size point at the
 					    right-click position (canvas-relative == container-relative,
@@ -1359,7 +1392,7 @@ export function GraphView({
 				</div>
 			)}
 
-			{/* The node context menu: Delete is its one action
+			{/* The node context menu (node interlude): Delete is its one action
 			    (the same MenuShell discipline as the sidebar's session menu —
 			    placement, focus, arrow cycling; the dismissal effect above owns
 			    the contract). */}
@@ -1385,7 +1418,7 @@ export function GraphView({
 				</MenuShell>
 			)}
 
-			{/* The full-death confirm dialog — portaled to
+			{/* The full-death confirm dialog (node interlude) — portaled to
 			    body by the component itself, lives here for state locality. */}
 			<DeleteNodeDialog
 				nodes={deletingNode ? [deletingNode] : null}
@@ -1396,11 +1429,13 @@ export function GraphView({
 					// should not show a card for a node the user just killed).
 					setDeletingNode(null);
 					if (selected && nodeIds.includes(selected.node.id)) setSelected(null);
-					// Every graph-revision listener refetches on this. Clusters
+					// The wave-6 chain: every listener refetches on this. Clusters
 					// shrink / unrender below the minimum on the server's read.
 					window.dispatchEvent(new CustomEvent("lh:graph-revision", { detail: { graphRevision } }));
 				}}
 			/>
+
+
 
 			<PluginGraphActions />
 
@@ -1449,11 +1484,12 @@ export function GraphView({
 
 			<NotesImportErrors errors={notesImport.errors} />
 			<NotesImportNotices notices={notesImport.notices} />
-			{/* Top-right tail: the pipeline cost number (hover-highlighted,
-			    dropdown breakdown), then the running-pipeline pills under it.
-			    Lives BELOW the actions row so narrow windows can never push it
-			    over the composer; the whole top-right cluster is one column,
-			    right-aligned. */}
+			{/* Top-right tail (owner, 2026-09-20): the pipeline cost number —
+			    just a number, hover-highlighted, dropdown breakdown — then
+			    the running-pipeline pills under it. Lives BELOW the actions
+			    row so narrow windows can never push it over the composer
+			    the way the old bottom-left stack did; the whole top-right
+			    cluster is one column, right-aligned. */}
 			{costs && costs.runs.length > 0 && <GraphCostControl costs={costs} />}
 			{pipelineRuns.map((run) => (
 				<div
@@ -1476,7 +1512,7 @@ export function GraphView({
 					style={{ visibility: "hidden", left: 0, top: 0 }}
 					// lh-no-drag: the card is placed anywhere on the canvas —
 					// when it lands in the top strip it must stay interactive
-					// over home.tsx's drag surface.
+					// over home.tsx's drag surface (2026-09-17).
 					className="lh-no-drag absolute z-10 w-80 max-w-[calc(100%-1rem)] rounded-xl border bg-card p-4 text-left shadow-lg"
 				>
 					<NodeCardText name={selected.node.name} statement={selected.node.statement} />
@@ -1515,14 +1551,19 @@ export function GraphView({
 					)}
 				</div>
 			)}
-			{/* The chain table overlay: ABSOLUTE INSIDE the graph area (never
-			    a body portal) so the app chrome stays sharp and reachable; the
-			    overlay owns its selection.
-			    LAST CHILD OF THE ROOT, DELIBERATELY: app-region subtraction
-			    resolves by DOM order, not z-index — mounted earlier, the
-			    chrome's lh-no-drag column would punch dead zones through the
-			    overlay's TopBar drag band. A full-bleed surface covering a drag
-			    band must come AFTER everything it covers. */}
+			{/* The chain table overlay (chains-overlay plan, 2026-09-29):
+			    ABSOLUTE INSIDE the graph area (the session-overlay idiom —
+			    never a body portal) so the app chrome stays sharp and
+			    reachable; the overlay itself is read-only toward the graph
+			    and owns its selection.
+			    LAST CHILD OF THE ROOT, DELIBERATELY (owner, 2026-09-29
+			    night): app-region subtraction resolves by DOM order, not
+			    z-index — mounted earlier, the chrome's lh-no-drag column
+			    punched dead zones through the overlay's TopBar drag band
+			    (over the counts, around the search field). A full-bleed
+			    surface covering a drag band must paint AFTER everything it
+			    covers. (DeleteNodeDialog is body-portaled — DOM-irrelevant
+			    here.) */}
 			<ChainTableOverlay
 				open={chainsOpen}
 				nodes={snapshot?.propositions ?? []}

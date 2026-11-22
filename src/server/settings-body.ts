@@ -1,6 +1,8 @@
 /**
- * The shared settings-PUT body parsers — one seam per settings surface (the
- * per-chat body and one parser per settings.json section).
+ * The shared settings-PUT body parsers — one seam per settings surface.
+ * Extracted verbatim from the per-chat route (default-settings wave,
+ * 2026-09-18): identical parse, identical errors. The section parsers
+ * (settings-storage wave, 2026-09-19) follow the same house rules.
  *
  * Replace-whole semantics: the client sends the complete desired SECTION;
  * absent fields are absent overrides ({} clears everything). No merges, so
@@ -74,12 +76,11 @@ export function parseSettingsBody(body: unknown): SettingsBodyResult<ChatSetting
 	return { ok: true, settings };
 }
 
-// ─── Section parsers ─────────────────────────────────────────────────────────
+// ─── Section parsers (settings-storage wave, 2026-09-19) ────────────────────
 // One parser per settings.json section; the route maps the URL section to
 // its parser via SETTINGS_SECTIONS below. Same discipline as
 // parseSettingsBody: strict on every known field (a bad type/shape is a
-// 400, never a silent clamp/drop), unknown keys dropped (except where a
-// parser rejects keys outside a known set: model slots, tool ids).
+// 400, never a silent clamp/drop), unknown keys dropped.
 
 function asRecord(body: unknown): Record<string, unknown> | null {
 	if (!body || typeof body !== "object" || Array.isArray(body)) return null;
@@ -217,10 +218,12 @@ export function parseAgentSettingsBody(body: unknown): SettingsBodyResult<AgentS
 	const tools = parseBooleanMap(raw.tools, "tools");
 	if (tools.error) return { ok: false, error: tools.error };
 	if (tools.map) {
-		// Unknown tool keys are rejected at WRITE time so a persisted bogus key
-		// can never drift into what the bridge honors. The writable set is
-		// the job tools + the quizzing-mechanics switch (explain). The
-		// read-side sanitizer stays lenient for forward-compat.
+		// Unknown tool keys are rejected at WRITE time (user decision
+		// 2026-09-19): the delta is inert while unread, but once the bridge
+		// honors it a persisted bogus key would drift. The writable set is
+		// the job tools + the quizzing-mechanics switch (explain, owner
+		// 2026-09-27). The read-side sanitizer stays lenient for
+		// forward-compat.
 		const supported = WRITABLE_TOOL_KEYS as readonly string[];
 		for (const key of Object.keys(tools.map)) {
 			if (!supported.includes(key)) {
@@ -254,9 +257,10 @@ export function parseAgentSettingsBody(body: unknown): SettingsBodyResult<AgentS
 			settings.search = { engine: search.engine };
 		}
 	}
-	// Prober graph tools: an agent-section subsection, not a tool-toggles
-	// key (it gates tool registration). Strict write side: object shape
-	// only; `enabled` boolean when present. Absent = ON.
+	// Prober graph tools (wave 7, owner ruling 2026-09-23): an agent-section
+	// subsection, not a tool-toggles key — the mechanism is agent capability
+	// (tool registration), the subject is the graph. Strict write side:
+	// object shape only; `enabled` boolean when present. Absent = ON.
 	if (raw.graphTools !== undefined) {
 		const graphTools = asRecord(raw.graphTools);
 		if (!graphTools) return { ok: false, error: "graphTools must be an object" };
@@ -401,8 +405,12 @@ export function parseAppearanceSettingsBody(body: unknown): SettingsBodyResult<A
 export function parseGraphSettingsBody(body: unknown): SettingsBodyResult<GraphSettings> {
 	const raw = asRecord(body);
 	if (!raw) return { ok: false, error: "Invalid JSON body" };
-	// PUT is replace-whole — a body like {enabled: true} IS the whole
-	// section (extractionChunkTokens absent = factory default at resolution).
+	// Wave 7 collapse (owner ruling 2026-09-23) + the extraction-UX
+	// redesign (2026-09-24): the section is the master switch and the
+	// chunk budget. PUT is replace-whole — a body like {enabled: true} IS
+	// the whole section (extractionChunkTokens absent = factory default at
+	// resolution); the dead rungs' keys in old records are unread (the
+	// sanitizer drops them; see sanitizeGraph).
 	const settings: GraphSettings = {};
 	if (raw.enabled !== undefined) {
 		if (typeof raw.enabled !== "boolean") return { ok: false, error: "enabled must be a boolean" };
@@ -418,7 +426,9 @@ export function parseGraphSettingsBody(body: unknown): SettingsBodyResult<GraphS
 		}
 		const floored = Math.floor(raw.extractionChunkTokens);
 		if (floored < EXTRACTION_CHUNK_TOKENS_FLOOR) {
-			// Rationale on GraphSettings.extractionChunkTokens (penny-batches).
+			// the floor's rationale lives on GraphSettings.extractionChunkTokens:
+			// every run pays the graph-carrying prompt overhead — penny-batches
+			// cost more per extracted token than the content is worth.
 			return {
 				ok: false,
 				error: `extractionChunkTokens must be at least ${EXTRACTION_CHUNK_TOKENS_FLOOR} (smaller batches waste the per-run graph overhead)`,
@@ -432,7 +442,8 @@ export function parseGraphSettingsBody(body: unknown): SettingsBodyResult<GraphS
 	return { ok: true, settings };
 }
 
-/** models: { strong?, cheap?, vision? } — the slot tiers. Each slot is the same shape as a role override; a
+/** models: { strong?, cheap?, vision? } — the slot tiers (model slots
+ *  wave, 2026-09-20). Each slot is the same shape as a role override; a
  *  present-but-empty slot object is rejected (absent slot = unset; say
  *  what you mean). Catalog validity is checked by the route
  *  (validateChatSettings discipline). */
@@ -447,9 +458,10 @@ export function parseModelsSettingsBody(body: unknown): SettingsBodyResult<Model
 		}
 		const parsed = parseRoleOverride(raw[key], key);
 		if (!parsed.ok) return { ok: false, error: parsed.error };
-		// BYOK: a slot IS a model choice — a thinkingLevel alone can never
-		// run, so every slot write must carry the model (the level is an
-		// optional rider). An absent slot key clears the tier (replace-whole).
+		// BYOK (owner, 2026-09-22): a slot IS a model choice — no factory
+		// floor exists, so a thinkingLevel alone can never run; every slot
+		// write must carry the model (the level is an optional rider). An
+		// absent slot key clears the tier (replace-whole section).
 		if (!parsed.override.model) {
 			return { ok: false, error: `slot "${key}" must set a model (thinkingLevel alone cannot run — absent slot = unset)` };
 		}
@@ -515,7 +527,7 @@ export function parseDictationSettingsBody(body: unknown): SettingsBodyResult<Di
 /** The custom endpoint's per-model pins (PATCH /api/custom-provider): the
  *  whole desired map, replace-whole like every section. Strict write side — a
  *  token count must be a whole number at or above the floor (the read side
- *  clamps, this rejects). `reasoning` is the
+ *  clamps, this rejects — the compaction discipline). `reasoning` is the
  *  tri-state capability pin, not a backend execution toggle. */
 export function parseCustomModelOverridesBody(
 	body: unknown,

@@ -11,20 +11,15 @@ import { jobDisplay, jobElapsedMs } from "@/src/core";
 
 /**
  * The dispatch card (contracts.ts "THE ASYNC PROTOCOL" §4): the tool-call
- * box for a background sub-agent — the registry's renderer for every
- * dispatch tool (research, pdf, demo, visual), the job kind read from the
- * part's tool name. The tool part's output is the FIRE-AND-FORGET ACK (a
- * string) — never the result, which rides the steer message below (the
- * kind's own output card). Nothing renders until the ack lands. Live
- * status comes from the chat-view jobs feed via JobsContext, matched by
- * toolCallId:
+ * box for a background sub-agent. The tool part's output is the FIRE-AND-
+ * FORGET ACK (a string) — never the result. Live status comes from the
+ * chat-view jobs feed via JobsContext, matched by toolCallId:
  *
- *   job unknown → "dispatched" pulse (the jobs feed hasn't seen it yet),
- *                 settling to a quiet "status not kept" if it never appears
+ *   job unknown → "dispatched" pulse (the jobs feed hasn't seen it yet)
  *   running     → live activity card (activity line + elapsed)
- *   done/error  → expandable delivered / failed summary — the artifact
+ *   done/error  → quiet one-liner ("finished" / "failed") — the artifact
  *                 itself arrives in the steer message right below, so the
- *                 preview stays collapsed until explicitly opened.
+ *                 box must not duplicate it.
  */
 const KIND_LABEL: Record<JobKind, string> = {
 	research: "Research agent",

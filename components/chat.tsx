@@ -139,9 +139,11 @@ export function parseModelsRefusal(message: string | undefined): ModelSlotName[]
 	}
 }
 
-/** The provider-key refusal, read like parseModelsRefusal: the 503 body is
- *  the error message verbatim and core's matcher decides, so the wording
- *  cannot drift client-side. */
+/** The provider-key refusal's transport seam (zero-keys wave, Platform's
+ *  66dbea9): same discipline as parseModelsRefusal — the 503 body rides
+ *  the thrown error message verbatim, so the envelope's own matcher
+ *  (core, invariant-tail) decides; the wording can never drift client-
+ *  side. Exported pure for tests. */
 export function parseProviderKeyRefusal(message: string | undefined): boolean {
 	if (!message) return false;
 	try {
@@ -235,9 +237,10 @@ export function Chat({
 	/** A teacher turn is running server-side but attached to no client
 	 * (navigated away mid-turn, returned while in flight). */
 	initiallyInFlight?: boolean;
-	/** A compaction holds the chat's model gate at mount (its
-	 * compaction-changed event already fired). The transcript spinner and
-	 * send gates key on it. */
+	/** A compaction holds the chat's model gate at mount (navigated away
+	 * mid-compaction — the registry is live server state, the
+	 * compaction-changed event already fired). The transcript spinner
+	 * and send gates key on it. */
 	initiallyCompacting?: boolean;
 	/** slotsConfigured(server record): decides whether the setup pill shows
 	 *  above the composer. The server gate stays the truth. */
@@ -292,8 +295,6 @@ export function Chat({
 		if (!attempt) return false;
 		setPreparationError(undefined);
 		try {
-			// Finish dictation first: a learner who talks right through Enter
-			// must not lose the tail.
 			const input = await attempt.finalize(async () => { await finishDictation(); return capture(); });
 			const prepared = await attempt.prepare(input, submissionLive.current.nativeMessages);
 			if (!prepared) return false;
@@ -310,12 +311,12 @@ export function Chat({
 	// The reattach settled terminal → the sync-and-continue seam (below).
 	setReattachSettled(() => reattachSettledRef.current());
 
-	// A turn running server-side that no live view of ours holds (navigated
-	// away mid-turn, or a wake turn discovered mid-session). The reattach
-	// stream is the primary channel (resumeStream, the same rendering path as
-	// a live turn); this flag is the fallback liveness source: it gates the
-	// composer and shows the pre-first-chunk shimmer until the stream attaches
-	// or turn-settled arrives.
+	// A turn running server-side, attached to no live view of ours (navigate
+	// away mid-turn, or a wake turn discovered mid-session): the reattach
+	// stream is the primary channel (resumeStream — the same rendering path
+	// as a live turn); this flag is the FALLBACK liveness source — it gates
+	// the composer, shows the pre-first-chunk shimmer, and drives the 1500ms
+	// record poll that adopts at settle if the stream can't attach.
 	const [turnInFlight, setTurnInFlight] = useState(initiallyInFlight ?? false);
 
 	const { titleText, renaming, setRenaming, titleDraft, setTitleDraft, titleInputRef, commitRename, renameError } = useSessionRename(chatId, title, sessionFindScopeRef);
@@ -380,11 +381,12 @@ export function Chat({
 				abortInFlightTurn();
 				return;
 			}
-			// Dismissing a pending question is silent: the skipped toolResult
-			// lands with no turn and no wake; the next plain send wakes the
-			// teacher. Mid-turn the question can only dangle because a turn is
-			// still running, so the discard also kills that turn; the route
-			// parks the dismissal (202) and the settle applies it.
+			// From a pending question the dismiss is silent (A2, 2026-10-03):
+			// the skipped toolResult lands via the SILENT route, no turn, no
+			// wake — the next plain send is the wake. MID-TURN (owner,
+			// 2026-10-04 — the GLM loop): the question can only dangle because a
+			// turn is STILL RUNNING, so the discard ALSO kills that turn; the
+			// route parks the dismissal (202) and the settle applies it.
 			const p = pendingRef.current;
 			if (p) {
 				const question = (p.input as { question?: string } | null)?.question ?? "";
@@ -399,9 +401,10 @@ export function Chat({
 				if (busyRef.current) abortInFlightTurn();
 				return;
 			}
-			// The practice discard uses the same silent route; the conclude
-			// synthesis rides the learner's next input and the composer returns
-			// at once. Mid-turn it also kills the running turn (park + settle).
+			// The practice discard (owner, 2026-10-04): ask-style — the
+			// silent marker route; the conclude synthesis rides the user's
+			// next input. The composer returns immediately. Mid-turn the
+			// discard also kills the running turn (same park + settle law).
 			const problem = activeProblemRef.current;
 			if (problem) {
 				void dismissProblem(problem.toolCallId);
@@ -411,10 +414,12 @@ export function Chat({
 		[abortInFlightTurn, dismissQuestion, dismissProblem, closeAbortAsk],
 	);
 	// Mount continuation: if the stored transcript ends with a fulfilled tool
-	// (a job result landed while no client was open), resume the lesson. Once
-	// per mount; the turn that follows ends in text or a pending question, so
-	// no loop. Never while a turn already runs server-side: that would
-	// double-run the teacher (the server would 409; the poll resumes instead).
+	// (a job result landed while no client was open), resume the lesson — the
+	// SDK's sendAutomaticallyWhen only fires inside addToolOutput, so reloads
+	// need this nudge. Once per mount; the turn that follows ends in text (or
+	// a pending question), so no loop. NEVER while a turn is already running
+	// server-side — that would double-run the teacher (the server would 409
+	// it; the poll below resumes instead).
 	const mountContinuation = useRef(false);
 	useEffect(() => {
 		if (mountContinuation.current) return;
@@ -444,9 +449,10 @@ export function Chat({
 	const pendingRef = useRef(pending);
 	pendingRef.current = pending;
 
-	// An active practice problem owns the dock like a pending question (it
-	// replaces the composer). Read from the native record, the same fold the
-	// tools gate on, not the projected view.
+	// THE ACTIVE PRACTICE PROBLEM (practice sessions, 2026-10-04): the
+	// same dock-ownership rule as a pending question — an active problem
+	// replaces the composer. Computed from the NATIVE record (the fold is
+	// the gate the tools themselves read), not the projected view.
 	const activeProblem = activeProblemOf(nativeMessages);
 	const activeProblemOccurrence = activeProblemOccurrenceOf(nativeMessages);
 	const activeProblemRef = useRef(activeProblem);
@@ -470,8 +476,8 @@ export function Chat({
 	// exists that none of our views holds — attach to it through the same
 	// resume path as mount reattach (live rendering, instant catch-up). The
 	// flag stays as the fallback until the stream attaches (watcher above);
-	// a newer resume aborts the older request, so discovery ticks re-firing
-	// this are harmless.
+	// concurrent resume calls are SDK-guarded (a newer one aborts the older
+	// request), so discovery ticks re-firing this are harmless.
 	const turnInFlightRef = useRef(turnInFlight);
 	turnInFlightRef.current = turnInFlight;
 	const attachToRunningTurn = useCallback(() => {
@@ -479,9 +485,11 @@ export function Chat({
 		void resumeStream();
 	}, [resumeStream]);
 
-	// The practice dock's one send lane: posts the thinking against the active
-	// problem (the agent reads whether it claims an answer). Starts a turn;
-	// the dock stays mounted until the agent concludes.
+	// The practice dock's send (ONE lane, owner 2026-10-05): POSTs the
+	// thinking against the ACTIVE problem — whether it claims an answer is
+	// read from the text by the agent, not declared here. Starts a turn;
+	// the dock stays mounted (the problem is still active until the agent
+	// concludes).
 	const submitThinking = useCallback(
 		(text: string) => {
 			const problem = activeProblemRef.current;
@@ -765,8 +773,6 @@ export function Chat({
 		});
 	};
 
-	// The opening send waits for this page's surface (a plugin interceptor
-	// may prepare it like any other text send).
 	const sentInitial = useRef(false);
 	useEffect(() => {
 		if (sentInitial.current || !surfaceTarget) return;
@@ -802,31 +808,34 @@ export function Chat({
 		setOpeningError(false);
 	}, [chatId, hasConfirmedConversation, applyText]);
 
-	// The BYOK refusal: a send that gets the 503 models_not_configured
-	// envelope opens the setup flow, never the error banner. The gate refuses
-	// before the write-ahead persist, so the record is the truth minus the
-	// refused send: refetch it (dropping the optimistic orphan), put the draft
-	// back in the composer until the learner re-sends it, and open setup.
+	// THE BYOK REFUSAL (owner, 2026-09-22): a send that lands the server's
+	// 503 models_not_configured envelope renders as the SETUP FLOW, never
+	// the error banner. The gate refuses BEFORE the write-ahead persist,
+	// so the server record is the truth minus the refused send — the
+	// optimistic message is an orphan that goes HOME: refetch the record,
+	// drop the orphan, put the draft back in the composer, open the
+	// dialog (the prefilled tiers carry their picks, the unpinned ones the
+	// "needed" marks). The draft stays in the composer until the learner
+	// re-sends it (owner ruling 2026-10-09).
 	useEffect(() => {
 		if (!error) return;
 		const missing = parseModelsRefusal(error.message);
-		// The key refusal: a pinned model whose provider key is gone also
-		// restores the draft. With another provider
+		// The key-refusal twin (zero-keys wave): a pinned model whose
+		// provider key is gone also restores the draft. With another provider
 		// connected, repair belongs to the ordinary current-session picker;
 		// otherwise setup derives its exclusive provider/loading stage.
 		const keyRefused = parseProviderKeyRefusal(error.message);
 		if (!missing && !keyRefused) return; // a real error keeps the honest banner
-		// ORDER MATTERS: clearError() flips this effect's own dep (`error`) and
-		// would cancel the work below, so the banner dismiss, draft restore
-		// and dialog open all land together after the record refetch.
+		// ORDER MATTERS: clearError() flips this effect's own dep (`error`)
+		// and would cancel the in-flight work below — so the banner dismiss,
+		// the draft restore, and the dialog open all land TOGETHER after the
+		// record refetch (the honest truth minus the refused send).
 		let cancelled = false;
 		void (async () => {
 			try { await readRecord({ isCurrent: () => !cancelled }); }
 			catch { /* refusal handling still restores the draft on a failed read */ }
 			if (cancelled) return;
 			if (draftRef.current !== null) {
-				// A send keeps its text until accepted: restore only into an
-				// empty composer, never over the learner's newer work.
 				if (!textRef.current) applyText(draftRef.current);
 				draftRef.current = null;
 			}
@@ -859,31 +868,29 @@ export function Chat({
 		];
 	}, []);
 	useFieldCycle(cycleChatFields);
-	// Voice dictation: finals append at the end of the current text (the page
-	// owns the separator).
 	const recording = useDictation({
 		// Ref-first (see textRef): the join is computed from the mirror so a
 		// send resuming after `await finish()` reads the dictated tail.
 		append: (t) => { if (!pluginOwnsDock) applyText(joinDictation(textRef.current, t)); },
 		disabled: pluginOwnsDock && !pluginMicAvailable,
 	});
-	// The page's own run ("main"); a plugin dock's run shows as blocked here.
 	const dictation: Dictation = { ...recording,
 		phase: recording.destinationId === "main" ? recording.phase : "idle",
 		active: recording.destinationId === "main" && recording.active,
 		error: recording.destinationId === "main" ? recording.error : null,
 		blocked: recording.destinationId !== "main" && recording.active,
 	};
-	/* When a dictation run ends, the composer takes focus (the hands are on
-	 * the keyboard from the stop). Falling edge of `active` only, and only the
-	 * composer: with a question pending the Composer is unmounted, the ref is
-	 * null, and the thinking field is left alone. */
+	/* When a dictation run ends, the bare composer takes focus (owner
+	 * 2026-10-01) — the hands are already on the keyboard from the stop.
+	 * Falling edge of `active` only (idle→idle never focuses), and ONLY the
+	 * composer: with a question pending the Composer is unmounted, the ref
+	 * is null, and the thinking field is left alone by design. */
 	const dictationWasActiveRef = useRef(false);
 	const composerInputRef = useRef<HTMLDivElement>(null);
 
-	// CITE: selected tutor text → a citation chip in the composer (or the
-	// field last typed in), then its comment popover. The transcript's scroll
-	// element arrives late (StickToBottom attaches it), so it is reported up.
+	// CITE (2026-10-31): selected tutor text → a citation chip in the
+	// composer, then its comment popover. The transcript's scroll element
+	// arrives late (StickToBottom attaches it), so it is reported up.
 	const [transcriptElement, setTranscriptElement] = useState<HTMLElement | null>(null);
 	const [citationEdit, setCitationEdit] = useState<CitationEditTarget | null>(null);
 	const lastCiteInputRef = useRef<HTMLElement | null>(null);
@@ -942,14 +949,13 @@ export function Chat({
 	// the real gate; this is the affordance).
 	const [compacting, setCompacting] = useState(initiallyCompacting);
 	submissionLive.current.ready = !compacting && reconciliation === "ready";
-	// A failed model response: Retry keeps the saved input and completed
-	// work, without another learner message. Offered from
+	// A failed model response (issue #110): Retry keeps the saved input
+	// and completed work, without another learner message. Offered from
 	// "error" too: a dropped stream leaves the model there, and send()
 	// recovers from it. Later compaction requires new input instead.
 	const retryable = !pluginOwnsDock && (status === "ready" || status === "error") && !busy && !compacting && endsInFailedTurn(nativeMessages);
 	const retryFailedTurn = () => retryFailedResponse(send, draftRef);
 	const sendAllowed = !pluginOwnsDock && reconciliation === "ready" && !pending && !activeProblem && !compacting && !submissionRunner.occupied;
-	// A plugin may hold prepared input (e.g. an attachment) for an empty field.
 	const pendingTextTarget = textTarget();
 	const pendingTextInput = !!pendingTextTarget && !!pluginManager?.hasPendingSubmissionInput(pendingTextTarget);
 	const pendingThinkingTarget = thinkingTarget();
@@ -968,8 +974,8 @@ export function Chat({
 		!busy &&
 		nativeMessages.some(
 			(m) => m.role === "assistant" && m.content.some(
-				(b, contentIndex) => b.type === "toolCall" && !!practiceProblemForCall(nativeMessages, { messageId: m.id, contentIndex, toolCallId: b.id, toolName: b.name }),
-			),
+					(b, contentIndex) => b.type === "toolCall" && !!practiceProblemForCall(nativeMessages, { messageId: m.id, contentIndex, toolCallId: b.id, toolName: b.name }),
+				),
 		);
 	const sendNext = useCallback(() => {
 		if (!nextReady || submissionRunner.occupied) return;
@@ -1006,23 +1012,26 @@ export function Chat({
 		} catch { return false; /* retain the confirmed view on a transient read failure */ }
 	}, [readRecord, continueIfOwed]);
 
-	// The settled terminal's other half: the reattach stream resolved
-	// turn-settled, so no turn runs and the record is current. Drop the
-	// fallback busy state and adopt the record (its continuation check fires
-	// any owed next turn, as the poll's settle branch does).
+	// The settled terminal's other half (stream-reattach wave): the
+	// transport resolved turn-settled — no turn running, the record is
+	// current. Drop the fallback busy state and adopt the record (its
+	// continuation check fires the owed next turn, exactly as the poll's
+	// settle branch always did).
 	reattachSettledRef.current = () => {
 		setTurnInFlight(false);
 		void syncFromServer();
 	};
 
-	// ── Append-only record adoption ──
-	// Content written into the record server-side (sub-agent artifacts, abort
-	// notes) must show the moment it persists, mid-turn included. A full
-	// snapshot sync mid-stream would collide with the streaming tail
-	// (duplicate message ids), so this adoption is append-only (readRecord's append mode):
-	// insert the record's new ids in canonical order, never rewrite a local
-	// one, keep the in-flight tail last. The full syncFromServer stays the net
-	// at idle (reorder, plan blocks, turns).
+	// ── Append-only record adoption (owner ground rules, 2026-09-15) ──
+	// Content delivered into the record server-side — sub-agent
+	// artifacts, abort notes — must become visible the
+	// moment it persists, mid-turn included: it sits between messages, and
+	// nothing about a running turn should hide it. The full snapshot sync
+	// mid-stream is forbidden (it breaks the SDK's in-place continuation
+	// merge — the stale-snapshot lesson), so adoption here is APPEND-ONLY
+	// (the session hook's adoptRecord): insert the record's new ids in their canonical
+	// order, never rewrite a local one, keep the in-flight tail last. The
+	// full syncFromServer stays the net at idle (reorder, plan blocks, turns).
 	const adoptAppendOnly = useCallback(async () => {
 		try {
 			await readRecord({ adoption: "append" });
@@ -1065,9 +1074,10 @@ export function Chat({
 	// The coverage ring's refresh tick: bumped at turn settle, when this
 	// session's uncovered mass changes.
 	const [coverageTick, setCoverageTick] = useState(0);
-	// The mermaid focus: md-blocks' expand button registers the chart source
-	// here. The overlay and the plan popup mount inside the session-area div
-	// (session-scoped), so the drag bar stays usable while a focus is open.
+	// The mermaid focus (chrome-melt wave, 2026-09-19): md-blocks' expand
+	// button registers the chart source here; the overlay (and the plan
+	// popup) mount INSIDE the session-area div — both are session-scoped, so
+	// the drag bar stays sharp and draggable while a focus owns the area.
 	const [mermaidFocus, setMermaidFocus] = useState<string | null>(null);
 	// Figure focus: the figure card's fullscreen button. Same overlay shell as
 	// mermaid, carrying the raw svg and the card's invert state.
@@ -1085,8 +1095,9 @@ export function Chat({
 	// reads these at event time.
 	const mermaidFocusRef = useRef(mermaidFocus);
 	mermaidFocusRef.current = mermaidFocus;
-	// The figure focus shares the mermaid layer in the Esc gate: the overlay
-	// claims Esc itself at the document level; the window chain stays out.
+	// The figure focus rides the mermaid layer in the Esc gate — the same
+	// overlay class (session-scoped diagram focus, Esc claimed at the
+	// document level by the overlay itself); the window chain must stay out.
 	const figureFocusRef = useRef(figureFocus);
 	figureFocusRef.current = figureFocus;
 	const planOpenRef = useRef(planOpen);
@@ -1198,7 +1209,8 @@ export function Chat({
 	const prevStatusRef = useRef(status);
 	useEffect(() => {
 		const transitioned = prevStatusRef.current !== "ready" && status === "ready";
-		// Updated on every path, so dep churn never re-fires the transition.
+		// Every path (the old early-return skipped this on the transition
+		// branch — the re-fire-on-dep-churn wart, fixed S3).
 		prevStatusRef.current = status;
 		if (!transitioned) return;
 		// The coverage ring re-reads at turn settle; its own poll handles runs.
@@ -1218,9 +1230,10 @@ export function Chat({
 		} else void syncTurns();
 	}, [status, syncTurns, syncFromServer]);
 
-	// A stream that died mid-flight (network): the server turn runs on behind
-	// the error banner, so re-enter the in-flight state (turn-settled adopts
-	// the record) instead of leaving the session blind until the next send's
+	// A stream that died MID-FLIGHT (network): the runner decoupled the turn
+	// from its view, so the server turn runs ON behind the error banner —
+	// re-enter the in-flight watch (the 1500ms fallback poll adopts at
+	// settle) instead of leaving the session blind until the next send's
 	// 409 merge-retry heals it. One record check per error transition.
 	const prevErrorStatusRef = useRef(status);
 	useEffect(() => {
@@ -1244,11 +1257,14 @@ export function Chat({
 	}, [status, readRecord, syncFromServer]);
 
 	// ── Central job observability (contracts.ts "THE ASYNC PROTOCOL" §4) ──
-	// One fetch of /api/jobs drives every job surface (transcript dispatch
-	// cards, the sub-agents panel) and re-syncs the transcript once when a job
-	// settles. The store announces every job write on the events channel; the
-	// view fetches on mount, per jobs-changed (trailing 250ms debounce: a
-	// sub-agent run writes activity-line bursts), and on channel resync.
+	// ONE fetch of /api/jobs drives every job surface (transcript dispatch
+	// cards, the sub-agents panel) and re-syncs the transcript exactly once
+	// when a job settles. PUSH (architecture S4, 2026-10-02): the store
+	// announces every job write on the events channel; the interval poll and
+	// its pollMs/jobPartCount gating are RETIRED. The view fetches once on
+	// mount, once per jobs-changed announcement (trailing-debounced — a
+	// sub-agent run writes activity-line bursts; 250ms coalesces them at or
+	// below the old 1s poll cadence), and once on channel resync.
 	//
 	// A settle doesn't imply the record is complete: continuation coalescing
 	// flips the job done at claim time, while the learner's own answer turn
@@ -1314,22 +1330,25 @@ export function Chat({
 		[],
 	);
 
-	// ── Server-initiated turn discovery ──
-	// Every turn this chat runs is announced on the events channel: the
-	// probe→teach handoff, a job wake, another tab's send, the missed-on-mount
-	// case. Handlers read refs, not closure state: events fire between
-	// renders, and a ref holds the live value at event time.
+	// ── Server-initiated turn discovery (push-architecture S3, 2026-10-02) ──
+	// Every turn THIS chat runs is announced on the events channel — the
+	// probe→teach handoff, a job wake, another tab's send, the
+	// missed-on-mount case. This replaces the retired watch loop and the
+	// 1500ms fallback record poll: discovery is no longer a polling window
+	// that can expire. Handlers read REFS, not closure state — events fire
+	// between renders, and a ref holds the live value at event time.
 	const statusRef = useRef(status);
 	statusRef.current = status;
-	/** turn-settled arrived for our own turn, so the record is durable (endTurn
-	 * fires only after persistTurn); the ready flip consumes this flag to
-	 * canonize the view onto the record (the settle effect above). */
+	/** Fix B (2026-10-02): turn-settled arrived for OUR OWN turn — the
+	 * record is durable (endTurn fires only after persistTurn); the ready
+	 * flip consumes this flag to canonize the view onto the record. See the
+	 * settle effect and the turn-settled handler below. */
 	const settleAnnouncedRef = useRef(false);
 	useServerEvent("turn-started", (p) => {
 		// Known non-issue: beginTurn emits before registerTurn in the same
 		// synchronous request flow; a GET /stream inside that sub-ms window
-		// gets a settled response. No round-trip can win that race, and the
-		// eventual turn-settled heals it. Do not engineer around it.
+		// gets a settled response — unwinnable by a network round-trip,
+		// self-healing via the eventual turn-settled. Do not engineer around.
 		if (p.chatId !== chatId) return;
 		if (localStreamRef.current) return; // our OWN turn — the 409-race guard
 		if (turnInFlightRef.current) return; // already attached
@@ -1338,18 +1357,22 @@ export function Chat({
 	useServerEvent("turn-settled", (p) => {
 		if (p.chatId !== chatId) return;
 		if (localStreamRef.current) {
-			// Our own [DONE] path owns the busy settle, but the event still
-			// matters: it guarantees the record is durable and reliably beats
-			// [DONE]. Flag it; the ready flip canonizes the view onto the record.
-			// (If [DONE] won instead, the fully-idle branch below already synced.)
+			// Our own [DONE] path owns the BUSY settle — but not a no-op (fix B,
+			// 2026-10-02): the event is the record-durable guarantee (endTurn
+			// fires only after persistTurn), and it reliably beats [DONE] here
+			// (endTurn emits from onFinish before the response terminates). Flag
+			// it; the ready flip consumes the flag and canonizes the view onto
+			// the record. (If [DONE] somehow won this race instead, this branch
+			// didn't run and the fully-idle branch below already synced.)
 			settleAnnouncedRef.current = true;
 			return;
 		}
 		if (turnInFlightRef.current) {
-			// The attached stream's terminal frame owns the normal settle;
-			// syncing here would swap a stale snapshot mid-stream (see the jobs
-			// fetch above). Only the error case heals: the attached stream died,
-			// and the settle says the record is now durable.
+			// The attached stream's terminal frame owns the normal settle —
+			// syncing HERE would swap a stale snapshot mid-stream (the
+			// continuation-coalescing law, see the jobs poll above). Only
+			// the error case heals: the attached stream died, and the settle
+			// says persistTurn has made the record durable truth.
 			if (statusRef.current === "error") {
 				setTurnInFlight(false);
 				clearError();
@@ -1361,20 +1384,20 @@ export function Chat({
 		void syncFromServer();
 	});
 	useServerEvent("compaction-changed", (p) => {
-		// The background summary after a settle: while it runs, sends gate
-		// (the next turn's server-side ensureCompacted awaits it anyway; this
-		// keeps the affordance honest). On finish, record-changed (emitted by
-		// the compaction write) carries the marker in.
+		// The settle-kick's background summary: while it runs, sends gate
+		// (the next turn's server-side ensureCompacted awaits it anyway —
+		// this only keeps the affordance honest). On finish, record-changed
+		// (emitted by the compaction write itself) carries the marker in.
 		if (p.chatId !== chatId) return;
 		setCompacting(p.running);
 	});
 	useServerEvent("record-changed", (p) => {
-		// A write with no turn (e.g. the silent dismissal): only the record
-		// moved. Other tabs and post-error windows adopt; our own dismissal
-		// already rendered its optimistic append, and syncing again is
-		// harmless (adoption swaps local ids for the server's). Busy states
-		// ignore it: a running turn owns the view, and the write is
-		// 409-guarded against that anyway.
+		// The silent dismissal write (A2, 2026-10-03): no turn ever ran, so
+		// only the record moved. Other tabs and post-error windows adopt;
+		// our OWN dismissal already rendered its optimistic append — syncing
+		// here too is harmless (the adoption law swaps local ids for the
+		// server's). Busy states ignore it: a running turn owns the view,
+		// and the write is 409-guarded against exactly that anyway.
 		if (p.chatId !== chatId) return;
 		if (localStreamRef.current || turnInFlightRef.current) return;
 		void syncFromServer();
@@ -1385,8 +1408,6 @@ export function Chat({
 		if (!isInteractionScopeEligible(sessionFindScopeRef.current, controller) || submissionRunner.occupied) return;
 		// An unsent opening prompt is resent through its own (stashed) lane.
 		if (openingDraftRef.current !== null) { deliverOpeningPrompt(textRef.current.trim(), true); return; }
-		// Idle input sends; new input during a busy response interrupts it
-		// (prepareText's steer lane). Dictation finishes first (runSubmission).
 		void prepareText();
 	};
 
@@ -1458,14 +1479,16 @@ export function Chat({
 				    also equals the sidebar's wordmark band, so the two bottom
 				    borders form one line across the app. */}
 				<TopBar
-					// While renaming, the bar is not a drag surface: app-region:drag
+					// While renaming the bar is NOT a drag surface: app-region:drag
 					// would eat the mousedown, so click-to-escape (below) could
-					// never fire.
+					// never fire. Rename mode is interactive mode (owner ask) —
+					// TopBar's one escape hatch.
 					drag={!renaming}
 					onMouseDown={(e) => {
-						// Any mousedown outside the input blurs it, running the onBlur
-						// commit. The input is shrink-to-fit (field-sizing), so the
-						// rest of the bar is click-to-exit.
+						// Escape hitbox: any mousedown outside the input itself blurs
+						// it, running the existing onBlur commit path. The input is
+						// shrink-to-fit (field-sizing), so the rest of the bar is
+						// this spacer + inert chips — all click-to-exit (owner ask).
 						if (renaming && e.target !== titleInputRef.current) titleInputRef.current?.blur();
 					}}
 				>
@@ -1620,17 +1643,6 @@ export function Chat({
 									<Shimmer duration={1}>COMPACTING CONTEXT…</Shimmer>
 								</span>
 							)}
-							{/* The Thinking placeholder: from the instant of any action
-							    that produces tokens (status flips to submitted
-							    synchronously) until the turn's first applied event, where
-							    an arrived-but-empty message renders the thinking row
-							    (view.ts projects one empty reasoning part). So submitted ⟺
-							    placeholder and streaming ⟺ a rendered row. Protocol events
-							    (agent_start) apply nothing, so it covers the whole
-							    provider-connect gap. turnInFlight is the same state entered
-							    by external discovery. Plugin grading/processing reads
-							    EVALUATING… until its POST acknowledges; only the
-							    wording changes, never the action or stream gates. */}
 							{(status === "submitted" || turnInFlight) && (
 								<PendingTurnIndicator evaluating={evaluating} />
 							)}
@@ -1654,8 +1666,10 @@ export function Chat({
 						</div>
 
 						{/* The dock's reserved tail (DockOverlay reports its height):
-						    at-rest transcript content scrolls fully clear of the
-						    overlay. The first layout effect reports before paint. */}
+						    keeps at-rest transcript content scrolling fully clear of
+						    the overlay — the flow-space replacement for the old
+						    sticky dock. Zero only pre-measurement (the first layout
+						    effect reports before paint). */}
 						<div aria-hidden data-testid="dock-spacer" style={{ height: dockReserve }} />
 				</ConversationContent>
 				{/* The dock: an overlay sibling of the scroller (the
@@ -1743,9 +1757,10 @@ export function Chat({
 					}
 					composer={
 						<ChatSessionComposer
-							// Stop aborts any in-flight turn, reattached and wake turns
-							// included: the abort channel kills it server-side (stop()
-							// alone would only detach our view).
+							// Stop aborts ANY in-flight turn (stream-reattach wave): the
+							// square renders while a reattached/wake turn runs too — the
+							// abort channel kills it server-side; stop() alone would
+							// only detach our view.
 							busy={busy}
 							value={textRef.current}
 							pendingInput={pendingTextInput}
@@ -1766,13 +1781,14 @@ export function Chat({
 					}
 					onSubmitAnswer={(output) => {
 						if (!pending) return;
-						// The answer is the question call's tool result: one input
-						// event, one turn. The hook appends the optimistic graded result
-						// (the AnsweredCard shows at once), the server persists it
-						// before the turn, and the teacher's reaction streams below.
-						// Dismissals use the same callback (QuestionAnswerData.dismissed).
-						// The reading-thinking draft rides along: the check answer is
-						// its only carrier.
+						// THE ANSWER IS THE QUESTION CALL'S TOOL RESULT (fork 1, owner
+						// 2026-09-26): one input event, one turn — the hook appends
+						// the optimistic graded result (the AnsweredCard shows at
+						// once) and the server's write-ahead persists it before the
+						// turn; the teacher's reaction streams below it. Dismissals
+						// ride the same callback (QuestionAnswerData.dismissed). The
+						// reading-thinking draft rides along (owner 2026-10-03) — the
+						// check answer is its only carrier.
 						saveQuestionDraft(pending.key, { readingThinking: readingThinkingRef.current });
 						const reading = readingThinkingRef.current.trim() || undefined;
 						// The pending-id effect clears this only when the question
@@ -1839,8 +1855,9 @@ export function Chat({
 			onClose={() => setSetupOpen(false)}
 			onDone={() => {
 				setSetupOpen(false);
-				// Save only saves: the refused draft is already back in the
-				// composer, and the learner sends it themselves.
+				// Save only saves (owner ruling 2026-10-09): the draft went
+				// home into the composer at refusal time and STAYS there —
+				// the learner sends it themselves.
 			}}
 		/>
 		</ChatActionsContext.Provider>
@@ -1888,9 +1905,11 @@ export function escAbortTarget(s: {
 	planOpen: boolean;
 	setupOpen: boolean;
 	pending: boolean;
-	/** An active practice problem: Esc opens the discard confirm, below a
-	 *  pending question (they never coexist, but the layering stays strict)
-	 *  and above the turn abort. */
+	/** An active practice problem (practice sessions, 2026-10-04): Esc
+	 *  opens the discard confirm — below a pending question (the two
+	 *  never coexist, but the layering stays strict), above the turn
+	 *  abort (a live turn can be running BEHIND an idle problem only in
+	 *  teaching sessions — practice problems end their pose turns). */
 	problem: boolean;
 	busy: boolean;
 	/** A pinned demo shown over the whole area (components/pinned-visual.tsx). */

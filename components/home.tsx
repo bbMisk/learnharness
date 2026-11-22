@@ -43,8 +43,8 @@ export function Home({
 }: {
 	initialConfigured: boolean;
 	/** GRAPH RENDERING off (owner, 2026-10-06): the home's main view is
-	 * the chains view, not the canvas. Read server-side; a save in Settings
-	 * re-reads it (router.refresh), so the change shows at once. */
+	 * the chains view, not the canvas. Read server-side per navigation —
+	 * changing the setting applies on the next visit home. */
 	rendering?: boolean;
 }) {
 	const controller = useOptionalInteractionLayers();

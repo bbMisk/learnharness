@@ -310,7 +310,7 @@ async function withBrowserPage<T>(fn: (page: import("puppeteer-core").Page) => P
 }
 
 // ─── Isolated page loading ───────────────────────────────────────────────────
-// Demo HTML and fallback SVG markup are model output, so they are untrusted.
+// Demo HTML is model output, so it is untrusted.
 // They load in memory on about:blank, which gives the document an opaque
 // origin like the learner's sandboxed iframe. A file:// document could read
 // any local file. As a second layer, requests for any other scheme (file:

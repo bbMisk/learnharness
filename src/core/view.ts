@@ -1,11 +1,14 @@
 /**
- * THE VIEW MODEL: the client's transcript view — native record messages (+
- * the live turn's working messages) grouped into the render shape.
- * Everything the agent produces is ONE continuous document per run — step
- * separators between the loop's steps, artifact and answered cards inline,
- * the teacher's reaction continuing below an answered quiz.
+ * THE VIEW MODEL (Wave D, owner-approved 2026-09-26): the client's transcript
+ * view — native record messages (+ the live turn's working messages) grouped
+ * into today's exact render shape. The golden master is the pre-Wave-D UI
+ * (owner fork 1): everything the agent produces is ONE continuous document
+ * per run — step separators between the loop's steps, artifact and answered
+ * cards inline, the teacher's reaction continuing below an answered quiz.
  *
- * Client-side and app-owned, with a LIVE-TURN layer: mid-turn tool
+ * This is the grouping canon of the deleted server-side projection
+ * (core/projection.ts, Wave B), moved client-side, app-owned, with zero AI-SDK
+ * types — plus the LIVE-TURN layer the projection never had: mid-turn tool
  * execution states (input-streaming → input-available/output-error/output),
  * so the dock mounts only after a call clears the validation boundary
  * (tool_execution_end) and the shimmer names the running activity.
@@ -20,11 +23,11 @@
  * splices into the preceding assistant group, IN FLOW right after the last
  * successful plan_init call (the presentation moment).
  *
- * Question tools on the wire: the agent's closing tool_execution_end carries
- * the in-memory "Question posed" placeholder — projectView IGNORES clean
- * question executions (the part stays input-available; the learner's answer
- * arrives as a real toolResult). The placeholder never persists, so settled
- * records never see it.
+ * Question tools on the wire (owner fork 2): the agent's closing
+ * tool_execution_end carries the in-memory "Question posed" placeholder —
+ * projectView IGNORES clean question executions (the part stays
+ * input-available; the learner's answer arrives as a real toolResult). The
+ * placeholder never persists, so settled records never see it.
  *
  * Pure and deterministic: client-safe (no node deps), same input → same view.
  */
@@ -95,10 +98,10 @@ export interface LiveTurnState {
 	 *  input-streaming (the shimmer); settled dangling calls render
 	 *  input-available (the dock mounts from the record). */
 	inFlight: boolean;
-	/** Ids of the messages THIS consume is streaming: an arrived-but-empty
-	 *  streaming message projects one empty reasoning part — the thinking
-	 *  row — so the placeholder's handoff is seamless; settled empty
-	 *  messages stay hidden. */
+	/** Ids of the messages THIS consume is streaming (optimistic round 3,
+	 *  2026-10-02): an arrived-but-empty streaming message projects one
+	 *  empty reasoning part — the thinking row — so the placeholder's
+	 *  handoff is seamless; settled empty messages stay hidden. */
 	streamingIds: ReadonlySet<string>;
 }
 
@@ -455,18 +458,19 @@ export function foldViewMessage(state: ViewFoldState, ctx: ViewFoldContext, m: L
  *  mounts on the dangling call) and the practice pose (its ack is FINAL —
  *  details: null, never replaced — and the card + dock read the call's
  *  input; the placeholder must never flip the part to output-available).
- *  Conclude is a NORMAL tool part (its result acks with no payload, details
- *  null — but the ConcludeCard reads the call's input, and output-available
- *  with output undefined renders fine). */
+ *  PRACTICE (2026-10-04): problem joins the placeholder fork; conclude is
+ *  a NORMAL tool part (its result acks with no payload, details null —
+ *  but the ConcludeCard reads the call's input, and output-available with
+ *  output undefined renders fine). */
 function isPlaceholderResultTool(name: string): boolean {
 	return (QUESTION_TOOLS as readonly string[]).includes(name) || name === "problem";
 }
 
 /** A tool call block → its view part, with the live execution layer.
- * `streamingMessage` — POSITIVE EVIDENCE: this call's own message is streaming
- * THIS turn. The input-streaming shimmer keys on it, never on session busyness:
- * a call from a settled message can never render live, whatever else is
- * running. */
+ * `streamingMessage` — POSITIVE EVIDENCE (owner, 2026-10-05): this call's
+ * own message is streaming THIS turn. The input-streaming shimmer keys on
+ * it, never on session busyness: a call from a settled message can never
+ * render live, whatever else is running. */
 function toolPartOf(
 	block: { id: string; name: string; arguments?: unknown },
 	live: LiveTurnState | undefined,
@@ -483,15 +487,15 @@ function toolPartOf(
 		if (exec.result) part.result = exec.result;
 		if (exec.isError) {
 			// An invalid call NEVER becomes input-available — the dock's mount
-			// gate keys on the clean execution end (a malformed quiz must never
-			// mount).
+			// gate keys on the clean execution end (the live modal-realism
+			// crash: a malformed quiz must never mount).
 			part.state = "output-error";
 			part.rawInput = block.arguments;
 			part.errorText = exec.errorText ?? "The tool call failed.";
 		} else if (isQuestion) {
-			// The clean "Question posed" placeholder is IGNORED — question
-			// tools are client-owned; the dock mounts on the clean end, the
-			// answer arrives as a real toolResult.
+			// Fork 2: the clean "Question posed" placeholder is IGNORED —
+			// question tools are client-owned; the dock mounts on the clean
+			// end, the answer arrives as a real toolResult.
 			part.state = "input-available";
 		} else {
 			part.state = "output-available";
@@ -509,22 +513,22 @@ function toolPartOf(
 
 function applyResultTo(part: LhViewPart | undefined, result: ToolResultMessage): void {
 	if (part) {
-		// The clean "Question posed" placeholder (details: null —
-		// tool-execute questionResult) is client-owned question territory.
-		// The dock mounts on the dangling call; the AnsweredCard renders only
-		// the learner's REAL answer (details set). Flipping the part to
-		// output-available on the placeholder would hand AnsweredCard a null
-		// and crash the render.
+		// Fork 2 (owner, Wave D): the clean "Question posed" placeholder
+		// (details: null — tool-execute questionResult) is client-owned
+		// question territory. The dock mounts on the dangling call; the
+		// AnsweredCard renders only the learner's REAL answer (details set).
+		// Flipping the part to output-available on the placeholder would hand
+		// AnsweredCard a null and crash the render (the live crash, 2026-09-26).
 		const tool = part.type.startsWith("tool-") ? part.type.slice("tool-".length) : part.type;
 		const isQuestion = isPlaceholderResultTool(tool);
 		if (!result.isError && ((isQuestion && result.details == null) || part.pluginProblem)) {
-			// The clean pose/ask ack carries no card data — NEVER
-			// output-available. But the call IS settled, so set the state
-			// explicitly rather than keep whatever toolPartOf guessed (which
-			// mid-turn could show a settled problem as a live spinner).
-			// input-available is the settled truth: the ProblemCard reads the
-			// call's input, the dock keys on the native fold — neither wants
-			// the ack's (null) payload.
+			// The placeholder fork (fork 2) stands: the clean pose/ask ack carries
+			// no card data — NEVER output-available. But the call IS settled
+			// (the practice bug, 2026-10-05: this early-return left the part on
+			// whatever toolPartOf guessed, which mid-turn resurrected a settled
+			// problem as a live spinner). input-available is the settled truth:
+			// the ProblemCard reads the call's input, the dock keys on the
+			// native fold — neither wants the ack's (null) payload.
 			part.state = "input-available";
 			return;
 		}

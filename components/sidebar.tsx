@@ -54,10 +54,11 @@ import { StartupMessage, type StartupMessageOffer } from "@/components/startup-m
 const STORAGE_KEY = "lh:sidebar-open";
 
 /*
- * Narrow-window behavior: below SIDEBAR_AUTOCLOSE the sidebar would squeeze
- * the page below the 640px window floor (640 + 288 sidebar = 928), so it
- * auto-closes — and auto-RESTORES when the window widens again. The whole
- * behavior is one expression:
+ * Narrow-window behavior (owner, 2026-09-17): below SIDEBAR_AUTOCLOSE the
+ * sidebar would squeeze the page below the 640px window floor (the two
+ * numbers compose: 640 + 288 sidebar = 928), so it auto-closes — and
+ * auto-RESTORES when the window widens again (owner choice: the sidebar
+ * pops back, not a manual re-open). The whole behavior is one expression:
  * rendered = pref && !narrow, where pref is the persisted user choice.
  * Manual closes persist and stay closed; auto-close does not touch the
  * preference. Opening the sidebar while narrow asks the Electron shell to
@@ -109,7 +110,7 @@ declare global {
 			/** Native chrome follows the active theme (theme wave): main sets
 			 *  themeSource and repaints the window background / overlay. */
 			setAppearance?: (a: { mode: ThemeMode; background: string }) => void;
-			/** The zoom truth: subscribes to "lh:zoom" pushes; returns unsubscribe. */
+			/** The zoom truth (owner round 7): subscribes to "lh:zoom" pushes; returns unsubscribe. */
 			onZoom?: (cb: (factor: number) => void) => () => void;
 			getZoom?: () => Promise<number>;
 			/** Observational update events and a snapshot for late subscribers. */
@@ -150,7 +151,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 	const [phase, setPhase] = useState(0);
 
 	useEffect(() => {
-		// Electron shell detection: keys the
+		// Electron shell detection (merged chrome, 2026-09-17): keys the
 		// .lh-electron CSS (app/globals.css) that turns the header bands
 		// into the window's drag surface. Post-mount only — server HTML
 		// and first client render must agree (no hydration mismatch),
@@ -160,7 +161,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 			document.documentElement.dataset.lhPlatform = window.lh?.platform ?? "";
 		}
 
-		// The zoom truth: ⌘±/⌘0 zoom the UI
+		// THE ZOOM TRUTH (owner round 7, 2026-10-05): ⌘±/⌘0 zoom the UI
 		// (Electron zoomFactor) while the native traffic lights stay
 		// physical-fixed — the CSS gutter lengths divide by this factor so
 		// their RENDERED size never moves. getZoom covers the first-paint
@@ -275,13 +276,16 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 
 /** Hamburger for page headers — only visible when the sidebar is closed.
  *
- *  The toggle is ALWAYS MOUNTED, owning a slot whose width+margin animate
- *  in LOCKSTEP with the sidebar's own width transition (same duration-200,
- *  same easing, both gated on mount), so its 48px footprint never pops
- *  and drags the title sideways mid-slide. When open the slot is exactly
- *  zero (w-0 -mr-3: width 0, the negative margin cancels the header's
- *  gap-3). The icon fades with the slot and is clipped by it as it
- *  collapses — no popping in either direction. */
+ *  Owner, round 6c: the toggle is ALWAYS MOUNTED, owning a slot whose
+ *  width+margin animate in LOCKSTEP with the sidebar's own width
+ *  transition (same duration-200, same easing, both gated on mount) —
+ *  before, it mounted/unmounted in one frame, so its 48px footprint
+ *  (button + gap) popped and dragged the title and chips sideways while
+ *  the sidebar was still mid-slide. When open the slot is exactly zero
+ *  (w-0 -mr-3: width 0, the negative margin cancels the header's gap-3),
+ *  so resting layouts are pixel-identical to the old conditional render.
+ *  The icon fades with the slot and is clipped by it as it collapses —
+ *  no popping in either direction. */
 export function SidebarToggle() {
 	const { open, toggle } = useSidebar();
 	return (
@@ -301,8 +305,9 @@ export function SidebarToggle() {
 				onClick={toggle}
 				className={cn("sidebar-motion duration-200", open ? "pointer-events-none opacity-0" : "opacity-100")}
 			>
-				{/* size-4, SAME as the close glyph — the toggle must not grow
-				    when the sidebar is closed. */}
+				{/* Owner, round 6: size-4, SAME as the close glyph — the toggle
+				    must not grow when the sidebar is closed (it did: size-5 here).
+				    The small look is the standard, both directions. */}
 				<PanelLeftOpenIcon className="size-4" />
 			</Button>
 			</Hint>
@@ -311,11 +316,15 @@ export function SidebarToggle() {
 }
 
 /**
- * The row's status indicator: the braille spinner, ONLY while a teach turn
- * is in flight — it exists exactly as long as the work does. Every other
- * state renders NOTHING: question-pending is the dominant RESTING state of
- * real sessions, so the meta line's "Waiting for input" text carries it.
- * Idle is the absence of a signal, by design.
+ * The row's status indicator (owner, minimal-color round): the braille
+ * spinner, ONLY while a teach turn is in flight — monochrome motion, the
+ * terminal's own glyph, existing exactly as long as the work does and
+ * vanishing the moment it ends. Every other state renders NOTHING:
+ * phases only advance (all sessions end in Teaching — phase-as-signal was
+ * decoration, now retired app-wide), and question-pending is the dominant
+ * RESTING state of real sessions — a resting state has no scan value, so
+ * the meta line's "Waiting for input" text carries it. Idle is the
+ * absence of a signal, by design.
  */
 function SessionStatus({ busy }: { busy: boolean }) {
 	if (!busy) return null;
@@ -325,8 +334,10 @@ function SessionStatus({ busy }: { busy: boolean }) {
 /** Compact "how long ago": "just now", "5m ago", "3h ago", "2d ago",
  *  then a plain date. How long a session has been WAITING matters more
  *  than an absolute timestamp. Beyond a week the date renders ISO
- *  (YYYY-MM-DD, zero-padded): unambiguous in any locale, and it sorts.
- *  Pure — exported for tests. */
+ *  (YYYY-MM-DD, zero-padded) — the international standard: unambiguous
+ *  in any locale and it sorts (owner, typography round 5; the old
+ *  M/D/YYYY was the US convention. A user-locale setting can come later
+ *  — trivial, a format function swap). Pure — exported for tests. */
 export function timeAgo(iso: string, now = new Date()): string {
 	const ms = now.getTime() - new Date(iso).getTime();
 	if (ms < 60_000) return "just now";
@@ -404,7 +415,6 @@ export function SessionRow({
 	compact = false,
 }: {
 	chat: ChatListItem;
-	/** Appearance → compact chat list: one line, no meta. */
 	compact?: boolean;
 	active: boolean;
 	onOpen: () => void;
@@ -515,8 +525,8 @@ export function RenameRow({ chat, draft: initialDraft, onCommit, onCancel, showT
 	);
 }
 
-/** The three-way kind filter: Teaching / Practice / All — a client-side
- *  filter over the same
+/** The three-way kind filter (practice sessions, owner 2026-10-04):
+ *  Teaching / All / Practice — a client-side filter over the same
  *  snapshot, persisted in localStorage, defaulting to All. */
 export type SessionKindFilter = "teach" | "all" | "practice";
 const KIND_FILTER_KEY = "lh:session-kind-filter";
@@ -550,10 +560,10 @@ function SessionsSidebar() {
 	const router = useRouter();
 	const { open: openSettings } = useSettingsDialog();
 
-	/* New session: NO POST — the button opens the sessionless draft view;
-	   the session is created only when the first message is sent (and that
-	   message becomes its title). Search: a client-side filter over the
-	   list snapshot — no server round trip. */
+	/* New session (owner, 2026-09-13): NO POST — the button opens the
+	   sessionless draft view; the session is created only when the first
+	   message is sent (and that message becomes its title). Search: a
+	   client-side filter over the poll snapshot — no server round trip. */
 	const newSession = useCallback(() => {
 		router.push("/chat/new");
 	}, [router]);
@@ -626,11 +636,13 @@ function SessionsSidebar() {
 	const searchRef = useRef<HTMLInputElement>(null);
 	const listRef = useRef<HTMLDivElement>(null);
 
-	/* ── Context menu + inline rename + deletion ──
-	   Right-click a session row → MenuShell: Rename / Export / Delete, then
-	   — below a hairline — archive, pin, and move-to-project, with the
-	   extraction coverage block at the bottom. The anchor is the row that
-	   was right-clicked — assigned into a ref before the state flip so the
+	/* ── Wave 6 chunk A: context menu + inline rename + deletion ──
+	   Right-click a session row → MenuShell: the two management actions
+	   first (owner ruling), then — below a hairline — the extraction
+	   coverage block (owner-locked redesign 2026-09-24, order refined
+	   2026-09-24: Rename/Delete on top, the numbers + manual Extract
+	   affordance at the bottom). The anchor is the row that was
+	   right-clicked — assigned into a ref before the state flip so the
 	   shell measures it on its first (hidden) pass. */
 	const [ctxChatId, setCtxChatId] = useState<string | null>(null);
 	const [ctxFromKbd, setCtxFromKbd] = useState(false);
@@ -701,11 +713,11 @@ function SessionsSidebar() {
 		}
 	}, []);
 
-	// Delete success: patch the list instantly (the chats-changed event is
-	// the backstop), navigate home if the open session died (the chat view
-	// unmounts — drafts die with it, no orphan bubbles), and announce the
-	// graph revision so the graph view refetches (its pipeline-status feed
-	// can't see a deletion).
+	// Delete success: patch the list instantly (the poll is the backstop),
+	// navigate home if the open session died (the chat view unmounts —
+	// drafts die with it, no orphan bubbles), and announce the graph
+	// revision so the graph view refetches (deletion is the one writer
+	// the status poll can't see — no run ever transitions some→none).
 	const onDeleted = useCallback(
 		(id: string, _mode: ChatDeleteMode, graphRevision: number) => {
 			setDeleting(null);
@@ -768,7 +780,7 @@ function SessionsSidebar() {
 		if (!open) return;
 		void refresh();
 		// Opening + navigation refetch; while open, the events channel owns
-		// freshness — no interval.
+		// freshness (S6) — no interval, nothing standing.
 	}, [open, pathname, refresh]);
 
 	const renderChat = (chat: ChatListItem, index?: number) => renamingId === chat.id ? (
@@ -793,20 +805,22 @@ function SessionsSidebar() {
 			inert={!open}
 		>
 			<div className="flex h-full w-72 flex-col border-r bg-background">
-				{/* LH wordmark header; close toggle sits at the edge. In
-				    Electron this band is the window's drag surface and starts
-				    after the traffic lights (.lh-lights-gutter); in the browser
-				    those classes are inert. */}
+				{/* LH wordmark — the owner's header; close toggle sits at the edge.
+				    Merged chrome (2026-09-17): in Electron this band is the
+				    window's drag surface and starts after the traffic lights
+				    (.lh-lights-gutter); in the browser those classes are inert. */}
 				<div className="lh-drag lh-lights-gutter flex items-center justify-between px-4 py-3">
-					{/* The mark is the home link, vertically centered by the band's
-					    items-center. The 92px .lh-lights-gutter keeps it clear of the
-					    traffic lights with the lights' own edge-inset as the gap.
-					    Hover mirrors the ghost toggle buttons: same size-9 chip
-					    geometry, same hover:bg-accent treatment. */}
+					{/* The owner's mark (2026-09-17) replaces the "LH" text — still the
+					    home link, still vertically centered by the band's items-center.
+					    The 92px .lh-lights-gutter keeps it clear of the traffic lights
+					    with the lights' own edge-inset as the gap. */}
+					{/* Hover mirrors the ghost toggle buttons (owner ask, 2026-09-17):
+					    same size-9 chip geometry, same hover:bg-accent treatment. */}
 					<Hint
-						// To the RIGHT of the logo, carrying its real shortcut: ⌘G
-						// jumps to the graph view (keyboard-shortcuts routes it to
-						// "/", the same destination as this logo).
+						// Kept (owner, subtlety round 2026-09-25) but to the RIGHT
+						// of the logo, carrying its real shortcut: ⌘G jumps to
+						// the graph view (keyboard-shortcuts routes it to "/",
+						// the same destination as this logo).
 						label="Home"
 						action="jump-graph"
 						side="right"

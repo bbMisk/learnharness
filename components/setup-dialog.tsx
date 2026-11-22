@@ -25,9 +25,8 @@
  *     (keyed providers only), the vision slot filtered to image-capable
  *     models, in the app's shared dropdown language (ModelMenuList).
  *     Saved disconnected selections and edits are retained internally in
- *     the exclusive provider stage. Connecting the provider every saved slot uses
- *     closes setup; otherwise every slot without a connected provider is
- *     marked needed and must be picked again.
+ *     the exclusive provider stage. Connecting with all slots already saved
+ *     closes setup; otherwise the pickers require only the missing slots.
  *     All three required (owner: no skip, no defaults); Save PUTs the
  *     models section and reports onDone(models).
  *
@@ -89,8 +88,7 @@ export function setupStage(
 type ModelSelection = Pick<ModelCatalogEntry, "provider" | "id">;
 
 /** Saved identity is independent of selectable metadata. A disconnected
- * pin still prefills (marked needed); only the menu is restricted to the
- * live catalog. */
+ * pin still prefills; only the menu is restricted to the live catalog. */
 export function prefillFromSlots(
 	models: ModelCatalogEntry[],
 	slots: Record<ModelSlotName, { model: { provider: string; id: string } } | null> | undefined,

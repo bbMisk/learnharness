@@ -43,8 +43,8 @@ import { MenuShell } from "@/components/menu-shell";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { DictationLanguageSetting } from "@/components/dictation-language";
 
-/** One pi-ai provider with plain API-key auth (derived from pi-ai's own
- *  env-key table; no drift possible). */
+/** One pi-ai provider with plain API-key auth (the Platform seam —
+ *  derived from pi-ai's own env-key table; no drift possible). */
 export interface ProviderKeyInfo {
 	id: string;
 	envVar: string;
@@ -78,8 +78,9 @@ async function readCustomStatus(inspectKey = false): Promise<CustomStatus> {
 }
 
 /** The curated tools group, pinned by id (the catalog owns the copy;
- *  these ids are the contract). Derived from core/auth-keys.ts, so the
- *  section can never drift from it. */
+ *  these ids are the contract). Derived from the catalog (search wave,
+ *  2026-09-20: the Google CSE pair retired, Tavily + Brave joined) — the
+ *  section can never drift from core/auth-keys.ts again. */
 const TOOL_IDS = AUTH_KEYS.map((k) => k.id) as readonly string[];
 
 /** The custom endpoint's synthetic Add-provider entry (offered only while unconfigured). */
@@ -90,8 +91,8 @@ export const CUSTOM_PROVIDER_INFO: ProviderKeyInfo = {
 };
 
 /** The classification driving the table groups. Pure — exported for
- *  tests. OpenRouter gets no synthesis and no special row — it rides the
- *  same provider classification. */
+ *  tests. OpenRouter is un-pinned (wave-5 owner ruling): no synthesis,
+ *  no special row — it rides the same provider classification. */
 export function classifyKeys(
 	statuses: readonly AuthKeyStatus[],
 	providers: readonly ProviderKeyInfo[] | undefined,
@@ -127,8 +128,8 @@ export function classifyKeys(
 		if (s.id === CUSTOM_PROVIDER.envVar) continue;
 		if (providerEnv.has(s.id) || (!s.info && providers === undefined)) providerRows.push(s);
 		else if (!s.info) unknownRows.push(s);
-		// (a status with catalog info but no provider entry still renders
-		// as a provider row so nothing disappears)
+		// (pre-interlude catalogs: a curated-but-unclassified status still
+		// renders as a provider row so nothing disappears)
 		else providerRows.push(s);
 	}
 	return {
@@ -178,8 +179,8 @@ function KeyTableRow({
 	onToggle: () => void;
 	onSave: (value: string) => Promise<string | null>;
 	onDelete?: () => Promise<void>;
-	/** Folds the editor (the way OUT of a paste prompt must be visible —
-	 *  Cancel beside Save/Delete, not only Esc). */
+	/** Folds the editor (owner, fix wave: the way OUT of a paste prompt
+	 *  must be visible — Cancel beside Save/Delete, not only Esc). */
 	onCancel: () => void;
 	testid: string;
 }) {
@@ -378,7 +379,8 @@ function AddProviderRow({
 					preferredSide="down"
 					menuClass="flex w-72 flex-col rounded-xl border border-border bg-card p-2 text-xs shadow-xl"
 				>
-					{/* Close on pick: the paste row is the next step. */}
+					{/* Close on pick (owner, fix wave): a chosen provider ends
+					    the dropdown — the paste row is the next step. */}
 					<ProviderMenuList
 						providers={addable}
 						onPick={(p) => {
@@ -393,8 +395,8 @@ function AddProviderRow({
 }
 
 export function KeysSection({
-	/** A deep-linked row to unfold on arrival (e.g. the dictation error's
-	 *  click lands here on DEEPGRAM_API_KEY). Followed
+	/** A deep-linked row to unfold on arrival (zero-keys wave): the
+	 *  dictation error's click lands here on DEEPGRAM_API_KEY. Followed
 	 *  while mounted too — the settings dialog's while-open retarget
 	 *  pattern. undefined = nothing seeded. */
 	initialRow,
@@ -501,7 +503,7 @@ export function KeysSection({
 			return body.error ?? `Save failed (${res.status})`;
 		}
 		await reload();
-		// The cross-surface keys signal: the zero-keys pill,
+		// The cross-surface keys signal (zero-keys wave): the zero-keys pill,
 		// the setup dialog's stage advance, and any other keys reader hear
 		// that a key landed — deletions included (see deleteKey below).
 		notifySettingsSaved("keys");

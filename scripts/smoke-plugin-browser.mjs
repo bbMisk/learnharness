@@ -834,9 +834,8 @@ export async function verifyPluginBrowser(url, options = {}) {
 		const retainedPicker = await page.$(KNOWLEDGE_OVERLAY);
 		const retainedSelection = await page.$(selectedPremise);
 		const pickerFocus = await page.evaluateHandle(() => document.activeElement);
-		// A page-origin picker is a main-pane view (assertPaneKnowledgePicker),
-		// not a modal: Settings covers it via the shared modal boundary's
-		// aria-hidden isolation. Open it with the existing global command.
+		// The sidebar is isolated by the picker. Use the existing global command,
+		// not a synthetic click into the inactive background.
 		await chord(",");
 		await page.waitForSelector('[data-testid="settings-dialog"]', { visible: true });
 		assert.equal(await page.$$eval('[data-testid="settings-dialog"]', nodes => nodes.length), 1);

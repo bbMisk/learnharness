@@ -68,8 +68,8 @@ export const SERVER_EVENT_TYPES = [
 	"plugin-message",
 ] as const satisfies readonly ServerEventType[];
 
-/** One notification: the type discriminates the payload (distributed per
- *  type, so narrowing on `type` narrows the payload). */
+/** One notification: distribute over the vocabulary so narrowing `type`
+ * actually narrows its payload (including plugin-scoped messages). */
 export type ServerEvent<K extends ServerEventType = ServerEventType> = {
 	[T in K]: { type: T } & ServerEvents[T];
 }[K];

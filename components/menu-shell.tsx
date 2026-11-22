@@ -36,10 +36,13 @@ const CAP_VH = 0.6; // 60vh — the graph pattern's cap
 const MIN_USABLE = 96; // floor: a shorter cap is an unusable sliver; the
 // cap then overflows the edge instead of crushing the menu
 
-/** A MenuShell mounted = a dropdown open. The shell only announces it;
- *  surfaces decide what to do (the settings dialog locks its content
- *  scroll; anything else keeps the re-place-on-scroll fallback below).
- *  Listeners count open/close, so overlapping menus stay balanced. */
+/** A MenuShell mounted = a dropdown open (fix wave, owner ruling:
+ *  the settings dialog's content column locks while any menu is down —
+ *  no scrolling under a dropdown). The shell stays placement-only: it
+ *  just ANNOUNCES, surfaces decide what to do with the fact (the
+ *  settings dialog locks; anything un-lockable keeps the re-place-on-
+ *  scroll fallback below). Count-based: overlapping menus open/close in
+ *  any order and the accounting stays balanced. */
 export const MENU_OPEN_EVENT = "lh:menu-open";
 export const MENU_CLOSE_EVENT = "lh:menu-close";
 

@@ -135,8 +135,6 @@ export function MermaidOverlay({
 		};
 	}, [rawSvg, chart, image, attempt, resolvedMode]);
 
-	// Esc closes through the interaction layers: one Esc, one action; the
-	// window chain (dictation → abort) never fires under a surfaced layer.
 	const rootRef = useRef<HTMLDivElement>(null);
 	const layer = useInteractionLayer({
 		kind: "view", enabled: true, rootRef,
