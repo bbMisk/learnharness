@@ -62,8 +62,19 @@ restart() {
 	# Without this, a failed restart leaves the old server answering health checks.
 	launchctl kickstart -k "gui/$(id -u)/$SERVICE" || return 1
 	# Up to 2 minutes: a heavily loaded Mac can take over 30 s to serve the first request.
-	for _ in $(seq 1 240); do curl -sf -m 5 "$URL/api/health" >/dev/null && return 0; sleep 0.5; done
+	for _ in $(seq 1 240); do
+		if curl -sf -m 5 "$URL/api/health" >/dev/null; then readable; return; fi
+		sleep 0.5
+	done
 	return 1
+}
+
+# Up is not enough: the app must be able to read the chat list the way a
+# browser does (one Content-Encoding undone). On 2026-11-22 a host that
+# gzipped its JSON twice answered /api/health and showed no chats.
+readable() {
+	curl -sf -m 30 --compressed "$URL/api/chats" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{if(!Array.isArray(JSON.parse(s).chats))process.exit(1)})' \
+		|| { echo "deploy-local: the host is up but /api/chats is not readable JSON" >&2; return 1; }
 }
 
 [ -d "$HOST_DIR" ] && mv "$HOST_DIR" "$BACKUP"

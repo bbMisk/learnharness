@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Ship the current branch to Hanson's live setup in one command.
 #
-#   scripts/ship-local.sh [--force] [--no-relaunch]
+#   scripts/ship-local.sh [--force] [--no-relaunch] [--skip-browser-smoke]
 #
 # Run it in a normal Terminal (it needs your GitHub login and launchd).
 # Order matters: everything that can fail without touching the live setup
 # runs first.
 #   1. build the desktop app (this also builds the server and smoke-tests it)
-#   2. run the plugin browser smoke; a failure is reported, not fatal
+#   2. run the plugin browser smoke; a failure stops the ship (2026-11-22:
+#      it caught twice-gzipped API bodies that every other check passed)
 #   3. push the branch
 #   4. deploy the local host (scripts/deploy-local.sh: idle check, backup,
 #      health check, automatic rollback)
@@ -15,6 +16,8 @@
 #   6. quit and reopen the app, unless --no-relaunch
 #
 # --force is passed to deploy-local.sh (skip its idle and pushed checks).
+# --skip-browser-smoke ships past a browser smoke failure you have read and
+# judged harmless; the log is dist/ship-browser-smoke.log.
 set -euo pipefail
 
 APP_DEST="${LH_APP_DEST:-/Applications/LearnHarness.app}"
@@ -22,10 +25,12 @@ BACKUP_ROOT="${LH_APP_BACKUP_ROOT:-$HOME/dev}"
 DEPLOY="${LH_DEPLOY_CMD:-scripts/deploy-local.sh}" # overridable so the script can be rehearsed
 FORCE=""
 RELAUNCH=1
+BROWSER_SMOKE_REQUIRED=1
 for arg in "$@"; do
 	case "$arg" in
 		--force) FORCE="--force" ;;
 		--no-relaunch) RELAUNCH=0 ;;
+		--skip-browser-smoke) BROWSER_SMOKE_REQUIRED=0 ;;
 		*) echo "ship-local: unknown option $arg" >&2; exit 2 ;;
 	esac
 done
@@ -47,12 +52,14 @@ APP="$(node -p 'require("./dist/local-build.json").app')"
 VERSION="$(node -p 'require("./dist/local-build.json").version')"
 [ -d "$APP" ] || die "the desktop build did not produce an app"
 
-step "2/6 plugin browser smoke (reported, not fatal)"
+step "2/6 plugin browser smoke"
 SMOKE_LOG="dist/ship-browser-smoke.log"
 if node scripts/smoke-server.mjs --browser >"$SMOKE_LOG" 2>&1; then
 	BROWSER_SMOKE="passed"
 else
 	BROWSER_SMOKE="FAILED (log: $PWD/$SMOKE_LOG)"
+	grep -E "FAIL" "$SMOKE_LOG" | head -3 || true
+	[ "$BROWSER_SMOKE_REQUIRED" = 0 ] || die "the browser smoke failed, nothing was pushed or deployed. Read $PWD/$SMOKE_LOG; pass --skip-browser-smoke only if the failure is harmless"
 fi
 echo "browser smoke: $BROWSER_SMOKE"
 

@@ -8,10 +8,10 @@ This fork tracks [upstream LearnHarness](https://github.com/amosblomqvist/learnh
 
 ## Beta, then main
 1. Branch from `main`, make the change, and run `npm test`, `npm run typecheck` and `npm run lint`.
-2. Push the branch, then run `scripts/deploy-local.sh`. The desktop app talks to the local host (`http://127.0.0.1:8787`), so the branch is now the beta Hanson uses. The script keeps the two newest previous versions as `~/dev/learnharness-remote.before-<time>`, records the running commit in `~/dev/learnharness-remote/DEPLOYED.json`, and rolls back if the host does not come up. Open windows then show "LearnHarness updated · Reload" at the bottom left (above Settings in the sidebar, or as a small pill when the sidebar is closed); they never reload on their own, so nothing unsent is lost.
+2. Push the branch, then run `scripts/deploy-local.sh`. The desktop app talks to the local host (`http://127.0.0.1:8787`), so the branch is now the beta Hanson uses. The script keeps the two newest previous versions as `~/dev/learnharness-remote.before-<time>`, records the running commit in `~/dev/learnharness-remote/DEPLOYED.json`, and rolls back if the host does not come up or its chat list is not readable JSON. Open windows then show "LearnHarness updated · Reload" at the bottom left (above Settings in the sidebar, or as a small pill when the sidebar is closed); they never reload on their own, so nothing unsent is lost.
 3. When the beta is good, open a PR and merge it to `main`.
 
-`scripts/ship-local.sh` does step 2 and the desktop app in one command: it builds and smoke-tests the app, pushes the branch, runs `deploy-local.sh`, installs the app into `/Applications` (the previous one is kept in `~/dev/learnharness-desktop.previous-<time>`), then quits and reopens it. Run it in a normal Terminal. A change that touches `electron/` needs the new app, not only the host.
+`scripts/ship-local.sh` does step 2 and the desktop app in one command: it builds and smoke-tests the app (a browser smoke failure stops it before anything is pushed), pushes the branch, runs `deploy-local.sh`, installs the app into `/Applications` (the previous one is kept in `~/dev/learnharness-desktop.previous-<time>`), then quits and reopens it. Run it in a normal Terminal. A change that touches `electron/` needs the new app, not only the host.
 
 To roll back by hand, move a `before-<time>` folder back to `~/dev/learnharness-remote`, then run `launchctl kickstart -k gui/$(id -u)/io.hanson.learnharness.remote`.
 

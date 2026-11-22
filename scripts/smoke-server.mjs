@@ -191,7 +191,11 @@ registerHooks({resolve(specifier,context,next){ const result=next(specifier,cont
 		for (const route of PROBES) {
 			const status = await get(url + route);
 			if (status !== 200) throw new Error(`GET ${route} → ${status} (expected 200)`);
-			console.log(`[smoke-server] GET ${route} → 200`);
+			// FORK: the body must read as JSON the way the app reads it (fetch
+			// undoes one Content-Encoding). A route that gzips its own body is
+			// encoded twice by Next's compression and fails here.
+			await fetch(url + route).then((res) => res.json()).catch((error) => { throw new Error(`GET ${route} is not readable JSON: ${error.message}`); });
+			console.log(`[smoke-server] GET ${route} → 200, JSON`);
 		}
 		// Exercise an error from the singleton created by another route bundle.
 		// No TypeWhisper server/credentials are touched for an unowned session.
