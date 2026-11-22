@@ -262,7 +262,7 @@ const put = (general: unknown) =>
 		params: Promise.resolve({ section: "general" }),
 	});
 const listed = async () =>
-	(await (await listing.GET(new Request("http://test/api/chats"))).json()).chats as Array<{ id: string; timeSpentMs?: number }>;
+	(await (await listing.GET()).json()).chats as Array<{ id: string; timeSpentMs?: number }>;
 
 describe("the chat list", () => {
 	it("projects time spent with the summary and sends it on every row; the switch round-trips", async () => {

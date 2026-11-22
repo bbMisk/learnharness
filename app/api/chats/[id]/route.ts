@@ -1,4 +1,4 @@
-import { projectStore, setChatOrganization, compactionInFlight, deleteChatSession, getChat, isTurnRunning, jsonResponse, sessionCoverage, sessionCost, stores, turnFailure, type ChatDeleteMode, pluginQuestionAvailabilityOf, reconcilePluginQuestionCompatibility, type QuestionTypeResolver, getPluginQuestionTypeResolver, getPluginHost, pluginProblemAvailabilityOf, type ProblemTypeResolver } from "@/src/server";
+import { projectStore, setChatOrganization, compactionInFlight, deleteChatSession, getChat, isTurnRunning, sessionCoverage, sessionCost, stores, turnFailure, type ChatDeleteMode, pluginQuestionAvailabilityOf, reconcilePluginQuestionCompatibility, type QuestionTypeResolver, getPluginQuestionTypeResolver, getPluginHost, pluginProblemAvailabilityOf, type ProblemTypeResolver } from "@/src/server";
 import { clientMessage, pendingPluginQuestionOf, activeProblemOf } from "@/src/core";
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -14,12 +14,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 	if (!chat) return Response.json({ error: "Not found" }, { status: 404 });
 	// Metadata-only reads for views that already hold the transcript.
 	const only = new URL(req.url).searchParams.get("only");
-	if (only === "stats") return jsonResponse(req, { turns: chat.turns, pricing: sessionCost(chat) });
-	if (only === "coverage") return jsonResponse(req, { coverage: sessionCoverage(chat) });
+	if (only === "stats") return Response.json({ turns: chat.turns, pricing: sessionCost(chat) });
+	if (only === "coverage") return Response.json({ coverage: sessionCoverage(chat) });
 	// The open chat view's cram chip re-reads the style another window set.
-	if (only === "style") return jsonResponse(req, { style: chat.style ?? null });
+	if (only === "style") return Response.json({ style: chat.style ?? null });
 	// The open chat view checks its record still exists and follows renames and archiving.
-	if (only === "title") return jsonResponse(req, { title: chat.title, archived: chat.archived === true });
+	if (only === "title") return Response.json({ title: chat.title, archived: chat.archived === true });
 	let questionResolver: QuestionTypeResolver | undefined;
 	if (pendingPluginQuestionOf(chat.messages)) {
 		try { questionResolver = await getPluginQuestionTypeResolver(); } catch { /* unavailable fallback */ }
@@ -45,7 +45,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 	// re-attach to a running turn; coverage is the chat view's ring meter.
 	// Snapshot bytes have a session-scoped endpoint; do not resend the whole image pool on every poll.
 	const { learningEvents: _learningEvents, imageSnapshots: _imageSnapshots, ...view } = chat;
-	return jsonResponse(req, {
+	return Response.json({
 		...view,
 		messages: chat.messages.map(clientMessage),
 		pluginQuestionAvailability: pluginQuestionAvailabilityOf(chat, questionResolver),

@@ -16,13 +16,13 @@
  * PUT/DELETE /api/settings/prompts/[...segment].
  */
 
-import { effectivePromptSegments, jsonResponse, readSettingsRecord } from "@/src/server";
+import { effectivePromptSegments, readSettingsRecord } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
+export async function GET() {
 	const switches = readSettingsRecord()?.agent?.prompts ?? {};
-	return jsonResponse(request, {
+	return Response.json({
 		prober: effectivePromptSegments("prober", switches),
 		teacher: effectivePromptSegments("teacher", switches),
 		practice: effectivePromptSegments("practice", switches),

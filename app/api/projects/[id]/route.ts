@@ -1,9 +1,9 @@
 import { NAME_MAX_CHARS } from "@/src/core";
-import { checkProjectFolder, jsonResponse, projectStore, projectView, setChatOrganization, stores, uploadStore } from "@/src/server";
+import { checkProjectFolder, projectStore, projectView, setChatOrganization, stores, uploadStore } from "@/src/server";
 
-export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
 	const project = await projectView((await params).id);
-	return project ? jsonResponse(request, project) : Response.json({ error: "Project not found." }, { status: 404 });
+	return project ? Response.json(project) : Response.json({ error: "Project not found." }, { status: 404 });
 }
 
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {

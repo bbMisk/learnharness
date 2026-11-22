@@ -1,11 +1,11 @@
-import { learningHistory, captureLearningHistory, jsonResponse } from "@/src/server";
+import { learningHistory, captureLearningHistory } from "@/src/server";
 
 /** Portable raw history; model credentials are excluded. */
 export async function GET(request: Request) {
 	const url = new URL(request.url);
 	const history = learningHistory(url.searchParams.get("chatId"));
 	if (!history) return Response.json({ error: "Not found" }, { status: 404 });
-	return jsonResponse(request, history, {
+	return Response.json(history, {
 		headers: {
 			"Cache-Control": "no-store",
 			...(url.searchParams.get("download") === "1"

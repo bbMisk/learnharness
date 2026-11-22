@@ -98,7 +98,7 @@ async function serverFetch(input: RequestInfo | URL): Promise<Response> {
 	const url = String(input);
 	if (url === "/api/chats") {
 		served.lists++;
-		return listing.GET(new Request("http://test/api/chats"));
+		return listing.GET();
 	}
 	if (url === "/api/settings") {
 		served.settingsReads++;

@@ -7,11 +7,11 @@
  * per-chunk jobs, owner 2026-09-28). Titles joined from the chat store;
  * a missing chat record still reports the run.
  */
-import { chatStore, extractionStatuses, jsonResponse } from "@/src/server";
+import { chatStore, extractionStatuses } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
+export async function GET() {
 	const runs = extractionStatuses().map((run) => ({
 		// Unique row id (the registry job key: source id, or "src#i" for
 		// chunk jobs) — one source's rows share chatId, and React keys on
@@ -32,5 +32,5 @@ export async function GET(request: Request) {
 		// consumer's (core/prices.ts helpers — nothing stores dollars).
 		usage: run.usage,
 	}));
-	return jsonResponse(request, { runs });
+	return Response.json({ runs });
 }

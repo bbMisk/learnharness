@@ -1,4 +1,4 @@
-import { jsonResponse, modelCatalog, prepareConnectionCatalog, refreshModelCatalog } from "@/src/server";
+import { modelCatalog, prepareConnectionCatalog, refreshModelCatalog } from "@/src/server";
 import type { ModelCatalogRefreshResponse } from "@/src/core";
 
 const headers = { "Cache-Control": "no-store" };
@@ -10,9 +10,9 @@ const headers = { "Cache-Control": "no-store" };
  * compatible model appears on the next read. Provider-key catalogs read
  * bundled and locally saved metadata.
  */
-export async function GET(request: Request) {
+export async function GET() {
 	await prepareConnectionCatalog();
-	return jsonResponse(request, modelCatalog(), { headers });
+	return Response.json(modelCatalog(), { headers });
 }
 
 /** Only this explicit action may contact pi.dev. The API Proxy guards it. */

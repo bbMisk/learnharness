@@ -18,13 +18,13 @@ const change = (action: unknown) => POST(new Request("http://localhost/api/graph
 const sourceId = (filePath: string) => `src_${createHash("sha256").update(filePath).digest("hex").slice(0, 12)}`;
 
 it("GET is a non-writing read and inventories all sessions, imported records and missing provenance", async () => {
-	const before = await GET(new Request("http://test/api/graph/sources")); assert.equal(before.status, 200);
+	const before = await GET(); assert.equal(before.status, 200);
 	assert.deepEqual((await before.json()).sources, []);
 	assert.equal(fs.existsSync(SOURCE_ORGANIZATION_FILE), false);
 	const chat = stores.chatStore.createChat("Unextracted session");
 	stores.graphStore.upsertSource({ id: sourceId("Root/empty.md"), filePath: "Root/empty.md", importedAt: "2026-10-30T00:00:00Z" });
 	stores.graphStore.appendNode({ id: "n_orphan", name: "Orphan", statement: "A record is missing.", aliases: [], createdAt: "2026-10-30T00:00:00Z", provenance: [{ chatId: "gone", messageId: "m1" }] });
-	const { sources } = await (await GET(new Request("http://test/api/graph/sources"))).json();
+	const { sources } = await (await GET()).json();
 	assert.equal(sources.find((s: { id: string }) => s.id === chat.id).label, "Unextracted session");
 	assert.equal(sources.find((s: { id: string }) => s.id === chat.id).chatKind, "teach", "absent persisted kind still means teaching");
 	assert.equal(sources.find((s: { kind: string }) => s.kind === "notes").label, "empty");
@@ -40,7 +40,7 @@ it("GET projects practice kind without removing or rewriting sessions, historica
 		const file = path.join(entry.parentPath, entry.name); return [file, fs.readFileSync(file).toString("hex")];
 	}));
 	const before = bytes();
-	const directory = await (await GET(new Request("http://test/api/graph/sources"))).json();
+	const directory = await (await GET()).json();
 	assert.deepEqual(directory.sources.find((s: { id: string }) => s.id === practice.id), { id: practice.id, kind: "chat", chatKind: "practice", label: practice.title, createdAt: practice.createdAt });
 	assert.equal(directory.organization.placements[practice.id].folderId, created.createdFolderId);
 	assert.deepEqual(bytes(), before);
@@ -51,12 +51,12 @@ it("rename/move operations persist independently without changing source IDs, pa
 	sourceDirectory.registerImport(filePath);
 	stores.graphStore.upsertSource({ id, filePath, importedAt: "2026-10-30T00:00:00Z", extractions: [] });
 	const before = { nodes: stores.graphStore.readNodes(), chains: stores.graphStore.readChains(), source: stores.graphStore.readSources().find((s) => s.id === id) };
-	let directory = await (await GET(new Request("http://test/api/graph/sources"))).json();
+	let directory = await (await GET()).json();
 	const sub = directory.organization.folders.find((f: { importPath?: string }) => f.importPath === "Course/Sub");
 	for (const action of [{ action: "rename-folder", id: sub.id, name: "Renamed directory" }, { action: "move", kind: "folder", id: sub.id, parentId: null }, { action: "rename-source", id, name: "Renamed book" }]) assert.equal((await change(action)).status, 200);
 	sourceDirectory.registerImport(filePath);
 	sourceDirectory.registerImport("Course/Sub/new.txt");
-	directory = await (await GET(new Request("http://test/api/graph/sources"))).json();
+	directory = await (await GET()).json();
 	assert.equal(directory.sources.find((s: { id: string }) => s.id === id).label, "Renamed book");
 	assert.equal(directory.organization.placements[sourceId("Course/Sub/new.txt")].folderId, sub.id);
 	assert.equal(directory.organization.folders.find((f: { id: string }) => f.id === sub.id).parentId, null);
@@ -99,7 +99,7 @@ it("newer/corrupt data refuses reads and writes without overwriting its bytes", 
 	try {
 		for (const value of ["{", '{"version":2,"folders":[],"placements":{}}']) {
 			fs.writeFileSync(SOURCE_ORGANIZATION_FILE, value);
-			assert.equal((await GET(new Request("http://test/api/graph/sources"))).status, 500);
+			assert.equal((await GET()).status, 500);
 			assert.equal((await change({ action: "create-folder", name: "Do not overwrite", parentId: null })).status, 500);
 			assert.equal(fs.readFileSync(SOURCE_ORGANIZATION_FILE, "utf8"), value);
 		}

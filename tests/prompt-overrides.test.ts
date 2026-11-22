@@ -428,7 +428,7 @@ describe("an orphaned ON heals to OFF on write — never a 400 (the invariant: a
 
 describe("Practice settings API and effective prompt loading", () => {
 	it("GET exposes the actual source-discovered Practice fragments and shared subset", async () => {
-		const response = await getPromptSegments(new Request("http://localhost/api/settings/prompts"));
+		const response = await getPromptSegments();
 		assert.equal(response.status, 200);
 		const view = await response.json();
 		for (const kind of ["teacher", "prober", "practice"] as const) {
@@ -455,7 +455,7 @@ describe("Practice settings API and effective prompt loading", () => {
 			assert.equal(loaded(), defaults.practice, "saving text alone does not enable it");
 			for (const on of [true, false, true]) {
 				assert.equal((await putSection("agent", { tools: { research: false }, prompts: on ? { [segment]: true } : {} })).status, 200);
-				const view = await (await getPromptSegments(new Request("http://localhost/api/settings/prompts"))).json();
+				const view = await (await getPromptSegments()).json();
 				const row = view.practice.find((s: { path: string }) => s.path === segment);
 				assert.equal(row.enabled, on);
 				assert.equal(row.overrideText, text);
@@ -469,7 +469,7 @@ describe("Practice settings API and effective prompt loading", () => {
 			assert.equal(readSettingsRecord()?.agent?.prompts?.[segment], undefined);
 			assert.equal(readSettingsRecord()?.agent?.tools?.research, false, "unrelated settings preserved");
 			assert.equal(loaded(), defaults.practice);
-			const view = await (await getPromptSegments(new Request("http://localhost/api/settings/prompts"))).json();
+			const view = await (await getPromptSegments()).json();
 			const row = view.practice.find((s: { path: string }) => s.path === segment);
 			assert.equal(row.enabled, false);
 			assert.equal(row.overrideText, null);

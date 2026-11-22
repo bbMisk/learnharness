@@ -15,7 +15,6 @@ process.env.LH_DATA_DIR = scratch;
 process.env.LH_AUTH_FILE = path.join(scratch, "empty-auth.json");
 fs.writeFileSync(process.env.LH_AUTH_FILE, "{}", { mode: 0o600 });
 const { chatStore } = await import("../src/store/chats.ts");
-const { jsonResponse } = await import("../src/server/json-response.ts");
 const chatRoute = await import("../app/api/chats/[id]/route.ts");
 const chatList = await import("../app/api/chats/route.ts");
 const graphRoute = await import("../app/api/graph/route.ts");
@@ -29,21 +28,11 @@ chatStore.saveMessages(
 const gzipRequest = (url: string) => new Request(url, { headers: { "Accept-Encoding": "gzip, br" } });
 const GZIP_MAGIC = Buffer.from([0x1f, 0x8b]);
 
-test("jsonResponse returns plain JSON whatever the request accepts, with the caller's status and headers", async () => {
-	const data = { text: "x".repeat(50_000) };
-	const response = jsonResponse(gzipRequest("http://localhost/api/anything"), data, { status: 201, headers: { "Cache-Control": "no-store" } });
-	assert.equal(response.status, 201);
-	assert.equal(response.headers.get("cache-control"), "no-store");
-	assert.equal(response.headers.get("content-encoding"), null);
-	assert.match(response.headers.get("content-type") ?? "", /^application\/json/);
-	assert.deepEqual(await response.json(), data);
-});
-
 test("the large reads answer unencoded bodies, so the server encodes them exactly once", async () => {
 	const reads: [string, Response][] = [
 		["chat open", await chatRoute.GET(gzipRequest(`http://localhost/api/chats/${big.id}`), { params: Promise.resolve({ id: big.id }) })],
-		["chat list", await chatList.GET(gzipRequest("http://localhost/api/chats"))],
-		["graph", await graphRoute.GET(gzipRequest("http://localhost/api/graph"))],
+		["chat list", await chatList.GET()],
+		["graph", await graphRoute.GET()],
 	];
 	for (const [name, response] of reads) {
 		assert.equal(response.status, 200, name);
