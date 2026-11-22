@@ -134,8 +134,8 @@ test("graph folder filter has scoped keyboard focus, including Show all and Esca
 	assert.equal((await key(controller(), document.activeElement!, "Tab")).defaultPrevented, true);
 	assert.equal(focusedLabel(), "Show folder Alpha");
 	await key(controller(), document.activeElement!, "Escape");
-	assert.equal(document.querySelector('[data-testid="graph-folder-filter-panel"]'), null);
-	assert.equal(document.activeElement, trigger);
+	assertSameNode(document.querySelector('[data-testid="graph-folder-filter-panel"]'), null);
+	assertSameNode(document.activeElement, trigger);
 	assert(document.querySelector('[aria-label="Filter parent"]'));
 }));
 

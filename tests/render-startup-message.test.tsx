@@ -8,6 +8,7 @@ import { HostDialog } from "../components/host-dialog.tsx";
 import { InteractionLayersProvider, useInteractionLayers, type InteractionLayersController } from "../components/interaction-layers.tsx";
 import { StartupMessage, StartupMessageBody, type StartupMessageOffer } from "../components/startup-message.tsx";
 import { installModalDom } from "./modal-dom.ts";
+import { assertSameNode } from "./helpers/same-node.ts";
 
 const message = { id: "new-message", title: "An update", publishedAt: "2026-11-13T01:01:00Z", bodyMarkdown: "Some **formatted** text." };
 let root: Root | undefined, restore: (() => void) | undefined;
@@ -69,7 +70,7 @@ for (const method of ["button", "header button", "escape", "backdrop"]) it(`show
 	const heading = dialog()?.querySelector("h2");
 	assert.equal(heading?.textContent, message.title);
 	assert.equal(dialog()?.getAttribute("aria-labelledby"), heading?.id);
-	assert.equal(document.activeElement, heading);
+	assertSameNode(document.activeElement, heading);
 	assert.deepEqual(f.dismissals, [], "showing does not count as dismissal");
 	if (method === "button") await act(async () => dialog()?.querySelector<HTMLButtonElement>("footer button")?.click());
 	else if (method === "header button") {
@@ -130,7 +131,7 @@ it("does not register or focus a dialog when an eligible offer expires before Re
 		});
 		assert.equal(registered, false, "the expired lease never enters the layer stack");
 		assert.equal(dialog(), null);
-		assert.equal(document.activeElement, focused);
+		assertSameNode(document.activeElement, focused);
 		assert.deepEqual(f.dismissals, []);
 	} finally { unsubscribe(); clock.mock.restore(); }
 });
@@ -151,6 +152,6 @@ it("renders basic Markdown without executable HTML, remote embeds or unsafe link
 	assert.equal(document.querySelectorAll("a").length, 1);
 	assert.equal(document.querySelector("a")?.getAttribute("rel"), "noopener noreferrer");
 	assert.equal(document.querySelector("a")?.getAttribute("href"), "https://learnharness.ai/");
-	assert.equal(document.querySelector("img,iframe,script,svg,button"), null);
+	assertSameNode(document.querySelector("img,iframe,script,svg,button"), null);
 	assert.equal(document.querySelector("pre code")?.textContent?.trim(), "a-->b");
 });

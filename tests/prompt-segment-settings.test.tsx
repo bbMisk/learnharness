@@ -7,6 +7,7 @@ import { promptSegmentName } from "../components/settings/prompt-segment-row.tsx
 import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
 import type { AgentSettings } from "../src/core/index.ts";
 import { installModalDom } from "./modal-dom.ts";
+import { assertSameNode } from "./helpers/same-node.ts";
 
 it("derives prompt titles from segment paths without a mapping", () => {
 	assert.equal(promptSegmentName("practice/10-doctrine.md"), "Doctrine");
@@ -156,7 +157,7 @@ it("edits one segment with recoverable Settings writes and refreshes without Pro
 		assert.ok(deferredReads.length > 0);
 		assert.ok(button(row(), "Edit override").disabled, "no editor may open from the stale list");
 		await act(async () => { await new Promise(resolve => setTimeout(resolve, 5)); });
-		assert.equal(document.activeElement, row(), "focus returns to the prompt row when its opener is disabled");
+		assertSameNode(document.activeElement, row(), "focus returns to the prompt row when its opener is disabled");
 		holdReads = false;
 		const group = document.querySelector<HTMLElement>('[data-testid="group-prompts"]')!;
 		await click(group, "Retry");
@@ -174,6 +175,7 @@ it("edits one segment with recoverable Settings writes and refreshes without Pro
 		const count = agentWrites.length;
 		failActivation = true; // The old redundant post-delete PUT would've failed here.
 		await click(dialog()!, "Delete override");
+		await click(dialog()!, "Confirm delete"); // the fork's two-click delete
 		assert.match(dialog()!.querySelector('[role="alert"]')!.textContent ?? "", /Settings is still saving/);
 		assert.equal(overrideText, revisedText, "a pending full-record ACK prevents dispatch");
 		assert.equal(button(dialog()!, "Close").disabled, false);
@@ -183,6 +185,7 @@ it("edits one segment with recoverable Settings writes and refreshes without Pro
 		assert.equal(overrideText, revisedText, "a declined delete must not run when the ACK arrives");
 		await click(row(), "Edit override");
 		await click(dialog()!, "Delete override");
+		await click(dialog()!, "Confirm delete"); // the fork's two-click delete
 		assert.equal(dialog(), null);
 		assert.equal(agentWrites.length, count, "DELETE already cleared the switch; no mirror PUT");
 		assert.equal(agent.prompts?.[path], undefined);

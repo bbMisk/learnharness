@@ -17,7 +17,7 @@ for (const mode of ["static", "streaming"] as const) {
 	test(`${mode}: complete probability inequalities render as math without swallowing subsequent prose`, () => {
 		const html = renderToStaticMarkup(<MessageResponse mode={mode}>{markdown}</MessageResponse>);
 		const { document } = parseHTML(html);
-		assert.equal(document.querySelector("annotation")?.textContent?.trim(), equation);
+		assert.equal(document.querySelector(".katex[data-tex]")?.getAttribute("data-tex")?.trim(), equation);
 		assert.ok(document.querySelector(".katex-display"), "the full expression is display math");
 		assert.equal(document.querySelectorAll(".katex-error").length, 0);
 		assert.ok(document.documentElement.textContent?.includes("The remaining factor reflects ring area."));
@@ -29,13 +29,13 @@ test("streaming preserves inline inequalities and repairs unfinished emphasis", 
 	const { document } = parseHTML(renderToStaticMarkup(
 		<MessageResponse streaming>{"For $R<r$, **keep teaching"}</MessageResponse>,
 	));
-	assert.equal(document.querySelector("annotation")?.textContent, "R<r");
+	assert.equal(document.querySelector(".katex[data-tex]")?.getAttribute("data-tex"), "R<r");
 	assert.equal(document.querySelector("strong")?.textContent, "keep teaching");
 });
 
 test("HTML sanitization remains active alongside probability math", () => {
 	const input = markdown + '\n\n<img src="x" onerror="alert(1)"><script>alert(2)</script>';
 	const { document } = parseHTML(renderToStaticMarkup(<MessageResponse>{input}</MessageResponse>));
-	assert.equal(document.querySelector("annotation")?.textContent?.trim(), equation);
+	assert.equal(document.querySelector(".katex[data-tex]")?.getAttribute("data-tex")?.trim(), equation);
 	assert.equal(document.querySelectorAll("script, [onerror]").length, 0);
 });

@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { parseHTML } from "linkedom";
 import { MessageResponse } from "../components/ai-elements/message.tsx";
 import { MathDisplay } from "../components/md-blocks.tsx";
+import { assertSameNode } from "./helpers/same-node.ts";
 
 (globalThis as { React?: typeof React }).React = React;
 const { window, document } = parseHTML("<html><body></body></html>");
@@ -23,7 +24,7 @@ test("display equation Copy writes the TeX from the rendered formula, including 
 	const tex = String.raw`\int_0^1 x^2\,dx = \frac{1}{3}`;
 	try {
 		await act(async () => root.render(<MessageResponse>{`$$\n${tex}\n$$`}</MessageResponse>));
-		assert.equal(host.querySelector("annotation"), null, "the current renderer does not need MathML");
+		assertSameNode(host.querySelector("annotation"), null, "the current renderer does not need MathML");
 		const copy = () => host.querySelector<HTMLButtonElement>('button[aria-label="Copy equation source"]')!.click();
 		await act(async () => copy());
 		assert.deepEqual(writes, [tex]);

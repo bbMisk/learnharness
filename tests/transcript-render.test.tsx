@@ -157,7 +157,19 @@ describe("streaming leaves settled transcript rows alone", () => {
 			await act(async () => setView({ messages: projector.project(messages, live), streaming }));
 			const fresh = await mount(projectView(messages, live), streaming);
 			// useId values differ between roots; everything else must match.
-			const markup = (el: HTMLElement) => el.innerHTML.replace(/_r_[0-9a-z]+_/g, "_r_");
+			// Attribute order is not markup: a prop that appears on update
+			// (data-older-transcript-row once a later user turn lands) is
+			// appended after the mount-time attributes, so compare each
+			// element's attributes sorted.
+			const markup = (el: HTMLElement) => {
+				const copy = el.cloneNode(true) as HTMLElement;
+				for (const node of [copy, ...copy.querySelectorAll("*")]) {
+					const attrs = [...node.attributes].map((a) => [a.name, a.value] as const).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+					for (const [name] of attrs) node.removeAttribute(name);
+					for (const [name, value] of attrs) node.setAttribute(name, value);
+				}
+				return copy.innerHTML.replace(/_r_[0-9a-z]+_/g, "_r_");
+			};
 			assert.equal(markup(host), markup(fresh.host));
 		}
 		assert.ok(host.querySelector('[data-probe="p_new"]'));

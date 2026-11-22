@@ -455,10 +455,10 @@ it("makes room for the dock too: it centres on the narrowed column while the car
 	// one wrapper of the question card, composer, reading field, queued steers,
 	// setup/plan-accept bar and footer row) takes the dock classes.
 	const chat = fs.readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
-	assert.match(chat, /const COLUMN = "mx-auto w-full max-w-none px-6";/);
+	assert.match(chat, /const COLUMN = "lh-transcript-column mx-auto w-full px-6";/);
 	assert.match(chat, /room=\{trackerRoom\.dock\}/);
 	const dock = fs.readFileSync(new URL("../components/dock-overlay.tsx", import.meta.url), "utf8");
-	assert.match(dock, /<div ref=\{blockRef\} data-testid="dock-block" className=\{`relative bg-background pb-5 \$\{room\}`\}>\s*<div className=\{DOCK\}>/);
+	assert.match(dock, /<div ref=\{blockRef\} data-testid="dock-block" className=\{`relative bg-background pb-5 \$\{room\}`\}>\s*<div ref=\{dockRef\}[^>]*className=\{DOCK\}/);
 });
 
 it("plan: screen readers get each step's status and its score in words; the visual design is unchanged", async () => {

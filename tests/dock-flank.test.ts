@@ -70,7 +70,10 @@ it("measures the block's live padding", () => {
 
 it("the chat positions the marginalia from the measured flank and re-measures when the room changes", () => {
 	const dock = fs.readFileSync(new URL("../components/dock-overlay.tsx", import.meta.url), "utf8");
-	assert.match(dock, /const next = measureDockFlank\(block\);/);
+	// The dock measures the block's live box (width + computed padding) and
+	// derives the flank beside the dock's current (possibly adapted) width.
+	assert.match(dock, /const style = getComputedStyle\(block\);\s*const next = \{ width: Math\.round\(block\.offsetWidth\), paddingLeft: parseFloat\(style\.paddingLeft\) \|\| 0, paddingRight: parseFloat\(style\.paddingRight\) \|\| 0 \};/);
+	assert.match(dock, /const flank = dockFlank\(blockW, blockBox\.paddingLeft, blockBox\.paddingRight, dockW\);/);
 	assert.match(dock, /style=\{\{ left: flank\.left, right: flank\.right \}\}/);
 	assert.match(dock, /expanded && flankW >= MARGIN_MIN_W/);
 	assert.match(dock, /ro\.observe\(block\);\s*return \(\) => ro\.disconnect\(\);\s*\}, \[room\]\);/);

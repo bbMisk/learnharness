@@ -18,6 +18,7 @@ import {
 	type QuestionLayout,
 } from "../components/question-layout.ts";
 import type { AskToolInput, QuizToolInput } from "../src/core/question-core.ts";
+import { assertSameNode } from "./helpers/same-node.ts";
 
 // Synthetic geometry seam (linkedom has no layout): every box is 100px tall
 // and as wide as its inline width. Proves the card's arrangement and WHEN it
@@ -72,7 +73,7 @@ test("adaptation off: today's stacked card, nothing measured, no layout reported
 	try {
 		const dock = host.querySelector('[data-testid="question-dock"]')!;
 		assert.equal(dock.getAttribute("data-question-layout"), "stacked");
-		assert.equal(host.querySelector('[data-testid="question-columns"]'), null);
+		assertSameNode(host.querySelector('[data-testid="question-columns"]'), null);
 		const scroll = dock.querySelector("[data-dock-scroll-area]")!;
 		assert.ok(scroll.querySelector("[data-question-part]") && scroll.querySelector("[data-question-options]"));
 		// Confidence has no box of its own: it follows the options inside the
@@ -85,7 +86,7 @@ test("adaptation off: today's stacked card, nothing measured, no layout reported
 		assert.equal(/border-t|px-4/.test(confidence.className), false, "no separator, no second side padding");
 		assert.equal(measurements, 0);
 		assert.ok(layouts.every((l) => l === null));
-		assert.equal(document.querySelector("[data-question-layout-probe]"), null);
+		assertSameNode(document.querySelector("[data-question-layout-probe]"), null);
 	} finally { await act(async () => root.unmount()); host.remove(); }
 });
 
@@ -102,7 +103,7 @@ test("adaptation on: question left, options + confidence right (one scroller), t
 		assert.ok(grid.hasAttribute("data-dock-height-region"), "the row is the dock's height-variable region");
 		const [left, right] = [...grid.children] as HTMLElement[];
 		assert.ok(left!.querySelector("[data-question-part]"));
-		assert.equal(left!.querySelector("[data-question-options]"), null);
+		assertSameNode(left!.querySelector("[data-question-options]"), null);
 		assert.ok(right!.querySelector("[data-question-options]"));
 		// Confidence scrolls with the options, as stacked (owner): both
 		// inside the answer column's one scroller, nothing pinned beside it.
@@ -116,9 +117,9 @@ test("adaptation on: question left, options + confidence right (one scroller), t
 		assert.equal(confidence.className.includes("border-t"), false);
 		assert.ok(right!.className.split(" ").includes("justify-center"));
 		// "Your thinking" stays outside the columns.
-		assert.equal(grid.querySelector('[data-testid="thinking-field"]'), null);
+		assertSameNode(grid.querySelector('[data-testid="thinking-field"]'), null);
 		assert.ok(dock.querySelector('[data-testid="thinking-field"]'));
-		assert.equal(document.querySelector("[data-question-layout-probe]"), null, "the probe is removed after measuring");
+		assertSameNode(document.querySelector("[data-question-layout-probe]"), null, "the probe is removed after measuring");
 
 		const before = measurements;
 		const reported = layouts.length;
@@ -290,7 +291,7 @@ test("an Other draft is never measured: typing, shrinking and growing decide fro
 		await render({ ...request, available: 1100 });
 		assert.equal(measurements, measured);
 		assert.equal(dock.getAttribute("data-question-layout"), "columns");
-		assert.equal(host.querySelector('[data-testid="other-option"] [role="textbox"]'), field, "the field (and its caret) survived both switches");
+		assertSameNode(host.querySelector('[data-testid="other-option"] [role="textbox"]'), field, "the field (and its caret) survived both switches");
 		// The probe's clone carries the empty field, never the draft.
 		const probe = createQuestionProbe({ root: dock as HTMLElement, question: host.querySelector<HTMLElement>("[data-question-part]")!, options, confidence: null });
 		try {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseHTML } from "linkedom";
+import { assertSameNode } from "./helpers/same-node.ts";
 
 // Synthetic geometry seam (linkedom has no layout): each box gets a fixed
 // rect; a scroller's content moves up by its scrollTop. Proves WHICH
@@ -102,7 +103,7 @@ test("only visible focus gets priority: scroll clips can hide a focused editor w
 		assert.equal(visibleFocused(root), editor, "the whole editor is visible");
 		boxes.get(viewport)!.height = 250;
 		assert.equal(visibleFocused(root), null, "an outer clip also counts");
-		assert.equal(dom.document.activeElement, editor, "the focus snapshot never blurs the editor");
+		assertSameNode(dom.document.activeElement, editor, "the focus snapshot never blurs the editor");
 	} finally {
 		Reflect.deleteProperty(dom.document, "activeElement");
 		dom.document.body.replaceChildren();

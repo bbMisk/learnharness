@@ -74,7 +74,9 @@ it("the transcript column reads the variable; unset leaves today's full-bleed co
 	assert.match(css, /\.lh-transcript-column \{\s*max-width: calc\(var\(--lh-transcript-max\) \+ 1rem\);\s*\}/);
 	const chat = readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
 	assert.match(chat, /const COLUMN = "lh-transcript-column mx-auto w-full px-6";/);
-	assert.match(chat, /const DOCK = "mx-auto w-full max-w-\[46rem\] px-4";/);
+	// The fork's dock lives in dock-overlay.tsx.
+	const dock = readFileSync(new URL("../components/dock-overlay.tsx", import.meta.url), "utf8");
+	assert.match(dock, /const DOCK = "mx-auto w-full max-w-\[46rem\] px-4";/);
 });
 
 it("inline code and inline math never wrap on the session page; a span wider than its column scrolls", () => {
@@ -86,7 +88,8 @@ it("inline code and inline math never wrap on the session page; a span wider tha
 	// Display math keeps its own sideways scroller; only inline math is scoped.
 	assert.match(css, /\.katex-display \{\s*overflow-x: auto;/);
 	const chat = readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
-	assert.match(chat, /<div data-session-surface="" className="flex h-dvh">/);
+	// The fork's root keeps inside the safe area (.lh-h-screen, not h-dvh).
+	assert.match(chat, /<div data-session-surface="" className="relative flex lh-h-screen">/);
 });
 
 it("labels: px at 16px per rem, or Full", () => {

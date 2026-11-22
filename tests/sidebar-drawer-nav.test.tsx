@@ -11,6 +11,9 @@ const dom = parseHTML("<!doctype html><html><body></body></html>");
 const storage = new Map<string, string>([["lh:sidebar-open", "1"]]);
 Object.assign(dom.window, { innerWidth: 390, innerHeight: 844 });
 Object.assign(globalThis, {
+	// The sidebar's overlay scrollbar (components/overlay-scroll.tsx) observes its list.
+	ResizeObserver: class { observe() {} unobserve() {} disconnect() {} },
+	MutationObserver: dom.window.MutationObserver,
 	window: dom.window, document: dom.document, Node: dom.window.Node, Element: dom.window.Element,
 	HTMLElement: dom.window.HTMLElement, HTMLInputElement: dom.window.HTMLInputElement, HTMLTextAreaElement: dom.window.HTMLTextAreaElement,
 	Event: dom.window.Event, CustomEvent: dom.window.CustomEvent, MouseEvent: dom.window.Event, IS_REACT_ACT_ENVIRONMENT: true, self: globalThis,

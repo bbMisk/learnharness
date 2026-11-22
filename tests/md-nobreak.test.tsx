@@ -11,6 +11,7 @@ import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
 import { MessageResponse } from "../components/ai-elements/message.tsx";
+import { assertSameNode } from "./helpers/same-node.ts";
 
 function groups(md: string) {
 	const html = renderToStaticMarkup(<MessageResponse mode="static">{md}</MessageResponse>);
@@ -66,7 +67,7 @@ describe("punctuation glue", () => {
 		// A link with more than the span is not a unit: nothing is pulled in.
 		const mixed = groups("see [the `foo()` call](https://example.com/x), then").root;
 		assert.equal(mixed.querySelector('[data-streamdown="link"]')!.textContent, "the foo() call");
-		assert.equal(mixed.querySelector('.lh-nobreak [data-streamdown="link"]'), null);
+		assertSameNode(mixed.querySelector('.lh-nobreak [data-streamdown="link"]'), null);
 	});
 
 	it("CJK punctuation glues like Latin", () => {

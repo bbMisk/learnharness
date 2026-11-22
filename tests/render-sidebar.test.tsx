@@ -55,7 +55,7 @@ describe("SessionRow", () => {
 		assert.doesNotMatch(html, /transition-colors|duration-\d/);
 		assert.doesNotMatch(html, /Waiting for input|2026-01-02|session-dot/);
 		assert.match(html, /braille-spinner/);
-		assert.match(html, /aria-label="Practice session"/);
+		assert.match(html, /aria-label="Practice chat"/);
 	});
 
 	it("idle session: NO indicator — absence is the state", () => {

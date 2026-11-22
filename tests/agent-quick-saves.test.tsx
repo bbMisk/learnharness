@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { it } from "node:test";
 import { parseHTML } from "linkedom";
 import type { AgentSettings } from "../src/core";
+import { installModalDom } from "./modal-dom.ts";
 
 // Model-instruction saves go through the Agent save
 // queue: two quick changes on a slow server both land, and a failed save
@@ -97,26 +98,39 @@ it("a failed instructions save keeps the draft after Settings closes", async () 
 
 it("an offline prompt-override Save or Delete says it failed", async () => {
 	segment.overrideText = "Saved before.";
+	// The override editor is a modal dialog (HostDialog).
+	const restoreModal = installModalDom(dom);
 	const { root } = await mount({}, 0);
-	const row = () => [...document.querySelectorAll<HTMLButtonElement>(`[data-testid="prompt-segment-${segment.path}"] button`)];
-	await act(async () => { row().find((b) => b.textContent === "Show text")!.click(); });
-	await type(document.querySelector<HTMLTextAreaElement>('[aria-label="Your version of the instructions"]')!, "Be brief.");
+	const row = document.querySelector<HTMLElement>(`[data-testid="prompt-segment-${segment.path}"]`)!;
+	await act(async () => { [...row.querySelectorAll("button")].find((b) => b.textContent === "Edit override")!.click(); });
+	const dialog = () => document.querySelector<HTMLElement>('[data-testid="prompt-segment-dialog"]')!;
+	const inDialog = (label: string) => [...dialog().querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === label)!;
+	const field = () => dialog().querySelector<HTMLTextAreaElement>("textarea")!;
+	const alert = () => dialog().querySelector('[role="alert"]')?.textContent;
+	await type(field(), "Be brief.");
 	const rejections: unknown[] = [];
 	const onRejection = (reason: unknown) => rejections.push(reason);
 	process.on("unhandledRejection", onRejection);
 	offline = true;
 	try {
-		await act(async () => { row().find((b) => b.textContent === "Save")!.click(); await sleep(5); });
-		assert.equal(document.querySelector('[data-testid="segment-status"]')?.textContent, "Save failed. Try again.");
-		await act(async () => { row().find((b) => b.textContent === "Delete")!.click(); await sleep(5); });
-		await act(async () => { row().find((b) => b.textContent === "Confirm delete")!.click(); await sleep(5); });
-		assert.equal(document.querySelector('[data-testid="segment-status"]')?.textContent, "Delete failed. Try again.");
+		await act(async () => { inDialog("Save and activate").click(); await sleep(5); });
+		assert.equal(alert(), "Couldn't save the override. Your edits are still here.");
+		assert.equal(field().value, "Be brief.", "the typed text stays");
+		// Back to the saved text (Delete is off while the box is dirty), then the two-click delete.
+		await type(field(), "Saved before.");
+		await act(async () => { inDialog("Delete override").click(); await sleep(5); });
+		await act(async () => { inDialog("Confirm delete").click(); await sleep(5); });
+		assert.equal(alert(), "Couldn't delete the override.");
 		await act(async () => { await sleep(5); });
 		assert.deepEqual(rejections, []);
 	} finally {
 		offline = false;
 		process.off("unhandledRejection", onRejection);
 		segment.overrideText = null;
+		await act(async () => root.unmount());
+		// Radix FocusScope dispatches its unmount auto-focus event from a
+		// setTimeout(0); let it run while linkedom's CustomEvent is still global.
+		await act(async () => { await sleep(20); });
+		restoreModal();
 	}
-	await act(async () => root.unmount());
 });
