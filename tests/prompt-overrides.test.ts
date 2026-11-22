@@ -265,6 +265,7 @@ describe("composeInstructions: override honoring + the byte-identical source pat
 				fs
 					.readdirSync(dir)
 					.filter((f) => /^\d+-[\w.-]+\.md$/.test(f))
+					.filter((f) => f !== "35-side-conversations.md") // FORK: side questions are switched off by default (core/fork-config.ts)
 					.sort()
 					.map((f) => fs.readFileSync(path.join(dir, f), "utf-8").trim())
 					.filter(Boolean);
