@@ -53,7 +53,7 @@ export { runPiTurn, piTurnResponse, type PiTurnHandle, type PiTurnSpec } from ".
 export * from "./observability.ts";
 export { abortPluginWorkerActivity } from "./plugin-worker-activity.ts";
 export * from "./model-catalog.ts";
-export { sideChatSnapshot, sideChatResponse } from "./side-chat.ts";
+export { sideTutorSnapshot, sideTutorResponse } from "./side-tutor.ts";
 export * from "./typewhisper.ts";
 
 // Browser uploads feed the existing learner-file tools.

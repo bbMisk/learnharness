@@ -17,7 +17,7 @@ const { sanitizeUserSettings } = await import("../src/core/settings.ts");
 const { resolveSettings } = await import("../src/core/settings-resolution.ts");
 const { PUT: putSettingsSection } = await import("../app/api/settings/[section]/route.ts");
 const { readSettingsRecord } = await import("../src/server/index.ts");
-const { sideChatResponse } = await import("../src/server/side-chat.ts");
+const { sideTutorResponse } = await import("../src/server/side-tutor.ts");
 
 const opus = { provider: "claude-code", id: "opus" };
 
@@ -73,7 +73,7 @@ describe("model instructions", () => {
 		const spec = { provider: "openai", id: "gpt-6.1-sol", thinkingLevel: "high" as const };
 		const settings = resolveSettings({ version: 1, agent: { modelInstructions: { "openai:gpt-6.1-sol": "SIDE_SENTINEL" } } });
 		const chat = { id: "lesson", title: "Lesson", messages: [], settings: { model: { provider: spec.provider, id: spec.id } } };
-		const response = await sideChatResponse(
+		const response = await sideTutorResponse(
 			new Request("http://localhost/api/chats/lesson/side", {
 				method: "POST",
 				body: JSON.stringify({ snapshot: { context: "Teacher: hi.", truncated: false, model: spec }, messages: [{ role: "user", content: "Why?" }] }),

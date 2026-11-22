@@ -6,7 +6,7 @@ import { it } from "node:test";
 import { createFauxCore, fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { createUploadStore } from "../src/store/uploads.ts";
 import { sideUserContent } from "../src/server/side-images.ts";
-import { sideChatResponse } from "../src/server/side-chat.ts";
+import { sideTutorResponse } from "../src/server/side-tutor.ts";
 import { resolveSettings } from "../src/core/settings-resolution.ts";
 import { uploadedImageReferences, withoutUploadedImagePaths } from "../src/core/upload-images.ts";
 import type { ChatRecord } from "../src/core/contracts/chat.ts";
@@ -31,7 +31,7 @@ it("delivers actual uploaded screenshot bytes to the side model and preserves th
 		}]);
 		const chat = { id: "lesson", title: "Lesson", messages: [] } as unknown as ChatRecord;
 		const before = JSON.stringify(chat);
-		const response = await sideChatResponse(new Request("http://test/side", { method: "POST", body: JSON.stringify({ snapshot: { context: "A lesson", model: { provider: "openai", id: "test" } }, messages: [{ role: "user", content: text }] }) }), "lesson", {
+		const response = await sideTutorResponse(new Request("http://test/side", { method: "POST", body: JSON.stringify({ snapshot: { context: "A lesson", model: { provider: "openai", id: "test" } }, messages: [{ role: "user", content: text }] }) }), "lesson", {
 			getChat: () => chat, settings: () => resolveSettings(null), keyPresent: () => true, refresh: async () => {},
 			engine: () => ({ model: { ...faux.getModel(), input: ["text", "image"] }, streamFn: faux.streamSimple }),
 			userContent: (text) => sideUserContent(text, uploads),

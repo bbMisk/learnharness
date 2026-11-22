@@ -65,7 +65,7 @@ export type { ComposerToken } from "./composer-tokens.ts";
 // the deleted server projection to the client side. Pure, browser-safe.
 export * from "./view.ts";
 export * from "./view-incremental.ts";
-export * from "./side-chat.ts";
+export * from "./side-tutor.ts";
 export * from "./tool-parts.ts";
 export * from "./answer-presentation.ts";
 export * from "./prices.ts";

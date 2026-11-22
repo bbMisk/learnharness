@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createFauxCore, fauxAssistantMessage, fauxText, type FauxResponseStep } from "@earendil-works/pi-ai";
-import { sideLessonContext, parseSideRequest, parseSideJSONResponse, SIDE_CONTEXT_LIMIT } from "../src/core/side-chat.ts";
+import { sideLessonContext, parseSideRequest, parseSideJSONResponse, SIDE_CONTEXT_LIMIT } from "../src/core/side-tutor.ts";
 import { actionForBinding, eventBinding } from "../src/core/keyboard.ts";
 import { resolveSettings } from "../src/core/settings-resolution.ts";
 import type { LhMessage } from "../src/core/native-messages.ts";
 import type { ChatRecord } from "../src/core/contracts/chat.ts";
-import { sideChatResponse, sideChatSnapshot, type SideChatDeps } from "../src/server/side-chat.ts";
+import { sideTutorResponse, sideTutorSnapshot, type SideTutorDeps } from "../src/server/side-tutor.ts";
 
 const spec = { provider: "openai", id: "gpt-6.1-sol", thinkingLevel: "high" as const };
 const snapshot = { context: "Teacher: Differences telescope.", truncated: false, model: spec };
@@ -52,7 +52,7 @@ describe("side fork context and requests", () => {
 
 describe("temporary side response isolation", () => {
 	const chat = { id: "lesson", title: "Cart lesson", messages: [user("My lesson")], settings: { model: { provider: spec.provider, id: spec.id }, thinkingLevel: spec.thinkingLevel } } as ChatRecord;
-	function deps(): SideChatDeps {
+	function deps(): SideTutorDeps {
 		const faux = createFauxCore({});
 		faux.setResponses([fauxAssistantMessage([fauxText("A difference is a change between neighbors.")])]);
 		return { getChat: () => structuredClone(chat), settings: () => resolveSettings(null), keyPresent: () => true, refresh: async () => {}, engine: () => ({ model: faux.getModel(), streamFn: faux.streamSimple }) };
@@ -60,13 +60,13 @@ describe("temporary side response isolation", () => {
 	const req = (messages: unknown[] = [{ role: "user", content: "What is a difference?" }]) => new Request("http://localhost/api/chats/lesson/side", { method: "POST", body: JSON.stringify({ snapshot, messages }) });
 	it("inherits the lesson model without creating another saved lesson", async () => {
 		const before = JSON.stringify(chat);
-		const response = await sideChatSnapshot(new Request("http://test/api/chats/lesson/side"), "lesson", deps());
+		const response = await sideTutorSnapshot(new Request("http://test/api/chats/lesson/side"), "lesson", deps());
 		assert.equal(response.status, 200); assert.deepEqual((await response.json()).model, spec);
 		assert.equal(JSON.stringify(chat), before);
 	});
 	it("streams an independent reply and leaves the parent record byte-for-byte unchanged", async () => {
 		const before = JSON.stringify(chat);
-		const response = await sideChatResponse(req(), "lesson", deps());
+		const response = await sideTutorResponse(req(), "lesson", deps());
 		assert.equal(response.status, 200);
 		const frames = (await response.text()).trim().split("\n").map((line) => JSON.parse(line));
 		assert.equal(frames.filter((f) => f.type === "delta").map((f) => f.text).join(""), "A difference is a change between neighbors.");
@@ -74,14 +74,14 @@ describe("temporary side response isolation", () => {
 	});
 	it("refreshes a cold connection before deciding whether the foreground side request is available", async () => {
 		let connected=false;
-		const response=await sideChatResponse(req(), "lesson", {...deps(), refresh:async()=>{connected=true;},keyPresent:()=>connected});
+		const response=await sideTutorResponse(req(), "lesson", {...deps(), refresh:async()=>{connected=true;},keyPresent:()=>connected});
 		assert.equal(response.status,200);
 		assert.match(await response.text(), /A difference/);
 	});
 	it("rejects missing lessons, malformed histories, and unavailable connections before streaming", async () => {
-		assert.equal((await sideChatResponse(req(), "gone", { ...deps(), getChat: () => null })).status, 404);
-		assert.equal((await sideChatResponse(req([{ role: "system", content: "bad" }]), "lesson", deps())).status, 400);
-		assert.equal((await sideChatResponse(req(), "lesson", { ...deps(), keyPresent: () => false })).status, 503);
+		assert.equal((await sideTutorResponse(req(), "gone", { ...deps(), getChat: () => null })).status, 404);
+		assert.equal((await sideTutorResponse(req([{ role: "system", content: "bad" }]), "lesson", deps())).status, 400);
+		assert.equal((await sideTutorResponse(req(), "lesson", { ...deps(), keyPresent: () => false })).status, 503);
 	});
 	it("cancels only the side model request and leaves the pending lesson intact", async () => {
 		const before = JSON.stringify(chat), abort = new AbortController();
@@ -91,13 +91,13 @@ describe("temporary side response isolation", () => {
 			const finish = () => { cancelled = true; resolve(fauxAssistantMessage("cancelled")); };
 			if (options.signal?.aborted) finish(); else options.signal?.addEventListener("abort", finish, { once: true });
 		})) as FauxResponseStep]);
-		const response = await sideChatResponse(new Request(req(), { signal: abort.signal }), "lesson", { ...deps(), engine: () => ({ model: faux.getModel(), streamFn: faux.streamSimple }) });
+		const response = await sideTutorResponse(new Request(req(), { signal: abort.signal }), "lesson", { ...deps(), engine: () => ({ model: faux.getModel(), streamFn: faux.streamSimple }) });
 		abort.abort(); await response.text();
 		assert.equal(cancelled, true); assert.equal(JSON.stringify(chat), before);
 	});
 	it("marks a truncated response as an error rather than a completed side answer", async () => {
 		const faux = createFauxCore({}); faux.setResponses([fauxAssistantMessage([fauxText("Partial")], { stopReason: "length" })]);
-		const response = await sideChatResponse(req(), "lesson", { ...deps(), engine: () => ({ model: faux.getModel(), streamFn: faux.streamSimple }) });
+		const response = await sideTutorResponse(req(), "lesson", { ...deps(), engine: () => ({ model: faux.getModel(), streamFn: faux.streamSimple }) });
 		const frames = (await response.text()).trim().split("\n").map((line) => JSON.parse(line));
 		assert.equal(frames.at(-1).type, "error"); assert.ok(!frames.some((f) => f.type === "done"));
 	});
