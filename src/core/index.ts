@@ -112,6 +112,7 @@ export * from "./coverage.ts";
 export * from "./session-markdown.ts";
 
 export * from "./demo-document.ts";
+export * from "./fork-config.ts";
 
 export { IMAGE_MIME, uploadedImageReferences, withoutUploadedImagePaths } from "./upload-images.ts";
 export type { ProjectRecord, ProjectView, ProjectFile, ProjectFolder, ProjectSummary } from './projects.ts';
