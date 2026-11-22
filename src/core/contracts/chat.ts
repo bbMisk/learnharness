@@ -66,6 +66,8 @@ export interface ChatRecord {
 }
 
 /** The chat record format this build writes and understands. */
+// FORK: stage one of two. Writes still stamp 1; reads accept up to
+// READABLE_CHAT_VERSION (2, upstream's, core/fork-config.ts). The next release adopts upstream's constant.
 export const CURRENT_CHAT_VERSION = 1;
 
 /** The conversation agents' runtime model choice: a per-chat override for

@@ -23,3 +23,8 @@ function testOverride(): SideChatMode | undefined {
 export const forkSideChat: SideChatMode = testOverride() ?? SIDE_CHAT;
 export const sideQuestionsEnabled = forkSideChat === "questions";
 export const sideTutorEnabled = forkSideChat === "tutor";
+
+/** The newest chat record version this build reads: upstream's (2, which
+ *  added side-question threads). Stage one of two: writes keep stamping
+ *  CURRENT_CHAT_VERSION (1) until the next release adopts upstream's. */
+export const READABLE_CHAT_VERSION = 2;

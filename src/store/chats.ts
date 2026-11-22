@@ -16,6 +16,7 @@ import { emit } from "../core/events.ts";
 import type { ChatStore } from "../core/ports.ts";
 import type { ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, ImageSnapshot, PlanTree, SideChatThread, TurnUsage } from "../core/contracts.ts";
 import { cleanName, CURRENT_CHAT_VERSION } from "../core/contracts.ts";
+import { READABLE_CHAT_VERSION } from "../core/fork-config.ts";
 import type { LhMessage } from "../core/native-messages.ts";
 import { activeProblemOf, danglingQuestionOf } from "../core/native-messages.ts";
 import { phaseAt3Lh } from "../core/phases.ts";
@@ -185,8 +186,8 @@ function readChat(id: string): ChatRecord | null {
 	// this build (the downgrade scenario) reads as absent, never misparsed —
 	// the next read-modify-write must not rewrite what it doesn't understand.
 	const v = (parsed as { version?: unknown }).version;
-	if (typeof v === "number" && v > CURRENT_CHAT_VERSION) {
-		console.error(`[chat ${id}] record stamped with schema version ${v} > ${CURRENT_CHAT_VERSION} — this app build is older; refusing to read it`);
+	if (typeof v === "number" && v > READABLE_CHAT_VERSION) { // FORK: reads accept upstream's version 2 (stage one of two)
+		console.error(`[chat ${id}] record stamped with schema version ${v} > ${READABLE_CHAT_VERSION} — this app build is older; refusing to read it`);
 		return null;
 	}
 	return parsed as ChatRecord;
