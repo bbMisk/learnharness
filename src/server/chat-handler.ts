@@ -64,6 +64,7 @@ import { effectiveQuestionType } from "../core/question-type.ts";
 import { composeInstructions } from "../agent/teacher-agent.ts";
 import { ensureCompacted, kickCompaction, effectiveThresholdTokens, projectedContextTokens, compactionInFlight } from "./compaction.ts";
 import { COMPACTION_RESERVE_TOKENS } from "../core/compaction.ts";
+import { sideQuestionsEnabled } from "../core/fork-config.ts";
 import { catalogContextLimits, prepareConnectionCatalog } from "./model-catalog.ts";
 import { emit } from "../core/events.ts";
 import { settledTurnResponse } from "./turn-runs.ts";
@@ -389,9 +390,9 @@ export async function handleChatInput(
 		throw err;
 	}
 	const modelIdForCompaction = `${conversationEngine.model.provider}:${conversationEngine.model.id}`;
-	const contextWindow = catalogContextLimits().get(modelIdForCompaction);
+	const contextWindow = sideQuestionsEnabled ? catalogContextLimits().get(modelIdForCompaction) : undefined; // FORK: side-question budget only
 	const thresholdTokens = effectiveThresholdTokens(effective.compaction?.thresholdTokens, contextWindow);
-	const systemPromptTokens = Math.ceil(composeInstructions(record.kind === "practice" ? "practice" : "teacher").length / 4);
+	const systemPromptTokens = sideQuestionsEnabled ? Math.ceil(composeInstructions(record.kind === "practice" ? "practice" : "teacher").length / 4) : 0; // FORK: side-question budget only
 	const estimateModel = effective.compaction.includeReasoning ? conversationEngine.model : undefined;
 	const fitsSideContext = (messages: readonly LhMessage[]) => {
 		const live = messages.filter((message) => (message as { role: string }).role !== "system");
@@ -419,6 +420,7 @@ export async function handleChatInput(
 			includeReasoning: effective.compaction.includeReasoning,
 			thresholdTokens: effective.compaction?.thresholdTokens,
 			systemPromptTokens: Math.ceil((composeInstructions(record.kind === "practice" ? "practice" : "teacher").length + projectContext.length) / 4),
+			...(sideQuestionsEnabled ? { // FORK: no side-question hooks unless side questions are on (core/fork-config.ts)
 			projectMessages: (current) => {
 				try {
 					if (input.type === "plugin-question-answer" || input.type === "plugin-problem-submission") {
@@ -450,6 +452,7 @@ export async function handleChatInput(
 					throw error;
 				}
 			},
+			} : {}),
 		},
 		chatId,
 	);
@@ -495,7 +498,7 @@ export async function handleChatInput(
 	let retryOmissions = new Set<string>();
 	if (input.type === "retry") {
 		try {
-			retryOmissions = sideBudgetRetryDrops(beforeCompaction, record.messages) ?? retryDrops(record.messages);
+			retryOmissions = (sideQuestionsEnabled ? sideBudgetRetryDrops(beforeCompaction, record.messages) : undefined) ?? retryDrops(record.messages); // FORK: side budget only with side questions
 		} catch (err) {
 			if (err instanceof ChatInputError) return Response.json({ error: err.message }, { status: 400 });
 			throw err;
@@ -602,9 +605,9 @@ export async function handleChatInput(
 	// Prospectively check new exchanges from ALL threads for early automatic
 	// refusal. This snapshot does not authorize the final assembled request;
 	// SDK preparation re-collects live text and validates queued steering too.
-	const sideContextSnapshots = sideContext.snapshot(chatId);
+	const sideContextSnapshots = sideQuestionsEnabled ? sideContext.snapshot(chatId) : []; // FORK: nothing new is delivered unless side questions are on
 	const afterInput = [...record.messages, ...appends];
-	const sideQuestions = hasUnresolvedQuestion(afterInput) ? [] : sideConversationEntries({
+	const sideQuestions = !sideQuestionsEnabled || hasUnresolvedQuestion(afterInput) ? [] : sideConversationEntries({ // FORK: as above
 		messages: record.messages, sideChats: sideContextSnapshots,
 	}, afterInput);
 	const withSideQuestions = input.type === "answer" || input.type === "retry-question" || input.type === "plugin-question-answer" ? [...appends, ...sideQuestions] : [...sideQuestions, ...appends];
@@ -727,6 +730,7 @@ export async function handleChatInput(
 		callPurpose,
 		requestCycle,
 		messages: asAgentMessages(agentMessages),
+		...(sideQuestionsEnabled ? { // FORK: no side-question hooks unless side questions are on (core/fork-config.ts)
 		validateContext: (messages) => {
 			// This is the SDK's ACTUAL request, after both prepared references
 			// and already-drained steering have joined it. A pre-queue estimate
@@ -765,6 +769,7 @@ export async function handleChatInput(
 			for (const update of updates) tentativeSideIds.add(update.id);
 			return asAgentMessages(updates);
 		},
+		} : {}),
 		onUsage: collectUsage,
 		toolToggles: effective.agent.tools,
 		questionType,
@@ -858,9 +863,11 @@ export async function handleChatInput(
 			// The next-turn SDK hook covers internal calls. The steering poll
 			// supplies the same fresh cargo on the first/recovery call, with
 			// normal lifecycle events and no extra provider request.
+			...(agentOpts.contextUpdates ? { // FORK: only with the side-question hooks installed
 			beforeCycle: () => {
 				for (const message of agentOpts.contextUpdates!(constructed.state.messages)) constructed.steer(message);
 			},
+			} : {}),
 			// The update-coalescing window: tests tighten it via
 			// LH_UPDATE_FLUSH_MS; production rides the 100ms default in ui-stream.
 			...(process.env.LH_UPDATE_FLUSH_MS ? { updateFlushMs: Number(process.env.LH_UPDATE_FLUSH_MS) } : {}),

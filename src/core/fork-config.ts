@@ -13,11 +13,17 @@ export type SideChatMode = "tutor" | "questions";
  *  the side tutor's entry points are off. */
 const SIDE_CHAT: SideChatMode = "tutor";
 
-/** Test-only override, read once at module load: LH_FORK_SIDE_CHAT=questions
- *  under NODE_ENV=test. A test sets it before its first app import. */
+/** Upstream's own tests of side-question delivery drive the feature itself,
+ *  so their processes run in "questions" mode, unmodified. */
+const UPSTREAM_SIDE_QUESTION_TESTS = /[\\/]tests[\\/](side-chat-delivery|side-chat-cli-budget|plugin-side-compaction|chatgpt-request-cycle)\.test\.tsx?$/;
+
+/** Test-only override, read once at module load and only under
+ *  NODE_ENV=test: LH_FORK_SIDE_CHAT=questions (a test sets it before its
+ *  first app import), or one of upstream's side-question test files. */
 function testOverride(): SideChatMode | undefined {
-	const env = typeof process === "undefined" ? undefined : process.env;
-	return env?.NODE_ENV === "test" && env.LH_FORK_SIDE_CHAT === "questions" ? "questions" : undefined;
+	const proc = typeof process === "undefined" ? undefined : process;
+	if (proc?.env?.NODE_ENV !== "test") return undefined;
+	return proc.env.LH_FORK_SIDE_CHAT === "questions" || UPSTREAM_SIDE_QUESTION_TESTS.test(proc.argv?.[1] ?? "") ? "questions" : undefined;
 }
 
 export const forkSideChat: SideChatMode = testOverride() ?? SIDE_CHAT;
