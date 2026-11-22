@@ -12,9 +12,12 @@
  * column's padding box (lessonTrackerRoom's `dock`), which moves the dock
  * left by half the card's lane. The flank follows: it starts MARGIN_GAP
  * right of the SHIFTED dock and ends MARGIN_GAP left of the card's lane.
- * `lane` is the block's right padding minus its left (the column gutter
- * the dock mirrors) — the card plus its edge gap; 0 with no room, which
- * gives exactly the pre-card geometry.
+ * The dock's shift is the block's right padding minus its left; `lane` is
+ * the card plus its edge gap (--lh-room-lane, globals.css). With the
+ * transcript at Full the two are equal. With a transcript width set the
+ * column may clear the card, so the dock shifts less (or not at all) while
+ * the card's lane stays; 0 for both with no room, which gives exactly the
+ * pre-card geometry.
  */
 
 /** The DOCK container's fixed width (46rem). */
@@ -23,7 +26,7 @@ export const MARGIN_GAP = 16;
 export const MARGIN_MIN_W = 220;
 
 export interface DockFlank {
-	/** The card's lane the block's padding reserves; 0 with no room. */
+	/** The card's lane at the block's right edge; 0 with no room. */
 	lane: number;
 	/** The flank's width in px (may be negative: no flank at all). */
 	width: number;
@@ -35,22 +38,30 @@ export interface DockFlank {
 
 /** The flank for a block `blockWidth` px wide (border box) with the given
  *  computed left/right padding, beside a dock `dockWidth` px wide (46rem, or
- *  wider while an adapted question card owns it). Assumes the dock fits
- *  (when it doesn't, the width is negative and the marginalia stays faded
- *  out). */
-export function dockFlank(blockWidth: number, paddingLeft: number, paddingRight: number, dockWidth = DOCK_W): DockFlank {
-	const lane = Math.max(0, paddingRight - paddingLeft);
+ *  wider while an adapted question card owns it), left of a card lane
+ *  `cardLane` px wide at the block's right (at least the dock's shift).
+ *  Assumes the dock fits (when it doesn't, the width is negative and the
+ *  marginalia stays faded out). */
+export function dockFlank(blockWidth: number, paddingLeft: number, paddingRight: number, dockWidth = DOCK_W, cardLane = 0): DockFlank {
+	const shift = Math.max(0, paddingRight - paddingLeft);
+	const lane = Math.max(shift, cardLane);
 	return {
 		lane,
-		width: Math.round(blockWidth / 2 - dockWidth / 2 - 2 * MARGIN_GAP - lane / 2),
-		left: `calc(50% + ${dockWidth / 2 + MARGIN_GAP - lane / 2}px)`,
+		width: Math.round(blockWidth / 2 - dockWidth / 2 - 2 * MARGIN_GAP - lane + shift / 2),
+		left: `calc(50% + ${dockWidth / 2 + MARGIN_GAP - shift / 2}px)`,
 		right: MARGIN_GAP + lane,
 	};
+}
+
+/** The card's lane the block's room declares (globals.css .lh-room-dock),
+ *  in px; 0 without room. */
+export function roomLane(style: CSSStyleDeclaration): number {
+	return parseFloat(style.getPropertyValue?.("--lh-room-lane") ?? "") || 0;
 }
 
 /** The block's flank, measured live (its computed padding follows the
  *  make-room container query). */
 export function measureDockFlank(block: HTMLElement): DockFlank {
 	const style = getComputedStyle(block);
-	return dockFlank(block.offsetWidth, parseFloat(style.paddingLeft) || 0, parseFloat(style.paddingRight) || 0);
+	return dockFlank(block.offsetWidth, parseFloat(style.paddingLeft) || 0, parseFloat(style.paddingRight) || 0, DOCK_W, roomLane(style));
 }

@@ -18,9 +18,10 @@ const leftPx = (left: string, blockWidth: number) => {
 	return blockWidth / 2 + Number(m[1]);
 };
 
-// The room padding (lesson-tracker.tsx TRACKER_ROOM_DOCK): the column's
-// 1.5rem gutter left, 18.25rem right — the card's lane is the difference,
-// the card (w-64, 256px) plus its edge gap (right-3, 12px).
+// A room padding whose shift (right minus left) is the card's lane, the card
+// (w-64, 256px) plus its edge gap (right-3, 12px): the transcript at Full
+// (globals.css .lh-room-dock gives 0 left, the lane right; any equal offset
+// on both sides moves nothing).
 const PL = 24;
 const PR = 292;
 const CARD_LANE = 256 + 12;
@@ -55,12 +56,39 @@ it("room made: the flank runs from the shifted dock's edge to the card's lane, M
 	assert.ok(dockFlank(1440, 0, 0).width >= MARGIN_MIN_W, "unshifted, 1440 had a flank");
 });
 
+it("a set transcript width: the dock shifts less than the card's lane, and the flank still stops left of the card", () => {
+	for (const w of [1440, 1600, 1920, 2560]) {
+		for (const shift of [0, 60, 180]) {
+			const side = 300;
+			const f = dockFlank(w, side, side + shift, DOCK_W, CARD_LANE);
+			assert.equal(f.lane, CARD_LANE, "the card's lane, not the shift");
+			// The dock: centred in the padded content box, shifted left by shift/2.
+			const dockRight = side + (w - 2 * side - shift) / 2 + DOCK_W / 2;
+			const left = leftPx(f.left, w);
+			assert.equal(left, dockRight + MARGIN_GAP, `${w}/${shift}: MARGIN_GAP right of the dock`);
+			assert.equal(w - f.right, w - CARD_LANE - MARGIN_GAP, `${w}/${shift}: MARGIN_GAP left of the card`);
+			assert.equal(f.width, Math.round(w - f.right - left), `${w}/${shift}: the width is the real gap`);
+		}
+	}
+	// A lane narrower than the shift never lets the flank under the card.
+	assert.deepEqual(dockFlank(1920, PL, PR, DOCK_W, 10), dockFlank(1920, PL, PR));
+});
+
+it("cardLane 0 (no room) is exactly the old geometry", () => {
+	for (const w of [900, 1280, 1920]) {
+		assert.deepEqual(dockFlank(w, 0, 0, DOCK_W, 0), dockFlank(w, 0, 0));
+		assert.deepEqual(dockFlank(w, PL, PR, DOCK_W, 0), dockFlank(w, PL, PR));
+	}
+});
+
 it("measures the block's live padding", () => {
 	const g = globalThis as { getComputedStyle?: unknown };
 	const before = g.getComputedStyle;
 	g.getComputedStyle = () => ({ paddingLeft: "24px", paddingRight: "292px" });
 	try {
 		assert.deepEqual(measureDockFlank({ offsetWidth: 1920 } as HTMLElement), dockFlank(1920, PL, PR));
+		g.getComputedStyle = () => ({ paddingLeft: "300px", paddingRight: "360px", getPropertyValue: (name: string) => (name === "--lh-room-lane" ? "268px" : "") });
+		assert.deepEqual(measureDockFlank({ offsetWidth: 1920 } as HTMLElement), dockFlank(1920, 300, 360, DOCK_W, CARD_LANE), "the registered lane, in px");
 		g.getComputedStyle = () => ({ paddingLeft: "0px", paddingRight: "0px" });
 		assert.deepEqual(measureDockFlank({ offsetWidth: 1920 } as HTMLElement), dockFlank(1920, 0, 0));
 	} finally {
@@ -72,8 +100,9 @@ it("the chat positions the marginalia from the measured flank and re-measures wh
 	const dock = fs.readFileSync(new URL("../components/dock-overlay.tsx", import.meta.url), "utf8");
 	// The dock measures the block's live box (width + computed padding) and
 	// derives the flank beside the dock's current (possibly adapted) width.
-	assert.match(dock, /const style = getComputedStyle\(block\);\s*const next = \{ width: Math\.round\(block\.offsetWidth\), paddingLeft: parseFloat\(style\.paddingLeft\) \|\| 0, paddingRight: parseFloat\(style\.paddingRight\) \|\| 0 \};/);
-	assert.match(dock, /const flank = dockFlank\(blockW, blockBox\.paddingLeft, blockBox\.paddingRight, dockW\);/);
+	assert.match(dock, /const style = getComputedStyle\(block\);\s*const next = \{ width: Math\.round\(block\.offsetWidth\), paddingLeft: parseFloat\(style\.paddingLeft\) \|\| 0, paddingRight: parseFloat\(style\.paddingRight\) \|\| 0, lane: roomLane\(style\) \};/);
+	assert.match(dock, /next\.lane !== prev\.lane/, "a lane change re-derives the flank");
+	assert.match(dock, /const flank = dockFlank\(blockW, blockBox\.paddingLeft, blockBox\.paddingRight, dockW, blockBox\.lane\);/);
 	assert.match(dock, /style=\{\{ left: flank\.left, right: flank\.right \}\}/);
 	assert.match(dock, /expanded && flankW >= MARGIN_MIN_W/);
 	assert.match(dock, /ro\.observe\(block\);\s*return \(\) => ro\.disconnect\(\);\s*\}, \[room\]\);/);

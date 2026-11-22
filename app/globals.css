@@ -792,3 +792,63 @@ html body[data-scroll-locked] {
 .lh-h-screen {
 	height: calc(100dvh - var(--lh-safe-top) - var(--lh-safe-bottom));
 }
+
+/* FORK: the side tutor reads as a narrow chat panel, not the session's
+   document column. Upstream's session reading rules above keep inline code
+   and inline math on one line and scroll them sideways when too wide; in a
+   panel as narrow as 18rem that hides most of a long span behind an
+   invisible scrollbar. Inside the side tutor (components/side-tutor.tsx,
+   data-side-tutor) they wrap as ordinary inline text again. Each selector
+   matches or beats the specificity of the upstream rule it undoes. */
+[data-session-surface] [data-side-tutor] [data-streamdown="inline-code"],
+[data-session-surface] [data-side-tutor] .lh-nobreak,
+[data-session-surface] [data-side-tutor] :not(.katex-display) > .katex,
+[data-session-surface] [data-side-tutor] .lh-nobreak .katex {
+	display: inline;
+	max-width: none;
+	overflow: visible;
+	white-space: inherit;
+	baseline-source: auto;
+}
+[data-session-surface] [data-side-tutor] :not(.katex-display) > .katex,
+[data-session-surface] [data-side-tutor] .lh-nobreak:has(.katex) {
+	padding: 0;
+	margin: 0;
+}
+
+/* FORK: room for the Progress card (components/lesson-tracker.tsx). On a
+   session area of 60rem or more the card takes the area's right 16.75rem
+   (w-64 + right-3), and the transcript text keeps its 1.5rem gutter clear of
+   it. With Appearance -> Transcript width set, the column is centred at that
+   width, so it reaches the card only on a narrow enough area: the right
+   padding grows by exactly the overlap, from the column's own 1.5rem to the
+   full 18.25rem when the column spans the area (Full, the unset width). A
+   column clear of the card keeps the full set width.
+   The dock block mirrors the column's box in the area (the centred column's
+   side margins, plus the column's extra right padding), so the 46rem dock
+   centres on the text and a widened question card lines up with the text's
+   edges, exactly as without the card (dock-overlay.tsx). --lh-room-lane
+   tells the plan marginalia where the card's lane starts (dock-flank.ts).
+   100cqw is the session area: the column and the dock block both sit in it. */
+@property --lh-room-lane {
+	syntax: "<length>";
+	inherits: false;
+	initial-value: 0px;
+}
+@container session (min-width: 60rem) {
+	.lh-room-column,
+	.lh-room-dock {
+		/* The column's border box: the set width + its 1rem, or the area. */
+		--lh-room-column-w: min(100cqw, var(--lh-transcript-max, 10000rem) + 1rem);
+		--lh-room-side: calc((100cqw - var(--lh-room-column-w)) / 2);
+		--lh-room-pr: max(1.5rem, 18.25rem - var(--lh-room-side));
+	}
+	.lh-room-column {
+		padding-right: var(--lh-room-pr);
+	}
+	.lh-room-dock {
+		--lh-room-lane: 16.75rem;
+		padding-left: var(--lh-room-side);
+		padding-right: calc(var(--lh-room-side) + var(--lh-room-pr) - 1.5rem);
+	}
+}

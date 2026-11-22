@@ -10,6 +10,7 @@ import { assertSameNode } from "./helpers/same-node.ts";
 import fs from "node:fs";
 import { afterEach, it } from "node:test";
 import { parseHTML } from "linkedom";
+import { declarationsFor, evalPx, sessionQueryHolding } from "./helpers/room-css.ts";
 import type { LessonTracking } from "../src/core/lesson-tracking.ts";
 import type { LhMessage } from "../src/core/native-messages.ts";
 
@@ -260,13 +261,15 @@ it("blocked storage costs only the memory", async () => {
 it("makes room: while shown on a wide session area the column clears the card; otherwise layout is untouched", async () => {
 	assert.deepEqual(lessonTrackerRoom(false), { area: "", column: "", dock: "" }, "hidden or absent: no layout change");
 	const room = lessonTrackerRoom(true);
-	// The classes compile to a container query on the session area: at
-	// 60rem and up the column's right padding is the card's lane (16rem
-	// card + 0.75rem gap) plus the column's own 1.5rem gutter.
+	// The area is the session container; at 60rem and up the column's right
+	// padding clears the card's lane (16rem card + 0.75rem gap) plus the
+	// column's own 1.5rem gutter (fork CSS in globals.css; the geometry with
+	// a transcript width set: fork-session-css.test.ts).
 	const { compile } = await import("tailwindcss");
-	const css = (await compile("@tailwind utilities;", { base: process.cwd() })).build([room.area, room.column]);
+	const css = (await compile("@tailwind utilities;", { base: process.cwd() })).build([room.area]);
 	assert.match(css, /container-type: inline-size;\s*container-name: session;/);
-	assert.match(css, /@container session \(width >= 60rem\) \{[^}]*\{\s*padding-right: 18\.25rem;/);
+	const query = sessionQueryHolding(`.${room.column}`);
+	assert.equal(evalPx(declarationsFor(query, `.${room.column}`).get("padding-right")!, declarationsFor(query, `.${room.column}`), {}, 1440), 18.25 * 16);
 	// The card's geometry matches the lane the padding reserves.
 	const host = await mount(<LessonTrackerCard tracking={deriveLessonTracking(record)} bottomReserve={0} />);
 	const cls = host.querySelector('[data-testid="lesson-tracker"]')!.getAttribute("class")!.split(" ");
@@ -438,19 +441,16 @@ it("makes room for the dock too: it centres on the narrowed column while the car
 	// Hidden or absent card (and, through the container query, narrow areas): no dock classes at all.
 	assert.equal(lessonTrackerRoom(false).dock, "", "card hidden or absent: the dock's layout is unchanged");
 	const room = lessonTrackerRoom(true);
-	const { compile } = await import("tailwindcss");
-	const build = async (classes: string[]) => (await compile("@tailwind utilities;", { base: process.cwd() })).build(classes);
-	const QUERY = /@container session \(width >= 60rem\) \{([\s\S]*?)\n\}/;
-	const inQuery = (css: string, prop: string) => css.match(QUERY)?.[1]?.match(new RegExp(`\\b${prop}: ([^;]+);`))?.[1];
-	const dockCss = await build(room.dock.split(" "));
-	const columnCss = await build([room.column]);
-	// The same breakpoint as the column, and the column's own padding box:
-	// its room-making right and its px-6 (1.5rem) left — so the dock centres
-	// in exactly the column's content box (owner, 2026-11-05).
-	assert.equal(inQuery(dockCss, "padding-right"), "18.25rem");
-	assert.equal(inQuery(dockCss, "padding-right"), inQuery(columnCss, "padding-right"), "the same right offset as the column");
-	assert.equal(inQuery(dockCss, "padding-left"), "1.5rem", "the column's px-6 left gutter");
-	assert.doesNotMatch(dockCss.replace(QUERY, ""), /padding/, "nothing outside the wide-area query");
+	// The same breakpoint as the column, and at Full the column's box in the
+	// area: no left offset, the card's lane on the right — so the dock centres
+	// on the text (owner, 2026-11-05) and a widened card meets its edges
+	// (fork-session-css.test.ts covers set widths).
+	const query = sessionQueryHolding(`.${room.dock}`);
+	assert.ok(query.includes(`.${room.column}`), "the same query as the column");
+	const dockDecls = declarationsFor(query, `.${room.dock}`);
+	assert.equal(evalPx(dockDecls.get("padding-left")!, dockDecls, {}, 1440), 0);
+	assert.equal(evalPx(dockDecls.get("padding-right")!, dockDecls, {}, 1440), 16.75 * 16);
+	assert.equal(evalPx(dockDecls.get("--lh-room-lane")!, dockDecls, {}, 1440), 16.75 * 16);
 	// The chat applies them: the column carries px-6, and the dock block (the
 	// one wrapper of the question card, composer, reading field, queued steers,
 	// setup/plan-accept bar and footer row) takes the dock classes.

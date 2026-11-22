@@ -80,13 +80,20 @@ export function useLessonTrackerShown(): { shown: boolean; toggle: () => void } 
  * The dock follows (owner, 2026-11-05): the question card, composer,
  * reading field, queued steers, setup/plan-accept bar and footer row centre
  * on the column, not the whole pane, so a question never slides under the
- * card. The dock block takes the column's own padding box at the same
- * breakpoint — the column's px-6 left (1.5rem) and its room-making right —
- * so the 46rem dock centres in exactly the column's content box.
+ * card. The dock block takes the column's box in the area at the same
+ * breakpoint (its side margins, plus the column's extra right padding), so
+ * the 46rem dock centres on the column's text and a widened question card
+ * lines up with the text's edges, as it does without the card.
+ *
+ * With a transcript width set (2026-11-22) the centred column reaches the
+ * card only on a narrow enough area: the right padding grows by just the
+ * overlap, so a column clear of the card keeps the full set width. The
+ * geometry is CSS (globals.css, .lh-room-column / .lh-room-dock), because
+ * it reads the area's width.
  */
 export const TRACKER_ROOM_AREA = "@container/session";
-export const TRACKER_ROOM_COLUMN = "@min-[60rem]/session:pr-[18.25rem]";
-export const TRACKER_ROOM_DOCK = "@min-[60rem]/session:pl-[1.5rem] @min-[60rem]/session:pr-[18.25rem]";
+export const TRACKER_ROOM_COLUMN = "lh-room-column";
+export const TRACKER_ROOM_DOCK = "lh-room-dock";
 
 export function lessonTrackerRoom(active: boolean): { area: string; column: string; dock: string } {
 	return active ? { area: TRACKER_ROOM_AREA, column: TRACKER_ROOM_COLUMN, dock: TRACKER_ROOM_DOCK } : { area: "", column: "", dock: "" };

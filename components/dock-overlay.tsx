@@ -27,7 +27,7 @@ import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-stee
 import { finishDictation } from "@/components/dictation";
 import { QuestionDock } from "@/components/question-dock";
 import { PracticeDock } from "@/components/practice-dock";
-import { MARGIN_MIN_W, dockFlank } from "@/components/dock-flank";
+import { MARGIN_MIN_W, dockFlank, roomLane } from "@/components/dock-flank";
 import { rememberRevealed, wasRevealed } from "@/components/revealed-questions";
 import { useHydrated } from "@/components/use-hydrated";
 import { rememberDockFolded, restoresReadingPosition, savedDockReserve } from "@/components/session-navigation";
@@ -366,7 +366,7 @@ export function DockOverlay({
 	// (dock-flank.ts); padding changes alter the block's content box, so the
 	// observer sees them, and `room` re-runs it too. The flank itself is
 	// derived below, from the dock's current width.
-	const [blockBox, setBlockBox] = useState({ width: 0, paddingLeft: 0, paddingRight: 0 });
+	const [blockBox, setBlockBox] = useState({ width: 0, paddingLeft: 0, paddingRight: 0, lane: 0 });
 	const blockBoxRef = useRef(blockBox);
 	// The root font size: the dock's rem geometry in px.
 	const [rem, setRem] = useState(16);
@@ -383,10 +383,10 @@ export function DockOverlay({
 		const measure = () => {
 			setRem(rootRem(block.ownerDocument));
 			const style = getComputedStyle(block);
-			const next = { width: Math.round(block.offsetWidth), paddingLeft: parseFloat(style.paddingLeft) || 0, paddingRight: parseFloat(style.paddingRight) || 0 };
+			const next = { width: Math.round(block.offsetWidth), paddingLeft: parseFloat(style.paddingLeft) || 0, paddingRight: parseFloat(style.paddingRight) || 0, lane: roomLane(style) };
 			const prev = blockBoxRef.current;
 			const widthMoved = Math.abs(next.width - prev.width) > 1;
-			if (widthMoved || next.paddingLeft !== prev.paddingLeft || next.paddingRight !== prev.paddingRight) {
+			if (widthMoved || next.paddingLeft !== prev.paddingLeft || next.paddingRight !== prev.paddingRight || next.lane !== prev.lane) {
 				blockBoxRef.current = next;
 				setBlockBox(next);
 				if (widthMoved) geometryAtRef.current = Date.now();
@@ -408,9 +408,11 @@ export function DockOverlay({
 	const adaptive = appearance.adaptiveQuestions && !!pending && !pluginQuestion && !unreadablePlugin;
 	const blockW = blockBox.width;
 	// The dock centers in the block's content box (the make-room padding).
+	// The room mirrors the column's box in the area (globals.css
+	// .lh-room-dock), so the content box relates to the text exactly as the
+	// bare block does without the card: dockContainerMax's "content - 1rem"
+	// lines the card's shell up with the text either way; a set width caps it.
 	const contentW = blockW - blockBox.paddingLeft - blockBox.paddingRight;
-	// Full: the card's shell may line up with the transcript's text column
-	// (dockContainerMax: block - 1rem); a set width caps it there.
 	const containerMax = dockContainerMax(contentW, rem, appearance.transcriptMaxWidth);
 	const fontKey = layoutFontKey(appearance);
 	const geometry = questionCardGeometry(rem);
@@ -426,7 +428,7 @@ export function DockOverlay({
 		? questionLayout.width + geometry.chrome
 		: null;
 	const dockW = Math.min(adaptedW ?? DOCK_W, contentW || Infinity);
-	const flank = dockFlank(blockW, blockBox.paddingLeft, blockBox.paddingRight, dockW);
+	const flank = dockFlank(blockW, blockBox.paddingLeft, blockBox.paddingRight, dockW, blockBox.lane);
 	const flankW = flank.width;
 	const dockRef = useRef<HTMLDivElement>(null);
 	const widthMorphRef = useRef<ReturnType<typeof createDockWidthMorph> | null>(null);

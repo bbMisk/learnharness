@@ -196,6 +196,8 @@ export function SideTutor({ chatId, selectedText, onClose }: { chatId: string; s
 			<aside
 				aria-label="Temporary side tutor"
 				data-testid="side-tutor"
+				// Its prose wraps inline code and math again (globals.css).
+				data-side-tutor=""
 				tabIndex={-1}
 				className="flex h-full min-h-0 min-w-0 flex-col border-l border-border bg-background"
 				onKeyDown={(e) => {
