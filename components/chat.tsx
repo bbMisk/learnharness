@@ -116,15 +116,23 @@ import { DockOverlay, GRADIENT_H } from "@/components/dock-overlay";
 import { StatsBar } from "@/components/stats-bar";
 import { useSessionRename } from "@/components/session-rename";
 
-/** The transcript column: full session width with a thin px-6 margin, or
- *  the Appearance transcript width, centered (globals.css
- *  .lh-transcript-column). The composer/question dock is narrower (DOCK in
- *  dock-overlay.tsx). */
+/**
+ * Width tokens (wave-5 reskin, owner decision): the teaching PROSE spans the
+ * full session width with a thin px-6 margin; the composer/question DOCK is
+ * deliberately narrower (~46rem centered) per the reference. Same ELEMENT,
+ * same place — width polish only.
+ *
+ * Transcript width (Appearance, session-appearance-layout): an optional cap
+ * on the whole transcript, centered (globals.css .lh-transcript-column).
+ * Full (unset) is exactly the full-bleed column above.
+ */
 const COLUMN = "lh-transcript-column mx-auto w-full px-6";
 
-/** The BYOK refusal envelope from the transport's error text: the 503 body
- *  arrives verbatim as the error message, so the {code, missing} shape
- *  survives to here. Any other text reads as null and keeps the error banner. */
+/** The BYOK refusal envelope from the transport's error text: the
+ *  DefaultChatTransport throws the 503 body VERBATIM as the error message,
+ *  so the machine-readable {code, missing} shape survives to here. Real
+ *  errors (any other text) read as null and keep the honest banner.
+ *  Exported pure for tests. */
 export function parseModelsRefusal(message: string | undefined): ModelSlotName[] | null {
 	if (!message) return null;
 	try {
@@ -193,8 +201,8 @@ export function restoreInterruptedDraft(current: string, rejected: string): stri
 }
 
 /**
- * The teaching session. Session state lives in useChatSession; the server
- * persists the canonical transcript after every turn.
+ * The teaching session. All chat state lives in useChat; the server persists
+ * the canonical transcript after every turn.
  *
  * The bottom dock is ONE persistent shell (DockOverlay) whose contents swap
  * (composer ↔ question dock ↔ collapsed bar). It is overlaid on the bottom of
@@ -222,8 +230,9 @@ export function Chat({
 	initialMessages: LhMessage[];
 	/** Memory-only settlement notice supplied on reopening. */
 	initialError?: string;
-	/** Practice renders no phase chip (no probe→teach arc) and shows a
-	 *  Practice tag in the header instead. */
+	/** The session kind (practice sessions, owner 2026-10-04): practice
+	 *  renders no phase chip (no probe→teach arc applies) and a Practice
+	 *  tag rides the header instead. */
 	kind?: "teach" | "practice";
 	/** "cram" for a lesson started in cram mode (core/cram.ts). */
 	style?: "cram";
@@ -242,13 +251,15 @@ export function Chat({
 	 * compaction-changed event already fired). The transcript spinner
 	 * and send gates key on it. */
 	initiallyCompacting?: boolean;
-	/** slotsConfigured(server record): decides whether the setup pill shows
-	 *  above the composer. The server gate stays the truth. */
+	/** slotsConfigured(server record) — the persistent setup CTA keys on
+	 *  it (BYOK, owner 2026-09-22). The server gate stays the truth; this
+	 *  only decides whether the pill rides the composer. */
 	initialConfigured?: boolean;
 	initialShowReadingThinking?: boolean;
 }) {
-	// The reattach stream's settled callback: a stable ref assigned below once
-	// syncFromServer exists (a ref, not a closure, so nothing goes stale).
+	// Reattach plumbing (background-turn runner wave): the hook holds the
+	// settled terminal's callback — a stable ref assigned below, once
+	// syncFromServer exists (refs, not closures: no stale capture).
 	const reattachSettledRef = useRef<() => void>(() => {});
 
 	// The session hook: the record is native history; the view is derived
@@ -530,8 +541,9 @@ export function Chat({
 	useReadingThinkingResync(showReadingThinking, readingThinkingRef, setReadingThinkingSeed);
 	const { sideTutor, toggleSideTutor, closeSideTutor } = useSideTutor();
 
-	// ⌘T (toggle-user-thinking): sets every user thinking row to one state.
-	// Rows default open, so the first press collapses all, the second expands.
+	// ⌘T (toggle-user-thinking, owner round 2026-10-07): set EVERY user
+	// thinking row to one state — transcript rows default open, so the
+	// first press collapses everything, the second re-expands.
 	useEffect(() => {
 		const onToggle = () => {
 			if (isInteractionScopeEligible(sessionFindScopeRef.current, controller)) setAllUserThinkingOpen(!currentUserThinkingOpen());
@@ -605,10 +617,11 @@ export function Chat({
 	const recordSelectedModel = useCallback((model: string | undefined) => { submissionModel.observe(model); setSelectedModel(model); }, [submissionModel]);
 	const settingsRefreshError = useReadingThinkingRefresh(setShowReadingThinking);
 	const [setupOpen, setSetupOpen] = useState(false);
-	/** The last explicitly-sent composer draft: the refusal flow restores it
-	 *  into the composer, where it waits for the learner to re-send (Save never
-	 *  auto-sends). Auto-continuations (probe answers) never set it, so their
-	 *  refusal opens recovery with no replay. */
+	/** The last explicitly-sent draft (composer send): the
+	 *  refusal flow restores it into the composer, where it waits for the
+	 *  learner to re-send (Save never auto-sends, owner 2026-10-09).
+	 *  Auto-continuations (probe answers) never set it — their refusal
+	 *  opens recovery with no replay. */
 	const draftRef = useRef<string | null>(null);
 	const openingDraftRef = useRef<string | null>(null);
 	const [openingError, setOpeningError] = useState(false);
@@ -846,8 +859,8 @@ export function Chat({
 		return () => {
 			cancelled = true;
 		};
-		// (readRecord/clearError are stable per session; the flow keys on
-		//  [error, chatId].)
+		// (readRecord/clearError are stable per useChat instance — the
+		//  dep pair [error, chatId] is what the flow actually keys on.)
 	}, [error, chatId, readRecord]);
 	// The events channel reconnected, so the server is reachable again.
 	useServerResync(() => {
@@ -937,16 +950,24 @@ export function Chat({
 		}
 	}, [dictation.active, controller]);
 
-	// Send gating. Jobs never gate the composer (contracts.ts "THE ASYNC
-	// PROTOCOL" §4): job tools ack mid-turn and the wake pipeline queues steers
-	// until the turn ends. A turn in flight doesn't gate it either: Enter
-	// steers the running turn (the queue above the composer). A pending
-	// question or active problem owns the dock instead. A live dictation keeps
-	// the composer sendable: the spoken text is still in the run's buffer, so
-	// Enter must reach the finish-first send (see onSend); with nothing said
-	// the send is a no-op. `compacting` tracks compaction-changed; the send
-	// paths, canSend and the docks gate on it (the server's registry mutex is
-	// the real gate; this is the affordance).
+	// Jobs never gate the composer (contracts.ts "THE ASYNC PROTOCOL" §4): job
+	// tools resolve with an ack mid-turn, so the learner can interject while
+	// sub-agents run — a feature, not a race: the wake pipeline queues steers
+	// until the current turn ends. Only a QUESTION pending or a turn in
+	// flight (client or server-side wake turn) gates sending.
+	// A LIVE dictation also makes the composer sendable (owner 2026-10-01):
+	// the spoken text is deferred in the run's buffer — Enter must be able
+	// to trigger the finish-first send (see onSend), not be gated out by an
+	// empty textarea. If nothing was said, the send is a harmless no-op.
+	// Steering (2026-10-03): a turn in flight no longer gates the composer —
+	// Enter while a turn runs STEERS it (the quiet queue above the composer);
+	// a pending question still owns the interaction (the dock replaces the
+	// composer, and there is no live turn to steer anyway — questions end
+	// turns).
+	// Compaction (owner round 14): the RUNNING state — compaction-changed
+	// flips it; the send paths, canSend, and the docks gate on it (the
+	// server's registry mutex is the structural gate; this is the
+	// affordance).
 	const [compacting, setCompacting] = useState(initiallyCompacting);
 	submissionLive.current.ready = !compacting && reconciliation === "ready";
 	// A failed model response (issue #110): Retry keeps the saved input
@@ -961,10 +982,10 @@ export function Chat({
 	const pendingThinkingTarget = thinkingTarget();
 	const pendingThinkingInput = !!pendingThinkingTarget && !!pluginManager?.hasPendingSubmissionInput(pendingThinkingTarget);
 
-	/* The practice pause between problems: practice kind, nothing active or
-	 * in flight, and at least one problem already posed (a fresh session owes
-	 * its opening turn, not the move-on). Enter-on-empty and the Next chip
-	 * both key on it. */
+	/* THE PRACTICE PAUSE (owner round 16): between problems — practice
+	 * kind, nothing active, nothing in flight, and at least one problem
+	 * has ever been posed (the fresh session's opening turn is owed, not
+	 * the move-on). Enter-on-empty and the Next chip both key on it. */
 	const nextReady =
 		kind === "practice" &&
 		!pending &&
@@ -983,10 +1004,14 @@ export function Chat({
 		void send({ type: "next" });
 	}, [nextReady, send, submissionRunner, pendingTextInput]);
 
-	/* Enter from anywhere moves on: the window-level Enter (typing surfaces
-	 * and buttons keep their own lane, so no double fire) works without
-	 * composer focus. sendNext self-guards on nextReady, so the listener is
-	 * inert outside the pause, when the dock-mounted listeners are gone. */
+	/* ENTER FROM ANYWHERE (owner round 16 refinement, 2026-10-06 —
+	 * keyboard-first): the move-on must not require composer focus. The
+	 * window-level Enter (typing surfaces and buttons excluded — a
+	 * focused composer/button keeps its own lane, so no double fire)
+	 * fires the signal from body focus, a scroll, anywhere. sendNext
+	 * self-guards on nextReady, so the listener is inert outside the
+	 * pause — the dock-mounted listeners are gone by then (docks unmount
+	 * when nothing is active; the two never overlap). */
 	useEnterSubmits(sendNext, sessionFindScopeRef);
 
 	const syncFromServer = useCallback(async (retries = 1): Promise<boolean> => {
@@ -1059,9 +1084,8 @@ export function Chat({
 		return () => { timers.forEach(clearTimeout); timers.clear(); };
 	}, []);
 
-	// The live plan popup: opened by the top-bar plan chip and, through the
-	// session-overlay context, by every plan control below it (transcript
-	// plan blocks, the dock band's marginalia, the progress card's diagram).
+	// The live plan popup (wave 4): opened by any transcript plan block, the
+	// top-bar plan chip, and the dock band's marginalia.
 	const [planOpen, setPlanOpen] = useState(false);
 	const retryQuestion = useCallback((malformed: QuestionCall) => {
 		draftRef.current = null;
@@ -1071,16 +1095,17 @@ export function Chat({
 	// is always truthy, so gating on the node alone would mount an invisible,
 	// clickable button whenever a question is pending with no plan yet.
 	const hasPlan = useMemo(() => planExists(messages), [messages]);
-	// The coverage ring's refresh tick: bumped at turn settle, when this
-	// session's uncovered mass changes.
+	// The coverage ring's refresh chain (extraction-UX redesign): bumped at
+	// turn settle — the moment this session's uncovered mass changes.
 	const [coverageTick, setCoverageTick] = useState(0);
 	// The mermaid focus (chrome-melt wave, 2026-09-19): md-blocks' expand
 	// button registers the chart source here; the overlay (and the plan
 	// popup) mount INSIDE the session-area div — both are session-scoped, so
 	// the drag bar stays sharp and draggable while a focus owns the area.
 	const [mermaidFocus, setMermaidFocus] = useState<string | null>(null);
-	// Figure focus: the figure card's fullscreen button. Same overlay shell as
-	// mermaid, carrying the raw svg and the card's invert state.
+	// Figure focus (2026-10-07): the figure card's fullscreen button — same
+	// overlay shell as mermaid, but carrying the raw svg + the card's invert
+	// state so the fullscreen view stays faithful to the toggled card.
 	const [figureFocus, setFigureFocus] = useState<{ svg: string; inverted: boolean } | { image: SessionImage } | null>(null);
 	// Stable, so a Chat render never re-renders the memoized transcript's
 	// overlay consumers (plan blocks, mermaid and figure cards).
@@ -1091,8 +1116,9 @@ export function Chat({
 		openPlan: () => setPlanOpen(true),
 	}), []);
 
-	// Overlay mirrors for the layered-Esc gate: the lh:kbd-abort-turn handler
-	// reads these at event time.
+	// Overlay mirrors for the layered-Esc gate (owner 2026-10-04): the
+	// lh:kbd-abort-turn handler reads these at EVENT time — declared here
+	// beside their states, consumed below wherever the states live.
 	const mermaidFocusRef = useRef(mermaidFocus);
 	mermaidFocusRef.current = mermaidFocus;
 	// The figure focus rides the mermaid layer in the Esc gate — the same
@@ -1215,15 +1241,19 @@ export function Chat({
 		if (!transitioned) return;
 		// The coverage ring re-reads at turn settle; its own poll handles runs.
 		setCoverageTick((t) => t + 1);
-		// Canonization: turn-settled for our own turn arrives while the stream
-		// is still open (endTurn emits before the response terminates), so the
-		// handler below only flags it and this flip consumes the flag. The
-		// record reflects durable truth (a failed settlement keeps its notice,
-		// not its unsaved reply); replacing the view absorbs the tail's
-		// streamed c_-id copies into base under their server ids, so the next
-		// send never renders them twice. A wake can't be missed: it fires only
-		// after the idle gates + grace (≥750ms past this flip), so its
-		// turn-started event lands on an idle, canonical view.
+		// CANONIZATION (fix B, the duplicate-previous-message bug, 2026-10-02):
+		// turn-settled for OUR OWN turn arrives while the stream is still open
+		// (endTurn emits from onFinish before the response terminates, so the
+		// SSE frame reliably beats [DONE]) — the handler below cannot sync
+		// there, it flags instead, and THIS flip consumes the flag: the record
+		// reflects durable truth (a failed settlement retains its notice,
+		// not its unsaved reply), so replacing the view absorbs the tail's
+		// streamed c_-id copies into base under their server ids. Without
+		// this the tail kept those copies forever and the next send's
+		// steer-adoption window rendered them a second time. The wake handoff
+		// cannot be missed by this sync: the wake fires only after the idle
+		// gates + grace (≥750ms past this flip), so its turn-started event
+		// lands at an idle, already-canonical view and attaches normally.
 		if (settleAnnouncedRef.current) {
 			settleAnnouncedRef.current = false;
 			void syncFromServer().then(ok => { if (!ok) void syncTurns(); });
@@ -1266,12 +1296,13 @@ export function Chat({
 	// sub-agent run writes activity-line bursts; 250ms coalesces them at or
 	// below the old 1s poll cadence), and once on channel resync.
 	//
-	// A settle doesn't imply the record is complete: continuation coalescing
-	// flips the job done at claim time, while the learner's own answer turn
-	// may still be streaming (and a settle can race another job's wake turn).
-	// A full sync mid-stream would collide with the streaming tail (duplicate
-	// message ids), so a settle during a busy turn defers the sync to the next
-	// idle fetch.
+	// A settle no longer implies the record is complete: CONTINUATION
+	// COALESCING flips the job done at claim time — while the learner's own
+	// answer turn is still streaming (and a settle can race a second job's
+	// wake turn). Syncing mid-turn would swap in a stale snapshot
+	// mid-stream, which breaks the SDK's in-place continuation merge
+	// (duplicate message ids). So: a settle during a busy turn defers the
+	// sync; the next idle fetch adopts the finished record.
 	const [jobs, setJobs] = useState<JobRecord[]>([]);
 	const [jobsLoaded, setJobsLoaded] = useState(false);
 	const localStreamRef = useRef(false);
@@ -1473,11 +1504,16 @@ export function Chat({
 		    (no-wrap inline code/math, globals.css). */}
 		<div data-session-surface="" className="relative flex lh-h-screen">
 			<div className="flex min-w-0 flex-1 flex-col">
-				{/* The top bar: in flow above the scroller. Fixed 60px height, not
-				    padding: the sidebar toggle renders only while the sidebar is
-				    closed, and an auto-height row would collapse without it. 60px
-				    also equals the sidebar's wordmark band, so the two bottom
-				    borders form one line across the app. */}
+				{/* The top bar is its own block (owner, top-fade round 4): in flow
+				    above the scroller on the plain page background — no gradient. Its
+				    bottom outline (border-b border-border) matches the one that
+				    separates the left sidebar — same width, same color (owner, r5).
+				    h-15 (60px), not py-2: the toggle (a size-9 icon button) renders
+				    only while the sidebar is CLOSED — an auto-height row would
+				    collapse when it disappears and slide the title + chip up.
+				    60px is an ALIGNMENT, not just a size: it equals the sidebar's
+				    LH wordmark band, so the header's border-b continues that
+				    band's bottom edge as one line across the app (owner, round 6). */}
 				<TopBar
 					// While renaming the bar is NOT a drag surface: app-region:drag
 					// would eat the mousedown, so click-to-escape (below) could
@@ -1586,7 +1622,8 @@ export function Chat({
 					    graph is off; click for the numbers. Hidden in practice, which
 					    never extracts. */}
 					{kind !== "practice" && <CoverageRing chatId={chatId} refreshKey={coverageTick} />}
-					{/* Practice has no phase arc: a Practice tag replaces the chip. */}
+					{/* Practice sessions: no phase arc — a quiet Practice tag
+					    instead of the phase chip. */}
 					{kind === "practice" ? (
 						<span
 							data-testid="phase-chip"
@@ -1634,9 +1671,29 @@ export function Chat({
 								onRetryQuestion={retryQuestion}
 							/>
 
-							{/* Compaction: shown while the summarizer holds the model gate.
-							    Never coexists with the Thinking placeholder (the gate sits
-							    before beginTurn; the settle summary runs after endTurn). */}
+							{/* THE placeholder, ACTION-gated (owner, optimistic round
+							    3, 2026-10-02): spinner + shimmered Thinking… from the
+							    instant of any action that produces tokens — send,
+							    answer, session start, reattach (status flips to
+							    submitted SYNCHRONOUSLY with the action) — until the
+							    turn's first APPLIED event, where the stream takes over
+							    with the same look: an arrived-but-empty message renders
+							    the thinking ROW (view.ts projects one empty reasoning
+							    part), so submitted ⟺ placeholder and streaming ⟺ a
+							    rendered row, mutually exclusive by construction.
+							    Protocol events (agent_start) apply nothing and release
+							    nothing — the placeholder covers the whole
+							    provider-connect gap. Optional plugin grading/processing
+							    uses EVALUATING… until its POST acknowledges; this changes
+							    only the wording, never the action or stream gates.
+							    turnInFlight: the same state
+							    entered by external discovery (wake) / the poll
+							    fallback. Never collapsible itself. */}
+							{/* Compaction (owner round 15): the same register as the
+						    thinking placeholder — a visible session-wide state while
+						    the summarizer holds the model gate. Mutually exclusive with
+						    the THINKING placeholder by construction (the gate sits
+						    BEFORE beginTurn; the settle kick runs after endTurn). */}
 							{compacting && (
 								<span className="flex items-center gap-2 font-ui text-xs font-medium uppercase tracking-wide text-muted-foreground">
 									<BrailleSpinner label="Compacting context" />
@@ -1673,9 +1730,11 @@ export function Chat({
 						<div aria-hidden data-testid="dock-spacer" style={{ height: dockReserve }} />
 				</ConversationContent>
 				{/* The dock: an overlay sibling of the scroller (the
-				    use-stick-to-bottom pattern). Its scroll-down button is anchored
-				    to the dock block's top edge, so it rides every height change
-				    and never overlaps the composer. */}
+				    use-stick-to-bottom pattern). The scroll-down button lives
+				    INSIDE the overlay now (owner refinement round, 2026-09-24):
+				    anchored to the dock block's top edge, so it rides every
+				    height morph (typing, a question growing the band, the
+				    fold) and NEVER overlaps the composer. */}
 				<DockOverlay
 					viewReader={inputViewReader}
 					viewTargets={surfaceTarget ? { text: textTarget()!, answer: builtinTarget, thinking: thinkingTarget(), pluginQuestion: pluginQuestionTarget(), pluginProblem: pluginProblemTarget() } : undefined}
@@ -1772,8 +1831,9 @@ export function Chat({
 							sendAllowed={sendAllowed}
 							dictationActive={dictation.active}
 							onEscape={dictation.active ? dictation.cancel : undefined}
-							// In the practice pause the placeholder is the hint, shown
-							// exactly where Enter-on-empty applies.
+							// The pause affordance (owner round 16): the placeholder
+							// IS the hint — empty state, exactly where Enter-on-empty
+							// applies.
 							nextProblem={nextReady}
 							onNext={sendNext}
 							placeholder={nextReady ? "Ask anything, or press Enter for the next one." : undefined}

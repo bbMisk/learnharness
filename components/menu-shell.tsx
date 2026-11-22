@@ -24,8 +24,8 @@ import { InteractionLayerOwner, useInteractionLayer, useInteractionLayers, type 
  *    and content that grows past the cap.
  *
  * SSR: menus only mount client-side while open; the hidden measuring pass
- * below is the only pre-placement render, so a server render never emits a
- * positioned menu.
+ * below is the only pre-placement render, so a server render never emits
+ * a positioned menu.
  */
 
 /** The narrowest a menu may get before it moves against the safe edge instead. */

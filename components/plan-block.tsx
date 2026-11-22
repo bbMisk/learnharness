@@ -510,7 +510,9 @@ export function PlanDiagram({
 /**
  * A persisted plan-block part, rendered as carried (snapshot statuses,
  * never re-derived): borderless and column-filling, it opens the live plan
- * popup. Always the full plan — position derives live in the popup.
+ * popup. Full-only by design since the 2026-09-11 pivot (the neighborhood
+ * fragments are retired — position derives live in the popup and the
+ * future DAG window).
  */
 export function PlanBlock({ data }: { data: PlanBlockData }) {
 	const overlay = useSessionOverlay();
@@ -573,21 +575,22 @@ export function latestTree(messages: readonly PopupMessage[]): PlanTree | null {
  *  the in-chat block (monochrome, no glow) stays tight at GRAPH_PAD. */
 const POPUP_PAD = GLOW_REACH;
 
-// The pan/zoom math lives in components/pan-zoom.ts (shared with the
-// mermaid focus overlay) — fit-floor semantics: fully zoomed out IS the
-// fit, panning locks at the floor, zoom ceiling 4× for reading node titles
-// closely.
+// The pan/zoom math now lives in components/pan-zoom.ts (shared with the
+// mermaid focus overlay since the session-overlay wave, 2026-09-19) — same
+// fit-floor semantics: fully zoomed out IS the fit, panning locks at the
+// floor, zoom ceiling 4× for reading node titles closely.
 
 /**
  * The full plan, live: latest tree + statuses derived at click time. Esc,
  * backdrop click, or the X close it; drag pans, wheel zooms to the cursor,
  * the zoom floor is the fit (panning locks at it — nothing to move).
  *
- * SESSION-SCOPED: it mounts ABSOLUTE inside the chat page's session-area
- * div (chat.tsx) — below the 60px drag bar, right of the sidebar — not as a
- * fixed inset-0 overlay. The top bar stays sharp and draggable, and the X
- * can never land in drag territory. Surface 80% + blur: the transcript
- * ghosts through while the focus owns the session area.
+ * SESSION-SCOPED since the chrome-melt wave (2026-09-19): it mounts
+ * ABSOLUTE inside the chat page's session-area div (chat.tsx) — below the
+ * 60px drag bar, right of the sidebar — instead of a fixed inset-0 overlay.
+ * The top bar stays sharp and draggable, and the X can never land in drag
+ * territory. Surface 80% + blur (owner decision): the transcript ghosts
+ * through while the focus owns the session area.
  */
 export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessage[]; onClose: () => void }) {
 	const tree = useMemo(() => latestTree(messages), [messages]);

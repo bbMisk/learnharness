@@ -256,8 +256,11 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 	}, [open, toggle]);
 
 	// ⌘B: the global shortcut dispatches kbdEventForAction("toggle-sidebar")
-	// and the context listens on exactly that name — derive both from the
-	// same helper, never a hand-spelled event string.
+	// and the context answers on exactly that name — the shared spelling
+	// is the fix for the interlude bug (the listener sat on the pre-
+	// convention name "lh:toggle-sidebar" while the dispatcher sent
+	// "lh:kbd-toggle-sidebar", so ⌘B silently did nothing; owner
+	// 2026-09-25).
 	useEffect(() => {
 		const event = kbdEventForAction("toggle-sidebar");
 		const onToggle = () => toggle();
@@ -421,7 +424,7 @@ export function SessionRow({
 	/** Keyboard-walk highlight (the search's ↑/↓ walk) — visually distinct
 	 *  from the active session, which stays filled. */
 	kbdSelected?: boolean;
-	/** Right-click opens the session context menu. */
+	/** Right-click opens the context menu (wave 6: Rename / Delete). */
 	onContextMenu?: (e: React.MouseEvent<HTMLButtonElement>) => void;
 	onArchive?: () => Promise<unknown>;
 	/** Settings → General "Show time spent on lessons" (default off). */
@@ -454,8 +457,9 @@ export function SessionRow({
 				<span className={cn("block truncate", sidebarNameFont(compact))}>{chat.title}</span>
 				{!compact && <SessionMetaLine chat={chat} showTime={showTime} gutter={!!onArchive && (chat.kind ?? "teach") !== "practice"} className="block text-xs text-muted-foreground" />}
 			</span>
-			{/* The dumbbell rides the FAR RIGHT, keeping titles flush with the
-			    teaching rows. */}
+			{/* The dumbbell rides the FAR RIGHT (owner round 6, 2026-10-05) —
+			    was left of the name; right-aligned keeps the titles flush with
+			    the teaching rows and reads cleaner. */}
 			{(chat.kind ?? "teach") === "practice" && (
 				<DumbbellIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-label="Practice chat" />
 			)}
@@ -471,7 +475,7 @@ export function SessionRow({
 	);
 }
 
-/** The inline-rename row: same geometry as SessionRow, but the
+/** The inline-rename row (wave 6): same geometry as SessionRow, but the
  *  title line becomes a text input — select-all on entry (the click means
  *  "replace", the header rename's rule), Enter/blur commits, Esc discards.
  *  The row keeps the list's density mid-edit. */
@@ -492,11 +496,13 @@ export function RenameRow({ chat, draft: initialDraft, onCommit, onCancel, showT
 			data-testid="session-rename-row"
 			className={cn("relative mb-0.5 flex w-full items-center rounded-lg bg-accent px-3", compact ? SIDEBAR_COMPACT_ROW : "py-2")}
 		>
-			{/* NOTHING MOVES: an idle row renders no status spacer
-			    (SessionStatus is null when not busy), so the title starts at
-			    the row's own px-3 — 12px in. The input here is borderless and
-			    padding-free at the exact title x; the underline is the only
-			    editing cue. */}
+			{/* NOTHING MOVES (owner, polish round): an idle row renders no
+			    status spacer (SessionStatus is null when not busy), so the
+			    title starts at the row's own px-3 — 12px in. The old rename
+			    row always carried a 14px spacer + gap + the input's border
+			    and padding, landing the text ~41px in (and the meta with
+			    it). The input here is borderless and padding-free at the
+			    exact title x; the underline is the only editing cue. */}
 			<span className="flex min-w-0 w-full flex-col">
 				<input
 					ref={inputRef}
@@ -596,9 +602,9 @@ function SessionsSidebar() {
 			.map((r) => r.c);
 	}, [listed, query, kindFilter, showArchived]);
 
-	/* Instant rename propagation: the chat header's rename commits
-	   dispatch lh:chat-renamed; patch the snapshot in place instead of
-	   waiting for a server round trip. */
+	/* Instant rename propagation (2026-09-17): the chat header's rename
+	   commits dispatch lh:chat-renamed; patch the snapshot in place instead
+	   of waiting for the 2.5s poll. */
 	useEffect(() => {
 		const onRenamed = (e: Event) => {
 			const { id, title } = (e as CustomEvent<{ id: string; title: string }>).detail;
@@ -625,13 +631,16 @@ function SessionsSidebar() {
 	   lh:turn-state + lh:chat-renamed carry same-tab INSTANTS — local beats
 	   any round-trip. Both are wired in useChatListRefresh (above). */
 
-	/* ── Keyboard seams ── ⌘⇧F focuses the search field — and THE SEARCH
-	   OWNS THE WALK: ↑/↓ cycle the filtered list (wrap), Enter opens the
-	   walked row, or the FIRST match when nothing is walked (the quick-open
-	   pattern: ⌘⇧F, type, Enter, done). The selection is a row index into
-	   `shown`, so the walk follows whatever the query + kind filter leave.
-	   Mouse and keyboard coexist: hovering doesn't claim, a click or an
-	   open clears the selection. */
+	/* ── Keyboard seams (shortcut wave A, 2026-09-17; search-walk round
+	   2026-10-10) ── ⌘⇧F focuses the search field — and THE SEARCH OWNS THE
+	   WALK: ↑/↓ cycle the filtered list (wrap — "cycle"), Enter opens the
+	   walked row, or the FIRST match when nothing is walked (owner,
+	   2026-10-10 — the quick-open pattern: ⌘⇧F, type, Enter, done). The
+	   Alt+↑/↓/↵ global cycle was RETIRED the same round: barely used,
+	   felt laggy. The selection is a row index into `shown`, so the walk
+	   follows whatever the query + kind filter leave. Mouse and keyboard
+	   coexist: hovering doesn't claim, a click or an open clears the
+	   selection. */
 	const [kbdIndex, setKbdIndex] = useState<number | null>(null);
 	const searchRef = useRef<HTMLInputElement>(null);
 	const listRef = useRef<HTMLDivElement>(null);
@@ -689,7 +698,7 @@ function SessionsSidebar() {
 		onEscape: useCallback(() => { setCtxChatId(null); returnFocus(); }, [returnFocus]),
 	});
 
-	// Inline rename: the row swaps to a text input;
+	// Inline rename (owner ruling, wave 6): the row swaps to a text input;
 	// commit rides the SAME plumbing as the header rename — PUT the title,
 	// then lh:chat-renamed patches every listener (this sidebar's own
 	// listener patches the snapshot instantly; an open chat header hears
@@ -892,13 +901,17 @@ function SessionsSidebar() {
 								// a stale walk index would point at the wrong row.
 								setKbdIndex(null);
 							}}
-							// THE SEARCH OWNS THE WALK: ↑/↓ cycle the filtered
-							// rows (wrap), Enter opens the walked row — or the
-							// FIRST match when nothing is walked — then blurs
-							// (focus returns to the app; the query stays for
-							// re-searching). Esc clears a query first, then
-							// leaves the search (blur); it claims the key so the
-							// window Esc chain (dictation / abort) doesn't also fire.
+							// THE SEARCH OWNS THE WALK (owner, 2026-10-10 — the
+							// retired Alt+↑/↓/↵ cycle's successor): ↑/↓ cycle the
+							// filtered rows (wrap), Enter opens the walked row —
+							// or the FIRST match when nothing is walked (the
+							// quick-open pattern) — then blurs (focus returns to
+							// the app per the Enter law; the query stays for
+							// re-searching). Esc leaves the search (owner,
+							// keyboard wave): blur back to normal, and claim the
+							// key so the window Esc chain (dictation / abort)
+							// doesn't also fire.
+							// FORK: Esc clears a non-empty query first; the next Esc leaves.
 							onKeyDown={(e) => {
 								if (e.key === "Escape" && !isComposing(e)) {
 									if (!interactions.isElementEligible(e.currentTarget)) return;
@@ -1008,14 +1021,15 @@ function SessionsSidebar() {
 					)}
 				</OverlayScrollArea>
 
-					{/* Background agents: the section is ALWAYS here — empty means
-					    empty (the header sits alone); it populates and grows when
-					    processes run. The session list is flex-1, so this pins to
-					    the bottom. Sidebar closed = no ambient signal. */}
+					{/* Background agents (owner, sidebar round): the section is
+					    ALWAYS here — empty means empty (the header sits alone); it
+					    populates and grows when processes run. The session list is
+					    flex-1, so this pins to the bottom. Sidebar closed = the
+					    learner opted out (no ambient signal, user decision). */}
 					<ActivitySection />
 					<DeployReload variant="row" />
 
-					{/* Settings entry: same row language as
+					{/* Settings entry (settings-app wave): same row language as
 					    New session — quiet, bottom-pinned, opens the centered
 					    dialog (also mod+, in the keyboard registry). */}
 					<div className="px-3 pb-3 pt-1">
@@ -1033,9 +1047,10 @@ function SessionsSidebar() {
 					</div>
 				</div>
 
-				{/* The session context menu (contents described at the state
-				    above). MenuShell owns placement/focus/arrow cycling; the
-				    dismissal effect above owns the contract. */}
+				{/* The context menu (wave 6 + the extraction-UX redesign): the
+				    coverage block above, then exactly two management actions
+				    (owner ruling — no more). MenuShell owns placement/focus/arrow
+				    cycling; the dismissal effect above owns the contract. */}
 				{ctxChatId !== null && (
 					<MenuShell
 						// The open menu is the top layer, so its Esc lands here: hand
@@ -1047,10 +1062,12 @@ function SessionsSidebar() {
 						focusFirst={ctxFromKbd}
 						menuClass="flex w-52 flex-col gap-0.5 rounded-xl border bg-card p-2 text-xs shadow-xl"
 					>
-						{/* Management actions first; the coverage block (numbers +
-						    Extract affordance) sits last. It fetches on menu open (it
-						    mounts WITH the menu); 409 = benign; renders nothing on a
-						    failed read. */}
+						{/* The two management actions first, then the extraction block
+						    (owner refinement round, 2026-09-24): Rename/Delete stay at the
+						    top, the coverage numbers + Extract affordance sit below the
+						    hairline — the block is info + a stateful affordance, the
+						    actions above it. Fetched on menu open (the block mounts WITH
+						    the menu); 409 = benign. Renders nothing on a failed read. */}
 						<button
 							type="button"
 							data-testid="ctx-rename"
@@ -1065,9 +1082,11 @@ function SessionsSidebar() {
 						>
 							Rename
 						</button>
-						{/* Export as Markdown: a same-origin anchor download; the
-						    route's Content-Disposition names the file. Sits above Delete
-						    (the destructive action stays last). */}
+						{/* Export as Markdown (owner, release polish 2026-10-06): the
+					    session-markdown engine's user-facing debut — same-origin
+						    anchor download; the route's Content-Disposition names the
+						    file. Sits with the management actions, above Delete (the
+						    destructive action stays last — the danger-fence law). */}
 						<button
 							type="button"
 							data-testid="ctx-export-md"
@@ -1108,7 +1127,7 @@ function SessionsSidebar() {
 					</MenuShell>
 				)}
 
-				{/* The two-option delete dialog — portaled to body
+				{/* The two-option delete dialog (wave 6) — portaled to body
 				    by the component itself, lives here for state locality. */}
 				<DeleteSessionDialog
 					chat={deleting}

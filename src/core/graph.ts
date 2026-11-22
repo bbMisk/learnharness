@@ -98,7 +98,7 @@ function chainKey(premises: ReadonlyArray<string>, conclusion: string): string {
  *  for the format-agnostic notes front door (2026-09-13) — no coverage at
  *  all: the whole-file checkpoint stamps the import.
  *
- *  Coverage (vision-extraction-coverage.md): a chat merge
+ *  Coverage (vision-extraction-coverage.md, settled 2026-09-15): a chat merge
  *  passes the BATCH it extracted — the caller computed the fingerprints
  *  before the run, from the same snapshot the merger sees — and the final
  *  step appends one CoverageEntry per message on success ("covered" means

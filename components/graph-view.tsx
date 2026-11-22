@@ -3,10 +3,16 @@
 /**
  * The home knowledge-graph view (W4; vision §1 "Rendering (DECIDED)").
  *
- * Drawing is delegated to the single-canvas renderer (./graph-canvas.ts):
- * plain data in, one camera, rendering scheduled on demand (at most one
- * draw per frame, no frame at all while idle). The camera lives in the
- * renderer, so data refetches and settings changes never move it.
+ * ARCHITECTURE (2026-09-13, decided after the research pass —
+ * docs/research/graph-rendering.md, Option B): sigma.js is GONE. The
+ * renderer is now a hand-rolled single Canvas 2D (./graph-canvas.ts) —
+ * a DUMB DRAW FUNCTION over plain data with ONE requestAnimationFrame
+ * loop and a dirty flag. Everything that made the sigma era fragile is
+ * structurally impossible now: hulls cannot lag nodes (one loop, one
+ * camera, one frame), settings changes cannot shift anything (the
+ * camera lives in the renderer and no rebuild ever happens), and the
+ * per-camera-event full-canvas repaints (GPU spikes + coil whine) are
+ * gone (at most one draw per frame, and NO frame at all while idle).
  *
  * Layout fallback (ledger absent): ONE synchronous incrementalLayout
  * pass (d3-force, core/layout.ts) inside a useEffect writes world-space
@@ -43,13 +49,18 @@
  *     (and their edges) from rendering, picking, hover, AND labels;
  *     an open card closes if its node is filtered out.
  *
- * Rendering settings: the gear reveals size/zoom sliders, the region and
- * cluster-label controls, and the live-physics forces. SERVER-persisted
- * (data/render-settings.json via /api/graph/render-settings): loaded once
- * after mount, saved debounced on every user change — one source of truth
- * shared by every browser. The label-zoom display uses normalized units
- * where the default 0.5 reads as "1×". Settings apply by redrawing — no
- * re-layout, and the camera never moves.
+ * Rendering settings (2026-09-13): the gear in the search panel reveals
+ * five sliders (node size, edge width, arrowhead length, label size, the
+ * zoom threshold), and the cluster-labels checkbox. (The supports-edge
+ * draw toggle + thickness slider died with supports edges themselves —
+ * chains-primary, 2026-09-30.) SERVER-persisted
+ * (data/render-settings.json via /api/graph/render-settings): loaded
+ * once after mount, saved debounced on every user change — one source
+ * of truth shared by every browser. The label-zoom slider is log-scaled
+ * (its useful band 0.25–0.5 sits mid-slider, not crammed at the left)
+ * and displays normalized units where the default 0.5 reads as "1×".
+ * Settings apply by just redrawing — no rebuild, no re-layout, and the
+ * camera never moves.
  */
 
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -264,9 +275,10 @@ function sizeDisplay(v: number): string {
 }
 
 /**
- * The rendering-settings gear + its collapsible panel: its own container
- * at the top right — clicking the gear expands/collapses the panel, which
- * drops below the button, right-aligned with it.
+ * The rendering-settings gear + its collapsible panel (owner, graph-view
+ * round 2): its own container at the top right, separate from the search
+ * box and the import button — clicking the gear expands/collapses the
+ * panel, which drops below the button, right-aligned with it.
  */
 function GraphSettingsControl({
 	settings,
@@ -652,11 +664,14 @@ function GraphSettingsControl({
 	);
 }
 
-/** The top-chrome actions row's body: Import Notes renders ALWAYS — it's
- *  the one action that works on an empty graph; search + settings render
- *  only when the snapshot has nodes (no dead controls). The gated
- *  controls fade in on mount (graph-chrome-fade-in, globals.css) as the
- *  first nodes land. Exported pure for the empty/populated SSR tests. */
+/** The top-chrome actions row's body (empty-graph chrome wave, owner
+ *  2026-09-25): Import Notes renders ALWAYS (graph enabled) — it's the
+ *  one action that works on an empty graph, the entry point itself;
+ *  search + settings render only when the snapshot has nodes (dead
+ *  controls are lies — the honesty principle). The two gated controls
+ *  fade in on their mount (graph-chrome-fade-in, globals.css — the
+ *  appear-once transition as the first nodes land). Exported pure for
+ *  the empty/populated SSR pins (the DeleteNodeBody pattern). */
 export function GraphChromeRow({
 	isEmpty,
 	query,
@@ -682,7 +697,8 @@ export function GraphChromeRow({
 	onImportFiles: (files: FileList | null) => void;
 	settings: GraphRenderSettings;
 	changeSettings: (update: (cur: RenderSettings) => RenderSettings) => void;
-	/** Opens the chain table overlay. */
+	/** Opens the chain table overlay (the chains-overlay plan,
+	 *  2026-09-29). */
 	onOpenChains: () => void;
 	/** Re-frames the whole graph. */
 	onFit: () => void;
@@ -742,7 +758,7 @@ export function GraphChromeRow({
 					</Hint>
 				</div>
 			{/* Import notes — its own container (36px, header band); ALWAYS
-			    rendered (the empty-graph entry point). */}
+			    rendered (the empty-graph ruling above — the entry point). */}
 			<NotesImportControl importing={importing} onImportFiles={onImportFiles} />
 			{!isEmpty && (
 				<div className="graph-chrome-fade-in shrink-0">
@@ -959,8 +975,8 @@ export function GraphView({
 	// Fetch the derived graph. Re-runs when a background pipeline run
 	// finishes (refreshTick) — its merges just landed in the ledger.
 	const [refreshTick, setRefreshTick] = useState(0);
-	// The chain table overlay — component-local: a browsing surface, not
-	// graph state.
+	// The chain table overlay (chains-overlay plan, 2026-09-29) —
+	// component-local: a browsing surface, not graph state.
 	const [chainsOpen, setChainsOpen] = useState(false);
 	// Esc out of a ⌘F search hands focus back to where the shortcut found it.
 	const searchReturn = useRef<ReturnType<typeof captureFocus>>(null);
@@ -1064,11 +1080,13 @@ export function GraphView({
 		};
 	}, [readPipelineStatus]);
 
-	// Graph pipeline costs: the cumulative fold of the usage channels
-	// (chat + notes extraction runs) behind the top-right cost number.
-	// Fetched once on mount and refetched as pipeline runs finish (below)
-	// so fresh spend lands without a manual reload. Best-effort: a fetch
-	// failure never blocks the view — it keeps its last numbers.
+	// Graph pipeline costs (2026-09 cost metrics wave): the cumulative fold
+	// of the usage channels (chat + notes extraction runs; the dead namer's
+	// channel is not displayed anymore, owner 2026-09-24)
+	// behind the bottom-left cost pill. Fetched once on mount and refetched
+	// when a pipeline run finishes (running -> none) so fresh spend lands
+	// without a manual reload. Best-effort: a fetch failure never blocks
+	// the view — the pill just stays on its last numbers.
 	const [costs, setCosts] = useState<GraphCostSummary | null>(null);
 	const refreshCosts = useCallback(() => {
 		fetch("/api/graph/costs")
@@ -1148,11 +1166,11 @@ export function GraphView({
 	const [deletingNode, setDeletingNode] = useState<{ id: string; name: string } | null>(null);
 	usePopoverDismiss(ctxAnchorRef, ctxNode !== null, useCallback(() => setCtxNode(null), []), { inside: "[data-lh-menu]" });
 
-	// Layout: the positions ledger (written by the server's incremental
-	// settle after every merge) IS the layout — the renderer receives it as
-	// frozen data. The local one-shot incrementalLayout pass runs ONLY as a
-	// fallback when the ledger is absent (a graph never merged through the
-	// pipeline, e.g. tests or a fresh install).
+	// Layout (Option A): the positions ledger (written by the server's
+	// incremental settle after every merge) IS the layout — the renderer
+	// receives it as frozen data. The local one-shot forceAtlas2 pass runs
+	// ONLY as a fallback when the ledger is absent (a graph never merged
+	// through the pipeline, e.g. tests or a fresh install).
 	useEffect(() => {
 		if (!snapshot || snapshot.nodes.length === 0) return;
 		// The ledger path: every positioned node uses its resting position;
@@ -1344,9 +1362,9 @@ export function GraphView({
 	}, [regionTuning, isEmpty]);
 
 	// Feed #5 — physics tuning: rebuilds the live sim in place (drag pins
-	// survive) and re-anneals. Same isEmpty dep as Feed #4 — see there.
-	// Only the user's own change re-anneals; the saved tuning arriving on
-	// load must not move (and re-save) the layout.
+	// survive; a mid-settle change re-anneals, the honest response). Same
+	// isEmpty dep as Feed #4 — see there.
+	// FORK: only the user's own change re-anneals; the saved tuning arriving on load must not move the layout.
 	useEffect(() => {
 		rendererRef.current?.setPhysicsTuning(physicsTuning, userTouched.current);
 	}, [physicsTuning, isEmpty]);

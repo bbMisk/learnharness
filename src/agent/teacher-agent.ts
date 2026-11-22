@@ -104,8 +104,8 @@ const composedInstructions: Record<AgentKind, string> = {
 	practice: composeInstructions("practice"),
 };
 
-// Usage: the chat-handler passes a per-turn collector; every model call's
-// usage lands in the chat record's turns log
+// Money channel (wave 4): the chat-handler passes a per-turn collector;
+// every model call's usage lands in the chat record's turns log
 // (ChatStore.appendTurnUsage). The narrow param keeps the seam honest.
 // The optional fingerprint (cache-miss diagnostics) describes the request
 // that produced this usage; absent where the engine cannot observe its body.
@@ -134,10 +134,11 @@ export interface AgentBuildOptions {
 		questionTypes?: readonly NativePluginQuestionContribution[];
 		problemTypes?: readonly NativePluginProblemContribution[];
 	};
-	/** The resolved per-user tool toggles (core/pending EnabledTools): the
-	 *  chat-handler passes effective.agent.tools; the factories drop any tool
-	 *  explicitly false. The toggleable set is TOGGLEABLE_TOOLS (job tools
-	 *  only); the filtering is generic, but writes validate against it. */
+	/** The resolved per-user tool toggles (core/pending EnabledTools — the
+	 *  2026-09-19 P2 bridge: Platform's chat-handler passes
+	 *  effective.agent.tools; the factories drop any tool explicitly false.
+	 *  THE DEFINITIVE toggleable set is TOGGLEABLE_TOOLS (job tools only);
+	 *  the filtering is generic, but writes validate against the list). */
 	toolToggles?: EnabledTools;
 	/** The lesson's effective question type (core/question-type.ts): the
 	 *  teacher's quizzing tools ("mcq" quiz, "saq" explain, "mixed" both).
@@ -524,8 +525,9 @@ export function bareQuestionTools(): Record<string, AgentTool<any>> {
 }
 
 /**
- * The PRACTITIONER: built from turn 1 of a kind:"practice" session. No
- * prober→teacher split, no plan tools, no question tools. Its ENTIRE registry is
+ * The PRACTITIONER (practice sessions, owner design 2026-10-04): built
+ * from turn 1 of a kind:"practice" session — no prober→teacher split,
+ * no plan tools, no question tools. Its ENTIRE registry is
  * problem + conclude (tools/practice.ts); the doctrine prompt
  * (prompts/practice/) carries the method. A successful problem pose ends
  * the run, natively for a problem-only batch and via the shared stop hook

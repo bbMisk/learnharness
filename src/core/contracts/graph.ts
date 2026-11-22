@@ -1,13 +1,16 @@
 /**
  * Knowledge-graph contracts — nodes, ledgers, extraction findings
  *
- * The graph vision (docs/archive/vision.md §1): every node is a TRUE
- * proposition; reasoning chains (premises ⟹ conclusion) are the stored
- * structure, edges only a derived view; provenance is message-granular;
- * extraction is free-form and post-hoc, fully decoupled from the session's
- * plan tree. The graph is an extraction of the reasoning chains from all
- * teaching sessions (and imported notes) — NOTHING else: no quiz outcomes,
- * no understanding assessments.
+ * The minimal implementation of the graph vision (docs/archive/vision.md §1, the
+ * 2026-09-02 redesign): every node is a TRUE proposition; edges are follows
+ * (derivable) and supports (grounds without entailing); provenance is
+ * message-granular; extraction is free-form and post-hoc, fully decoupled
+ * from the session's plan tree. The graph is an extraction of the reasoning
+ * chains from all teaching sessions (and imported notes) — NOTHING else:
+ * no quiz outcomes, no understanding assessments (2026-09-27 cleanup).
+ * Anything not
+ * yet decided (the state model, strength derivation, selection strategies) is deliberately NOT here — transitional
+ * stubs carry the renderer until those land.
  *
  * Part of the domain-split contracts (src/core/contracts/): each domain file
  * is owned outright by its stream — cross-domain schema changes go through
@@ -71,13 +74,10 @@ export interface ProvenancePoint {
 	messageId: string;
 }
 
-/** One imported notes file — the format-agnostic front door's bookkeeping:
- *  personal notes in ARBITRARY formats run through the same extractor → auditor
- *  → merger pipeline, with the file itself as the provenance anchor. There is
- *  no chat: the detail card shows the file path as a STATIC entry (not a link).
- *  The run's usage log lives here, mirroring ChatRecord.extractions. Ids are
- *  "src_" + hash of the file path — deterministic, so re-importing the same
- *  file re-runs extraction against the same source id. */
+/** Imported notes source processed by the extractor → auditor → merger pipeline.
+ * Provenance identifies the file rather than a chat message, and the source
+ * owns its extraction usage log. IDs are src_ plus a deterministic file-path
+ * hash, so re-importing the same path uses the same source identity. */
 export interface NotesSource {
 	id: string;
 	filePath: string;
@@ -130,14 +130,10 @@ export interface SessionCheckpoint {
 	foldedAt: string;
 }
 
-/** coverage.jsonl line (vision-extraction-coverage.md): ONE MESSAGE of one chat
- *  has been extracted — by content fingerprint over exactly what the extraction
- *  view sees. The MESSAGE is the unit of coverage; "uncovered" is derived
- *  (fingerprint the current transcript, diff) — never dual-tracked. A quiz
- *  answer merging into the asking message changes its fingerprint: the message
- *  re-opens itself, only itself. Chat extractions write these instead of
- *  whole-chat checkpoints; notes imports keep the checkpoint (a file is one
- *  shot). */
+/** coverage.jsonl entry marking one extracted message by its extraction-view
+ * fingerprint. Uncovered content is derived by comparing current fingerprints;
+ * an answer changing a question's view reopens only that message. Chat
+ * extraction records message coverage; notes imports use source checkpoints. */
 export interface CoverageEntry {
 	chatId: string;
 	/** sha256 of the message's view lines — "covered" means exactly this. */
@@ -330,13 +326,13 @@ export interface Position {
  *  place. */
 export const TITLE_MAX_CHARS = 72;
 
-/** Derive a short chat title from the learner's first message (pure). Smart
- *  truncation: the cut snaps to a word boundary AT OR UNDER the cap — a title
- *  never ends mid-word. The one exception is a single word longer than the cap
- *  (rare, but real: identifiers, URLs): it cuts at the cap, splitting the word.
- *  Whitespace collapses to single spaces first, so boundaries are always
- *  single-space boundaries. Used on chat creation; deterministic so tests can
- *  pin it. */
+/** Derive a short chat title from the learner's first message (pure).
+ *  Smart truncation (owner, 2026-10-06): the cut snaps to a word boundary
+ *  AT OR UNDER the cap — a title never ends mid-word. The one exception
+ *  is a single word longer than the cap (rare, but real: identifiers,
+ *  URLs): it cuts at the cap, splitting the word. Whitespace collapses to
+ *  single spaces first, so boundaries are always single-space boundaries.
+ *  Used on chat creation; deterministic so tests can pin it. */
 export function titleFromPrompt(prompt: string): string {
 	const oneLine = prompt.replace(/\s+/g, " ").trim();
 	if (oneLine.length <= TITLE_MAX_CHARS) return oneLine;

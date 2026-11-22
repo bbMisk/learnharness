@@ -259,11 +259,13 @@ const auditSchema = Type.Object({
 });
 
 // The notes front door's wire shape is the session shape MINUS the
-// messageId anchor (notes have no messages): one base findings type for
-// both doors, the anchor riding as an optional field.
+// messageId anchor (owner, 2026-10-13: only the SESSION door demands
+// passage anchors — notes have no messages, so their prompt and schema
+// stay exactly as they were): one base findings type for both doors,
+// the anchor riding as an optional field.
 type NotesFindings = SessionFindings;
 
-// ── the submit seam ──
+// ── the submit seam (owner, 2026-09-28; redesigned 2026-09-30) ──
 //
 // Every top-level field on each submit tool is REQUIRED — a payload
 // missing `chains` (findings) or `links` (review) fails validation
@@ -499,9 +501,10 @@ function runExtractor(
 	signal: AbortSignal | undefined,
 	onStep: (usage: Usage, model: string, step: number, finishReason: string, tools: string) => void,
 ): Promise<SessionFindings> {
-	// Chains in (the wire), chains out (the store). Validation runs at the
-	// submit seam (error-back) over the MIXED namespace: local ids + existing
-	// graph ids, plus the session anchor law (messageId ∈ the current batch).
+	// Chains in (the wire), chains out (the store) — no translation seam
+	// since chains-primary. Validation runs at the submit seam (error-back)
+	// over the MIXED namespace: local ids + existing graph ids, plus the
+	// session anchor law (messageId ∈ the current batch, 2026-10-13).
 	return runSubmitAgent<SessionFindingsSubmit>({
 		role: "extractor",
 		// Debug recorder key: the source id (the run's ledger key — the
@@ -581,8 +584,9 @@ Include only useful matches to existing records you have seen. Omitted findings 
 when none match. Do not restate findings, invent relations, or justify verdicts in the output. The merger retains the
 existing record's name and statement and adds the incoming wording as an alias with its provenance.`;
 
-/** The auditor — one shape for both front doors. An agentic loop:
- *  graph-exploration tools plus the one submit call. */
+/** The auditor — one shape for both front doors now (the notes schema was
+ *  identical once attribution died). An agentic loop: graph-exploration
+ *  tools plus the one submit call. */
 function runAuditor(
 	engine: PiEngine,
 	sourceId: string,
@@ -1166,6 +1170,10 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 							);
 							setPhase(jobKey, "extracting", "chat", undefined, part);
 							const findings = await extract(jobKey, chatId, view, batchIds);
+							// SERIALIZED AUDIT (owner, 2026-09-28): audit + merge are the
+							// graph-mutating critical section — one job at a time,
+							// process-wide, so the auditor explores the graph as it
+							// stands AFTER every earlier job's merge.
 							return withAuditLock(jobKey, "chat", undefined, async () => {
 								setPhase(jobKey, "auditing", "chat", undefined, part);
 								const auditResult = await audit(jobKey, chatId, findings);
@@ -1295,8 +1303,8 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		return findings;
 	}
 
-	// The notes auditor is the SAME identity-linker as the chat one —
-	// audit() above, verbatim.
+	// The notes auditor is the SAME identity-linker as the chat one (one
+	// schema now that attribution is gone) — audit() above, verbatim.
 
 	async function runNotesExtraction(input: { id: string; filePath: string; text: string; importedAt: string }): Promise<EmissionStats> {
 		const { id } = input;
@@ -1338,7 +1346,10 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 							setPhase(jobKey, "extracting", "notes", input.filePath, part);
 							chunkSignal = runningExtractions.get(jobKey)?.controller.signal;
 							const findings = await notesExtract(jobKey, { ...input, text: chunk, part });
-							// Reacquired per chunk so cross-source runs interleave fairly.
+							// SERIALIZED AUDIT (owner, 2026-09-28): audit + merge one
+							// at a time, process-wide — the auditor explores the graph
+							// as it stands AFTER every earlier job's merge. Reacquired
+							// per chunk so cross-source runs interleave fairly.
 							return withAuditLock(jobKey, "notes", input.filePath, async () => {
 								setPhase(jobKey, "auditing", "notes", input.filePath, part);
 								const auditResult = await audit(jobKey, input.id, findings);

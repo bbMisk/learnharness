@@ -78,7 +78,7 @@ export const CURRENT_CHAT_VERSION = 1;
  *  turn by construction. Background sub-agents are NEVER overridden
  *  (they're infrastructure, not conversation). */
 export interface ChatSettings {
-	/** pi-ai catalog coordinates: the provider that owns the model + its id. */
+	/** Explicit provider-qualified model coordinates from the host catalog. */
 	model?: { provider: string; id: string };
 	/** pi thinking level — must be in the chosen model's supported list
 	 *  (getSupportedThinkingLevels; enforced by the settings route). */
@@ -299,8 +299,7 @@ export interface ChatSummary {
 	phase: Phase3;
 	/** An unanswered quiz/ask question is waiting for the learner. */
 	pendingQuestion: boolean;
-	/** Practice sessions: a posed problem with no conclude — the sidebar meta's
-	 *  "Problem waiting". False on teaching sessions. */
+	/** A practice problem is posed but not concluded. False on teaching sessions. */
 	pendingProblem: boolean;
 	/** Cumulative sidebar time in ms, including the pre-tracking estimate. */
 	timeSpentMs?: number;

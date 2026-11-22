@@ -341,8 +341,8 @@ export function composePromptSwitch(agent: AgentSettings | undefined, path: stri
 	return { ...agent, prompts };
 }
 
-/** The collapsed select look — a button that opens the shared
- *  model-picker dropdown. */
+/** The collapsed select look (owner: "the look of the collapsed menu is
+ *  good") — now a button that opens the shared model-picker dropdown. */
 function MenuTrigger({
 	value,
 	emptyLabel,
@@ -387,8 +387,8 @@ function MenuTrigger({
 	return <Hint label={hint ?? ""} disabled={!hint}>{button}</Hint>;
 }
 
-/* The section's dropdowns all mount the shared MenuShell: portaled to
- * document.body, fixed-anchored to the open trigger by
+/* The section's dropdowns all mount the shared MenuShell (fix wave chunk
+ * B): portaled to document.body, fixed-anchored to the open trigger by
  * testid (the section's one-ref pattern), opening DOWN with the shell's
  * viewport cap and auto-flip. data-lh-menu rides the shell — the
  * outside-click contract's exemption mark. */
@@ -413,7 +413,7 @@ export function AgentSection({
 	 *  effective gate is server-side, per-turn fresh). */
 	graph: GraphSettings | undefined;
 	/** The `compaction` section — its own PUT (the threshold is engine
-	 *  behavior, not an agent-section key). */
+	 *  behavior, not an agent-section key; owner round 14, Agent tab). */
 	compaction: CompactionSettings | undefined;
 	/** Writes the composed WHOLE agent section (replace-PUT discipline);
 	 *  resolves false when the save failed. */
@@ -843,9 +843,13 @@ export function AgentSection({
 			</SettingsGroup>
 
 			<SettingsGroup label="Tools" testid="group-tools">
-				{/* The prober's graph tools: FIRST row of the group — it
-				    gates tool registration, so it lives in Tools but NOT in
-				    the tool-toggles list (its own key, agent.graphTools). */}
+				{/* The prober's graph tools (wave 7, owner ruling 2026-09-23):
+				    FIRST row of the group — its subject is the map, its
+				    mechanism is agent capability, so it lives in Tools but
+				    NOT in the tool-toggles list. Its own agent-section key
+				    (agent.graphTools), the search-row hint discipline: a
+				    smaller line under it explaining what it is — this
+				    connects prior sessions' knowledge into new ones. */}
 				{(() => {
 					const graphOn = graph?.enabled ?? true;
 					return (
@@ -864,7 +868,7 @@ export function AgentSection({
 						</SettingsRow>
 					);
 				})()}
-				{/* The quizzing mechanic: segmented — exactly one
+				{/* The quizzing mechanic (owner 2026-09-27): segmented — exactly one
 				    of Multiple choice / Free recall is active; the choice swaps which
 				    quizzing tool BOTH agents carry (prober checks + teach checks).
 				    Persisted as agent.tools.explain; absent = Multiple choice. */}

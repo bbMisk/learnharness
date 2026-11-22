@@ -157,14 +157,20 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 	);
 }
 
-/* The metadata popover: a quiet METADATA trigger at the bottom of the
- * conclude card opens an info box (the graph-view node cards' register)
- * showing every field the agent filled in the problem call (mode, targets —
- * names resolved lazily) and the conclude call (outcome, rung, miss class,
- * retest). Statement and model solution stay out: they are the visible card.
- * The box opens below the trigger, or above it when the safe area leaves
- * less room below. Esc, a click outside, an outside scroll or a resize
- * closes it. */
+/* THE METADATA POPOVER (owner round 17 refinement, 2026-10-06 — full
+ * transparency): a quiet METADATA trigger at the very bottom of the
+ * conclude card (no divider — it just sits there); click opens the
+ * info-box register of the graph-view node cards (rounded-xl border
+ * bg-card p-4 shadow-lg, opening BELOW the trigger — always); any scroll or
+ * click outside closes it (plus Esc, claimed from the layered chain
+ * per the popover law). Shows every field the agent filled in both the
+ * problem call (mode, targets — names resolved lazily) and the
+ * conclude call (outcome, rung, miss class, retest). Statement and
+ * modelSolution stay out — they are the visible card. The data keeps
+ * the original SMALL register (text-xs rows, mono values — owner
+ * correction: the 15px pass was way too large); the trigger matches
+ * the eyebrow size; the box opens BELOW the trigger, always. */
+// FORK: it opens above instead when the safe area leaves less room below; a resize also closes it.
 function MetadataPopover({
 	concludeInput,
 	problemInput,

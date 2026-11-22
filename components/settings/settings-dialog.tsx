@@ -22,7 +22,6 @@ export const SettingsDialog = preloadable(() => import("./settings-dialog-body.t
  *  name, e.g. DEEPGRAM_API_KEY — KeysSection's openRow state), not the
  *  row's testid. */
 const DialogContext = createContext<{ open: (section?: string, row?: string) => void }>({ open: () => {} });
-
 // Authority belongs to the persistent Settings host, not a particular field or
 // open/close lifetime: a delayed response must not roll back a newer ACK.
 export interface SettingsWriteOrder {

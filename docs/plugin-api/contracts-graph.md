@@ -66,14 +66,10 @@ members: string[];
 
 Public SDK type, exported as `CoverageEntry`. Import with `import type`; the SDK has no runtime exports.
 
-coverage.jsonl line (vision-extraction-coverage.md): ONE MESSAGE of one chat
-has been extracted — by content fingerprint over exactly what the extraction
-view sees. The MESSAGE is the unit of coverage; "uncovered" is derived
-(fingerprint the current transcript, diff) — never dual-tracked. A quiz
-answer merging into the asking message changes its fingerprint: the message
-re-opens itself, only itself. Chat extractions write these instead of
-whole-chat checkpoints; notes imports keep the checkpoint (a file is one
-shot).
+coverage.jsonl entry marking one extracted message by its extraction-view
+fingerprint. Uncovered content is derived by comparing current fingerprints;
+an answer changing a question's view reopens only that message. Chat
+extraction records message coverage; notes imports use source checkpoints.
 
 ```ts
 export interface CoverageEntry {
@@ -511,13 +507,10 @@ positions?: Record<string, Position>;
 
 Public SDK type, exported as `NotesSource`. Import with `import type`; the SDK has no runtime exports.
 
-One imported notes file — the format-agnostic front door's bookkeeping:
-personal notes in ARBITRARY formats run through the same extractor → auditor
-→ merger pipeline, with the file itself as the provenance anchor. There is
-no chat: the detail card shows the file path as a STATIC entry (not a link).
-The run's usage log lives here, mirroring ChatRecord.extractions. Ids are
-"src_" + hash of the file path — deterministic, so re-importing the same
-file re-runs extraction against the same source id.
+Imported notes source processed by the extractor → auditor → merger pipeline.
+Provenance identifies the file rather than a chat message, and the source
+owns its extraction usage log. IDs are src_ plus a deterministic file-path
+hash, so re-importing the same path uses the same source identity.
 
 ```ts
 export interface NotesSource {

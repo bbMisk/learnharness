@@ -182,10 +182,10 @@ export function bindingForAction(id: KeyAction): string {
  * - mod matches BOTH meta (⌘) and ctrl — Ctrl+K works on a Mac keyboard too.
  * - a printable key ("?") bakes its shift in: "shift+/?" collapses to "?".
  * - with mod or alt held, a single non-ASCII character falls back to its
- *   physical A–Z/comma position (Russian Ctrl+"л" → mod+k); with alt, also
- *   punctuation and digits (⌥"÷" → alt+/). ASCII characters
+ *   physical A–Z/comma position (Russian Ctrl+"л" → mod+k). ASCII characters
  *   keep following `key`, including AZERTY/Dvorak mappings.
  */
+// FORK: with alt, punctuation and digits also map by position (⌥"÷" → alt+/).
 export function eventBinding(e: KeyboardEvent): string {
 	const mod = e.metaKey || e.ctrlKey;
 	// A bare printable key bakes its shift into the character ("?" not

@@ -268,8 +268,8 @@ export const probeExplainTool: AgentTool<typeof explainInputBase> = {
 };
 
 /** The prober's registry context: the probe's own needs (probe_done —
- *  ProbeDoneContext) PLUS the job-dispatch wiring, since research + pdf
- *  are in the probe phase's registry too. */
+ *  ProbeDoneContext) PLUS the job-dispatch wiring, since the owner ruling
+ *  (2026-09-20) puts research + pdf in the probe phase's registry too. */
 export interface ProberToolContext extends ProbeDoneContext {
 	/** Creates the job record (deduped by toolCallId). */
 	jobStore: JobStore;
@@ -283,9 +283,9 @@ export interface ProberToolContext extends ProbeDoneContext {
 	graphStore?: GraphStore;
 }
 
-/** The prober's tool set: probe (or recall) + ask + the learner-fs set +
- *  probe_done + the two phase-omnipresent job dispatch tools + (gated) the
- *  graph-map reader. `enabled` is the resolved
+/** The prober's tool set: probe quiz (no nodeId) + ask + the learner-fs
+ *  set + probe_done + the two phase-omnipresent job dispatch tools +
+ *  (wave 7, gated) the graph-map reader. `enabled` is the resolved
  *  settings seam (core/pending.ts): any tool explicitly false is dropped
  *  from the registry. probe_done stays always-on regardless — it is how
  *  the phase ENDS; a prober that can never conclude is a lockout. */

@@ -170,7 +170,8 @@ export function resolveModelSpec(
 
 /** Resolve the whole record. `record` may be null (first boot) — every
  *  factory-defaulted field lands on its default; MODEL fields resolve to
- *  null/undefined when unset (BYOK: no factory pins). */
+ *  null/undefined when unset (no factory pins exist — BYOK all the way
+ *  down, owner 2026-09-22). */
 export function resolveSettings(record: UserSettings | null): EffectiveSettings {
 	const agent = record?.agent ?? {};
 	const modelsSection = record?.models ?? {};

@@ -230,8 +230,10 @@ export function isTeachingCheck(tool: string, rawInput: unknown, phase: string):
 }
 
 /** The teaching-cycle role field, shared VERBATIM by both teach quizzing
- *  tools. Bare words, never quoted (the quote-copy wobble — see
- *  tests/tool-heal.test.ts). */
+ *  tools (owner, 2026-10-09: explain gains the cycle's types — a
+ *  free-recall check collapses behind the reveal exactly like a quiz
+ *  check; a prediction never does). Bare words, never quoted (the
+ *  quote-copy wobble — see the whitehead pins, tests/tool-heal.test.ts). */
 const predictCheckType = Type.Union([Type.Literal("predict"), Type.Literal("check")], {
 	description:
 		"REQUIRED — the question's role in the teaching cycle, as a bare word (no quotes): predict = posed BEFORE " +

@@ -173,8 +173,10 @@ export function providerKeyMissing(provider: string, slots: ModelSlotName[]): Pr
 		slots,
 	};
 }
-/** Same discipline as isModelsRefusal: UI consumers detect key-refused
- * work by the wording (info tone, not an error). */
+/** The refusal error text (same discipline as isModelsRefusal): UI
+ * consumers detect key-refused work by the wording (info tone, not
+ * scary-error) — the envelope's home module owns the string so the
+ * writer and the matcher can never drift. */
 export function isProviderKeyRefusal(error: string | undefined): boolean {
 	return !!error && (error.endsWith(PROVIDER_KEY_MISSING_TAIL) || error.endsWith(LEGACY_PROVIDER_KEY_MISSING_TAIL) || error === CLAUDE_CODE_UNAVAILABLE);
 }
@@ -316,7 +318,7 @@ export function slotsConfigured(models: ModelsSettings | undefined): boolean {
 	return Boolean(models?.strong?.model && models?.cheap?.model && models?.vision?.model);
 }
 
-/** Which slot a role draws from. Includes the
+/** Which slot a role draws from (model slots wave, 2026-09-20). Includes the
  *  conversation pair and pdfReader (not BackgroundModelRoles — the slot
  *  tier spans every role; only background roles surface per-role overrides). */
 export const ROLE_SLOT: Readonly<Record<ModelRole, ModelSlotName>> = {
@@ -352,7 +354,7 @@ export function revealsQuestions(setting: RevealQuestions | undefined, cram: boo
 }
 
 /** General settings — app-level behavior. Version DISPLAY and plans login
- *  live outside the record (package.json / auth.json). */
+ *  live outside the record (package.json / auth.json) by owner decision. */
 export interface GeneralSettings {
 	/** Automatic startup/24h update checks (default ON). Manual checks bypass this. */
 	autoUpdate?: boolean;
@@ -937,9 +939,10 @@ function sanitizeGraph(raw: Record<string, unknown>): GraphSettings {
 	return out;
 }
 
-/** clamp-never-reject: a finite positive number floors to
- *  COMPACTION_THRESHOLD_FLOOR, anything else drops (the factory default
- *  resolves at read time). Exported for the PUT parser's rejection. */
+/** clamp-never-reject (the sanitizer's discipline): a finite positive
+ *  number floors to COMPACTION_THRESHOLD_FLOOR, anything else drops (the
+ *  factory default resolves at read time). Exported for the PUT parser's
+ *  reject-with-rationale (the graph chunk-budget precedent). */
 export const COMPACTION_THRESHOLD_FLOOR = 32_000;
 /** No model's context is larger; the effective trigger is
  *  min(threshold, contextWindow − 16k) anyway. */

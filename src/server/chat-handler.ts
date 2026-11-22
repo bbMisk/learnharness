@@ -309,12 +309,15 @@ export async function handleChatInput(
 		return Response.json(envelope, { status: 503 });
 	}
 
-	// THE KEY-PRESENCE GATE: a pinned model is not enough — its PROVIDER's
-	// key must be present, or the turn dies mid-stream masked to a generic
-	// error. Truth is env-first (providerKeyPresent reads what pi-ai would
-	// read at request time), so an env-shadowed key passes. Same placement as
-	// the models gate. The affected tier is strong — the conversation chain's
-	// own tier (a chat.model override still resolves through it).
+	// THE KEY-PRESENCE GATE (provider-key interlude, owner, 2026-09-25): a
+	// pinned model is not enough — its PROVIDER's key must be present, or
+	// the turn dies mid-stream masked to a generic error. Truth is env-first
+	// (providerKeyPresent reads what pi-ai would read at request time), so
+	// an env-shadowed key passes. Same placement discipline as the models
+	// gate: BEFORE beginTurn (no liveness effects) and the write-ahead
+	// persist (nothing durable changes); wake-pipeline turns ride the same
+	// path. The affected tier is strong — the conversation chain's own tier
+	// (a chat.model override still resolves through it).
 	if (isSubscriptionProvider(conversation.provider)) {
 		await prepareConnectionCatalog(conversation.provider);
 		if (input.type === "steers" && !connectionBackgroundAllowed(conversation.provider)) {
@@ -579,7 +582,8 @@ export async function handleChatInput(
 	// engine build is pure from here; thinking levels clamp natively.
 	// (Built once above the compaction gate; reused verbatim.)
 	const engine = conversationEngine;
-	// Provider-qualified stamp: matches the price table's provider:id keys.
+	// Provider-qualified stamp (model slots wave): matches the price table's
+	// provider:id keys.
 	const modelId = `${engine.model.provider}:${engine.model.id}`;
 	// The prober's tool context: the prober itself, and the shared handoff's
 	// rebuild of the prober's prefix for the teacher (same registry, same gates).
@@ -664,10 +668,11 @@ export async function handleChatInput(
 				} }
 			: {}),
 	};
-	// PRACTICE BRANCH: a kind:"practice" session builds the practitioner
-	// from turn 1 — no prober→teacher split, no plan/question tools; its
-	// registry is problem + conclude plus the rarely-needed set below.
-	// buildAgent stays honored (the test seam is uniform across kinds).
+	// PRACTICE BRANCH (owner design, 2026-10-04): a kind:"practice"
+	// session builds the practitioner from turn 1 — no prober→teacher
+	// split, no plan/question/job tools; the whole registry is
+	// problem + conclude. buildAgent stays honored (the test seam is
+	// uniform across kinds).
 	const constructed: TeachingAgent = buildAgent
 		? buildAgent({ ...agentOpts, teaching })
 		: record.kind === "practice"
@@ -680,9 +685,10 @@ export async function handleChatInput(
 						// proposition, not just the session's picks (pickless sessions
 						// and future graph-tools poses stay valid).
 						graphNodes: () => stores.graphStore.readNodes(),
-						// THE RARELY-NEEDED SET: research + pdf jobs (same runner/gating
-						// as the teacher's) and the map readers behind the SAME gate as
-						// the prober's.
+						// THE RARELY-NEEDED SET (owner round 10): research + pdf jobs
+						// (same runner/gating as the teacher's — research honestly
+						// absent when no engine is live) and the map readers behind
+						// the SAME settings gate as the prober's.
 						jobs: {
 							chatId,
 							jobStore: stores.jobStore,
@@ -730,10 +736,11 @@ export async function handleChatInput(
 			// The update-coalescing window: tests tighten it via
 			// LH_UPDATE_FLUSH_MS; production rides the 100ms default in ui-stream.
 			...(process.env.LH_UPDATE_FLUSH_MS ? { updateFlushMs: Number(process.env.LH_UPDATE_FLUSH_MS) } : {}),
-			// Seed the uniquifier with every tool-call id the record already
-			// holds — a provider that resets ids per response (DeepSeek) then
-			// gets fresh unique ids for this turn's calls, consistently on the
-			// wire, in the record, and in the next turn's context.
+			// THE LACAN FIX (2026-10-04): seed the uniquifier with every
+			// tool-call id the record already holds — a provider that resets
+			// ids per response (DeepSeek) then gets fresh unique ids for this
+			// turn's calls at the wire boundary, on the wire, in the record,
+			// and in the next turn's context alike.
 			usedToolCallIds: new Set(collectToolCallIds(merged)),
 			// Stream-level failures are provider/transport internals — masked,
 			// like the SDK defaults. Tool-input validation messages never
@@ -782,8 +789,9 @@ export async function handleChatInput(
 				// with the master switch. Practice sessions write nothing to the
 				// graph (the session itself is the deliverable).
 				if ((!requestCycle || requestCycle.dispatched) && record.kind !== "practice" && extractionEnabled(effective.graph)) {
-					// Fresh per-turn chunk budget: the trigger compares against it
-					// and the pipeline's batches share it.
+					// Fresh per-turn read of the graph section's chunk budget
+					// (extraction-UX redesign, 2026-09-24): the trigger compares
+					// against it and the pipeline's batches share it.
 					triggerExtraction(stores, extraction, chatId, effective.graph.extractionChunkTokens);
 				}
 				// PARKED DISMISSAL (owner, 2026-10-04): a dismissal that arrived

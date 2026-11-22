@@ -1,17 +1,19 @@
 "use client";
 /**
- * The Keys section: a MINIMAL key-value table. Provider left, masked key
- * right, no description hints, the "Get a key ↗" link a tiny muted guest.
- * Clicking a writable row turns it into an inline paste field + Save |
- * Cancel (| Delete for a file-sourced value); Esc or Cancel folds it away.
+ * The Keys section (wave-5 polish, 2026-09-21 — owner design): a MINIMAL
+ * key-value table. Provider left, masked key right, no description hints
+ * (they took too much space), the "Get a key ↗" link a tiny muted guest.
+ * Clicking a writable row unfolds a paste field + Save (+ Delete for a
+ * file-sourced value) beneath it; Esc or a second click folds it away.
  * The Add-provider control is the LAST ROW of the table and uses the
  * app's shared dropdown look (ProviderMenuList — fuzzy search over the
- * pi-ai providers).
+ * 33 pi-ai providers).
  *
+ * Owner rulings carried in:
  *  - Env-owned rows (a real environment variable owns the name — dev
  *    .env.local or launch env) render READ-ONLY + dimmed, no paste field:
  *    a paste box on a key the UI cannot make live would mislead.
- *  - OpenRouter is NOT special: one provider among many, a row only when
+ *  - OpenRouter is NOT special: one provider among 33, a row only when
  *    stored, otherwise it lives in the Add dropdown like everyone else.
  *  - Providers groups API keys, subscriptions, dictation and search.
  *    Unknown variables stay masked/read-only at the end of Model API keys.
@@ -158,8 +160,8 @@ export function keyStatusLine(status: AuthKeyStatus): string {
 }
 
 /** One table row: label left, tiny docs link + status right. Writable
- *  rows click-unfold into an inline editor; env-owned rows are dimmed and
- *  read-only (a paste box there would mislead). */
+ *  rows click-unfold an editor beneath (owner interaction); env-owned
+ *  rows are dimmed and read-only (a paste box there would mislead). */
 function KeyTableRow({
 	label,
 	docsUrl,
@@ -226,9 +228,10 @@ function KeyTableRow({
 		setBusy(false);
 	}
 
-	// INLINE editing: the expanded row becomes the editor itself — label
+	// INLINE editing (owner, fix wave: "type the keys in line — more
+	// table-like"): the expanded row becomes the editor itself — label
 	// left, the paste field filling the middle, Save | Cancel (| Delete)
-	// right.
+	// right — instead of a second line beneath the row.
 	if (expanded && !envOwned) {
 		return (
 			<div data-testid={testid}>

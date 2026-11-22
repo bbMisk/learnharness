@@ -1006,14 +1006,19 @@ export class SessionModel {
 		if (imageBearing) this.imagePreview = { owner: controller, ids: new Set(optimistic.map(message => message.id)) };
 		let accepted = false;
 		try {
-			// Submits are NOT abortable by view teardown: the POST must not ride
-			// consumeAbort. stop() runs on unmount, including StrictMode's
-			// simulated remount, and aborting there would drop a first send the
-			// page will never retry (its sentInitial guard already flipped). The
-			// POST is usually a short ack and can't starve the connection pool; a
-			// graded plugin answer instead awaits grading and save, but still must
-			// not inherit view teardown. The stream consume stays on the
-			// controller so unmount releases it.
+			// SUBMITS ARE NOT ABORTABLE BY VIEW TEARDOWN (owner, 2026-10-10 —
+			// the dead-session-start postmortem): the POST must NOT ride
+			// consumeAbort. Diet A's abort-on-unmount (session.ts's stop())
+			// fires on React StrictMode's simulated remount in dev — it killed
+			// the ?prompt first send ~8ms in (POST aborted, never retried:
+			// the page's sentInitial guard had already flipped), leaving the
+			// session dead until a second message, which then persisted
+			// WITHOUT the first — the optimistic tail rode a record that never
+			// contained it. Usually the POST is a short Diet B ack. A graded
+			// plugin answer instead awaits grading and save (accepted connection
+			// contention), but still must not inherit view teardown. The
+			// STREAM consume stays on the controller — releasing that held
+			// connection is Diet A's whole job.
 			let res: Response;
 			const posted = this.postInputEvent(input, undefined, imageBearing ? pending => this.imagePostPending(controller, pending) : undefined);
 			this.pendingInput = posted.then(() => true, () => false);

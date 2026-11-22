@@ -365,7 +365,7 @@ export interface ChatSettings {
 
 ### ChatSettings model
 
-pi-ai catalog coordinates: the provider that owns the model + its id.
+Explicit provider-qualified model coordinates from the host catalog.
 
 ```ts
 model?: {
@@ -534,8 +534,7 @@ pendingQuestion: boolean;
 
 ### ChatSummary pendingProblem
 
-Practice sessions: a posed problem with no conclude — the sidebar meta's
-"Problem waiting". False on teaching sessions.
+A practice problem is posed but not concluded. False on teaching sessions.
 
 ```ts
 pendingProblem: boolean;

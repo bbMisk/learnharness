@@ -1,10 +1,8 @@
 "use client";
 
 /**
- * The single-canvas graph renderer (design notes:
- * docs/research/graph-rendering.md, Option B). Every layer is drawn by one
- * Canvas 2D from one loop under one camera, so regions can never lag or
- * desync from the nodes they belong to.
+ * The hand-rolled single-canvas graph renderer (decided 2026-09-13 after
+ * the research pass — docs/research/graph-rendering.md, Option B).
  *
  * Replaces sigma.js. Why: sigma gave us WebGL node/edge rendering,
  * picking, and a camera, but our cluster regions had to live on foreign
@@ -171,10 +169,13 @@ export interface RendererCallbacks {
 const LABEL_SIZE = 12; // the reference label size the wrap-width ratio is taken against
 const LABEL_WEIGHT = "500";
 
-/** Region (cluster) labels can be long (imported-file paths, chat
- *  titles). They wrap at a screen-fixed width (exact on screen at any
- *  zoom), capped at a line count with an ellipsis on the last line — a
- *  bounded footprint that keeps most of the path visible. */
+/** Region (cluster) labels — wave 7's session names made the labels
+ *  LONG: imported-file paths and renamed chat titles. They wrap at a
+ *  screen-fixed width (the labels are viewer-relative — this px value
+ *  is exact on screen at any zoom), capped at a line count with an
+ *  ellipsis on the last line (owner, 2026-09-23: wrap, cap 2–3 lines,
+ *  ellipsize — a bounded footprint that keeps most of the path
+ *  visible). */
 const REGION_LABEL_MAX_WIDTH = 220; // screen px
 const LABEL_FIT_MARGIN = 8; // screen px kept between a cluster label and the viewport edge at fit
 const REGION_LABEL_MAX_LINES = 3;
@@ -506,7 +507,8 @@ export function zoomOutFloor(current: number, kFit: number): number {
 
 /** One complete arrow glyph for a directed edge a→b: shaft endpoints
  *  (clear of both node discs) and the head triangle (tip on the target
- *  disc edge, width = 0.8 × head length). */
+ *  disc edge, wideness = 0.8 × head length — the sigma arrow shape). */
+/** One complete arrow glyph: shaft + head triangle. */
 export interface ArrowGeom {
 	shaftFrom: Pt;
 	shaftTo: Pt;
@@ -740,7 +742,7 @@ export class GraphCanvasRenderer {
 		this.callbacks = callbacks;
 
 		// d3-zoom owns pan / wheel zoom-to-cursor / touch pinch; every
-		// transform change just calls markDirty (draws happen in OUR loop).
+		// transform change just marks dirty (draws happen in OUR loop).
 		this.zoomBehavior = zoom<HTMLCanvasElement, unknown>()
 			.scaleExtent([0.02, 40])
 			// Touch pinch is d3's: each gesture gets the wheel's zoom-out floor.
@@ -941,7 +943,7 @@ export class GraphCanvasRenderer {
 
 	setVisible(visible: ReadonlySet<string> | null): void {
 		this.visible = visible;
-		this.geoVersion++; // member visibility changes regions + paths
+		this.geoVersion++; // member visibility changes hulls + paths
 		this.markDirty();
 		this.revealVisible();
 	}
@@ -1021,8 +1023,8 @@ export class GraphCanvasRenderer {
 	}
 
 	/** Refresh the label-gate's "1×" reference from the current bbox +
-	 *  viewport. kFit feeds ONLY zoomRatioOf (no geometry reads it), so
-	 *  this never touches geoVersion. */
+	 *  viewport. kFit feeds ONLY zoomRatioOf now (the 2026-09-15 pivot
+	 *  removed it from geometry) — so this never touches geoVersion. */
 	private refreshFitZoom(): void {
 		if (!this.worldBBox) return;
 		const w = this.canvas.clientWidth;

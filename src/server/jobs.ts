@@ -1,7 +1,7 @@
 /**
  * THE WAKE PIPELINE (contracts.ts "THE ASYNC PROTOCOL" §4) — server-side
- * steer delivery for finished sub-agent jobs. Delivery rides pi's own
- * steering queue when a run is live, and the
+ * steer delivery for finished sub-agent jobs. Wave C (2026-09-26):
+ * delivery rides pi's OWN steering queue when a run is live, and the
  * idle wake otherwise. One registry, two vehicles.
  *
  *   deliverJobResult(steer) — the runner calls this on job completion.
@@ -16,7 +16,8 @@
  *          BEFORE its first LLM call) — and CONTINUES THE SAME RUN: the
  *          marker joins the context mid-lesson, rides the live event
  *          stream (message_start/message_end), and lands in the record
- *          at that run's persist. A real lesson is one continuous teach→quiz→teach
+ *          at that run's persist. This is the owner's 2026-09-26
+ *          correction: a real lesson is one continuous teach→quiz→teach
  *          loop, so delivery must happen BETWEEN messages inside the
  *          run — waiting for the run to stop (follow-ups) only ever
  *          fires at a stopper exit, which is exactly when it must not.
@@ -24,8 +25,9 @@
  *          exits the loop, so a quiz-terminated run never injects: the
  *          handed marker strands (see settleSteers) and waits — the
  *          ANSWER run then picks it up at its start poll. probe-handoff
- *          markers NEVER take this path: the handoff must start the
- *          TEACHER's run, a record-level branch only a fresh wake can make.
+ *          markers NEVER take this path (owner ruling: the handoff must
+ *          start the TEACHER's run — a record-level branch only a fresh
+ *          wake can make).
  *       2. IDLE WAKE: no live turn. WAIT FOR IDLE (turn-liveness OR a
  *          dangling question — an unanswered client-side tool call breaks
  *          provider conversion), then fire ONE server-side wake turn
@@ -553,7 +555,7 @@ async function pump(chatId: string): Promise<void> {
 			const fire = (s.queues.get(chatId) ?? []).filter((entry) => !entry.waking && !entry.deferred && !entry.handedTo);
 			if (fire.length === 0) return;
 
-			// THE DISMISSAL PAUSE: the record
+			// THE DISMISSAL PAUSE (owner design 2026-10-03, "A2"): the record
 			// ends in a user dismissal — the session waits for the USER. Hold
 			// every marker in the queue (no wake fires) and return; the user's
 			// next send is the wake that carries them (the in-run vehicle below
@@ -702,12 +704,13 @@ function groupedJobs(): Map<string, JobRecord[]> {
 const SWEEP_THROTTLE_MS = 30_000;
 
 /**
- * Lazy sweep (called off the /api/jobs poll, throttled), LIVENESS-GATED:
- * a "running" record without a live loop registration
- * (subagents/aborts.ts) is an orphan of a process death: re-deliver its
- * stored result (idempotently) or re-spawn the loop, at once. No age
- * heuristic: it would wait on ghosts and re-run hung-but-alive loops beside
- * themselves. A record WITH a live registration is provably executing
+ * Lazy sweep (called off the /api/jobs poll, throttled), LIVENESS-GATED
+ * (accuracy wave, 2026-09-19): a "running" record without a live loop
+ * registration (subagents/aborts.ts) is an orphan of a process death —
+ * re-deliver its stored result (idempotently) or re-spawn the loop, at
+ * once (the old 15-minute age heuristic waited on ghosts AND re-ran
+ * hung-but-alive loops beside themselves — the figure-maker incident,
+ * 2026-09-18). A record WITH a live registration is provably executing
  * in THIS process — never touched, however old: a hung first model call
  * stays honestly running until END kills it. Terminal workers with known
  * pending delivery are restored independently; old terminal records without

@@ -1,6 +1,6 @@
 /**
- * The auth/keys composition: the server-side key manager behind
- * GET/PUT/DELETE /api/keys.
+ * The auth/keys composition (auth-keys wave, 2026-09-19): the server-side
+ * key manager behind GET/PUT/DELETE /api/keys.
  *
  * THE ENV SEAM: key consumers (the sub-agents, web.ts, the STT route) read
  * process.env directly, and the agent layer may not import the store layer.
@@ -11,7 +11,7 @@
  * copy made at spawn (e.g. by main.cjs) would shadow every settings-page
  * change until restart, since env wins over file.
  *
- * PRECEDENCE: real environment variables (incl.
+ * PRECEDENCE (owner decision): real environment variables (incl.
  * .env.local in dev) always win over the file. Boot-time real-env vars
  * are snapshotted once per process and never mutated; a PUT to one of
  * them persists to the file (for when the env goes away) and the status

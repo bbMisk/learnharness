@@ -19,9 +19,9 @@
 
 /** Strip the copy-syntax debris a model glues onto a membership value:
  * any run of surrounding whitespace, colons, double/single quotes, and
- * backticks, in any interleaving (`":value"`, `: value`, `` `value` ``),
- * plus the full-width brackets, colon and full stop GPT models leak
- * (`a】【：`, LEC 3, 2026-11-06). The interior is untouched. */
+ * backticks, in any interleaving (`":value"`, `: value`, `` `value` ``).
+ * The interior is untouched. */
+// FORK: also the full-width brackets, colon and full stop GPT models leak (`a】【：`).
 export function stripModelValueDebris(value: string): string {
 	return value.replace(/^[\s:."'`【】：。]+/, "").replace(/[\s:."'`【】：。]+$/, "");
 }

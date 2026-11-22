@@ -12,11 +12,10 @@ import { dispatchFocusedPluginShortcut } from "@/components/plugin-input-focus";
 export { isDictationActive } from "@/components/dictation-state";
 
 /**
- * Voice dictation. useDictation picks the backend: TypeWhisper on macOS
- * (typewhisper-dictation.ts owns capture and insertion), else the Deepgram
- * cloud engine below.
+ * Voice dictation — the cloud engine (STT wave 1, 2026-09-17).
+ * FORK: useDictation picks TypeWhisper on macOS (typewhisper-dictation.ts); this engine is the fallback.
  *
- * The cloud engine (docs/research/stt.md): the renderer captures mic audio in
+ * Architecture (docs/research/stt.md): the renderer captures mic audio in
  * an AudioWorklet (public/worklets/pcm-capture.js → linear16 16kHz mono),
  * opens the Deepgram streaming WebSocket DIRECTLY (audio never loops
  * through our server) with a short-lived token minted by /api/stt/token
@@ -309,8 +308,10 @@ export type Dictation = {
 	 *  buffered speech; cancel/dispose during asynchronous transcript delivery
 	 *  rejects instead, so a waiting submit cannot send stale text. */
 	finish: () => Promise<void>;
-	/** Esc. Browser: end + DISCARD the transcript (a cancel, not a stop).
-	 *  TypeWhisper: stop + KEEP, using its supported start/stop controls. */
+	/** End + DISCARD the transcript: no flush, immediate teardown. The Esc
+	 *  semantics (owner, 2026-09-17 round 3): Esc is a cancel, not a stop —
+	 *  before, it flushed exactly like the toggle did. */
+	// FORK: with TypeWhisper, Esc stops and KEEPS (its supported start/stop controls).
 	cancel: () => void;
 	/** Clear the terminal error without starting a run (zero-keys wave):
 	 * the keyless click leaves for Settings and the surface must come
@@ -752,11 +753,11 @@ function useDeepgramDictation({ append, primary, disabled, enabled }: {
 }
 
 /**
- * The stats-bar dictation slot: the row's middle is one strip that is always
- * the full free width —
+ * The stats-bar dictation slot (owner placement, round 1): the row's middle
+ * is one strip that is always the full free width —
  *
- *   idle      a wide, quiet "Dictate" button (mic + label, grayed out; the
- *             whole middle is the affordance).
+ *   idle      a wide, quiet "Dictate" button (mic + label, grayed out — the
+ *             whole middle is the affordance, per the owner).
  *   active    optimistic from the CLICK: red stop pill + the fixed-width
  *             meter (no interim text ever shifts it). Spinner while
  *             Deepgram flushes the last final.
@@ -767,9 +768,10 @@ export function DictationBar({ dictation, disabled = false }: { dictation: Dicta
 	const { phase, error, levelRef, toggle, active, clearError, blocked } = dictation;
 	const typeWhisper = dictation.backend === "typewhisper";
 	const { open: openSettings } = useSettingsDialog();
-	/** The keyless click: the errored idle button deep-links Settings → Keys →
-	 *  the Deepgram row and clears the error. Any other error's click is a
-	 *  retry (which also clears). */
+	/** The keyless click (zero-keys wave, owner dictation trio): the errored
+	 *  idle button deep-links Settings → Keys → the Deepgram row and clears
+	 *  the error — the surface is clean when the user returns. Any other
+	 *  error keeps the old behavior (click = retry, which clears). */
 	const keyless = error === DICTATION_KEYLESS;
 	const [levels, setLevels] = useState<number[]>(() => new Array(METER_CELLS).fill(0));
 	/** Adaptive cell count (owner round 2): derived from the meter's

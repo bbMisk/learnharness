@@ -65,6 +65,9 @@ export function ModelMenuList({
 	 *  first row (the one Enter picks) is never a tiny-context model. */
 	minContext?: number;
 }) {
+	// Vision slot: built-ins must report image input; custom-endpoint models
+	// stay selectable (the endpoint may not report a modality). Image-capable
+	// ones float to the top of the list.
 	const visionItems = vision
 		? models?.filter((m) => m.input.includes("image") || m.provider === CUSTOM_PROVIDER.id)
 		: models;
@@ -147,8 +150,9 @@ export function ThinkingMenuList({
 	);
 }
 
-/** The provider-picker dropdown body (the Add-provider control) — the
- *  same fuzzy-search + arrow-walk + Enter machine over
+/** The provider-picker dropdown body (keys wave-5 polish, 2026-09-21:
+ *  the owner wanted the Add-provider control to match the app's dropdown
+ *  language) — the same fuzzy-search + arrow-walk + Enter machine over
  *  the pi-ai provider table. Rows read: provider label, its env var in
  *  quiet mono on the right. */
 export function ProviderMenuList({
@@ -210,10 +214,11 @@ export function customFamilyFor(query: string, families: string[]): string | nul
 	return fontMenuResults(query, families).length === 0 ? trimmed : null;
 }
 
-/** The reading-font dropdown body — ONE search field: the fuzzy machine
- *  filters the families, and when nothing matches, a "Use '<query>'"
- *  action row commits the typed text as a custom family.
- *  `families === undefined` is the
+/** The reading-font dropdown body — ONE search field (owner ask
+ *  2026-09-26: "why two?"): the fuzzy machine filters the families, and
+ *  when nothing matches, a "Use '<query>'" action row commits the typed
+ *  text as a custom family — the old separate custom input is gone, the
+ *  search field absorbed its job. `families === undefined` is the
  *  enumerating state; the curated fallback arrives as plain families with
  *  a footer that says so honestly. */
 export function FontMenuList({

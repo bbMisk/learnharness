@@ -1,11 +1,12 @@
 "use client";
 /**
- * Thin settings primitives: the control kit the settings dialog needs.
- * Sections → groups → rows; everything SSRs clean (render tests pin the
- * sections' markup).
+ * Thin settings primitives (settings-app wave): the control kit the
+ * settings dialog needs. Sections → groups → rows; everything SSRs clean
+ * (render tests pin the sections' markup).
  *
- * Dependency graying: the WHOLE row dims (opacity-40, label and control
- * together) and the control itself locks — the row owns the dim.
+ * The dependency graying (owner, 2026-09-20) follows the graph viewer's
+ * render-panel convention: the WHOLE row dims (opacity-40, label and
+ * control together) and the control itself locks — the row owns the dim.
  */
 
 import { useLayoutEffect, useRef, useState, type ComponentPropsWithRef, type ReactNode, type RefObject } from "react";
@@ -232,8 +233,8 @@ export function Toggle({
 	);
 }
 
-/** A thin select — native element, options as given, dressed like the
- *  custom ▾ menu triggers (SettingsMenuTrigger): no native arrow, an inline ▾. */
+/** A thin select — native element, options as given. */
+// FORK: dressed like the ▾ menu triggers (no native arrow, an inline ▾).
 export function ThinSelect({
 	value,
 	onChange,

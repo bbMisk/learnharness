@@ -44,10 +44,10 @@ import { PIN_VISUAL_TOOL } from "./pinned-visual.ts";
 import type { SubagentArtifactData, SubagentResultMeta } from "./contracts/jobs.ts";
 import type { PlanBlockData } from "./contracts/chat.ts";
 
-/** A view part — the loose part vocabulary the renderers consume. The
- *  common fields are optional-typed so renderer code compiles against it
- *  with minimal casts; anything else stays `unknown` through the index
- *  signature. */
+/** One projected transcript part consumed by host renderers and phase/input
+ * scanners. type selects the part vocabulary; common fields are optional
+ * because text, tools and data parts carry different payloads. Additional
+ * fields remain unknown through the index signature and require narrowing. */
 export interface LhViewPart extends Record<string, unknown> {
 	type: string;
 	id?: string;

@@ -164,14 +164,17 @@ export function questionCardStandIn(doc: Document, c: QuestionCardContent): { qu
  * learner's "Your thinking", a labeled composer-twin field with Submit docked
  * inside it like the composer's send.
  *
- * The thinking field is the product's transfer channel: never called
- * "optional", sized by phase (probing stays quick; teaching invites depth).
- * The "Other…" option is an editable option row (circle + inline input), so
- * picking Other never displaces thinking.
+ * The thinking field is the transfer channel of the whole product (wave-2):
+ * never called "optional", Enter makes a NEWLINE (it is for dumping — soon
+ * dictated, not typed), submission is the button only, and its size scales
+ * with the phase (probing stays quick; teaching invites depth). The
+ * "Other…" option is an editable option ROW — circle + inline input,
+ * styled like its siblings — so picking Other never displaces thinking.
  *
- * Collapse (scroll-up → slim bar), the shell and its height morph are owned
- * by DockOverlay; this component is content only. The expanded form stays
- * mounted while collapsed (hidden) so a half-made selection survives.
+ * Collapse behavior (scroll-up → slim bar) is owned by the DockOverlay in the
+ * chat view, which also owns the persistent shell and its height morph. This
+ * component is content only. The expanded form stays MOUNTED while collapsed
+ * (hidden, not unmounted) so a half-made selection survives scrolling.
  */
 
 export interface QuestionDockProps {
@@ -197,8 +200,8 @@ export interface QuestionDockProps {
 	/** Restore only this call's unconfirmed submission after recovery. */
 	initialDraft?: QuestionFormDraft;
 	onSaveDraft?: (draft: QuestionFormDraft) => void;
-	/** Escape in a question field stops dictation (threaded from the page
-	 *  that owns the dictation hook). */
+	/** Escape in a question field stops dictation (STT wave) — threaded
+	 *  from the page that owns the dictation hook. */
 	onEscape?: () => void;
 	/** The keyboard machine is armed only while the dock is expanded; the
 	 *  collapsed bar keeps its native Enter-to-expand. */
@@ -211,9 +214,10 @@ export interface QuestionDockProps {
 	 *  during the reading; the dock reclaims on reveal. Default true (probe
 	 *  questions, predictions, old callers). */
 	dictationClaim?: boolean;
-	/** Compaction is running for this chat: the answer POST would block on
-	 *  the server's compaction gate, so submit disables and the hint row says
-	 *  so. The server registry is the real gate; this is the affordance. */
+	/** Compaction is running for this chat (owner round 14): the answer
+	 *  POST would block on the server's compaction gate — disable submit
+	 *  and say so in the hint row. The server registry is the real gate;
+	 *  this is the affordance. */
 	compactionRunning?: boolean;
 	attachmentsUploading?: boolean;
 	/** Adaptive layout (Appearance → Adapt question layout); null/absent = off. */
@@ -507,10 +511,11 @@ function QuestionDockForm({
 		if (value.trim()) setSel((prev) => prev.otherSelected ? prev : toggleOther(selectMode, prev));
 	}, {hideImagePaths:true,priority:15,label:"your custom answer",activate:onReveal});
 
-	// The primary dictation input: while a question waits, dictated finals
-	// land here, never in the hidden composer (text mode → "Your answer",
-	// select modes → "Your thinking"). The claim is effect-scoped, so the
-	// question unmounting releases it back to the composer.
+	// The PRIMARY dictation input (owner, STT round 1): while a question
+	// waits, dictated finals land HERE, never in the hidden composer — text
+	// mode owns "Your answer", select modes own "Your thinking". The claim
+	// is effect-scoped, so the question unmounting releases it and
+	// dictation falls back to the composer automatically.
 	useDictationTarget(
 		useCallback(
 			(t: string) => {
@@ -521,8 +526,8 @@ function QuestionDockForm({
 			},
 			[files],
 		),
-		// Released while a teach check sits unrevealed: the reading-thinking
-		// field owns dictated speech during the reading.
+		// Released while a teach check sits unrevealed (owner 2026-10-03):
+		// the reading-thinking field owns dictated speech during the reading.
 		dictationClaim,
 	);
 
@@ -606,8 +611,8 @@ function QuestionDockForm({
 		if (active) submit();
 	}, rootRef);
 
-	// Selecting Other never clears the thinking field: the answer and the
-	// reasoning behind it are separate channels.
+	// Selecting Other never clears the thinking field — two channels, the
+	// answer and the reasoning behind it, side by side.
 	const selectOther = () => setSel(toggleOther(selectMode, sel));
 
 	/* ── The keyboard machine (shortcut wave B, owner rounds 2026-09-17) ──
@@ -1132,10 +1137,11 @@ function QuestionDockForm({
 				</div>
 			</div>
 
-			{/* The learner's half of the dock, a composer twin: a labeled,
-			    bordered field with Submit docked inside. Select modes get "Your
-			    thinking", text mode "Your answer"; both submit on Enter
-			    (Shift+Enter is a newline). */}
+			{/* The learner's half of the dock — a composer TWIN: a labeled, bordered
+			    field with Submit docked inside, exactly like the chat composer's
+			    send. Select modes get "Your thinking" (Enter makes a newline — it
+			    is for dumping, soon dictated; the button submits); text mode
+			    keeps "Your answer" with Enter-to-submit. */}
 			<form
 				className="border-t border-border/60 p-1.5"
 				onSubmit={(e) => {
@@ -1192,8 +1198,9 @@ function QuestionDockForm({
 							}}
 							onKeyDown={(e) => {
 								if (!isInteractionScopeEligible(e.currentTarget, controller)) return;
-								// Esc ends dictation; stopPropagation claims it so the
-								// window chain doesn't also abort a turn.
+								// Esc ends dictation (the dictate decisions: click-again
+								// or Esc) — stopPropagation claims it (keyboard wave
+								// A) so the window chain doesn't also abort a turn.
 								if (e.key === "Escape" && onEscape) {
 									e.preventDefault();
 									e.stopPropagation();

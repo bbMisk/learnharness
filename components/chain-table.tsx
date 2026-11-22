@@ -1,32 +1,40 @@
 "use client";
 
 /**
- * THE CHAIN TABLE: every reasoning chain of the graph in one FULL-BLEED
- * surface — the blur + translucent background IS the surface, no inner
- * card. The top bar is the shared TopBar (h-15, lh-drag with carve-outs,
- * select-none, sidebar reopen, traffic-light gutter). The overlay (z-40)
- * covers home's floating header while open, so the TopBar's own
- * SidebarToggle is the reopen path.
+ * THE CHAIN TABLE (chains overlay; owner refinements round 2, 2026-09-29):
+ * every reasoning chain of the graph in one FULL-BLEED surface — the blur
+ * + translucent background IS the surface, no inner card. The top bar is
+ * THE shared TopBar (standardization ruling: one element, every surface —
+ * h-15, lh-drag with carve-outs, select-none, sidebar reopen, traffic-
+ * light gutter; born from this overlay's hand-rolled bar breaking every
+ * rule at once). The overlay (z-40) covers home's floating header while
+ * open, so the TopBar's own SidebarToggle is the reopen path.
  *
  * HIERARCHY (three levels, one click each): CLUSTER (the birth session —
- * a chat or a notes file; a chain lives where its CONCLUSION was born) →
- * REASONING CHAIN → PROPOSITION STATEMENTS. Expanding a chain reveals its
- * members' statement text directly — names live in the chain line, never
- * twice; a singleton reveals its one statement in one click. Everything
- * starts collapsed. Indentation carries the structure; the only rules are
- * the horizontal separators between cluster groups, plus the tree threads.
+ * a chat or a notes file; a chain lives where its CONCLUSION was born,
+ * owner ruling) → REASONING CHAIN → PROPOSITION STATEMENTS. Expanding a
+ * chain reveals its members' statement text directly — names live in the
+ * chain line, never twice; a singleton reveals its one statement in one
+ * click. Everything starts collapsed. PROMINENT indentation carries the
+ * structure (owner ruling: chains deep under folders, statements deeper)
+ * — the ONLY lines are the horizontal separators between cluster groups
+ * (vertical column hairlines removed with them, owner ruling: "anything
+ * else is better without them").
  *
- * THE CHAIN LINE: every proposition name is a faint-outlined CHIP with the
- * LOGIC as the connectives: premises join with the LaTeX LAND (∧) and the
- * conclusion separates by the LaTeX IMPLICATION (⟹) — `A ∧ B ⟹ C`, never
- * the misleading `A → B → C`. The glyphs are real KaTeX renders
- * (components/latex-glyph.tsx), in the theme foreground. A lonely chip (no
+ * THE CHAIN LINE: every proposition name is a faint-outlined CHIP
+ * with the LOGIC as the connectives (owner rulings, 2026-09-30):
+ * premises join with the LaTeX LAND (∧) and the conclusion separates
+ * by the LaTeX IMPLICATION (⟹) — `A ∧ B ⟹ C`, never the misleading
+ * `A → B → C`. The glyphs are REAL KaTeX renders (components/
+ * latex-glyph.tsx — the app's math engine, never SVGs), PROMINENT in
+ * the theme foreground (white), not dim gray. A lonely chip (no
  * premises) carries no glyph — it reads as a standalone proposition;
  * "(no premises)" survives only as the row's aria-label.
  *
- * SORTING: all three columns sortable: Name (A→Z), Props (largest-first),
- * Created (newest-first); click toggles asc/desc; a SMALL chevron marks the
- * active header. Sort orders cluster rows AND chains within.
+ * SORTING: all three columns sortable (owner ruling — "consistency is
+ * key"): Name (A→Z), Props (largest-first), Created (newest-first);
+ * click toggles asc/desc; a SMALL chevron marks the active header. Sort
+ * orders cluster rows AND chains within.
  *
  * SELECTION never shifts layout: a floating bottom bar appears only when
  * something is selected. In practice-select mode it shows the agents'
@@ -85,8 +93,8 @@ interface ClusterGroup {
 	newestCreatedAt: string;
 }
 
-/** The table's pure body — exported for SSR render tests. All state
- *  (query, sort, selection, expansion) arrives
+/** The table's pure body — exported for SSR pins (the render-suite
+ *  discipline). All state (query, sort, selection, expansion) arrives
  *  via props; the overlay wrapper below owns it. */
 export function ChainTableBody({
 	nodes,
@@ -297,12 +305,13 @@ export function ChainTableBody({
 
 	return (
 		<div ref={tableRef} tabIndex={-1} data-testid="chain-table" className="relative flex h-full min-h-0 flex-col outline-none [&_[data-chain-nav-active=true]]:bg-accent/50 [&_[data-chain-nav-row]]:outline-none [&_[data-chain-nav-row]]:scroll-mt-8 [&_[data-chain-nav-row]]:scroll-mb-16">
-			{/* The shared top bar: drag mechanics, sidebar reopen,
-			    traffic-light gutter — the same element as every chat surface.
-			    NO TITLE: the serif title register always names a session; the
+			{/* THE shared top bar (standardization ruling): drag mechanics,
+			    sidebar reopen, traffic-light gutter — the same element as every
+			    chat surface. NO TITLE (owner round 11, 2026-10-05): the serif
+			    title register is RESERVED — it always names a session; the
 			    chain table names nothing, so its bar carries counts + search +
-			    close only. Search + close carve out with lh-no-drag (later in
-			    the DOM than the drag band). */}
+			    close only. Search + close carve out with lh-no-drag (the mask
+			    law: later in the DOM). */}
 			<TopBar sidebarToggle={!pickerChrome}>
 				<span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
 					{chains.length} {chains.length === 1 ? "chain" : "chains"} · {nodes.length} {nodes.length === 1 ? "node" : "nodes"}
@@ -654,9 +663,10 @@ function RowCheckbox({
 }
 
 /** The graph view's overlay wrapper: owns query + sort + selection +
- *  expansion; mounts ABSOLUTE INSIDE the graph area, full-bleed (the
- *  translucent blurred surface IS the overlay — no inner card). Esc + the
- *  top-bar X dismiss (there is no backdrop to click). */
+ *  expansion; mounts ABSOLUTE INSIDE the
+ *  graph area, full-bleed (owner ruling: the translucent blurred surface
+ *  IS the overlay — no inner card). Esc + the top-bar X dismiss (there
+ *  is no backdrop margin to click anymore). Read-only toward the graph. */
 export function ChainTableOverlay({
 	open,
 	nodes,
