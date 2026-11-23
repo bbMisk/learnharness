@@ -17,7 +17,7 @@ if (process.env.NODE_ENV !== "test") throw new Error("Run with NODE_ENV=test.");
 // Isolation first: no ambient keys, data, network. Every import that reads them follows.
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), "lh-agy-gates-"));
 const originalEnv = process.env, originalFetch = globalThis.fetch;
-process.env = { PATH: originalEnv.PATH, HOME: directory, NODE_ENV: "test", NODE_TEST_CONTEXT: originalEnv.NODE_TEST_CONTEXT, ...(originalEnv.LH_ANTIGRAVITY_REUSE ? { LH_ANTIGRAVITY_REUSE: originalEnv.LH_ANTIGRAVITY_REUSE } : {}), LH_DATA_DIR: directory, LH_AUTH_FILE: path.join(directory, "auth.json") };
+process.env = { PATH: originalEnv.PATH, HOME: directory, NODE_ENV: "test", NODE_TEST_CONTEXT: originalEnv.NODE_TEST_CONTEXT, ...(originalEnv.LH_ANTIGRAVITY_REUSE ? { LH_ANTIGRAVITY_REUSE: originalEnv.LH_ANTIGRAVITY_REUSE } : {}), ...(originalEnv.LH_ANTIGRAVITY_TOOLS ? { LH_ANTIGRAVITY_TOOLS: originalEnv.LH_ANTIGRAVITY_TOOLS } : {}), LH_DATA_DIR: directory, LH_AUTH_FILE: path.join(directory, "auth.json") };
 fs.writeFileSync(process.env.LH_AUTH_FILE!, "{}");
 globalThis.fetch = async () => { throw new Error("CLOSED: unexpected network request"); };
 
@@ -91,6 +91,14 @@ function lessonChat(title: string) {
 }
 
 const build = (options: Parameters<typeof createTeacherAgent>[1]) => createTeacherAgent(undefined, options);
+
+/** Run `fn` with the tools switch (LH_ANTIGRAVITY_TOOLS) in one position, then put it back. */
+async function withTools<T>(on: boolean, fn: () => T | Promise<T>): Promise<T> {
+	const previous = process.env.LH_ANTIGRAVITY_TOOLS;
+	if (on) delete process.env.LH_ANTIGRAVITY_TOOLS; else process.env.LH_ANTIGRAVITY_TOOLS = "0";
+	try { return await fn(); }
+	finally { if (previous === undefined) delete process.env.LH_ANTIGRAVITY_TOOLS; else process.env.LH_ANTIGRAVITY_TOOLS = previous; }
+}
 
 beforeEach(() => {
 	launchReal = undefined;
@@ -168,9 +176,15 @@ test("available: models from the saved list, picker accepts them, a lesson turn 
 
 	// The helper doors still refuse while the lesson door is open.
 	assert.equal(providerKeyPresent("antigravity"), false);
-	assert.equal(automaticFollowUpAllowed(chat.id), false, "wake pipeline: no automatic follow-up");
-	const steers = antigravityTurnRefusal("steers", []);
-	assert.equal(steers?.status, 403);
+	await withTools(false, () => {
+		assert.equal(automaticFollowUpAllowed(chat.id), false, "tools switch off: no automatic follow-up");
+		assert.equal(antigravityTurnRefusal("steers", [])?.status, 403);
+	});
+	await withTools(true, () => {
+		assert.equal(automaticFollowUpAllowed(chat.id), true, "tools switch on: the follow-ups its own tools cause");
+		assert.equal(antigravityTurnRefusal("steers", []), null);
+		assert.equal(providerKeyPresent("antigravity"), false, "still no job, sub-agent or helper on Antigravity");
+	});
 	assert.equal(antigravityTurnRefusal("text", []), null);
 	assert.equal(connectionBackgroundAllowed("antigravity"), true, "the chat's own compaction is allowed (its stream re-checks availability)");
 	spyRuntime.shutdown();
@@ -214,8 +228,8 @@ test("denied doors refuse before any spawn: jobs, extraction envelope, side tuto
 	const inference = createPluginInference({ signal: controller.signal, dataDirectory: path.join(directory, "plugin-data") }, { catalog: modelCatalog, providerKeyPresent, engineForSpec: piEngineForSpec });
 	await assert.rejects(inference.engineFor(SPEC, "user"), /Antigravity runs only lessons you start/);
 
-	// The wake pipeline's steers, through the real chat handler.
-	const steered = await handleChatInput(chat.id, { type: "steers", steers: [] }, build);
+	// The wake pipeline's steers, through the real chat handler, with the tools switch off (on: see the follow-up tests).
+	const steered = await withTools(false, () => handleChatInput(chat.id, { type: "steers", steers: [] }, build));
 	assert.equal(steered.status, 403);
 	assert.match((await steered.json()).error, /Automatic follow-ups stay queued/);
 
@@ -309,14 +323,26 @@ test("model lists drop entries with a link, a control character or more than 200
 	assert(!fs.readFileSync(file, "utf8").includes("a://b"), "never persisted");
 });
 
-test("the lesson door is an allowlist of learner inputs; everything else is refused", () => {
+test("the lesson door is an allowlist of learner inputs; with the tools switch on also steers; everything else is refused", async () => {
 	state({ switchOn: true, enabled: true, installed: true });
-	for (const type of ["text", "answer", "retry", "retry-question", "thinking", "next", "plugin-question-answer", "plugin-problem-submission"]) {
-		assert.equal(antigravityTurnRefusal(type, []), null, type);
+	for (const on of [false, true]) {
+		await withTools(on, () => {
+			for (const type of ["text", "answer", "retry", "retry-question", "thinking", "next", "plugin-question-answer", "plugin-problem-submission"]) {
+				assert.equal(antigravityTurnRefusal(type, []), null, type);
+			}
+			assert.equal(antigravityTurnRefusal("steers", [])?.status, on ? undefined : 403, `steers, tools ${on}`);
+			// A continue with no cause at all is never owed.
+			for (const type of ["continue", "dismiss", "dismiss-plugin-question", "bogus", "", "toString", "__proto__"]) {
+				assert.equal(antigravityTurnRefusal(type, [])?.status, 403, JSON.stringify(type));
+			}
+		});
 	}
-	for (const type of ["steers", "continue", "dismiss", "dismiss-plugin-question", "bogus", "", "toString", "__proto__"]) {
-		assert.equal(antigravityTurnRefusal(type, [])?.status, 403, JSON.stringify(type));
-	}
+	// Tools on but the provider unavailable: steers are refused with the 403 that keeps them queued.
+	state({ switchOn: true, enabled: false, installed: true });
+	await withTools(true, () => {
+		assert.equal(antigravityTurnRefusal("steers", [])?.status, 403);
+		assert.equal(automaticFollowUpAllowed(lessonChat("Antigravity unavailable").id), false);
+	});
 });
 
 test("the lesson door refreshes key provenance first, so a file-only key never reaches the agent", (t) => {
@@ -399,8 +425,11 @@ test("every failed check clears checkedAt, and a store that can't be written sti
 	assert(!JSON.stringify(logged).includes("EACCES"));
 });
 
-test("a continue whose last cause is automatic (a job result) is refused before any spawn", async () => {
+test("tools switch off: a continue whose last cause is automatic (a job result) is refused before any spawn", async (t) => {
 	state({ switchOn: true, enabled: true, installed: true });
+	const previous = process.env.LH_ANTIGRAVITY_TOOLS;
+	process.env.LH_ANTIGRAVITY_TOOLS = "0";
+	t.after(() => { if (previous === undefined) delete process.env.LH_ANTIGRAVITY_TOOLS; else process.env.LH_ANTIGRAVITY_TOOLS = previous; });
 	const before = launches;
 	const chat = lessonChat("Antigravity automatic continue");
 	chatStore.saveMessages(chat.id, [
@@ -609,6 +638,46 @@ test("reuse survives a reply with thinking: the saved message keeps the thought 
 		assert.equal(prompts[1]!.sessionId, prompts[0]!.sessionId, "the second turn reused the session");
 		assert.deepEqual(prompts[1]!.texts, ["Give me an example."]);
 	} else assert.notEqual(prompts[1]!.sessionId, prompts[0]!.sessionId);
+	spyRuntime.shutdown();
+	await h.assertNoChildren();
+});
+
+/** A finished job's result as the wake pipeline delivers it, and the prober→teacher handoff. */
+const jobSteer = (id: string) => ({ id: `steer_${id}`, role: "custom", customType: "subagent-steer", content: "RESEARCH DELIVERY: fractions are parts of a whole.", display: true, details: { jobId: id, kind: "research", toolCallId: `t_${id}`, result: {} }, timestamp: Date.now() });
+const handoff = (chatId: string) => ({ id: `steer_probe_${chatId}`, role: "custom", customType: "probe-handoff", content: "PROBE HANDOFF: start teaching.", display: true, details: { chatId }, timestamp: Date.now() });
+
+async function settledPrompt(chatId: string, response: Response, h: ReturnType<typeof mockHarness>) {
+	assert.equal(response.status, 200, await response.clone().text());
+	const handle = runningTurn(chatId);
+	if (handle) await new Response(handle.subscribe()).text();
+	await waitFor(() => !runningTurn(chatId), 5000, "turn settled");
+	return JSON.stringify(h.received().filter((m) => m.method === "session/prompt").at(-1));
+}
+
+test("tools switch on: a job-result steer and the probe handoff steer start a turn on an Antigravity lesson; the background continue after a job result too", async (t) => {
+	state({ switchOn: true, enabled: true, installed: true });
+	const previous = process.env.LH_ANTIGRAVITY_TOOLS;
+	delete process.env.LH_ANTIGRAVITY_TOOLS;
+	t.after(() => { if (previous !== undefined) process.env.LH_ANTIGRAVITY_TOOLS = previous; });
+	const h = mockHarness(t);
+	h.onTeardown(() => spyRuntime.shutdown());
+	launchReal = h.launch;
+	for (const [what, steer] of [["job result", (id: string) => jobSteer(id)], ["probe handoff", (id: string) => handoff(id)]] as const) {
+		const chat = lessonChat(`Antigravity ${what}`);
+		chatStore.saveMessages(chat.id, [{ role: "user", id: "learner-1", content: "Teach me fractions", timestamp: 1 } as never]);
+		const message = steer(chat.id);
+		const prompt = await settledPrompt(chat.id, await handleChatInput(chat.id, { type: "steers", steers: [message as never] }, build), h);
+		assert.match(prompt, what === "job result" ? /RESEARCH DELIVERY/ : /PROBE HANDOFF/, what);
+	}
+	const chat = lessonChat("Antigravity background continue");
+	chatStore.saveMessages(chat.id, [
+		{ role: "user", id: "learner-1", content: "Research fractions", timestamp: 1 },
+		{ role: "assistant", id: "reply-1", content: [{ type: "text", text: "Started a job." }], api: "antigravity-acp", provider: "antigravity", model: "gemini-3-pro", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 2 },
+		{ ...jobSteer("bg"), timestamp: 3 },
+	] as never);
+	assert.match(await settledPrompt(chat.id, await handleChatInput(chat.id, { type: "continue" }, build), h), /RESEARCH DELIVERY/);
+	// A job pinned to an Antigravity model is still refused: providerKeyPresent stays false.
+	assert.equal(providerKeyPresent("antigravity"), false);
 	spyRuntime.shutdown();
 	await h.assertNoChildren();
 });

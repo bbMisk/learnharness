@@ -15,7 +15,7 @@ import type { TurnInput } from "../core/input-events.ts";
 import { reconstructRequestCause, type LhMessage } from "../core/native-messages.ts";
 import { PROVIDER_KEY_MISSING_CODE } from "../core/settings.ts";
 import { antigravityStore } from "../store/antigravity.ts";
-import { antigravityAvailable, antigravityEnabled, antigravityInstalled, mergeModels } from "./antigravity-config.ts";
+import { antigravityAvailable, antigravityEnabled, antigravityFollowUpsAllowed, antigravityInstalled, mergeModels } from "./antigravity-config.ts";
 import { initAuthEnv } from "./keys.ts";
 import { subscriptionRequestOrigin } from "./web-subscription-http.ts";
 
@@ -153,11 +153,14 @@ export async function antigravityResponse(request: Request, deps: AntigravityRou
 }
 
 /**
- * The lesson-turn door (chat-handler's one hook). Antigravity is admitted only
- * for a turn the learner started, and only while available. Wake-pipeline
+ * The lesson-turn door (chat-handler's one hook). Antigravity is admitted for
+ * a turn the learner started, and, with the tools switch on, for the
+ * automatic follow-ups the lesson's own tools cause (wake-pipeline steers and
+ * the background continue after them); only while available. Otherwise
  * steers and background continues are refused with 403, which the pump
  * treats as "keep the cargo queued". Every other door refuses Antigravity
- * through providerKeyPresent (src/server/keys.ts).
+ * through providerKeyPresent (src/server/keys.ts): no job, sub-agent,
+ * extraction, plugin inference or side tutor runs on an Antigravity model.
  */
 export { ANTIGRAVITY_PROVIDER };
 
@@ -172,8 +175,8 @@ const LEARNER_INPUT: Record<TurnInput["type"], boolean> = {
 	next: true,
 	"plugin-question-answer": true,
 	"plugin-problem-submission": true,
-	continue: false, // admitted only when it resumes a reply the learner is owed (foreground cause, no finished reply yet)
-	steers: false, // the wake pipeline
+	continue: false, // admitted only when it resumes a reply that is owed (no finished reply yet): foreground cause, or background with follow-ups allowed
+	steers: false, // the wake pipeline: admitted only with follow-ups allowed (tools switch on)
 };
 
 /** The saved history does not already end with a finished assistant reply. */
@@ -184,8 +187,12 @@ function replyOwed(messages: readonly LhMessage[]): boolean {
 
 export function antigravityTurnRefusal(inputType: string, messages: readonly LhMessage[]): Response | null {
 	const learner = Object.hasOwn(LEARNER_INPUT, inputType) && LEARNER_INPUT[inputType as TurnInput["type"]];
-	const owedContinue = inputType === "continue" && reconstructRequestCause(messages) === "foreground" && replyOwed(messages);
-	if (!learner && !owedContinue) {
+	// Follow-ups the lesson's own tools cause. While unavailable they get the 403 (kept queued), not the 503.
+	const followUps = antigravityFollowUpsAllowed();
+	const cause = inputType === "continue" ? reconstructRequestCause(messages) : undefined;
+	const owedContinue = inputType === "continue" && replyOwed(messages) && (cause === "foreground" || (followUps && cause === "background"));
+	const steer = inputType === "steers" && followUps;
+	if (!learner && !owedContinue && !steer) {
 		return Response.json({ error: BACKGROUND_REFUSAL }, { status: 403 });
 	}
 	if (!antigravityAvailable()) {

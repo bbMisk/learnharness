@@ -7,7 +7,7 @@ import { getAgyBinary } from "../agent/antigravity/binary.ts";
 import { configureAntigravityHost } from "../agent/antigravity/host.ts";
 import { ANTIGRAVITY_PROVIDER } from "../core/contracts/antigravity.ts";
 import type { CatalogProvider } from "../core/contracts/models.ts";
-import { antigravitySwitchOn } from "../core/fork-config.ts";
+import { antigravitySwitchOn, antigravityToolsOn } from "../core/fork-config.ts";
 import { antigravityStore, type AntigravityModelEntry } from "../store/antigravity.ts";
 import type { AgentModel } from "../agent/antigravity/models.ts";
 
@@ -26,6 +26,15 @@ export function antigravityInstalled(): boolean {
 /** Switch on, opted in, binary file present. Never authentication readiness. */
 export function antigravityAvailable(): boolean {
 	return antigravityEnabled() && antigravityInstalled();
+}
+
+/**
+ * An Antigravity lesson accepts the automatic follow-ups its own tools cause (job results, the
+ * prober→teacher handoff, the continue after them) only with the tools switch on, while available.
+ * The jobs themselves still never run on an Antigravity model (providerKeyPresent stays false).
+ */
+export function antigravityFollowUpsAllowed(): boolean {
+	return antigravityToolsOn() && antigravityAvailable();
 }
 
 /** The catalog's provider row: present only while the server switch is on. */
