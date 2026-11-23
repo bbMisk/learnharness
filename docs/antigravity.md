@@ -13,13 +13,14 @@ Both switches must be on before anything runs.
 
 Antigravity also needs the `agy` program. LearnHarness finds it on your PATH or in the usual folders such as `~/.local/bin`; `LH_AGY_BINARY` can name it exactly. Finding it only checks that the file exists.
 
-`agy` starts only when a lesson turn needs it or when you press **Check connection**. Check connection signs nothing in. It starts `agy`, opens one session, and saves the list of models your account offers. Lessons can then use those models.
+`agy` starts only when a lesson turn needs it or when you press **Check connection**. Check connection signs nothing in. It starts `agy`, opens one session (which also appears in your Antigravity history), and saves the list of models your account offers. Lessons can then use those models.
 
 ## In a lesson
 
 - Every reply is a new Antigravity session that receives the whole conversation as text. Pictures and documents are replaced by a short note saying they were left out.
 - The session starts in an empty temporary folder. Antigravity's approval mode is set to "default", which asks before it runs commands, edits files, uses the web or reads outside that folder. If that mode can't be set, the reply doesn't start.
-- Antigravity gets no LearnHarness tools: no quizzes, no file reading, no background jobs. If it tries to use one of its own tools, LearnHarness refuses the request, stops the reply and says so. Text it had already written stays.
+- Antigravity gets no LearnHarness tools: no quizzes, no file reading, no background jobs. If it tries to use one of its own tools, LearnHarness refuses the request, stops the reply and says so. Text it had already written stays. A tool that your own Antigravity allow rules already permit may have run before LearnHarness hears about it.
+- The tutor's instructions still describe LearnHarness's quizzes and other tools, which Antigravity can't call here, so lesson steps that need them don't happen.
 - Only lessons you start use Antigravity. Background jobs, note extraction, automatic follow-ups, the side tutor, plugins and other helpers refuse it; pick another model for those. A long lesson can still be compacted (summarized) with the lesson's own model.
 
 Some of your own Antigravity setup still applies: its allow rules, global rules and skills, and MCP servers. Google documents no way to give a third-party app a separate profile. Each reply also creates a session in your Antigravity history.
@@ -35,6 +36,7 @@ Your lesson text, including the replayed conversation and the tutor's instructio
 - No thinking-level choice.
 - An error on Google's side can arrive as ordinary reply text.
 - If `agy` stops answering, the reply ends after 15 minutes without progress. An idle `agy` is stopped after 10 minutes.
+- When the server is stopped by a signal, `agy` is expected to exit when its input closes; any temporary folder left behind is removed on the next start. This hasn't been checked with the real `agy`.
 
 ## Not verified against the real agent
 

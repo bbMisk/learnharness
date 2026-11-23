@@ -32,6 +32,8 @@ export interface MockHarness {
 	/** Fails unless every child started so far has exited within `ms`. */
 	assertNoChildren(ms?: number): Promise<void>;
 	setScenario(next: MockScenario): void;
+	/** At teardown: run `stop` (the owner's shutdown), then FAIL if any child outlives it. */
+	onTeardown(stop: () => void): void;
 }
 
 function exited(child: ChildProcessWithoutNullStreams): boolean {
@@ -43,6 +45,7 @@ export function mockHarness(t: TestContext, initial: MockScenario = {}): MockHar
 	const logFile = join(dir, "mock.log");
 	let scenario = initial;
 	const children: ChildProcessWithoutNullStreams[] = [];
+	const stops: (() => void)[] = [];
 	const harness: MockHarness = {
 		children,
 		spawns: 0,
@@ -72,12 +75,18 @@ export function mockHarness(t: TestContext, initial: MockScenario = {}): MockHar
 			assert.ok(children.every(exited), "every mock agent process has exited");
 		},
 		setScenario(next) { scenario = next; },
+		onTeardown(stop) { stops.push(stop); },
 	};
 	t.after(async () => {
+		for (const stop of stops) stop();
+		let deadline = Date.now() + 4000;
+		while (children.some((child) => !exited(child)) && Date.now() < deadline) await sleep(20);
+		const survivors = children.filter((child) => !exited(child)).length;
 		for (const child of children) if (!exited(child)) child.kill("SIGKILL");
-		const deadline = Date.now() + 2000;
+		deadline = Date.now() + 2000;
 		while (children.some((child) => !exited(child)) && Date.now() < deadline) await sleep(20);
 		rmSync(dir, { recursive: true, force: true });
+		assert.equal(survivors, 0, "a mock agent process outlived its owner's shutdown");
 	});
 	return harness;
 }

@@ -27,10 +27,9 @@ function setup(t: TestContext, scenario: MockScenario = {}, env: NodeJS.ProcessE
 	const h = mockHarness(t, scenario);
 	const tempBase = mkdtempSync(join(tmpdir(), "lh-agy-runtime-"));
 	const runtime = new AntigravityRuntime({ launch: h.launch, tempBase, appVersion: "9.8.7", env: () => env });
-	t.after(async () => {
-		runtime.shutdown();
+	h.onTeardown(() => runtime.shutdown());
+	t.after(() => {
 		Object.assign(antigravityTimeouts, DEFAULTS);
-		await h.assertNoChildren(4000).catch(() => undefined);
 		rmSync(tempBase, { recursive: true, force: true });
 	});
 	return { h, runtime, tempBase };

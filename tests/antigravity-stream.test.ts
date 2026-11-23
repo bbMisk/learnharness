@@ -40,10 +40,9 @@ function setup(t: TestContext, scenario: MockScenario = {}, available = true) {
 	const saved: AgentModel[][] = [];
 	const host: AntigravityHost = { available: () => available, models: () => [], saveModels: (models) => saved.push(models) };
 	const stream = createAntigravityStreamFunction({ runtime: () => runtime, host: () => host });
-	t.after(async () => {
-		runtime.shutdown();
+	h.onTeardown(() => runtime.shutdown());
+	t.after(() => {
 		Object.assign(antigravityTimeouts, DEFAULTS);
-		await h.assertNoChildren(4000).catch(() => undefined);
 		rmSync(tempBase, { recursive: true, force: true });
 	});
 	return { h, runtime, stream, saved };
@@ -149,6 +148,8 @@ test("permission request → reject_once chosen, breach error, session/cancel se
 	await waitFor(() => h.methods().includes("session/cancel"), 3000, "session/cancel");
 	const cancel = h.received().find((message) => message.method === "session/cancel")!;
 	assert.equal("id" in cancel, false, "session/cancel is a notification");
+	const order = h.received().map((message) => message.method ?? (message.id === "mock-1" ? "permission-answer" : "other"));
+	assert.ok(order.indexOf("permission-answer") >= 0 && order.indexOf("permission-answer") < order.indexOf("session/cancel"), "the reject answer is written before session/cancel");
 });
 
 test("a bare tool_call is a breach too; fs/read_text_file is answered -32601 and is not", async (t) => {
@@ -285,4 +286,15 @@ test("session/new refreshes the model list; session/close is sent when advertise
 	assert.equal((await collect(stream(PRO, ctx([HI])))).final.stopReason, "stop");
 	assert.deepEqual(saved, [[{ id: "gemini-3-pro", name: "Gemini 3 Pro" }, { id: "gemini-3-flash", name: "Gemini 3 Flash" }]]);
 	await waitFor(() => h.methods().includes("session/close"), 3000, "session/close");
+});
+
+test("idle kill: a turn holds the process past the idle timeout, and it stops once the turn ends", async (t) => {
+	antigravityTimeouts.idleMs = 150;
+	const { h, runtime, stream } = setup(t, { prompt: [{ text: "slow" }, { sleepMs: 400 }, { text: " reply" }] });
+	const turn = await collect(stream(PRO, ctx([HI])));
+	assert.equal(turn.final.stopReason, "stop");
+	assert.equal(turn.text, "slow reply", "never killed mid-prompt");
+	assert.equal(h.spawns, 1);
+	await h.assertNoChildren(3000);
+	assert.equal(runtime.connection, undefined);
 });

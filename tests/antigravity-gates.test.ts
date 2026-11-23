@@ -32,12 +32,12 @@ const spyRuntime = new AntigravityRuntime({ launch: (args, options) => { launche
 const { piModels, piEngineForSpec } = await import("../src/agent/models.ts");
 const { modelCatalog, validateModelsSettings, validateChatSettings, toModelDto } = await import("../src/server/model-catalog.ts");
 const { providerKeyPresent } = await import("../src/server/keys.ts");
-const { providerKeyMissing, isProviderKeyRefusal } = await import("../src/core/settings.ts");
+const { providerKeyMissing, isProviderKeyRefusal, ProviderKeyMissingError } = await import("../src/core/settings.ts");
 const { antigravityResponse, antigravityTurnRefusal, checkAntigravityConnection } = await import("../src/server/antigravity.ts");
 const { antigravityAvailable } = await import("../src/server/antigravity-config.ts");
 const { antigravityStore, ANTIGRAVITY_FILE, createAntigravityStore } = await import("../src/store/antigravity.ts");
 const { writeSettings } = await import("../src/store/settings.ts");
-const { handleChatInput } = await import("../src/server/chat-handler.ts");
+const { handleChatInput, extraction } = await import("../src/server/chat-handler.ts");
 const { chatStore } = await import("../src/store/chats.ts");
 const { jobStore } = await import("../src/store/jobs.ts");
 const { createTeacherAgent } = await import("../src/agent/teacher-agent.ts");
@@ -128,6 +128,7 @@ for (const [label, setup] of [
 test("available: models from the saved list, picker accepts them, a lesson turn runs end to end on the mock", async (t) => {
 	state({ switchOn: true, enabled: true, installed: true });
 	const h = mockHarness(t);
+	h.onTeardown(() => spyRuntime.shutdown());
 	launchReal = h.launch;
 	assert.equal(antigravityAvailable(), true);
 	const dto = modelCatalog().models.find((m) => m.provider === "antigravity");
@@ -166,7 +167,9 @@ test("available: models from the saved list, picker accepts them, a lesson turn 
 
 test("denied doors refuse before any spawn: jobs, extraction envelope, side tutor, plugin inference", async (t) => {
 	state({ switchOn: true, enabled: true, installed: true });
-	launchReal = mockHarness(t).launch;
+	const harness = mockHarness(t);
+	harness.onTeardown(() => spyRuntime.shutdown());
+	launchReal = harness.launch;
 	const before = launches;
 
 	// Background jobs (and the extraction pipeline, which shares this refusal closure in chat-handler).
@@ -199,6 +202,15 @@ test("denied doors refuse before any spawn: jobs, extraction envelope, side tuto
 	const inference = createPluginInference({ signal: controller.signal, dataDirectory: path.join(directory, "plugin-data") }, { catalog: modelCatalog, providerKeyPresent, engineForSpec: piEngineForSpec });
 	await assert.rejects(inference.engineFor(SPEC, "user"), /Antigravity runs only lessons you start/);
 
+	// The wake pipeline's steers, through the real chat handler.
+	const steered = await handleChatInput(chat.id, { type: "steers", steers: [] }, build);
+	assert.equal(steered.status, 403);
+	assert.match((await steered.json()).error, /Automatic follow-ups stay queued/);
+
+	// The production extraction pipeline with its cheap tier pinned to Antigravity.
+	writeSettings({ version: 1, graph: { enabled: false }, models: { cheap: { model: SPEC }, strong: { model: SPEC } } });
+	await assert.rejects(extraction.runExtraction(chat.id), (error: unknown) => error instanceof ProviderKeyMissingError && error.message === ANTIGRAVITY_LESSONS_ONLY);
+
 	// Background continues and steers never reach a turn.
 	assert.equal(antigravityTurnRefusal("continue", [])?.status, 403, "a continue with no learner cause is background");
 	assert.equal(needsSendToUser({ provider: "antigravity", id: "claude-sonnet-4-5" }), false);
@@ -210,6 +222,7 @@ test("check connection: flat, grouped and legacy model lists are persisted and s
 	for (const style of ["flat", "grouped", "legacy"]) {
 		const h = mockHarness(t, { models: { style, list: [{ value: `${style}-a`, name: `${style} A` }, { value: `${style}-b`, name: `${style} B` }] } });
 		const runtime = new AntigravityRuntime({ launch: h.launch, tempBase });
+		h.onTeardown(() => runtime.shutdown());
 		const status = await checkAntigravityConnection(() => checkAntigravityAgent(runtime));
 		assert.equal(status.models, 2, style);
 		assert.equal(status.agentVersion, "1.5.12");
@@ -230,6 +243,7 @@ test("check connection when not signed in: the status says so and keeps the old 
 	state({ switchOn: true, enabled: true, installed: true });
 	const h = mockHarness(t, { initializeError: { code: -32000, message: "Authentication required" } });
 	const runtime = new AntigravityRuntime({ launch: h.launch, tempBase });
+	h.onTeardown(() => runtime.shutdown());
 	const status = await checkAntigravityConnection(() => checkAntigravityAgent(runtime));
 	assert.match(status.problem ?? "", /Not signed in to Antigravity/);
 	assert.equal(status.models, 1);

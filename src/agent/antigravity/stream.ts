@@ -248,15 +248,17 @@ class TurnSession {
 	private onPermission(params: Record<string, unknown>): unknown {
 		const options = Array.isArray(params.options) ? params.options : [];
 		const reject = options.find((option) => isRecord(option) && option.kind === "reject_once" && typeof option.optionId === "string") as { optionId: string } | undefined;
-		this.breach(isRecord(params.toolCall) ? params.toolCall : {});
+		// The turn fails now; session/cancel goes out after the answer below is written.
+		this.breach(isRecord(params.toolCall) ? params.toolCall : {}, true);
 		return reject ? { outcome: { outcome: "selected", optionId: reject.optionId } } : { outcome: { outcome: "cancelled" } };
 	}
 
 	/** LearnHarness granted no tools: any tool use stops the reply. */
-	private breach(call: Record<string, unknown>): void {
+	private breach(call: Record<string, unknown>, afterAnswer = false): void {
 		const what = [call.title, call.kind].find((value): value is string => typeof value === "string" && value.trim() !== "");
 		this.turn.fail(breachMessage(what ? what.trim().slice(0, 120) : "a tool"));
-		this.cancel();
+		if (afterAnswer) setImmediate(() => this.cancel());
+		else this.cancel();
 	}
 
 	/** session/cancel once, then kill the process if the prompt hasn't resolved within the grace period. */
