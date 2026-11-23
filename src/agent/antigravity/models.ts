@@ -22,14 +22,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** A model id or name LearnHarness will show and store: no link, no control character, at most 200 characters. */
+export function safeModelText(value: unknown): value is string {
+	return typeof value === "string" && value.trim() !== "" && value.length <= 200 && !value.includes("://") && !/[\u0000-\u001f\u007f-\u009f]/.test(value);
+}
+
+/** Drops the entry whenever its id, or a name it does give, is unsafe. */
+function entry(id: unknown, name: unknown): AgentModel[] {
+	if (!safeModelText(id)) return [];
+	if (name === undefined || name === null || name === "") return [{ id, name: id }];
+	return safeModelText(name) ? [{ id, name }] : [];
+}
+
 function selectValues(options: unknown): AgentModel[] {
 	if (!Array.isArray(options)) return [];
 	return options.flatMap((option): AgentModel[] => {
 		if (!isRecord(option)) return [];
 		// Grouped selects hold their values one level down.
 		if (Array.isArray(option.options)) return selectValues(option.options);
-		if (typeof option.value !== "string" || !option.value) return [];
-		return [{ id: option.value, name: typeof option.name === "string" && option.name ? option.name : option.value }];
+		return entry(option.value, option.name);
 	});
 }
 
@@ -44,10 +55,7 @@ export function findConfigOption(configOptions: unknown, key: "mode" | "model"):
 /** Legacy `models: { currentModelId, availableModels: [{ modelId, name }] }`. */
 export function legacyModels(result: unknown): { currentModelId: string | undefined; values: AgentModel[] } | null {
 	if (!isRecord(result) || !isRecord(result.models) || !Array.isArray(result.models.availableModels)) return null;
-	const values = result.models.availableModels.flatMap((entry): AgentModel[] =>
-		isRecord(entry) && typeof entry.modelId === "string" && entry.modelId
-			? [{ id: entry.modelId, name: typeof entry.name === "string" && entry.name ? entry.name : entry.modelId }]
-			: []);
+	const values = result.models.availableModels.flatMap((model): AgentModel[] => (isRecord(model) ? entry(model.modelId, model.name) : []));
 	return { currentModelId: typeof result.models.currentModelId === "string" ? result.models.currentModelId : undefined, values };
 }
 

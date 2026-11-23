@@ -18,8 +18,14 @@ export function stripUrls(text: string): string {
 	return text.replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, "[link removed]");
 }
 
+/**
+ * Errors carry a brand: the runtime lives on globalThis and outlives module
+ * re-evaluation, so an error built by an older copy of this module fails
+ * `instanceof` against the newer class. Classify with the is* helpers.
+ */
 /** A JSON-RPC error answer from the agent, with any link already removed from its message. */
 export class AcpRpcError extends Error {
+	readonly brand = "acp-rpc" as const;
 	constructor(readonly code: number, message: string) {
 		super(message);
 	}
@@ -29,9 +35,24 @@ export type TransportFailure = "protocol" | "sign-in" | "closed" | "timeout";
 
 /** The connection itself failed; `message` is always one of ours. */
 export class AcpTransportError extends Error {
+	readonly brand = "acp-transport" as const;
 	constructor(readonly kind: TransportFailure, message: string) {
 		super(message);
 	}
+}
+
+export function isAcpRpcError(error: unknown): error is AcpRpcError {
+	const e = error as Partial<AcpRpcError> | null;
+	return !!e && typeof e === "object" && e.brand === "acp-rpc" && typeof e.code === "number" && typeof e.message === "string";
+}
+
+export function isAcpTransportError(error: unknown): error is AcpTransportError {
+	const e = error as Partial<AcpTransportError> | null;
+	return !!e && typeof e === "object" && e.brand === "acp-transport" && typeof e.kind === "string" && typeof e.message === "string";
+}
+
+function startsWithSignIn(text: string): boolean {
+	return text.trimStart().startsWith(SIGN_IN_LINE_PREFIX);
 }
 
 export class LineTooLongError extends Error {}
@@ -61,6 +82,11 @@ export class LineSplitter {
 			this.parts.push(rest);
 		}
 		return lines;
+	}
+
+	/** The bytes after the last newline, decoded. */
+	remainder(): string {
+		return this.size === 0 ? "" : Buffer.concat(this.parts).toString("utf8");
 	}
 }
 
@@ -103,9 +129,16 @@ export class AcpPeer {
 			if (this.closed) return;
 			this.handleLine(line);
 		}
+		// The sign-in line may come without a newline while the agent waits.
+		if (!this.closed && startsWithSignIn(this.splitter.remainder())) this.fatal("sign-in", AntigravityMessage.NotSignedIn);
 	}
 
-	request(method: string, params: unknown, timeoutMs?: number): Promise<unknown> {
+	/** stdout ended: an unterminated sign-in line still counts. */
+	end(): void {
+		if (!this.closed && startsWithSignIn(this.splitter.remainder())) this.fatal("sign-in", AntigravityMessage.NotSignedIn);
+	}
+
+	request(method: string, params: unknown, timeoutMs?: number, timeoutMessage: string = AntigravityMessage.StartTimeout): Promise<unknown> {
 		if (this.closedWith) return Promise.reject(this.closedWith);
 		const id = this.nextId++;
 		return new Promise((resolve, reject) => {
@@ -113,7 +146,7 @@ export class AcpPeer {
 			if (timeoutMs !== undefined) {
 				entry.timer = setTimeout(() => {
 					this.pending.delete(id);
-					reject(new AcpTransportError("timeout", AntigravityMessage.StartTimeout));
+					reject(new AcpTransportError("timeout", timeoutMessage));
 				}, timeoutMs);
 				entry.timer.unref();
 			}
@@ -150,7 +183,7 @@ export class AcpPeer {
 	private handleLine(raw: string): void {
 		const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
 		if (!line.trim()) return;
-		if (line.startsWith(SIGN_IN_LINE_PREFIX)) { this.fatal("sign-in", AntigravityMessage.NotSignedIn); return; }
+		if (startsWithSignIn(line)) { this.fatal("sign-in", AntigravityMessage.NotSignedIn); return; }
 		let message: unknown;
 		try { message = JSON.parse(line); }
 		catch { this.fatal("protocol", AntigravityMessage.ProtocolError); return; }
@@ -161,30 +194,36 @@ export class AcpPeer {
 			else this.handlers.onNotification(message.method, message.params);
 			return;
 		}
-		if (!isId(message.id)) { this.fatal("protocol", AntigravityMessage.ProtocolError); return; }
+		const hasError = message.error !== undefined && message.error !== null;
+		if (!isId(message.id) || (!hasError && !("result" in message))) { this.fatal("protocol", AntigravityMessage.ProtocolError); return; }
 		const entry = this.pending.get(message.id);
 		if (!entry) return;
 		this.pending.delete(message.id);
 		clearTimeout(entry.timer);
-		if (isRecord(message.error)) {
-			const code = typeof message.error.code === "number" ? message.error.code : -32603;
-			entry.reject(new AcpRpcError(code, typeof message.error.message === "string" ? stripUrls(message.error.message) : ""));
+		if (hasError) {
+			// Any non-null error member is an error, whatever its shape.
+			const error = isRecord(message.error) ? message.error : {};
+			const code = typeof error.code === "number" ? error.code : -32603;
+			entry.reject(new AcpRpcError(code, typeof error.message === "string" ? stripUrls(error.message) : ""));
 		} else {
 			entry.resolve(message.result);
 		}
 	}
 
+	/** Answers synchronously when the handler does, so an answer is written
+	 *  before anything later lines in the same chunk trigger. */
 	private answer(id: JsonRpcId, method: string, params: unknown): void {
-		Promise.resolve()
-			.then(() => this.handlers.onRequest(method, params))
-			.then(
-				(result) => { if (!this.closed) this.write({ jsonrpc: "2.0", id, result: result ?? null }); },
-				(error: unknown) => {
-					if (this.closed) return;
-					const rpc = error instanceof AcpRpcError ? error : new AcpRpcError(-32603, "Internal error");
-					this.write({ jsonrpc: "2.0", id, error: { code: rpc.code, message: rpc.message } });
-				},
-			);
+		const reply = (result: unknown) => { if (!this.closed) this.write({ jsonrpc: "2.0", id, result: result ?? null }); };
+		const refuse = (error: unknown) => {
+			if (this.closed) return;
+			const rpc = isAcpRpcError(error) ? error : new AcpRpcError(-32603, "Internal error");
+			this.write({ jsonrpc: "2.0", id, error: { code: rpc.code, message: rpc.message } });
+		};
+		let result: unknown;
+		try { result = this.handlers.onRequest(method, params); }
+		catch (error) { refuse(error); return; }
+		if (result instanceof Promise) result.then(reply, refuse);
+		else reply(result);
 	}
 }
 

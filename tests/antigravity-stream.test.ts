@@ -16,7 +16,7 @@ import { AntigravityMessage, breachMessage, TEXT_ONLY_NOTE } from "../src/agent/
 import type { AntigravityHost } from "../src/agent/antigravity/host.ts";
 import { toPiModel, type AgentModel } from "../src/agent/antigravity/models.ts";
 import { AntigravityRuntime, antigravityTimeouts } from "../src/agent/antigravity/runtime.ts";
-import { createAntigravityStreamFunction } from "../src/agent/antigravity/stream.ts";
+import { antigravityLimits, createAntigravityStreamFunction } from "../src/agent/antigravity/stream.ts";
 import { OMITTED_IMAGE, toAntigravityInput } from "../src/agent/antigravity/transcript.ts";
 import { mockHarness, waitFor, type MockHarness, type MockScenario } from "./helpers/antigravity-mock.ts";
 
@@ -126,15 +126,159 @@ test("mode: no `default` on offer → the turn fails and no prompt is sent", asy
 	}
 });
 
-test("mode: already `default` sends nothing; legacy modes use session/set_mode", async (t) => {
+test("mode: already `default` sends nothing; legacy `modes` pass only when already `default`, and are never changed", async (t) => {
 	const already = setup(t, { mode: "default" });
 	assert.equal((await collect(already.stream(PRO, ctx([HI])))).final.stopReason, "stop");
 	assert.deepEqual(already.h.methods(), ["initialize", "session/new", "session/prompt"]);
 
-	const legacy = setup(t, { mode: null, legacyModes: { currentModeId: "auto", availableModes: ["default", "auto"] } });
-	assert.equal((await collect(legacy.stream(PRO, ctx([HI])))).final.stopReason, "stop");
-	assert.deepEqual(legacy.h.methods(), ["initialize", "session/new", "session/set_mode", "session/prompt"]);
-	assert.equal(sent(legacy.h, "session/set_mode")[0]!.modeId, "default");
+	const legacyDefault = setup(t, { mode: null, legacyModes: { currentModeId: "default", availableModes: ["default", "auto"] } });
+	assert.equal((await collect(legacyDefault.stream(PRO, ctx([HI])))).final.stopReason, "stop");
+	assert.deepEqual(legacyDefault.h.methods(), ["initialize", "session/new", "session/prompt"]);
+
+	const legacyAuto = setup(t, { mode: null, legacyModes: { currentModeId: "auto", availableModes: ["default", "auto"] } });
+	const refused = await collect(legacyAuto.stream(PRO, ctx([HI])));
+	assert.equal(refused.final.errorMessage, AntigravityMessage.ModeNotSet);
+	assert.deepEqual(legacyAuto.h.methods(), ["initialize", "session/new"], "no session/set_mode, no prompt");
+});
+
+test("after the model is set, mode and model are re-confirmed from the agent's answer (fail closed)", async (t) => {
+	for (const [scenario, message] of [
+		[{ modelChangeResetsMode: true }, AntigravityMessage.ModeNotSet],
+		[{ rejectModelChange: true }, AntigravityMessage.ModelUnavailable],
+		[{ modelSetNoOptions: true }, AntigravityMessage.ModelUnavailable],
+	] as const) {
+		const { h, stream } = setup(t, scenario);
+		const turn = await collect(stream(FLASH, ctx([HI])));
+		assert.equal(turn.final.errorMessage, message, JSON.stringify(scenario));
+		assert(!h.methods().includes("session/prompt"), JSON.stringify(scenario));
+	}
+});
+
+test("not signed in on a set_config_option or set_model answer is reported as not signed in", async (t) => {
+	for (const scenario of [
+		{ setConfigError: { configId: "mode", code: -32000, message: "Authentication required" } },
+		{ setConfigError: { configId: "model", code: -32603, message: "No browser is available here" } },
+		{ models: { style: "legacy" }, setModelError: { code: -32000, message: "Authentication required" } },
+	]) {
+		const { h, stream } = setup(t, scenario);
+		const turn = await collect(stream(FLASH, ctx([HI])));
+		assert.equal(turn.final.errorMessage, AntigravityMessage.NotSignedIn, JSON.stringify(scenario));
+		assert(!h.methods().includes("session/prompt"));
+	}
+	const refusedValue = setup(t, { setConfigError: { configId: "mode", code: -32602, message: "Invalid value" } });
+	assert.equal((await collect(refusedValue.stream(PRO, ctx([HI])))).final.errorMessage, AntigravityMessage.ModeNotSet);
+});
+
+test("a mode change during the reply stops it", async (t) => {
+	for (const step of [{ modeUpdate: "auto" }, { configModeUpdate: "accept-edits" }]) {
+		const { h, stream } = setup(t, { prompt: [{ text: "Sure." }, step, { waitForCancel: true }] });
+		const turn = await collect(stream(PRO, ctx([HI])));
+		assert.equal(turn.final.errorMessage, AntigravityMessage.ModeChanged, JSON.stringify(step));
+		assert.equal(turn.text, "Sure.");
+		await waitFor(() => h.methods().includes("session/cancel"), 3000, "session/cancel");
+	}
+	const fine = setup(t, { prompt: [{ modeUpdate: "default" }, { text: "ok" }] });
+	assert.equal((await collect(fine.stream(PRO, ctx([HI])))).final.stopReason, "stop");
+});
+
+test("a tool_call written in the same chunk as the session/new answer still stops the turn; nothing is prompted and the process is killed", async (t) => {
+	for (const scenario of [{ toolCallAfterNew: { toolCallId: "early", title: "Run rm", kind: "execute" } }, { permissionAfterNew: true }]) {
+		const { h, stream } = setup(t, scenario);
+		const turn = await collect(stream(PRO, ctx([HI])));
+		assert.equal(turn.final.stopReason, "error", JSON.stringify(scenario));
+		assert.equal(turn.final.errorMessage, breachMessage("Run " + ("toolCallAfterNew" in scenario ? "rm" : "ls")));
+		assert(!h.methods().includes("session/prompt"));
+		assert(!h.methods().includes("session/cancel"), "nothing to cancel during setup");
+		await h.assertNoChildren(3000);
+	}
+});
+
+test("permission request and tool_call in one chunk, either order: the answer is written before session/cancel", async (t) => {
+	for (const order of ["permission-first", "tool-first"]) {
+		const { h, stream } = setup(t, { prompt: [{ permissionAndToolCall: order }, { waitForCancel: true }] });
+		const turn = await collect(stream(PRO, ctx([HI])));
+		assert.match(turn.final.errorMessage ?? "", /tried to use one of its own tools/);
+		await waitFor(() => h.methods().includes("session/cancel"), 3000, "session/cancel");
+		const seen = h.received().map((message) => message.method ?? (typeof message.id === "string" ? "answer" : "other"));
+		assert.ok(seen.indexOf("answer") >= 0 && seen.indexOf("answer") < seen.indexOf("session/cancel"), `${order}: ${seen.join(",")}`);
+		assert.deepEqual(h.log().find((entry) => entry.kind === "permission-answer")!.answer, { outcome: { outcome: "selected", optionId: "stop-this-command" } });
+	}
+});
+
+test("no session/cancel for a turn that has already finished", async (t) => {
+	const { h, stream } = setup(t, { sessionClose: true, prompt: [{ toolCallWithResult: true }] });
+	const turn = await collect(stream(PRO, ctx([HI])));
+	assert.equal(turn.final.errorMessage, breachMessage("Late tool"));
+	await waitFor(() => h.methods().includes("session/close"), 3000, "session/close");
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	assert(!h.methods().includes("session/cancel"));
+});
+
+test("breach labels lose links and control characters; nothing safe left means \"a tool\"", async (t) => {
+	const linked = setup(t, { prompt: [{ toolCall: { title: "Fetch https://evil.example/steal?x=1 now", kind: "fetch" } }, { waitForCancel: true }] });
+	const turn = await collect(linked.stream(PRO, ctx([HI])));
+	assert.equal(turn.final.errorMessage, breachMessage("Fetch now"));
+	const bare = setup(t, { prompt: [{ toolCall: { title: "https://evil.example/x", kind: "\u0007" } }, { waitForCancel: true }] });
+	const none = await collect(bare.stream(PRO, ctx([HI])));
+	assert.equal(none.final.errorMessage, breachMessage("a tool"));
+	assert(!JSON.stringify([turn.events, none.events]).includes("evil.example"));
+});
+
+test("a setup request with no answer kills the wedged process: did not answer in time", async (t) => {
+	antigravityTimeouts.startupMs = 150;
+	for (const method of ["session/new", "session/set_config_option"]) {
+		const { h, stream } = setup(t, { hangMethods: [method] });
+		const turn = await collect(stream(PRO, ctx([HI])));
+		assert.equal(turn.final.errorMessage, AntigravityMessage.AnswerTimeout, method);
+		await h.assertNoChildren(3000);
+	}
+});
+
+test("only text and thinking count as progress: usage updates don't hold off the inactivity stop", async (t) => {
+	antigravityTimeouts.inactivityMs = 150;
+	antigravityTimeouts.cancelGraceMs = 100;
+	const { stream } = setup(t, { prompt: [{ text: "a" }, { usageRepeat: { count: 12, everyMs: 50 } }, { hold: true }] });
+	const turn = await collect(stream(PRO, ctx([HI])));
+	assert.equal(turn.final.errorMessage, AntigravityMessage.StoppedResponding);
+});
+
+test("the inactivity timer does not keep the server alive", async (t) => {
+	const { h, stream } = setup(t, { prompt: [{ text: "a" }, { waitForCancel: true }] });
+	const controller = new AbortController();
+	const running = collect(stream(PRO, ctx([HI]), { signal: controller.signal }));
+	await waitFor(() => h.log().some((entry) => entry.kind === "recv" && entry.line?.includes("session/prompt")), 3000, "prompt open");
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	const timers = process.getActiveResourcesInfo().filter((name) => name === "Timeout").length;
+	assert.equal(timers, 0, "no ref'd timer while a prompt is open");
+	controller.abort();
+	await running;
+});
+
+test("a reply over the size cap is stopped", async (t) => {
+	const { h, stream } = setup(t, { prompt: [{ text: "12345" }, { thought: "678" }, { text: "90abc" }, { waitForCancel: true }] });
+	antigravityLimits.replyBytes = 10;
+	t.after(() => { antigravityLimits.replyBytes = 4 * 1024 * 1024; });
+	const turn = await collect(stream(PRO, ctx([HI])));
+	assert.equal(turn.final.errorMessage, AntigravityMessage.TooLong);
+	assert.equal(turn.text, "12345");
+	await waitFor(() => h.methods().includes("session/cancel"), 3000, "session/cancel");
+});
+
+test("a failing model-list save is logged once and never fails the turn", async (t) => {
+	const h = mockHarness(t);
+	const tempBase = mkdtempSync(join(tmpdir(), "lh-agy-stream-"));
+	const runtime = new AntigravityRuntime({ launch: h.launch, tempBase });
+	h.onTeardown(() => runtime.shutdown());
+	t.after(() => rmSync(tempBase, { recursive: true, force: true }));
+	const logged: string[] = [];
+	const original = console.error;
+	console.error = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
+	t.after(() => { console.error = original; });
+	const host: AntigravityHost = { available: () => true, models: () => [], saveModels: () => { throw new Error("ENOSPC: no space left on device"); } };
+	const stream = createAntigravityStreamFunction({ runtime: () => runtime, host: () => host });
+	for (let i = 0; i < 2; i++) assert.equal((await collect(stream(PRO, ctx([HI])))).final.stopReason, "stop");
+	assert.deepEqual(logged.filter((line) => line.includes("model list")), ["Antigravity: could not save the model list."]);
+	assert(!logged.join("\n").includes("ENOSPC"));
 });
 
 test("permission request → reject_once chosen, breach error, session/cancel sent, streamed text kept", async (t) => {

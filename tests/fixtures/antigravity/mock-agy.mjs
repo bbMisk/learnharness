@@ -25,8 +25,16 @@
  *     {permission:{...toolCall}} {fsRead:true} {sleepMs} {waitForCancel:true}
  *     {hold:true} {exit:code} {stdout:raw} {stderr:raw} {error:{code,message}}
  *     {usageUpdate:true}
+ *     {modeUpdate:id} (current_mode_update) {configModeUpdate:value} (config_option_update)
+ *     {usageRepeat:{count,everyMs}} {permissionAndToolCall:"permission-first"|"tool-first"}
+ *     {toolCallWithResult:true} (a tool_call and the prompt's answer in one write)
  *   stopReason ("end_turn"), usage (result usage object)
  *   ignoreCancel, ignoreTerm
+ * Edge cases (not real-agent shapes, only ways to break the client):
+ *   stdoutRawAtStart (written with no newline), garbageAfterInitialize,
+ *   toolCallAfterNew {...tool_call} / permissionAfterNew (sent in the same write as the session/new answer),
+ *   setConfigError {configId?, code, message}, setModelError {code, message}, hangMethods [method],
+ *   modelChangeResetsMode, rejectModelChange, modelSetNoOptions
  */
 import { appendFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -49,6 +57,7 @@ const send = (message) => process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 for (const line of scenario.stdoutAtStart ?? []) process.stdout.write(`${line}\n`);
+if (scenario.stdoutRawAtStart) process.stdout.write(scenario.stdoutRawAtStart);
 for (const line of scenario.stderrAtStart ?? []) process.stderr.write(`${line}\n`);
 
 // ---- config options -------------------------------------------------------
@@ -153,12 +162,19 @@ class RpcError extends Error {
 function setConfigOption({ sessionId, configId, value }) {
 	const session = sessions.get(sessionId);
 	if (!session) throw new RpcError(-32602, "Unknown session");
+	const failure = scenario.setConfigError;
+	if (failure && (!failure.configId || failure.configId === configId)) throw new RpcError(failure.code, failure.message);
+	if (configId === "model" && scenario.modelSetNoOptions) {
+		models.current = value;
+		return {};
+	}
 	if (configId === "mode") {
 		if (!session.modeOptions.includes(value)) throw new RpcError(-32602, "Invalid mode");
 		if (!scenario.rejectModeChange) session.mode = value;
 	} else if (configId === "model") {
 		if (!models.list.some((m) => m.value === value)) throw new RpcError(-32602, "Invalid model");
-		models.current = value;
+		if (!scenario.rejectModelChange) models.current = value;
+		if (scenario.modelChangeResetsMode) session.mode = "auto";
 	} else if (configId !== "thinking_level") throw new RpcError(-32602, "Unknown option");
 	return { configOptions: configOptions(session) };
 }
@@ -171,6 +187,23 @@ function requestClient(method, params) {
 	return new Promise((resolve) => pendingToAgent.set(id, resolve));
 }
 
+function permissionParams(sessionId, extra = {}) {
+	return {
+		sessionId,
+		toolCall: { toolCallId: "call-1", title: "Run ls", kind: "execute", status: "pending", rawInput: { command: "ls" }, ...extra },
+		options: [
+			{ optionId: "remember-this-command", name: "Allow always", kind: "allow_always" },
+			{ optionId: "run-this-time", name: "Allow", kind: "allow_once" },
+			{ optionId: "stop-this-command", name: "Deny", kind: "reject_once" },
+		],
+	};
+}
+
+/** Two messages in ONE stdout write, so the client sees them in one chunk. */
+function writeTogether(...messages) {
+	process.stdout.write(messages.map((message) => `${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`).join(""));
+}
+
 function waitForCancel(session) {
 	if (session.cancelled) return Promise.resolve();
 	return new Promise((resolve) => session.cancelWaiters.push(resolve));
@@ -181,6 +214,7 @@ function waitForCancel(session) {
 // packages/provider-acp/src/server/AcpSessionRuntime.ts:2868-2871; every reply ends with a
 // usage_update: packages/provider-acp/src/server/adapter.ts:685-688.
 async function prompt({ sessionId, prompt: blocks }) {
+	const myId = requestId;
 	const session = sessions.get(sessionId);
 	if (!session) throw new RpcError(-32602, "Unknown session");
 	const steps = scenario.prompt ?? [{ text: "Hello" }, { text: " world" }, { usageUpdate: true }];
@@ -216,6 +250,24 @@ async function prompt({ sessionId, prompt: blocks }) {
 		else if (step.stderr !== undefined) process.stderr.write(`${step.stderr}\n`);
 		else if (step.error) throw new RpcError(step.error.code, step.error.message);
 		else if (step.usageUpdate) update(sessionId, { sessionUpdate: "usage_update", used: 1200, size: 1_000_000 });
+		else if (step.toolCallWithResult) {
+			// The tool_call and the prompt's own answer in one write.
+			const tool = { method: "session/update", params: { sessionId, update: { sessionUpdate: "tool_call", toolCallId: "call-3", title: "Late tool", kind: "read" } } };
+			return { [RAW]: [tool, { id: myId, result: { stopReason: "end_turn" } }].map((m) => `${JSON.stringify({ jsonrpc: "2.0", ...m })}\n`).join("") };
+		}
+		else if (step.modeUpdate) update(sessionId, { sessionUpdate: "current_mode_update", currentModeId: step.modeUpdate });
+		else if (step.configModeUpdate) { session.mode = step.configModeUpdate; update(sessionId, { sessionUpdate: "config_option_update", configOptions: configOptions(session) }); }
+		else if (step.usageRepeat) {
+			for (let i = 0; i < step.usageRepeat.count; i++) { update(sessionId, { sessionUpdate: "usage_update", used: i, size: 1_000_000 }); await sleep(step.usageRepeat.everyMs); }
+		} else if (step.permissionAndToolCall) {
+			const id = `mock-${nextOwnId++}`;
+			const answer = new Promise((resolve) => pendingToAgent.set(id, resolve));
+			const permission = { id, method: "session/request_permission", params: permissionParams(sessionId) };
+			const tool = { method: "session/update", params: { sessionId, update: { sessionUpdate: "tool_call", toolCallId: "call-2", title: "Read notes", kind: "read", status: "pending" } } };
+			if (step.permissionAndToolCall === "tool-first") writeTogether(tool, permission);
+			else writeTogether(permission, tool);
+			log({ kind: "permission-answer", answer: await answer });
+		}
 	}
 	// session/cancel is a notification; the open prompt then resolves { stopReason: "cancelled" }:
 	// packages/effect-acp/src/client.ts:1305, AcpSessionRuntime.ts:2608-2661.
@@ -223,17 +275,31 @@ async function prompt({ sessionId, prompt: blocks }) {
 	return { stopReason: scenario.stopReason ?? "end_turn", ...(scenario.usage ? { usage: scenario.usage } : {}) };
 }
 
+const RAW = Symbol("raw stdout");
+let requestId;
+
 async function handleRequest(method, params) {
+	if ((scenario.hangMethods ?? []).includes(method)) return new Promise(() => {});
 	switch (method) {
 		case "initialize":
 			if (scenario.initializeHang) return new Promise(() => {});
+			if (scenario.garbageAfterInitialize) return { [RAW]: `${JSON.stringify({ jsonrpc: "2.0", id: requestId, result: initializeResult() })}\nnot json at all\n` };
 			// Not signed in: -32000 "Authentication required":
 			// apps/server/src/provider/antigravityAuthSupport.ts:27-28,167-177.
 			if (scenario.initializeError) throw new RpcError(scenario.initializeError.code, scenario.initializeError.message);
 			return initializeResult();
-		case "session/new":
+		case "session/new": {
 			if (scenario.sessionNewError) throw new RpcError(scenario.sessionNewError.code, scenario.sessionNewError.message);
-			return newSession();
+			const result = newSession();
+			const early = scenario.toolCallAfterNew
+				? { method: "session/update", params: { sessionId: result.sessionId, update: { sessionUpdate: "tool_call", ...scenario.toolCallAfterNew } } }
+				: scenario.permissionAfterNew ? { id: `mock-${nextOwnId++}`, method: "session/request_permission", params: permissionParams(result.sessionId) } : undefined;
+			if (early) {
+				if (early.id) pendingToAgent.set(early.id, (answer) => log({ kind: "permission-answer", answer }));
+				return { [RAW]: [{ id: requestId, result }, early].map((message) => `${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`).join("") };
+			}
+			return result;
+		}
 		case "session/set_config_option":
 			return setConfigOption(params);
 		case "session/set_mode": {
@@ -243,6 +309,7 @@ async function handleRequest(method, params) {
 			return {};
 		}
 		case "session/set_model":
+			if (scenario.setModelError) throw new RpcError(scenario.setModelError.code, scenario.setModelError.message);
 			if (!models.list.some((m) => m.value === params.modelId)) throw new RpcError(-32602, "Invalid model");
 			models.current = params.modelId;
 			return {};
@@ -279,8 +346,9 @@ process.stdin.on("data", (chunk) => {
 			pendingToAgent.delete(message.id);
 		} else if (message.id === undefined) handleNotification(message.method, message.params);
 		else {
+			requestId = message.id;
 			handleRequest(message.method, message.params).then(
-				(result) => send({ id: message.id, result }),
+				(result) => (result && result[RAW] ? process.stdout.write(result[RAW]) : send({ id: message.id, result })),
 				(error) => send({ id: message.id, error: { code: error.code ?? -32603, message: error.message } }),
 			);
 		}

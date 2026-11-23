@@ -50,6 +50,10 @@ const { callCost } = await import("../src/server/pricing.ts");
 const { connectionBackgroundAllowed } = await import("../src/agent/subscription-connections.ts");
 const { needsSendToUser } = await import("../src/agent/tools/send-to-user.ts");
 const { checkAntigravityAgent } = await import("../src/agent/antigravity/provider.ts");
+const { modelsFrom } = await import("../src/agent/antigravity/models.ts");
+const { runSubagent } = await import("../src/agent/subagents/pi-run.ts");
+const { authStore } = await import("../src/store/auth.ts");
+const { authEnvRecord, externalCliEnv } = await import("../src/core/auth-env.ts");
 const { ANTIGRAVITY_LESSONS_ONLY, ANTIGRAVITY_UNAVAILABLE } = await import("../src/core/contracts/antigravity.ts");
 
 after(() => {
@@ -212,8 +216,8 @@ test("denied doors refuse before any spawn: jobs, extraction envelope, side tuto
 	writeSettings({ version: 1, graph: { enabled: false }, models: { cheap: { model: SPEC }, strong: { model: SPEC } } });
 	await assert.rejects(extraction.runExtraction(chat.id), (error: unknown) => error instanceof ProviderKeyMissingError && error.message === ANTIGRAVITY_LESSONS_ONLY);
 
-	// Background continues and steers never reach a turn.
-	assert.equal(antigravityTurnRefusal("continue", [])?.status, 403, "a continue with no learner cause is background");
+	// A continue with no learner cause never reaches a turn.
+	assert.equal(antigravityTurnRefusal("continue", [])?.status, 403, "a continue with no learner cause is refused");
 	assert.equal(needsSendToUser({ provider: "antigravity", id: "claude-sonnet-4-5" }), false);
 	assert.equal(launches, before, "no spawn");
 });
@@ -253,6 +257,112 @@ test("check connection when not signed in: the status says so and keeps the old 
 	const off = await put.json() as { enabled: boolean; problem?: string };
 	assert.equal(off.enabled, false);
 	assert.equal(off.problem, undefined, "turning it off clears the problem");
+});
+
+test("a failed check is persisted: no stale \"Connected\" after a restart, the model list kept", async (t) => {
+	state({ switchOn: true, enabled: true, installed: true });
+	const ok = mockHarness(t);
+	const good = new AntigravityRuntime({ launch: ok.launch, tempBase });
+	ok.onTeardown(() => good.shutdown());
+	assert.ok((await checkAntigravityConnection(() => checkAntigravityAgent(good))).checkedAt);
+	good.shutdown();
+	const bad = mockHarness(t, { sessionNewError: { code: -32000, message: "Authentication required" } });
+	const failing = new AntigravityRuntime({ launch: bad.launch, tempBase });
+	bad.onTeardown(() => failing.shutdown());
+	const status = await checkAntigravityConnection(() => checkAntigravityAgent(failing));
+	assert.equal(status.checkedAt, undefined);
+	assert.match(status.problem ?? "", /Not signed in/);
+	const restarted = createAntigravityStore(ANTIGRAVITY_FILE).read();
+	assert.equal(restarted.checkedAt, undefined, "a restart shows \"not checked\", not Connected");
+	assert.equal(restarted.models.length, 2, "pinned lessons still resolve");
+});
+
+test("model lists drop entries with a link, a control character or more than 200 characters, and never store them", () => {
+	const listed = modelsFrom({ configOptions: [{ id: "model", category: "model", currentValue: "ok", options: [
+		{ value: "ok", name: "Fine" },
+		{ value: "https://evil.example/m", name: "Link id" },
+		{ value: "named", name: "Visit https://evil.example" },
+		{ value: "bell\u0007", name: "Bell" },
+		{ value: "x".repeat(201), name: "Long" },
+		{ value: "nl", name: "two\nlines" },
+		{ group: "g", options: [{ value: "grouped-ok" }] },
+	] }] });
+	assert.deepEqual(listed, [{ id: "ok", name: "Fine" }, { id: "grouped-ok", name: "grouped-ok" }]);
+	assert.deepEqual(modelsFrom({ models: { availableModels: [{ modelId: "fine" }, { modelId: "bad", name: "see ftp://x" }] } }), [{ id: "fine", name: "fine" }]);
+	const file = path.join(directory, "unsafe-models.json");
+	fs.writeFileSync(file, JSON.stringify({ version: 1, enabled: true, models: [{ id: "ok", name: "Fine" }, { id: "https://evil.example", name: "x" }, { id: "y", name: "\u001b[31mred" }] }));
+	assert.deepEqual(createAntigravityStore(file).read().models, [{ id: "ok", name: "Fine" }]);
+	createAntigravityStore(file).update({ models: [{ id: "a://b", name: "x" }, { id: "kept", name: "Kept" }] });
+	assert(!fs.readFileSync(file, "utf8").includes("a://b"), "never persisted");
+});
+
+test("the lesson door is an allowlist of learner inputs; everything else is refused", () => {
+	state({ switchOn: true, enabled: true, installed: true });
+	for (const type of ["text", "answer", "retry", "retry-question", "thinking", "next", "plugin-question-answer", "plugin-problem-submission"]) {
+		assert.equal(antigravityTurnRefusal(type, []), null, type);
+	}
+	for (const type of ["steers", "continue", "dismiss", "dismiss-plugin-question", "bogus", "", "toString", "__proto__"]) {
+		assert.equal(antigravityTurnRefusal(type, [])?.status, 403, JSON.stringify(type));
+	}
+});
+
+test("the lesson door refreshes key provenance first, so a file-only key never reaches the agent", (t) => {
+	state({ switchOn: true, enabled: true, installed: true });
+	t.after(() => { authStore.deleteAuthVar("OPENAI_API_KEY"); delete process.env.OPENAI_API_KEY; authEnvRecord().fillGap.delete("OPENAI_API_KEY"); });
+	authStore.setAuthVar("OPENAI_API_KEY", "sk-file-only-fixture");
+	assert.equal(process.env.OPENAI_API_KEY, undefined);
+	assert.equal(antigravityTurnRefusal("text", []), null);
+	assert.equal(authEnvRecord().fillGap.has("OPENAI_API_KEY"), true, "initAuthEnv ran on the admit path");
+	assert.equal(externalCliEnv().OPENAI_API_KEY, undefined, "and the agent's environment leaves it out");
+});
+
+test("a foreground continue with real saved history is ALLOWED: it resumes the reply the learner is owed", async (t) => {
+	state({ switchOn: true, enabled: true, installed: true });
+	const h = mockHarness(t);
+	h.onTeardown(() => spyRuntime.shutdown());
+	launchReal = h.launch;
+	const chat = lessonChat("Antigravity owed reply");
+	chatStore.saveMessages(chat.id, [{ role: "user", id: "learner-1", content: "Explain fractions", timestamp: Date.now() } as never]);
+	const response = await handleChatInput(chat.id, { type: "continue" }, build);
+	assert.equal(response.status, 200, await response.clone().text());
+	const handle = runningTurn(chat.id);
+	if (handle) await new Response(handle.subscribe()).text();
+	await waitFor(() => !runningTurn(chat.id), 5000, "turn settled");
+	const reply = chatStore.getChat(chat.id)!.messages.findLast((m) => (m as { role?: string }).role === "assistant") as { content: { type: string; text?: string }[] } | undefined;
+	assert.equal(reply?.content.map((b) => b.text ?? "").join(""), "Hello world");
+	assert.match(JSON.stringify(h.received().find((m) => m.method === "session/prompt")), /Explain fractions/);
+	spyRuntime.shutdown();
+	await h.assertNoChildren();
+});
+
+test("a continue whose last cause is automatic (a job result) is refused before any spawn", async () => {
+	state({ switchOn: true, enabled: true, installed: true });
+	const before = launches;
+	const chat = lessonChat("Antigravity automatic continue");
+	chatStore.saveMessages(chat.id, [
+		{ role: "user", id: "learner-1", content: "Research fractions", timestamp: 1 },
+		{ role: "assistant", id: "reply-1", content: [{ type: "text", text: "Started a job." }], api: "antigravity-acp", provider: "antigravity", model: "gemini-3-pro", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 2 },
+		{ role: "custom", id: "steer-1", customType: "subagent-steer", content: "Job finished.", display: false, timestamp: 3 },
+	] as never);
+	const response = await handleChatInput(chat.id, { type: "continue" }, build);
+	assert.equal(response.status, 403);
+	assert.equal(launches, before);
+});
+
+test("the stream as the chat's compaction summarizer calls it (runSubagent, no tools, one turn)", async (t) => {
+	// Production ensureCompacted returns early under NODE_ENV=test unless a summarizer is injected
+	// (src/server/compaction.ts:345), so this drives the same call subagentSummarizer makes, with the
+	// chat's compaction engine (piEngineForSpec(spec, true)), rather than ensureCompacted itself.
+	state({ switchOn: true, enabled: true, installed: true });
+	const h = mockHarness(t, { prompt: [{ text: "Summary: fractions." }] });
+	h.onTeardown(() => spyRuntime.shutdown());
+	launchReal = h.launch;
+	const { text } = await runSubagent([], { role: "researcher" as never, prompt: "Summarize the span.", engine: piEngineForSpec(SPEC, true), systemPrompt: "You are the session-compaction summarizer.", bypassWorkerRequestAdmission: true });
+	assert.equal(text, "Summary: fractions.");
+	const prompt = h.received().find((m) => m.method === "session/prompt")!.params as { prompt: { text: string }[] };
+	assert.match(JSON.stringify(prompt), /Summarize the span/);
+	spyRuntime.shutdown();
+	await h.assertNoChildren();
 });
 
 test("store: only `enabled: true` opts in; garbage is sanitized", () => {

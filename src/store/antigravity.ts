@@ -27,8 +27,9 @@ export interface AntigravityRecord {
 const MAX_MODELS = 200;
 const MAX_TEXT = 200;
 
+/** No link, no control character, at most 200 characters (the same rule as agent/antigravity/models.ts). */
 function text(value: unknown): string | undefined {
-	return typeof value === "string" && value.trim() && value.length <= MAX_TEXT ? value : undefined;
+	return typeof value === "string" && value.trim() && value.length <= MAX_TEXT && !value.includes("://") && !/[\u0000-\u001f\u007f-\u009f]/.test(value) ? value : undefined;
 }
 
 export function sanitizeAntigravityRecord(raw: unknown): AntigravityRecord {
@@ -38,8 +39,10 @@ export function sanitizeAntigravityRecord(raw: unknown): AntigravityRecord {
 		const value = typeof entry === "object" && entry !== null ? entry as Record<string, unknown> : {};
 		const id = text(value.id);
 		if (!id || seen.has(id)) return [];
+		const named = value.name === undefined || value.name === null || value.name === "" ? id : text(value.name);
+		if (!named) return [];
 		seen.add(id);
-		return [{ id, name: text(value.name) ?? id }];
+		return [{ id, name: named }];
 	}).slice(0, MAX_MODELS);
 	const agentVersion = typeof record.agentVersion === "string" && /^\d+\.\d+\.\d+$/.test(record.agentVersion) ? record.agentVersion : undefined;
 	const checkedAt = typeof record.checkedAt === "string" && !Number.isNaN(Date.parse(record.checkedAt)) ? record.checkedAt : undefined;

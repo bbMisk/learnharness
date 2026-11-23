@@ -39,7 +39,7 @@ export async function checkAntigravityAgent(runtime: AntigravityRuntime = antigr
 	const connection = await runtime.connect();
 	const release = connection.hold();
 	try {
-		const created = await connection.request("session/new", { cwd: connection.workspace, mcpServers: [] }, antigravityTimeouts.startupMs);
+		const created = await connection.setupRequest("session/new", { cwd: connection.workspace, mcpServers: [] });
 		if (typeof created !== "object" || created === null || typeof (created as { sessionId?: unknown }).sessionId !== "string") {
 			throw new AcpTransportError("protocol", AntigravityMessage.ProtocolError);
 		}

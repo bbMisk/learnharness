@@ -7,7 +7,7 @@ import { Writable } from "node:stream";
 import { tmpdir } from "node:os";
 import test, { type TestContext } from "node:test";
 
-import { AcpPeer, AcpRpcError, AcpTransportError, LineSplitter, LineTooLongError, MAX_LINE_BYTES, methodNotFound, type AcpPeerHandlers } from "../src/agent/antigravity/acp-client.ts";
+import { AcpPeer, AcpRpcError, AcpTransportError, isAcpRpcError, isAcpTransportError, LineSplitter, LineTooLongError, MAX_LINE_BYTES, methodNotFound, type AcpPeerHandlers } from "../src/agent/antigravity/acp-client.ts";
 import { AntigravityMessage } from "../src/agent/antigravity/constants.ts";
 import { mockHarness, waitFor, type MockHarness, type MockScenario } from "./helpers/antigravity-mock.ts";
 
@@ -147,4 +147,27 @@ test("mock: a non-JSON stdout line is a protocol error", async (t) => {
 		await waitFor(() => peerHandlers.fatal.length > 0, 3000, "protocol error");
 		assert.equal(peerHandlers.fatal[0]!.kind, "protocol");
 	});
+});
+
+test("peer: any non-null error member is an error; a response with neither result nor error is a protocol error", async () => {
+	const h = handlers();
+	const peer = new AcpPeer(sink().stream, h);
+	const stringError = peer.request("a", {});
+	const nullResult = peer.request("b", {});
+	peer.receive(Buffer.from('{"jsonrpc":"2.0","id":1,"error":"boom"}\n{"jsonrpc":"2.0","id":2,"result":null}\n'));
+	await assert.rejects(stringError, (error: unknown) => isAcpRpcError(error) && error.code === -32603);
+	assert.equal(await nullResult, null);
+	const empty = peer.request("c", {});
+	peer.receive(Buffer.from('{"jsonrpc":"2.0","id":3}\n'));
+	await assert.rejects(empty, (error: unknown) => isAcpTransportError(error) && error.kind === "protocol");
+	assert.equal(h.fatal[0]!.kind, "protocol");
+});
+
+test("errors are classified by brand, so ones built by an older copy of the module still count", () => {
+	const foreignRpc = Object.assign(new Error("Authentication required"), { brand: "acp-rpc", code: -32000 });
+	const foreignTransport = Object.assign(new Error(AntigravityMessage.Exited), { brand: "acp-transport", kind: "closed" });
+	assert.equal(foreignRpc instanceof AcpRpcError, false);
+	assert.equal(isAcpRpcError(foreignRpc), true);
+	assert.equal(isAcpTransportError(foreignTransport), true);
+	assert.equal(isAcpRpcError(new Error("plain")), false);
 });

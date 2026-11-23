@@ -11,6 +11,7 @@ import { checkAntigravityAgent, type ConnectionCheck } from "../agent/antigravit
 import { describeAgentError } from "../agent/antigravity/runtime.ts";
 import { ANTIGRAVITY_PROVIDER, ANTIGRAVITY_UNAVAILABLE, type AntigravityStatus } from "../core/contracts/antigravity.ts";
 import { antigravitySwitchOn } from "../core/fork-config.ts";
+import type { TurnInput } from "../core/input-events.ts";
 import { reconstructRequestCause, type LhMessage } from "../core/native-messages.ts";
 import { PROVIDER_KEY_MISSING_CODE } from "../core/settings.ts";
 import { antigravityStore } from "../store/antigravity.ts";
@@ -58,6 +59,9 @@ export async function checkAntigravityConnection(probe: () => Promise<Connection
 		problemState().message = undefined;
 	} catch (error) {
 		problemState().message = describeAgentError(error);
+		// After a restart Settings must not still say "Connected": forget the check, keep the
+		// model list so lessons pinned to one of its models still resolve.
+		antigravityStore.update({ checkedAt: undefined });
 	}
 	return antigravityStatus();
 }
@@ -130,12 +134,29 @@ export async function antigravityResponse(request: Request, deps: AntigravityRou
  */
 export { ANTIGRAVITY_PROVIDER };
 
+/** Every input type handleChatInput accepts, and whether the learner sends it. A new
+ *  upstream type fails typecheck here until someone decides; unknown ones are refused. */
+const LEARNER_INPUT: Record<TurnInput["type"], boolean> = {
+	text: true,
+	answer: true,
+	retry: true,
+	"retry-question": true,
+	thinking: true,
+	next: true,
+	"plugin-question-answer": true,
+	"plugin-problem-submission": true,
+	continue: false, // admitted only when it resumes a reply the learner is owed (foreground cause)
+	steers: false, // the wake pipeline
+};
+
 export function antigravityTurnRefusal(inputType: string, messages: readonly LhMessage[]): Response | null {
-	if (inputType === "steers" || (inputType === "continue" && reconstructRequestCause(messages) !== "foreground")) {
+	const learner = Object.hasOwn(LEARNER_INPUT, inputType) && LEARNER_INPUT[inputType as TurnInput["type"]];
+	if (!learner && !(inputType === "continue" && reconstructRequestCause(messages) === "foreground")) {
 		return Response.json({ error: BACKGROUND_REFUSAL }, { status: 403 });
 	}
 	if (!antigravityAvailable()) {
 		return Response.json({ error: ANTIGRAVITY_UNAVAILABLE, code: PROVIDER_KEY_MISSING_CODE, provider: ANTIGRAVITY_PROVIDER, slots: ["strong"] }, { status: 503 });
 	}
+	initAuthEnv(); // provenance first, so the agent's env never carries file-only keys
 	return null;
 }

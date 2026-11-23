@@ -18,7 +18,7 @@ Antigravity also needs the `agy` program. LearnHarness finds it on your PATH or 
 ## In a lesson
 
 - Every reply is a new Antigravity session that receives the whole conversation as text. Pictures and documents are replaced by a short note saying they were left out.
-- The session starts in an empty temporary folder. Antigravity's approval mode is set to "default", which asks before it runs commands, edits files, uses the web or reads outside that folder. If that mode can't be set, the reply doesn't start.
+- The session starts in an empty temporary folder. Antigravity's approval mode is set to "default", which asks before it runs commands, edits files, uses the web or reads outside that folder. LearnHarness checks the mode again after choosing the model, and if the mode can't be confirmed, the reply doesn't start. If the mode changes while the reply is streaming, the reply is stopped.
 - Antigravity gets no LearnHarness tools: no quizzes, no file reading, no background jobs. If it tries to use one of its own tools, LearnHarness refuses the request, stops the reply and says so. Text it had already written stays. A tool that your own Antigravity allow rules already permit may have run before LearnHarness hears about it.
 - The tutor's instructions still describe LearnHarness's quizzes and other tools, which Antigravity can't call here, so lesson steps that need them don't happen.
 - Only lessons you start use Antigravity. Background jobs, note extraction, automatic follow-ups, the side tutor, plugins and other helpers refuse it; pick another model for those. A long lesson can still be compacted (summarized) with the lesson's own model.
@@ -34,7 +34,11 @@ Your lesson text, including the replayed conversation and the tutor's instructio
 - Text only: no pictures, PDFs, quizzes or other tools.
 - No sign-in screen. Sign in by running `agy` in a terminal, then press Check connection.
 - No thinking-level choice.
-- An error on Google's side can arrive as ordinary reply text.
+- An error on Google's side can arrive as ordinary reply text. Errors Antigravity reports any other way show only their error code; the details stay in the server log.
+- Reopening a lesson that is waiting for a reply resumes it, and so starts `agy`, without a click.
+- A message you type while a reply is streaming starts another reply.
+- The model's own reply text is shown as written, links included.
+- One reply is capped at 4 MB of text; a longer one is stopped.
 - If `agy` stops answering, the reply ends after 15 minutes without progress. An idle `agy` is stopped after 10 minutes.
 - When the server is stopped by a signal, `agy` is expected to exit when its input closes; any temporary folder left behind is removed on the next start. This hasn't been checked with the real `agy`.
 

@@ -12,7 +12,7 @@ import { join } from "node:path";
 
 import packageMetadata from "../../../package.json" with { type: "json" };
 import { externalCliEnv } from "../../core/auth-env.ts";
-import { AcpPeer, AcpRpcError, AcpTransportError, methodNotFound, SIGN_IN_LINE_PREFIX, stripUrls } from "./acp-client.ts";
+import { AcpPeer, AcpTransportError, isAcpRpcError, isAcpTransportError, methodNotFound, SIGN_IN_LINE_PREFIX, stripUrls } from "./acp-client.ts";
 import { createAgentLauncher, type LaunchAgent } from "./binary.ts";
 import { AntigravityMessage } from "./constants.ts";
 
@@ -30,12 +30,28 @@ export const antigravityTimeouts = {
 	killGraceMs: 1_000,
 };
 
-const STDERR_TAIL_BYTES = 4_096;
+const STDERR_PARTIAL_BYTES = 4_096;
+/** Updates for a session nobody watches yet are kept this long, this many, for this many sessions. */
+const EARLY_TTL_MS = 10_000;
+const EARLY_MAX_ENTRIES = 200;
+const EARLY_MAX_SESSIONS = 20;
 const TEMP_FOLDER = "learnharness-antigravity";
 const RUN_PREFIX = "run-";
 const STRIPPED_KEYS = new Set(["GEMINI_API_KEY", "GOOGLE_API_KEY"]);
 
-export class AgentUnavailable extends Error {}
+export class AgentUnavailable extends Error {
+	readonly brand = "agent-unavailable" as const;
+}
+
+function isAgentUnavailable(error: unknown): error is AgentUnavailable {
+	const e = error as Partial<AgentUnavailable> | null;
+	return !!e && typeof e === "object" && e.brand === "agent-unavailable" && typeof e.message === "string";
+}
+
+/** -32000, or the 1.5 agent's "No browser is available here" -32603, on any request. */
+export function isSignInError(error: unknown): boolean {
+	return isAcpRpcError(error) && (error.code === -32000 || (error.code === -32603 && error.message.startsWith("No browser is available here")));
+}
 
 export interface AgentHandshake {
 	/** "1.5.12", from agentInfo.version. */
@@ -58,6 +74,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+type Early = { at: number; kind: "update"; update: Record<string, unknown> } | { at: number; kind: "permission"; params: Record<string, unknown> };
+
+const CANCELLED = { outcome: { outcome: "cancelled" } };
+
+/** The answer LearnHarness gives every permission request: the reject_once option, else cancelled. */
+export function rejectOnce(params: Record<string, unknown>): unknown {
+	const options = Array.isArray(params.options) ? params.options : [];
+	const reject = options.find((option) => isRecord(option) && option.kind === "reject_once" && typeof option.optionId === "string") as { optionId: string } | undefined;
+	return reject ? { outcome: { outcome: "selected", optionId: reject.optionId } } : CANCELLED;
+}
+
 /** Accepts the v1 result shapes with protocolVersion 1 or 2 (the 1.5 agent reports 2). */
 export function parseHandshake(result: unknown): AgentHandshake | null {
 	if (!isRecord(result) || (result.protocolVersion !== 1 && result.protocolVersion !== 2)) return null;
@@ -74,13 +101,15 @@ export function parseHandshake(result: unknown): AgentHandshake | null {
 
 /** One plain sentence for any failure; never raw agent output, never a link. */
 export function describeAgentError(error: unknown): string {
-	if (error instanceof AcpRpcError) {
-		if (error.code === -32000 || (error.code === -32603 && error.message.startsWith("No browser is available here"))) return AntigravityMessage.NotSignedIn;
+	if (isAcpRpcError(error)) {
+		if (isSignInError(error)) return AntigravityMessage.NotSignedIn;
 		if (error.message.includes("SUBSCRIPTION_REQUIRED")) return AntigravityMessage.NoSubscription;
-		const detail = stripUrls(error.message).trim().slice(0, 300);
-		return detail ? `Antigravity reported an error: ${detail}` : "Antigravity reported an error.";
+		// The agent's own words stay on the server.
+		const detail = stripUrls(error.message).replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").trim().slice(0, 300);
+		console.error(`Antigravity reported an error (code ${error.code})${detail ? `: ${detail}` : "."}`);
+		return `Antigravity reported an error (code ${error.code}).`;
 	}
-	if (error instanceof AcpTransportError || error instanceof AgentUnavailable) return error.message;
+	if (isAcpTransportError(error) || isAgentUnavailable(error)) return error.message;
 	return "Antigravity could not be reached.";
 }
 
@@ -129,11 +158,13 @@ export class AgentConnection {
 	readonly closed: Promise<AcpTransportError>;
 	private readonly peer: AcpPeer;
 	private readonly listeners = new Map<string, SessionListener>();
+	private readonly early = new Map<string, Early[]>();
+	private listenerFailureLogged = false;
 	private holders = 0;
 	private idleTimer: NodeJS.Timeout | undefined;
 	private killTimer: NodeJS.Timeout | undefined;
 	private fatalError: AcpTransportError | undefined;
-	private stderrTail = "";
+	private stderrBytes = 0;
 	private stderrPartial = "";
 	private exited = false;
 	private stopping = false;
@@ -148,10 +179,17 @@ export class AgentConnection {
 			onFatal: (error) => this.fail(error),
 		});
 		child.stdout.on("data", (chunk: Buffer) => this.peer.receive(chunk));
-		child.stderr.on("data", (chunk: Buffer) => this.readStderr(chunk.toString("utf8")));
-		child.stdin.on("error", () => { /* the exit handler reports the failure */ });
-		child.once("error", () => this.fail(new AcpTransportError("closed", AntigravityMessage.Exited)));
-		child.once("close", () => this.handleExit());
+		child.stdout.on("end", () => this.peer.end());
+		child.stderr.on("data", (chunk: Buffer) => this.readStderr(chunk));
+		for (const stream of [child.stdin, child.stdout, child.stderr]) stream.on("error", () => { /* the exit handler reports the failure */ });
+		// A spawn failure may emit only `error`; a running child that fails to be signalled emits it too.
+		child.once("error", () => {
+			if (child.pid === undefined) this.handleExit(null, null);
+			else this.fail(new AcpTransportError("closed", AntigravityMessage.Exited));
+		});
+		// `exit` ends it: a helper that inherited the pipes can hold `close` back forever.
+		child.once("exit", (code, signal) => this.handleExit(code, signal));
+		child.once("close", (code, signal) => this.handleExit(code, signal));
 		exitState().live.add(this);
 	}
 
@@ -170,6 +208,8 @@ export class AgentConnection {
 			this.kill();
 			throw error;
 		}
+		// Killed while the answer was in flight (e.g. a bad line in the same chunk).
+		if (!this.alive) throw this.fatalError ?? new AcpTransportError("closed", AntigravityMessage.Exited);
 		const handshake = parseHandshake(result);
 		if (!handshake) {
 			this.fail(new AcpTransportError("protocol", AntigravityMessage.UnsupportedProtocol));
@@ -183,13 +223,35 @@ export class AgentConnection {
 		return this.peer.request(method, params, timeoutMs);
 	}
 
+	/** A turn's setup request (session/new, set_config_option, …). No answer in time means the agent is wedged: kill it. */
+	async setupRequest(method: string, params: unknown): Promise<unknown> {
+		try {
+			return await this.peer.request(method, params, antigravityTimeouts.startupMs, AntigravityMessage.AnswerTimeout);
+		} catch (error) {
+			if (isAcpTransportError(error) && error.kind === "timeout") this.fail(error);
+			throw error;
+		}
+	}
+
 	notify(method: string, params: unknown): void {
 		this.peer.notify(method, params);
 	}
 
-	/** Route this session's updates and permission requests to `listener` until the returned stop. */
+	/**
+	 * Route this session's updates and permission requests to `listener` until
+	 * the returned stop. Anything that arrived for it before (the agent may
+	 * write a tool_call right after its session/new answer) is replayed first.
+	 */
 	watch(sessionId: string, listener: SessionListener): () => void {
+		if (!sessionId || this.listeners.has(sessionId)) throw new AcpTransportError("protocol", AntigravityMessage.ProtocolError);
 		this.listeners.set(sessionId, listener);
+		this.pruneEarly();
+		const early = this.early.get(sessionId) ?? [];
+		this.early.delete(sessionId);
+		for (const entry of early) {
+			if (this.listeners.get(sessionId) !== listener) break;
+			this.dispatch(() => entry.kind === "update" ? listener.onUpdate(entry.update) : listener.onPermissionRequest(entry.params));
+		}
 		return () => { if (this.listeners.get(sessionId) === listener) this.listeners.delete(sessionId); };
 	}
 
@@ -213,6 +275,7 @@ export class AgentConnection {
 		clearTimeout(this.idleTimer);
 		this.child.kill("SIGTERM");
 		this.killTimer = setTimeout(() => this.child.kill("SIGKILL"), antigravityTimeouts.killGraceMs);
+		this.killTimer.unref();
 	}
 
 	/** Process exit: synchronous, no grace. */
@@ -235,40 +298,82 @@ export class AgentConnection {
 		this.kill();
 	}
 
+	/** Listener code never escapes the stdout handler. */
+	private dispatch<T>(run: () => T): T | undefined {
+		try { return run(); }
+		catch {
+			if (!this.listenerFailureLogged) { this.listenerFailureLogged = true; console.error("Antigravity: a session handler failed."); }
+			return undefined;
+		}
+	}
+
+	private pruneEarly(): void {
+		const cutoff = Date.now() - EARLY_TTL_MS;
+		for (const [sessionId, entries] of this.early) {
+			while (entries[0] && entries[0].at < cutoff) entries.shift();
+			if (entries.length === 0) this.early.delete(sessionId);
+		}
+	}
+
+	private keepEarly(sessionId: string, entry: Early): void {
+		if (!sessionId) return;
+		this.pruneEarly();
+		let entries = this.early.get(sessionId);
+		if (!entries) {
+			if (this.early.size >= EARLY_MAX_SESSIONS) this.early.delete(this.early.keys().next().value!);
+			entries = [];
+			this.early.set(sessionId, entries);
+		}
+		if (entries.length >= EARLY_MAX_ENTRIES) entries.shift();
+		entries.push(entry);
+	}
+
 	private route(method: string, params: unknown): void {
 		if (method !== "session/update" || !isRecord(params) || typeof params.sessionId !== "string" || !isRecord(params.update)) return;
-		this.listeners.get(params.sessionId)?.onUpdate(params.update);
+		const update = params.update;
+		const listener = this.listeners.get(params.sessionId);
+		if (listener) this.dispatch(() => listener.onUpdate(update));
+		else this.keepEarly(params.sessionId, { at: Date.now(), kind: "update", update });
 	}
 
 	private serve(method: string, params: unknown): unknown {
 		if (method === "session/request_permission" && isRecord(params)) {
-			const listener = typeof params.sessionId === "string" ? this.listeners.get(params.sessionId) : undefined;
-			return listener ? listener.onPermissionRequest(params) : { outcome: { outcome: "cancelled" } };
+			const sessionId = typeof params.sessionId === "string" ? params.sessionId : "";
+			const listener = this.listeners.get(sessionId);
+			if (listener) return this.dispatch(() => listener.onPermissionRequest(params)) ?? CANCELLED;
+			// Nobody watches it yet: refuse now, and let the turn see it when it watches.
+			this.keepEarly(sessionId, { at: Date.now(), kind: "permission", params });
+			return rejectOnce(params);
 		}
 		throw methodNotFound(method);
 	}
 
-	private readStderr(text: string): void {
-		this.stderrTail = (this.stderrTail + text).slice(-STDERR_TAIL_BYTES);
-		const lines = (this.stderrPartial + text).split("\n");
-		this.stderrPartial = (lines.pop() ?? "").slice(-STDERR_TAIL_BYTES);
-		if ([...lines, this.stderrPartial].some((line) => line.replace(/^\s+/, "").startsWith(SIGN_IN_LINE_PREFIX))) {
+	/** stderr content is never kept or logged: only its size, and the sign-in signal. */
+	private readStderr(chunk: Buffer): void {
+		this.stderrBytes += chunk.length;
+		const lines = (this.stderrPartial + chunk.toString("utf8")).split("\n");
+		this.stderrPartial = (lines.pop() ?? "").slice(0, STDERR_PARTIAL_BYTES);
+		if ([...lines, this.stderrPartial].some((line) => line.trimStart().startsWith(SIGN_IN_LINE_PREFIX))) {
 			this.fail(new AcpTransportError("sign-in", AntigravityMessage.NotSignedIn));
 		}
 	}
 
-	private handleExit(): void {
+	private handleExit(code: number | null, signal: NodeJS.Signals | null): void {
 		if (this.exited) return;
 		this.exited = true;
 		clearTimeout(this.idleTimer);
 		clearTimeout(this.killTimer);
 		exitState().live.delete(this);
+		for (const stream of [this.child.stdin, this.child.stdout, this.child.stderr]) stream.destroy();
 		const error = this.fatalError ?? new AcpTransportError("closed", AntigravityMessage.Exited);
 		this.peer.close(error);
-		const tail = stripUrls(this.stderrTail).trim();
-		if (tail && error.kind !== "sign-in") console.error("Antigravity stderr (last 4 KB):", tail);
-		for (const listener of [...this.listeners.values()]) listener.onClosed(error);
+		// An exit LearnHarness asked for (idle, shutdown, a kill after cancel or a fatal signal) logs nothing.
+		if (!this.stopping) {
+			console.error(`Antigravity exited unexpectedly (exit code ${code ?? "none"}, signal ${signal ?? "none"}); ${this.stderrBytes} bytes of error output not shown.`);
+		}
+		for (const listener of [...this.listeners.values()]) this.dispatch(() => listener.onClosed(error));
 		this.listeners.clear();
+		this.early.clear();
 		rm(this.root, { recursive: true, force: true }).catch(() => { /* swept on the next start */ });
 		this.resolveClosed(error);
 	}

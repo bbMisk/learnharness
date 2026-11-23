@@ -150,6 +150,52 @@ test("not signed in, three ways; the link appears in no error and no log", async
 	assert.equal(describeAgentError(new AcpRpcError(-32603, "SUBSCRIPTION_REQUIRED: tier")), AntigravityMessage.NoSubscription);
 });
 
+test("an agent error reaches the learner as a fixed sentence; its words stay in the server log", (t) => {
+	const seen = captureConsole(t);
+	assert.equal(describeAgentError(new AcpRpcError(-32099, "Quota detail for you@example.com, see https://example.invalid/q")), "Antigravity reported an error (code -32099).");
+	assert.equal(seen.length, 1);
+	assert.match(seen[0]!, /Quota detail/);
+	assert(!seen[0]!.includes("example.invalid"));
+	// Built by another copy of the module: classified by brand, not instanceof.
+	assert.equal(describeAgentError(Object.assign(new Error("Authentication required"), { brand: "acp-rpc", code: -32000 })), AntigravityMessage.NotSignedIn);
+	assert.equal(describeAgentError(Object.assign(new Error(AntigravityMessage.StartTimeout), { brand: "acp-transport", kind: "timeout" })), AntigravityMessage.StartTimeout);
+	assert.equal(describeAgentError(Object.assign(new Error(AntigravityMessage.NotInstalled), { brand: "agent-unavailable" })), AntigravityMessage.NotInstalled);
+});
+
+test("stderr is never logged: an unexpected exit logs one line with its size, an exit LearnHarness asked for logs nothing", async (t) => {
+	const seen = captureConsole(t);
+	const crash = setup(t, { stderrAtStart: ["SECRET_STDERR token=abc"], prompt: [{ exit: 3 }] });
+	const connection = await crash.runtime.connect();
+	const sessionId = await newSession(connection);
+	await assert.rejects(connection.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "x" }] }));
+	await connection.closed;
+	assert.equal(seen.length, 1, seen.join("\n"));
+	assert.match(seen[0]!, /^Antigravity exited unexpectedly \(exit code 3, signal none\); 24 bytes of error output not shown\.$/);
+	assert(!seen.join("\n").includes("SECRET"));
+
+	seen.length = 0;
+	const asked = setup(t, { stderrAtStart: ["SECRET_STDERR"] });
+	const second = await asked.runtime.connect();
+	await new Promise((resolve) => setTimeout(resolve, 50));
+	asked.runtime.shutdown();
+	await second.closed;
+	assert.deepEqual(seen, []);
+});
+
+test("sign-in line with leading spaces, or with no newline at all, means not signed in", async (t) => {
+	for (const scenario of [{ stdoutAtStart: [`  ${FAKE_LINK}`] }, { stdoutRawAtStart: FAKE_LINK }]) {
+		const { h, runtime } = setup(t, scenario);
+		await assert.rejects(runtime.connect(), (error: unknown) => describeAgentError(error) === AntigravityMessage.NotSignedIn);
+		await h.assertNoChildren();
+	}
+});
+
+test("killed while the initialize answer was in flight: connect rejects", async (t) => {
+	const { h, runtime } = setup(t, { garbageAfterInitialize: true });
+	await assert.rejects(runtime.connect(), (error: unknown) => describeAgentError(error) === AntigravityMessage.ProtocolError);
+	await h.assertNoChildren();
+});
+
 test("startup timeout kills the process", async (t) => {
 	antigravityTimeouts.startupMs = 100;
 	const { h, runtime } = setup(t, { initializeHang: true });
