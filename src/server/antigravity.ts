@@ -102,8 +102,9 @@ const production: AntigravityRouteDeps = {
 		const state = problemState();
 		state.message = undefined;
 		state.generation++;
-		// Off stops the agent, but never cuts off a reply that is streaming.
-		if (!enabled) antigravityRuntime().stopWhenUnused();
+		// Off stops the agent, but never cuts off a reply that is streaming; on again keeps it.
+		if (enabled) antigravityRuntime().cancelStop();
+		else antigravityRuntime().stopWhenUnused();
 	},
 };
 

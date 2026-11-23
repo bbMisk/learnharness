@@ -529,3 +529,30 @@ test("turning Antigravity off through the API stops the agent, but lets a stream
 	await live.closed;
 	await h.assertNoChildren();
 });
+
+test("off then on again while a reply streams: the process survives the reply and the next turn reuses it", async (t) => {
+	state({ switchOn: true, enabled: true, installed: true });
+	const h = mockHarness(t, { prompt: [{ text: "slow" }, { sleepMs: 400 }, { text: " reply" }] });
+	h.onTeardown(() => spyRuntime.shutdown());
+	launchReal = h.launch;
+	const chat = lessonChat("Antigravity off and on mid-reply");
+	assert.equal((await handleChatInput(chat.id, { type: "text", text: "hi" }, build)).status, 200);
+	await waitFor(() => h.methods().filter((m) => m === "session/prompt").length === 1, 5000, "the reply is streaming");
+	const live = spyRuntime.connection!;
+	assert.equal((await antigravityResponse(request("PUT", { enabled: false }))).status, 200);
+	assert.equal((await antigravityResponse(request("PUT", { enabled: true }))).status, 200);
+	let handle = runningTurn(chat.id);
+	if (handle) await new Response(handle.subscribe()).text();
+	await waitFor(() => !runningTurn(chat.id), 5000, "turn settled");
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	assert.equal(live.alive, true, "the re-enabled provider kept its process");
+	const spawnsBefore = h.spawns;
+	assert.equal((await handleChatInput(chat.id, { type: "text", text: "again" }, build)).status, 200);
+	handle = runningTurn(chat.id);
+	if (handle) await new Response(handle.subscribe()).text();
+	await waitFor(() => !runningTurn(chat.id), 5000, "second turn settled");
+	assert.equal(h.spawns, spawnsBefore, "the next turn reused the process");
+	assert.equal(spyRuntime.connection, live);
+	spyRuntime.shutdown();
+	await h.assertNoChildren();
+});

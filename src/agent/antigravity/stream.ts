@@ -224,10 +224,12 @@ class TurnSession {
 		return this.options.map((option) => (isRecord(option) && (option.id === "mode" || option.category === "mode") ? { ...option, currentValue: override.value } : option));
 	}
 
-	private observe(configOptions: unknown, frame: number): void {
-		if (!Array.isArray(configOptions) || frame < this.optionsFrame) return;
+	/** Returns whether the options were taken (false: not options, or older than the current view). */
+	private observe(configOptions: unknown, frame: number): boolean {
+		if (!Array.isArray(configOptions) || frame < this.optionsFrame) return false;
 		this.options = configOptions;
 		this.optionsFrame = frame;
+		return true;
 	}
 
 	/** One session/set_config_option as a setup request; its answer updates the view. A refusal of the
@@ -235,6 +237,8 @@ class TurnSession {
 	private async setOption(sessionId: string, configId: string, value: string, refused: string): Promise<void> {
 		try {
 			const { result: updated, frame } = await this.connection.setupRequestStamped("session/set_config_option", { sessionId, configId, value });
+			// Killed while the answer was in flight (the sign-in line, a bad line): report that, use nothing from it.
+			if (!this.connection.alive) throw this.connection.failure ?? new AcpTransportError("closed", AntigravityMessage.Exited);
 			this.observe(isRecord(updated) ? updated.configOptions : undefined, frame);
 		} catch (error) {
 			if (isValueRefusal(error)) throw new StopTurn(refused);
@@ -306,8 +310,8 @@ class TurnSession {
 				if (this.prompt && update.currentModeId !== "default") this.stopReply(AntigravityMessage.ModeChanged);
 				return;
 			case "config_option_update": {
-				this.observe(update.configOptions, frame);
-				this.refreshModels(update.configOptions);
+				// Only an update that was taken may be saved: a stale one would put an old list back.
+				if (this.observe(update.configOptions, frame)) this.refreshModels(update.configOptions);
 				if (this.prompt && findConfigOption(this.view(), "mode")?.currentValue !== "default") this.stopReply(AntigravityMessage.ModeChanged);
 				return;
 			}
@@ -405,14 +409,16 @@ export function createAntigravityStreamFunction({ runtime = antigravityRuntime, 
 			if (signal?.aborted) { turn.fail(AntigravityMessage.Aborted, "aborted"); return; }
 			signal?.addEventListener("abort", onAbort, { once: true });
 			try {
-				let connection: AgentConnection;
-				try { connection = await runtime().connect(); }
+				let acquired: { connection: AgentConnection; release: () => void };
+				// In use from the moment the turn asks, so an opt-out during a cold start waits for it.
+				try { acquired = await runtime().acquire(); }
 				catch (error) { turn.fail(describeAgentError(error)); return; }
-				if (turn.finished) return;
-				const release = connection.hold();
-				session = new TurnSession(connection, turn, currentHost);
-				try { await session.run(model, context.messages, options?.reasoning); }
-				finally { release(); }
+				const { connection, release } = acquired;
+				try {
+					if (turn.finished) return;
+					session = new TurnSession(connection, turn, currentHost);
+					await session.run(model, context.messages, options?.reasoning);
+				} finally { release(); }
 			} finally {
 				signal?.removeEventListener("abort", onAbort);
 			}

@@ -48,7 +48,9 @@
  *   earlyModeThenOptions (after the session/new answer, same write: current_mode_update "default", then
  *     config_option_update showing the session's real mode), modeUpdateWithModelSet {order: "before" |
  *     "after", mode} (a current_mode_update in the same write as the model-set answer),
- *   emptySessionId, noAgentVersion
+ *   emptySessionId, noAgentVersion, initializeDelayMs (a slow cold start),
+ *   signInAfterSet (the sign-in line in the same write as a set_config_option answer),
+ *   staleUpdateBeforeNew (a config_option_update listing "old-model", written just before the session/new answer)
  */
 import { appendFileSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -344,6 +346,7 @@ async function handleRequest(method, params) {
 	switch (method) {
 		case "initialize":
 			if (scenario.initializeHang) return new Promise(() => {});
+			if (scenario.initializeDelayMs) await sleep(scenario.initializeDelayMs);
 			if (scenario.garbageAfterInitialize) return { [RAW]: `${JSON.stringify({ jsonrpc: "2.0", id: requestId, result: initializeResult() })}\nnot json at all\n` };
 			// Not signed in: -32000 "Authentication required":
 			// apps/server/src/provider/antigravityAuthSupport.ts:27-28,167-177.
@@ -358,6 +361,11 @@ async function handleRequest(method, params) {
 				? { method: "session/update", params: { sessionId: result.sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: scenario.chunkAfterNew } } } }
 				: scenario.permissionAfterNew ? { id: `mock-${nextOwnId++}`, method: "session/request_permission", params: permissionParams(result.sessionId) } : undefined;
 			if (scenario.emptySessionId) return { ...result, sessionId: "" };
+			if (scenario.staleUpdateBeforeNew) {
+				const stale = configOptions(sessions.get(result.sessionId)).map((option) => (option.id === "model" ? { ...option, currentValue: "old-model", options: [{ value: "old-model", name: "Old model" }] } : option));
+				const frames = [{ method: "session/update", params: { sessionId: result.sessionId, update: { sessionUpdate: "config_option_update", configOptions: stale } } }, { id: requestId, result }];
+				return { [RAW]: frames.map((m) => `${JSON.stringify({ jsonrpc: "2.0", ...m })}\n`).join("") };
+			}
 			if (scenario.earlyModeThenOptions) {
 				const session = sessions.get(result.sessionId);
 				const frames = [
@@ -376,6 +384,9 @@ async function handleRequest(method, params) {
 		}
 		case "session/set_config_option": {
 			const answer = setConfigOption(params);
+			if (scenario.signInAfterSet) {
+				return { [RAW]: `${JSON.stringify({ jsonrpc: "2.0", id: requestId, result: answer })}\nOpen the following link to authenticate the ACP server: https://example.invalid/x\n` };
+			}
 			const extra = scenario.modeUpdateWithModelSet;
 			if (extra && params.configId === "model") {
 				const modeUpdate = { method: "session/update", params: { sessionId: params.sessionId, update: { sessionUpdate: "current_mode_update", currentModeId: extra.mode } } };

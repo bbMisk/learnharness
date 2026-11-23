@@ -65,8 +65,7 @@ async function discoverLevels(connection: AgentConnection, sessionId: string, in
 }
 
 export async function checkAntigravityAgent(runtime: AntigravityRuntime = antigravityRuntime()): Promise<ConnectionCheck> {
-	const connection = await runtime.connect();
-	const release = connection.hold();
+	const { connection, release } = await runtime.acquire();
 	let sessionId = "";
 	try {
 		const created = await connection.setupRequest("session/new", { cwd: connection.workspace, mcpServers: [] });

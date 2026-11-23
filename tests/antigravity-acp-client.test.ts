@@ -193,3 +193,18 @@ test("peer: a write that throws leaves no pending entry or timer behind", async 
 	await assert.rejects(peer.request("session/new", {}, 60_000), /EPIPE/);
 	assert.equal((peer as unknown as { pending: Map<unknown, unknown> }).pending.size, 0);
 });
+
+test("splitter: a too-long line leaves no inconsistent state; later input is split afresh", () => {
+	for (const overflow of ["678901", "678901\n"]) {
+		const splitter = new LineSplitter(10);
+		splitter.push(Buffer.from("  Open the"));
+		assert.throws(() => splitter.push(Buffer.from(overflow)), LineTooLongError);
+		assert.equal(splitter.unfinishedIsSignIn(), false, "no stale sign-in decision");
+		assert.deepEqual(splitter.push(Buffer.from("ok\n")), ["ok"], `not wedged after ${JSON.stringify(overflow)}`);
+	}
+	const signIn = new LineSplitter(64);
+	signIn.push(Buffer.from("Open the following link to authenticate"));
+	assert.equal(signIn.unfinishedIsSignIn(), true);
+	assert.throws(() => signIn.push(Buffer.alloc(64, 0x61)), LineTooLongError);
+	assert.equal(signIn.unfinishedIsSignIn(), false);
+});

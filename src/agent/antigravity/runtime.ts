@@ -338,6 +338,11 @@ export class AgentConnection {
 		else this.stopWhenIdle = true;
 	}
 
+	/** The provider was turned back on before the last turn let go: keep the process. */
+	cancelStop(): void {
+		this.stopWhenIdle = false;
+	}
+
 	/** SIGTERM, then SIGKILL after the grace period. */
 	kill(): void {
 		if (this.exited || this.stopping) return;
@@ -525,6 +530,28 @@ export class AntigravityRuntime {
 	/** The provider was turned off: stop the agent without cutting off a reply in flight. */
 	stopWhenUnused(): void {
 		this.current?.connection.stopWhenUnused();
+	}
+
+	/** The provider was turned back on: forget a stop that was waiting for the last turn. */
+	cancelStop(): void {
+		this.current?.connection.cancelStop();
+	}
+
+	/**
+	 * The shared process, held for the caller from the moment it asks (also while a cold start is still
+	 * running `initialize`), so turning the provider off meanwhile waits for this caller. `release`
+	 * must be called on every path; it is already called when this rejects.
+	 */
+	async acquire(): Promise<{ connection: AgentConnection; release: () => void }> {
+		const ready = this.connect();
+		const starting = this.current?.connection;
+		const early = starting?.hold();
+		let connection: AgentConnection;
+		try { connection = await ready; }
+		catch (error) { early?.(); throw error; }
+		if (connection === starting && early) return { connection, release: early };
+		early?.();
+		return { connection, release: connection.hold() };
 	}
 
 	private spawn(): AgentConnection {

@@ -538,3 +538,32 @@ test("the cancel grace timer does not keep the server alive", async (t) => {
 	await waitFor(() => h.methods().includes("session/cancel"), 3000, "session/cancel");
 	assert.equal(process.getActiveResourcesInfo().filter((name) => name === "Timeout").length, 0, "no ref'd timer during the grace period");
 });
+
+test("turning the provider off during a cold start waits for the turn that started it", async (t) => {
+	const { h, runtime, stream } = setup(t, { initializeDelayMs: 400 });
+	const running = collect(stream(PRO, ctx([HI])));
+	await waitFor(() => h.methods().includes("initialize"), 3000, "initialize sent");
+	runtime.stopWhenUnused(); // `initialize` is still running: nobody had called hold() yet before this fix
+	const turn = await running;
+	assert.equal(turn.final.stopReason, "stop", turn.final.errorMessage);
+	assert.equal(turn.text, "Hello world");
+	await h.assertNoChildren(3000);
+});
+
+test("a set_config_option answer followed by the sign-in line in one read: not signed in, nothing saved from it", async (t) => {
+	for (const scenario of [{ mode: "auto", signInAfterSet: true }, { mode: "auto", rejectModeChange: true, signInAfterSet: true }]) {
+		const { saved, stream } = setup(t, scenario);
+		const turn = await collect(stream(PRO, ctx([HI])));
+		assert.equal(turn.final.errorMessage, AntigravityMessage.NotSignedIn, JSON.stringify(scenario));
+		assert.equal(saved.length, 1, "only session/new's list (from a healthy read) was saved");
+		assert(!saved.some((models) => models.some((model) => model.levels)), "no levels saved from the broken read");
+	}
+});
+
+test("a stale config_option_update replayed after session/new is not saved", async (t) => {
+	const { saved, stream } = setup(t, { staleUpdateBeforeNew: true });
+	const turn = await collect(stream(PRO, ctx([HI])));
+	assert.equal(turn.final.stopReason, "stop", turn.final.errorMessage);
+	assert(saved.length > 0);
+	assert(!saved.some((models) => models.some((model) => model.id === "old-model")), JSON.stringify(saved));
+});

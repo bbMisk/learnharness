@@ -85,7 +85,7 @@ export class LineSplitter {
 		let start = 0;
 		for (let newline = chunk.indexOf(10, start); newline >= 0; newline = chunk.indexOf(10, start)) {
 			const piece = chunk.subarray(start, newline);
-			if (this.size + piece.length > this.maxBytes) throw new LineTooLongError("line too long");
+			if (this.size + piece.length > this.maxBytes) this.tooLong();
 			if (this.size === 0) lines.push(piece.toString("utf8"));
 			else {
 				this.parts.push(piece);
@@ -98,8 +98,9 @@ export class LineSplitter {
 		}
 		const rest = chunk.subarray(start);
 		if (rest.length > 0) {
+			// Decide before changing anything.
+			if (this.size + rest.length > this.maxBytes) this.tooLong();
 			this.size += rest.length;
-			if (this.size > this.maxBytes) throw new LineTooLongError("line too long");
 			this.parts.push(rest);
 			this.scanSignIn(rest);
 		}
@@ -109,6 +110,14 @@ export class LineSplitter {
 	/** The bytes after the last newline, with leading whitespace removed, start with the sign-in prefix. */
 	unfinishedIsSignIn(): boolean {
 		return this.signIn === true;
+	}
+
+	/** A line over the cap: drop everything buffered for it (the stream is broken; the peer closes) and throw. */
+	private tooLong(): never {
+		this.parts = [];
+		this.size = 0;
+		this.resetSignIn();
+		throw new LineTooLongError("line too long");
 	}
 
 	private resetSignIn(): void {
