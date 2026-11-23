@@ -16,16 +16,12 @@ import {
 	type ThinkingLevel,
 } from "@earendil-works/pi-ai";
 
-import { AcpTransportError, isAcpRpcError, stripUrls } from "./acp-client.ts";
+import { AcpTransportError, isRecord, stripUrls } from "./acp-client.ts";
 import { AntigravityMessage, breachMessage } from "./constants.ts";
 import { antigravityHost, type AntigravityHost } from "./host.ts";
 import { findConfigOption, levelsFrom, modelsFrom } from "./models.ts";
-import { antigravityRuntime, antigravityTimeouts, describeAgentError, isSignInError, rejectOnce, type AgentConnection, type AntigravityRuntime } from "./runtime.ts";
+import { antigravityRuntime, antigravityTimeouts, describeAgentError, isValueRefusal, rejectOnce, type AgentConnection, type AntigravityRuntime } from "./runtime.ts";
 import { toAntigravityInput } from "./transcript.ts";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function count(value: unknown): number {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
@@ -173,7 +169,7 @@ class TurnSession {
 			if (!connection.alive) throw connection.failure ?? new AcpTransportError("closed", AntigravityMessage.Exited);
 			const sessionId = created.sessionId;
 			this.observe(created.configOptions, frame);
-			this.refreshModels(created);
+			this.refreshModels(created.configOptions);
 			// Replays what arrived before this point (a breach, newer options), so an early tool_call still
 			// stops the turn. Throws for an id another turn already watches: this turn then owns nothing.
 			this.stopWatching = connection.watch(sessionId, {
@@ -234,32 +230,30 @@ class TurnSession {
 		this.optionsFrame = frame;
 	}
 
-	/** A refusal of the value is "could not set"; sign-in and account problems say so. */
-	private refusal(error: unknown, message: string): never {
-		if (isAcpRpcError(error) && !isSignInError(error) && !error.message.includes("SUBSCRIPTION_REQUIRED")) throw new StopTurn(message);
-		throw error;
+	/** One session/set_config_option as a setup request; its answer updates the view. A refusal of the
+	 *  value fails the turn with `refused`; sign-in and account problems keep their own message. */
+	private async setOption(sessionId: string, configId: string, value: string, refused: string): Promise<void> {
+		try {
+			const { result: updated, frame } = await this.connection.setupRequestStamped("session/set_config_option", { sessionId, configId, value });
+			this.observe(isRecord(updated) ? updated.configOptions : undefined, frame);
+		} catch (error) {
+			if (isValueRefusal(error)) throw new StopTurn(refused);
+			throw error;
+		}
 	}
 
 	/** Mode "default" from a mode config option, or the turn fails closed. */
 	private async pinDefaultMode(sessionId: string): Promise<void> {
 		const mode = findConfigOption(this.view(), "mode");
 		if (!mode || !mode.values.some((value) => value.id === "default")) throw new StopTurn(AntigravityMessage.ModeNotSet);
-		if (mode.currentValue === "default") return;
-		try {
-			const { result: updated, frame } = await this.connection.setupRequestStamped("session/set_config_option", { sessionId, configId: mode.configId, value: "default" });
-			this.observe(isRecord(updated) ? updated.configOptions : undefined, frame);
-		} catch (error) { this.refusal(error, AntigravityMessage.ModeNotSet); }
+		if (mode.currentValue !== "default") await this.setOption(sessionId, mode.configId, "default", AntigravityMessage.ModeNotSet);
 	}
 
 	/** The requested model from a model config option, or the turn fails closed. */
 	private async selectModel(sessionId: string, modelId: string): Promise<void> {
 		const option = findConfigOption(this.view(), "model");
 		if (!option || !option.values.some((value) => value.id === modelId)) throw new StopTurn(AntigravityMessage.ModelUnavailable);
-		if (option.currentValue === modelId) return;
-		try {
-			const { result: updated, frame } = await this.connection.setupRequestStamped("session/set_config_option", { sessionId, configId: option.configId, value: modelId });
-			this.observe(isRecord(updated) ? updated.configOptions : undefined, frame);
-		} catch (error) { this.refusal(error, AntigravityMessage.ModelUnavailable); }
+		if (option.currentValue !== modelId) await this.setOption(sessionId, option.configId, modelId, AntigravityMessage.ModelUnavailable);
 	}
 
 	/**
@@ -271,20 +265,15 @@ class TurnSession {
 		if (!requested) return undefined;
 		const option = findConfigOption(this.view(), "thought_level");
 		if (!option || !option.values.some((value) => value.id === requested)) return undefined;
-		if (option.currentValue === requested) return requested;
-		try {
-			const { result: updated, frame } = await this.connection.setupRequestStamped("session/set_config_option", { sessionId, configId: option.configId, value: requested });
-			this.observe(isRecord(updated) ? updated.configOptions : undefined, frame);
-		} catch (error) { this.refusal(error, AntigravityMessage.LevelNotSet); }
+		if (option.currentValue !== requested) await this.setOption(sessionId, option.configId, requested, AntigravityMessage.LevelNotSet);
 		return requested;
 	}
 
-	/** Save the listed models; with `selected`, also that model's levels as `configOptions` show them now. */
-	private refreshModels(source: unknown, selected?: string): void {
-		const listed = Array.isArray(source) ? modelsFrom({ configOptions: source }) : modelsFrom(source);
+	/** Save the models these options list; with `selected`, also that model's levels as the options show them now. */
+	private refreshModels(configOptions: unknown, selected?: string): void {
+		const listed = modelsFrom({ configOptions });
 		if (!listed?.length) return;
-		const options = Array.isArray(source) ? source : isRecord(source) ? source.configOptions : undefined;
-		const models = selected === undefined ? listed : listed.map((model) => (model.id === selected ? { ...model, ...levelsFrom(options) } : model));
+		const models = selected === undefined ? listed : listed.map((model) => (model.id === selected ? { ...model, ...levelsFrom(configOptions) } : model));
 		try { this.host.saveModels(models); }
 		catch {
 			// A full disk must not fail the turn; the list is refreshed again on the next session.
@@ -318,7 +307,7 @@ class TurnSession {
 				return;
 			case "config_option_update": {
 				this.observe(update.configOptions, frame);
-				this.refreshModels(update);
+				this.refreshModels(update.configOptions);
 				if (this.prompt && findConfigOption(this.view(), "mode")?.currentValue !== "default") this.stopReply(AntigravityMessage.ModeChanged);
 				return;
 			}

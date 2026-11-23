@@ -207,12 +207,12 @@ test("the sign-in line counts without a newline and after leading spaces", async
 		await assert.rejects(pending, (error: Error) => error.message === AntigravityMessage.NotSignedIn);
 		await c.closed;
 	}
-	// Split across chunks.
+	// Split across chunks, stdout left open: decided as the chunks arrive, no end-of-stream path needed.
 	const { child, connection: c } = connection(t);
 	const pending = c.request("initialize", {});
 	child.stdout.write("Open the following ");
 	await sleep(10);
-	child.stdout.end("link to authenticate");
+	child.stdout.write("link to authenticate");
 	await assert.rejects(pending, (error: Error) => error.message === AntigravityMessage.NotSignedIn);
 });
 

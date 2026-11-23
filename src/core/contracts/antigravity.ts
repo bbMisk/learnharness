@@ -30,3 +30,28 @@ export const ANTIGRAVITY_UNAVAILABLE = "Antigravity is unavailable. Turn it on a
 export function isAntigravityRefusal(error: string | undefined): boolean {
 	return error === ANTIGRAVITY_LESSONS_ONLY || error === ANTIGRAVITY_UNAVAILABLE;
 }
+
+/**
+ * The one sanitizer for what the agent reports, shared by the agent layer
+ * (agent/antigravity/models.ts) and the store (store/antigravity.ts).
+ */
+
+/** A model id or name LearnHarness will show and store: no link, no control character, at most 200 characters. */
+export function safeModelText(value: unknown): value is string {
+	return typeof value === "string" && value.trim() !== "" && value.length <= 200 && !value.includes("://") && !/[\u0000-\u001f\u007f-\u009f]/.test(value);
+}
+
+/** A thinking level value LearnHarness keeps: lowercase letters, digits, `_` or `-`, at most 32 characters. */
+const LEVEL_VALUE = /^[a-z0-9_-]{1,32}$/;
+
+/** Only well-formed level values, deduplicated, in the agent's order, at most 16. */
+export function sanitizeLevels(values: unknown): string[] {
+	if (!Array.isArray(values)) return [];
+	const seen = new Set<string>();
+	return values.filter((value): value is string => typeof value === "string" && LEVEL_VALUE.test(value) && !seen.has(value) && !!seen.add(value)).slice(0, 16);
+}
+
+/** An agent version as LearnHarness stores and shows it: "1.5.15". */
+export function isAgentVersion(value: unknown): value is string {
+	return typeof value === "string" && /^\d+\.\d+\.\d+$/.test(value);
+}

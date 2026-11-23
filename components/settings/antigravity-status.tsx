@@ -3,7 +3,7 @@
  *  Renders nothing unless GET /api/antigravity says `available: true` (the server switch is on).
  *  Any other answer, or a failed request, hides it quietly: no throw, no log. */
 import { useEffect, useRef, useState } from "react";
-import type { AntigravityStatus } from "@/src/core";
+import { isAgentVersion, type AntigravityStatus } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { Button } from "@/components/ui/button";
 import { Toggle } from "./controls";
@@ -23,7 +23,7 @@ function isStatus(value: unknown): value is AntigravityStatus {
 	const v = value as Partial<AntigravityStatus> | null;
 	return !!v && typeof v === "object" && v.available === true && typeof v.enabled === "boolean" && typeof v.installed === "boolean"
 		&& typeof v.models === "number" && Number.isSafeInteger(v.models) && v.models >= 0
-		&& (v.agentVersion === undefined || (typeof v.agentVersion === "string" && /^\d+\.\d+\.\d+$/.test(v.agentVersion)))
+		&& (v.agentVersion === undefined || isAgentVersion(v.agentVersion))
 		&& (v.checkedAt === undefined || typeof v.checkedAt === "string")
 		&& (v.problem === undefined || typeof v.problem === "string");
 }

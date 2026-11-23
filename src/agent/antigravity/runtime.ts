@@ -12,7 +12,7 @@ import { join } from "node:path";
 
 import packageMetadata from "../../../package.json" with { type: "json" };
 import { externalCliEnv } from "../../core/auth-env.ts";
-import { AcpPeer, AcpTransportError, type Stamped, isAcpRpcError, isAcpTransportError, methodNotFound, SIGN_IN_LINE_PREFIX, stripUrls } from "./acp-client.ts";
+import { AcpPeer, AcpTransportError, type Stamped, isAcpRpcError, isAcpTransportError, isRecord, methodNotFound, SIGN_IN_LINE_PREFIX, stripUrls } from "./acp-client.ts";
 import { createAgentLauncher, type LaunchAgent } from "./binary.ts";
 import { AntigravityMessage } from "./constants.ts";
 
@@ -49,9 +49,22 @@ function isAgentUnavailable(error: unknown): error is AgentUnavailable {
 	return !!e && typeof e === "object" && e.brand === "agent-unavailable" && typeof e.message === "string";
 }
 
-/** -32000, or the 1.5 agent's "No browser is available here" -32603, on any request. */
+/**
+ * How an agent error is classified, in one place for the turn, the check and describeAgentError.
+ * Not signed in: -32000, or the 1.5 agent's "No browser is available here" -32603, on any request.
+ */
 export function isSignInError(error: unknown): boolean {
 	return isAcpRpcError(error) && (error.code === -32000 || (error.code === -32603 && error.message.startsWith("No browser is available here")));
+}
+
+/** The Google account can't use Antigravity. */
+export function isSubscriptionError(error: unknown): boolean {
+	return isAcpRpcError(error) && error.message.includes("SUBSCRIPTION_REQUIRED");
+}
+
+/** The agent refused a value (a mode, model or level), not the account: the caller decides what that costs. */
+export function isValueRefusal(error: unknown): boolean {
+	return isAcpRpcError(error) && !isSignInError(error) && !isSubscriptionError(error);
 }
 
 export interface AgentHandshake {
@@ -70,10 +83,6 @@ export interface SessionListener {
 	onPermissionRequest(params: Record<string, unknown>): unknown;
 	/** The process is gone; `error.message` is one of ours. */
 	onClosed(error: AcpTransportError): void;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -119,7 +128,7 @@ export function parseHandshake(result: unknown): AgentHandshake | null {
 export function describeAgentError(error: unknown): string {
 	if (isAcpRpcError(error)) {
 		if (isSignInError(error)) return AntigravityMessage.NotSignedIn;
-		if (error.message.includes("SUBSCRIPTION_REQUIRED")) return AntigravityMessage.NoSubscription;
+		if (isSubscriptionError(error)) return AntigravityMessage.NoSubscription;
 		// The agent's own words stay on the server.
 		const detail = stripUrls(error.message).replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").trim().slice(0, 300);
 		console.error(`Antigravity reported an error (code ${error.code})${detail ? `: ${detail}` : "."}`);
@@ -200,7 +209,6 @@ export class AgentConnection {
 			onFatal: (error) => this.fail(error),
 		});
 		child.stdout.on("data", (chunk: Buffer) => this.peer.receive(chunk));
-		child.stdout.on("end", () => this.peer.end());
 		child.stderr.on("data", (chunk: Buffer) => this.readStderr(chunk));
 		for (const stream of [child.stdin, child.stdout, child.stderr]) stream.on("error", () => { /* the exit handler reports the failure */ });
 		// A spawn failure may emit only `error`; a running child that fails to be signalled emits it too,

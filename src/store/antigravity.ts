@@ -7,6 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { PATHS } from "../../config.ts";
+import { isAgentVersion, safeModelText, sanitizeLevels } from "../core/contracts/antigravity.ts";
 import { writeFileAtomicSync } from "./atomic-write.ts";
 
 export interface AntigravityModelEntry {
@@ -28,20 +29,10 @@ export interface AntigravityRecord {
 }
 
 const MAX_MODELS = 200;
-const MAX_TEXT = 200;
-const MAX_LEVELS = 16;
-/** The same rule as agent/antigravity/models.ts: lowercase letters, digits, `_` or `-`, at most 32 characters. */
-const LEVEL_VALUE = /^[a-z0-9_-]{1,32}$/;
 
-function levels(value: unknown): string[] {
-	if (!Array.isArray(value)) return [];
-	const seen = new Set<string>();
-	return value.filter((level): level is string => typeof level === "string" && LEVEL_VALUE.test(level) && !seen.has(level) && !!seen.add(level)).slice(0, MAX_LEVELS);
-}
-
-/** No link, no control character, at most 200 characters (the same rule as agent/antigravity/models.ts). */
+/** The agent layer's own rules (core/contracts/antigravity.ts), so a stored entry is exactly what a session would have accepted. */
 function text(value: unknown): string | undefined {
-	return typeof value === "string" && value.trim() && value.length <= MAX_TEXT && !value.includes("://") && !/[\u0000-\u001f\u007f-\u009f]/.test(value) ? value : undefined;
+	return safeModelText(value) ? value : undefined;
 }
 
 export function sanitizeAntigravityRecord(raw: unknown): AntigravityRecord {
@@ -54,11 +45,11 @@ export function sanitizeAntigravityRecord(raw: unknown): AntigravityRecord {
 		const named = value.name === undefined || value.name === null || value.name === "" ? id : text(value.name);
 		if (!named) return [];
 		seen.add(id);
-		const offered = levels(value.levels);
+		const offered = sanitizeLevels(value.levels);
 		const defaultLevel = typeof value.defaultLevel === "string" && offered.includes(value.defaultLevel) ? value.defaultLevel : undefined;
 		return [{ id, name: named, levels: offered, ...(defaultLevel ? { defaultLevel } : {}) }];
 	}).slice(0, MAX_MODELS);
-	const agentVersion = typeof record.agentVersion === "string" && /^\d+\.\d+\.\d+$/.test(record.agentVersion) ? record.agentVersion : undefined;
+	const agentVersion = isAgentVersion(record.agentVersion) ? record.agentVersion : undefined;
 	const checkedAt = typeof record.checkedAt === "string" && !Number.isNaN(Date.parse(record.checkedAt)) ? record.checkedAt : undefined;
 	return { version: 1, enabled: record.enabled === true, models, ...(agentVersion ? { agentVersion } : {}), ...(checkedAt ? { checkedAt } : {}) };
 }

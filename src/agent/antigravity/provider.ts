@@ -1,11 +1,11 @@
 import { createProvider, type Api, type Model, type Provider, type SimpleStreamOptions, type StreamFunction } from "@earendil-works/pi-ai";
 
 import { antigravitySwitchOn } from "../../core/fork-config.ts";
-import { AcpTransportError, isAcpRpcError } from "./acp-client.ts";
+import { AcpTransportError, isRecord } from "./acp-client.ts";
 import { AntigravityMessage, ANTIGRAVITY_PROVIDER } from "./constants.ts";
 import { antigravityHost } from "./host.ts";
 import { findConfigOption, levelsFrom, modelsFrom, toPiModel, type AgentModel } from "./models.ts";
-import { antigravityRuntime, antigravityTimeouts, isSignInError, type AgentConnection, type AntigravityRuntime } from "./runtime.ts";
+import { antigravityRuntime, antigravityTimeouts, isValueRefusal, type AgentConnection, type AntigravityRuntime } from "./runtime.ts";
 import { streamAntigravity } from "./stream.ts";
 
 /**
@@ -41,8 +41,9 @@ export interface ConnectionCheck {
  * A model whose selection fails, or whose answer doesn't confirm it, gets no levels.
  */
 async function discoverLevels(connection: AgentConnection, sessionId: string, initial: unknown, listed: AgentModel[]): Promise<AgentModel[]> {
+	// `listed` came from this same option, so it is non-empty only when the option exists.
 	const modelOption = findConfigOption(initial, "model");
-	if (!modelOption) return listed.map((model) => ({ ...model, levels: [] }));
+	if (!modelOption) return [];
 	const found: AgentModel[] = [];
 	for (const model of listed) {
 		let view: unknown;
@@ -50,10 +51,10 @@ async function discoverLevels(connection: AgentConnection, sessionId: string, in
 		else {
 			try {
 				const answer = await connection.setupRequest("session/set_config_option", { sessionId, configId: modelOption.configId, value: model.id });
-				view = typeof answer === "object" && answer !== null ? (answer as { configOptions?: unknown }).configOptions : undefined;
+				view = isRecord(answer) ? answer.configOptions : undefined;
 			} catch (error) {
 				// A refusal of this one model costs only its levels; anything else fails the check.
-				if (!isAcpRpcError(error) || isSignInError(error) || error.message.includes("SUBSCRIPTION_REQUIRED")) throw error;
+				if (!isValueRefusal(error)) throw error;
 			}
 		}
 		if (!connection.alive) throw connection.failure ?? new AcpTransportError("closed", AntigravityMessage.Exited);
@@ -69,7 +70,7 @@ export async function checkAntigravityAgent(runtime: AntigravityRuntime = antigr
 	let sessionId = "";
 	try {
 		const created = await connection.setupRequest("session/new", { cwd: connection.workspace, mcpServers: [] });
-		const id = typeof created === "object" && created !== null ? (created as { sessionId?: unknown }).sessionId : undefined;
+		const id = isRecord(created) ? created.sessionId : undefined;
 		// A missing or empty id breaks the protocol for the whole connection.
 		if (typeof id !== "string" || !id) throw connection.failProtocol();
 		// Killed while the answer was in flight (a bad line, the sign-in line): not a success.
@@ -78,8 +79,9 @@ export async function checkAntigravityAgent(runtime: AntigravityRuntime = antigr
 		// Never touch a session a turn is watching (a duplicate id must not change or end someone else's reply):
 		// then the levels stay as they were.
 		const shared = connection.watching(sessionId);
-		const listed = modelsFrom(created) ?? [];
-		const models = shared ? listed : await discoverLevels(connection, sessionId, (created as { configOptions?: unknown }).configOptions, listed);
+		const configOptions = isRecord(created) ? created.configOptions : undefined;
+		const listed = modelsFrom({ configOptions }) ?? [];
+		const models = shared ? listed : await discoverLevels(connection, sessionId, configOptions, listed);
 		return { agentVersion: connection.handshake.agentVersion, models };
 	} finally {
 		// The throwaway session is closed however the check ended, unless a turn owns that id.

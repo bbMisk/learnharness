@@ -6,7 +6,11 @@
  */
 import type { Api, Model, ThinkingLevel } from "@earendil-works/pi-ai";
 
+import { safeModelText, sanitizeLevels } from "../../core/contracts/antigravity.ts";
+import { isRecord } from "./acp-client.ts";
 import { ANTIGRAVITY_API, ANTIGRAVITY_PROVIDER } from "./constants.ts";
+
+export { safeModelText, sanitizeLevels };
 
 export interface AgentModel {
 	id: string;
@@ -17,22 +21,10 @@ export interface AgentModel {
 	defaultLevel?: string;
 }
 
-/** A thinking level value LearnHarness keeps: lowercase letters, digits, `_` or `-`, at most 32 characters. */
-const LEVEL_VALUE = /^[a-z0-9_-]{1,32}$/;
-
 export interface ConfigSelect {
 	configId: string;
 	currentValue: string | undefined;
 	values: AgentModel[];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/** A model id or name LearnHarness will show and store: no link, no control character, at most 200 characters. */
-export function safeModelText(value: unknown): value is string {
-	return typeof value === "string" && value.trim() !== "" && value.length <= 200 && !value.includes("://") && !/[\u0000-\u001f\u007f-\u009f]/.test(value);
 }
 
 /** Drops the entry whenever its id, or a name it does give, is unsafe. */
@@ -68,13 +60,6 @@ export function modelsFrom(result: unknown): AgentModel[] | null {
 	if (!values) return null;
 	const seen = new Set<string>();
 	return values.filter((model) => !seen.has(model.id) && seen.add(model.id));
-}
-
-/** Only well-formed level values, deduplicated, in the agent's order. */
-export function sanitizeLevels(values: unknown): string[] {
-	if (!Array.isArray(values)) return [];
-	const seen = new Set<string>();
-	return values.filter((value): value is string => typeof value === "string" && LEVEL_VALUE.test(value) && !seen.has(value) && !!seen.add(value)).slice(0, 16);
 }
 
 /** The thinking levels offered by these options (for the model they currently select), and the selected one. */

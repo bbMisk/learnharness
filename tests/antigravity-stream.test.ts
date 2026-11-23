@@ -259,9 +259,12 @@ test("breach labels lose links and control characters; nothing safe left means \
 });
 
 test("a setup request with no answer kills the wedged process: did not answer in time", async (t) => {
-	antigravityTimeouts.startupMs = 150;
 	for (const method of ["session/new", "session/set_config_option"]) {
-		const { h, stream } = setup(t, { mode: "auto", hangMethods: [method] });
+		const { h, runtime, stream } = setup(t, { mode: "auto", hangMethods: [method] });
+		// Start the process with the normal timeout first: under load a 150 ms initialize could itself time out.
+		antigravityTimeouts.startupMs = DEFAULTS.startupMs;
+		await runtime.connect();
+		antigravityTimeouts.startupMs = 150;
 		const turn = await collect(stream(PRO, ctx([HI])));
 		assert.equal(turn.final.errorMessage, AntigravityMessage.AnswerTimeout, method);
 		await h.assertNoChildren(3000);

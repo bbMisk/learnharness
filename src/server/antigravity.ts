@@ -85,8 +85,7 @@ function recordFailedCheck(problem: string | undefined): AntigravityStatus {
 	problemState().message = problem;
 	try { antigravityStore.update({ checkedAt: undefined }); }
 	catch { console.error("Antigravity: could not record the failed check."); }
-	try { return antigravityStatus(); }
-	catch { return { available: true, enabled: true, installed: antigravityInstalled(), models: 0, ...(problem ? { problem } : {}) }; }
+	return antigravityStatus();
 }
 
 export interface AntigravityRouteDeps {

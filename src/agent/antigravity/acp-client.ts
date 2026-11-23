@@ -132,7 +132,7 @@ export class LineSplitter {
 }
 
 type JsonRpcId = number | string;
-type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => void; timer?: NodeJS.Timeout; stamped?: boolean };
+type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => void; timer?: NodeJS.Timeout; stamped: boolean };
 
 /** A response and the number of the frame it arrived in, so a caller can order it against updates. */
 export type Stamped = { result: unknown; frame: number };
@@ -145,7 +145,8 @@ export interface AcpPeerHandlers {
 	onFatal(error: AcpTransportError): void;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+/** A plain object (not null, not an array): the one copy every Antigravity module uses. */
+export function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -180,16 +181,20 @@ export class AcpPeer {
 		if (!this.closed && this.splitter.unfinishedIsSignIn()) this.fatal("sign-in", AntigravityMessage.NotSignedIn);
 	}
 
-	/** stdout ended: an unterminated sign-in line still counts. */
-	end(): void {
-		if (!this.closed && this.splitter.unfinishedIsSignIn()) this.fatal("sign-in", AntigravityMessage.NotSignedIn);
+	request(method: string, params: unknown, timeoutMs?: number, timeoutMessage?: string): Promise<unknown> {
+		return this.send(method, params, false, timeoutMs, timeoutMessage);
 	}
 
-	request(method: string, params: unknown, timeoutMs?: number, timeoutMessage: string = AntigravityMessage.StartTimeout): Promise<unknown> {
+	/** Like request(), resolving with the frame number the answer arrived in. */
+	requestStamped(method: string, params: unknown, timeoutMs?: number, timeoutMessage?: string): Promise<Stamped> {
+		return this.send(method, params, true, timeoutMs, timeoutMessage) as Promise<Stamped>;
+	}
+
+	private send(method: string, params: unknown, stamped: boolean, timeoutMs?: number, timeoutMessage: string = AntigravityMessage.StartTimeout): Promise<unknown> {
 		if (this.closedWith) return Promise.reject(this.closedWith);
 		const id = this.nextId++;
 		return new Promise((resolve, reject) => {
-			const entry: Pending = { resolve, reject };
+			const entry: Pending = { resolve, reject, stamped };
 			if (timeoutMs !== undefined) {
 				entry.timer = setTimeout(() => {
 					this.pending.delete(id);
@@ -206,14 +211,6 @@ export class AcpPeer {
 				throw error;
 			}
 		});
-	}
-
-	/** Like request(), resolving with the frame number the answer arrived in. */
-	requestStamped(method: string, params: unknown, timeoutMs?: number, timeoutMessage?: string): Promise<Stamped> {
-		const promise = this.request(method, params, timeoutMs, timeoutMessage);
-		const entry = this.pending.get(this.nextId - 1);
-		if (entry) entry.stamped = true;
-		return promise as Promise<Stamped>;
 	}
 
 	notify(method: string, params: unknown): void {
