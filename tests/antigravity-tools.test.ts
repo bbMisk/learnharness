@@ -16,7 +16,7 @@ import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
 import { AntigravityMessage, TEXT_ONLY_NOTE, TOOLS_NOTE, toolBreachMessage, breachMessage } from "../src/agent/antigravity/constants.ts";
 import { toPiModel } from "../src/agent/antigravity/models.ts";
 import { AntigravityRuntime, antigravityTimeouts } from "../src/agent/antigravity/runtime.ts";
-import { createAntigravityStreamFunction, parkedSessionCount, toolBridgeOf, waitingTurnCount } from "../src/agent/antigravity/stream.ts";
+import { createAntigravityStreamFunction, expireWaitingTurns, parkedSessionCount, toolBridgeOf, waitingTurnCount } from "../src/agent/antigravity/stream.ts";
 import { ToolBridge } from "../src/agent/antigravity/tool-bridge.ts";
 import { mockHarness, waitFor, type MockScenario } from "./helpers/antigravity-mock.ts";
 
@@ -142,7 +142,7 @@ test("two calls in one step run as two serial rounds; several rounds share one p
 
 test("a second MCP call while one is held is refused and the turn expires; the result then gets a fresh session with the full replay", async (t) => {
 	const s = setup(t, { promptSeq: [[{ mcpWhileHeld: { first: call("lh_echo").mcpCall, second: { name: "lh_echo", arguments: { text: "again" } } } }, say("never")], [say("Fresh reply")]] });
-	const { finals, last } = await s.lesson([user("go")], [ECHO], async (c) => { await delay(400); return echoExec(c); });
+	const { finals, last } = await s.lesson([user("go")], [ECHO], async (c) => { await waitFor(() => s.sent("session/cancel").length === 1, 5000, "expiry"); return echoExec(c); });
 	assert.deepEqual(finals.map((m) => m.stopReason), ["toolUse", "stop"]);
 	assert.equal(s.textOf(last), "Fresh reply");
 	const raw = s.entries<{ raw?: boolean; result: { isError?: boolean; error?: string } }>("mcp-result").find((e) => e.raw);
@@ -395,5 +395,73 @@ test("usage: a tool-round message carries only the context size it saw; the fina
 		const small = setup(tt, { usage, prompt: [call("lh_echo"), say("x"), { used: 100 }] });
 		const { last } = await small.lesson([user("go")], [ECHO]);
 		assert.deepEqual(buckets(last), [0, 41, 8296, 0]);
+	});
+});
+
+test("reuse off (LH_ANTIGRAVITY_REUSE=0): a tool round still resumes the same prompt; the session is then closed, not parked", async (t) => {
+	const s = setup(t, { prompt: [call("lh_echo", { echo: true }), say(" done")] });
+	process.env.LH_ANTIGRAVITY_REUSE = "0";
+	const { finals, last } = await s.lesson([user("go")], [ECHO]);
+	assert.deepEqual(finals.map((m) => m.stopReason), ["toolUse", "stop"]);
+	assert.equal(s.textOf(last), "tool said: ECHO:hello done");
+	assert.equal(s.prompts().length, 1);
+	await waitFor(() => s.sent("session/close").length === 1, 3000, "the session to close");
+	assert.equal(parkedSessionCount(s.runtime.connection!), 0);
+});
+
+test("Stop while the SECOND round's call waits expires it too", async (t) => {
+	const s = setup(t, { prompt: [call("lh_echo"), call("lh_echo"), say("never")] });
+	const controller = new AbortController();
+	const first = await s.once([user("go")], [ECHO], { signal: controller.signal });
+	const firstCall = first.content.find((b) => b.type === "toolCall") as ToolCall;
+	const history: Message[] = [user("go"), first, { role: "toolResult", toolCallId: firstCall.id, toolName: "lh_echo", content: [{ type: "text", text: "one" }], isError: false, timestamp: 0 }];
+	const second = await s.once(history, [ECHO], { signal: controller.signal });
+	assert.equal(second.stopReason, "toolUse", "the second round");
+	assert.equal(waitingTurnCount(s.runtime.connection!), 1);
+	controller.abort(); // the learner presses Stop while pi runs the second call
+	await waitFor(() => s.sent("session/cancel").length === 1, 3000, "the cancel");
+	await waitFor(() => s.sent("session/close").length === 1, 3000, "the close");
+	assert.equal(waitingTurnCount(s.runtime.connection!), 0);
+});
+
+test("turning the provider off expires a waiting call at once instead of holding agy for the wait", async (t) => {
+	const s = setup(t, { prompt: [call("lh_echo"), say("never")] });
+	assert.equal((await s.once([user("go")], [ECHO])).stopReason, "toolUse");
+	assert.equal(waitingTurnCount(s.runtime.connection!), 1);
+	expireWaitingTurns(s.runtime);
+	await waitFor(() => s.sent("session/close").length === 1, 3000, "the close");
+	assert.equal(s.sent("session/cancel").length, 1);
+	assert.equal(waitingTurnCount(s.runtime.connection!), 0);
+});
+
+test("fail closed: an MCP call on a parked session poisons it; a permission while waiting, a second permission before the call, or another call id with our name while waiting all end the round", async (t) => {
+	await t.test("MCP call on a parked session", async (tt) => {
+		const s = setup(tt, { parkedUpdate: "mcp", prompt: [say("first")] });
+		await s.once([user("go")], [ECHO]);
+		await waitFor(() => s.entries<{ parked?: boolean }>("mcp-result").some((e) => e.parked), 3000, "the parked call");
+		const parked = s.entries<{ parked?: boolean; result: { isError?: boolean; error?: string } }>("mcp-result").find((e) => e.parked)!;
+		assert.ok(parked.result.isError || parked.result.error, "refused");
+		await waitFor(() => s.sent("session/close").length === 1, 3000, "the poisoned session to close");
+		assert.equal(parkedSessionCount(s.runtime.connection!), 0);
+	});
+	await t.test("permission while waiting", async (tt) => {
+		const s = setup(tt, { promptSeq: [[call("lh_echo", { whileHeldPermission: true }), say("never")]], prompt: [say("Fresh")] });
+		const { last } = await s.lesson([user("go")], [ECHO], async (c) => { await waitFor(() => s.sent("session/cancel").length === 1, 3000, "expiry"); return echoExec(c); });
+		assert.equal(s.textOf(last), "Fresh");
+		const again = s.entries<{ whileHeld?: boolean; answer: unknown }>("permission-answer").find((e) => e.whileHeld);
+		assert.deepEqual(again?.answer, { outcome: { outcome: "selected", optionId: "deny" } });
+	});
+	await t.test("second permission before the allowed call", async (tt) => {
+		const s = setup(tt, { prompt: [call("lh_echo", { noCall: true }), call("lh_echo"), say("never")] });
+		const { last } = await s.lesson([user("go")], [ECHO]);
+		assert.equal(last.stopReason, "error");
+		assert.match(last.errorMessage ?? "", /^Antigravity tried to use a tool LearnHarness didn't give it/);
+		await waitFor(() => s.entries("permission-answer").length === 2, 3000, "both answers");
+		assert.deepEqual(s.entries<{ answer: { outcome: { optionId: string } } }>("permission-answer").map((e) => e.answer.outcome.optionId), ["allow", "deny"]);
+	});
+	await t.test("our tool name with another call id while waiting", async (tt) => {
+		const s = setup(tt, { promptSeq: [[call("lh_echo", { whileHeld: [{ sessionUpdate: "tool_call_update", toolCallId: "call_other", name: "mcp_learnharness_lh_echo", status: "in_progress" }] }), say("never")]], prompt: [say("Fresh")] });
+		const { last } = await s.lesson([user("go")], [ECHO], async (c) => { await waitFor(() => s.sent("session/cancel").length === 1, 3000, "expiry"); return echoExec(c); });
+		assert.equal(s.textOf(last), "Fresh");
 	});
 });

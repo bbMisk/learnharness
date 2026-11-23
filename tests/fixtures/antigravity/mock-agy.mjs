@@ -59,6 +59,8 @@
  *   second call made while the first is held; {mcpBadAuth: true} wrong token and wrong path, logged.
  *   mcpCall.whileHeld: updates sent 50 ms into the held call; mcpCall.lateInProgress: the in_progress
  *   update sent 30 ms AFTER the MCP request instead of before it. {used: n}: a usage_update.
+ *   mcpCall.noCall: ask permission, then make no MCP call; mcpCall.whileHeldPermission: a second
+ *   permission request 50 ms into the held call. parkedUpdate "mcp": an MCP call 50 ms after the reply.
  *   promptSeq: [[steps], …] the k-th prompt this process receives runs promptSeq[k] (else `prompt`).
  *   earlyModeThenOptions (after the session/new answer, same write: current_mode_update "default", then
  *     config_option_update showing the session's real mode), modeUpdateWithModelSet {order: "before" |
@@ -227,7 +229,7 @@ async function connectMcp(session, servers) {
 	log({ kind: "mcp-tools", sessionId: session.id, names: tools.map((tool) => tool.name) });
 }
 
-let toolCallCounter = 8114546200903021683n;
+let toolCallCounter = 1000000000000000000n;
 let promptCount = 0;
 
 function resultText(result) {
@@ -252,7 +254,7 @@ async function mcpRound(session, sessionId, spec) {
 	const options = spec.options ?? [{ optionId: "allow", name: "Allow", kind: "allow_once" }, { optionId: "deny", name: "Deny", kind: "reject_once" }];
 	const answer = await requestClient("session/request_permission", { sessionId, toolCall: { sessionUpdate: "tool_call", ...fields, status: "pending" }, options });
 	log({ kind: "permission-answer", name: agentName, answer });
-	if (answer?.outcome?.optionId !== "allow" || !session.mcp) return undefined;
+	if (answer?.outcome?.optionId !== "allow" || !session.mcp || spec.noCall) return undefined;
 	if (!spec.lateInProgress) update(sessionId, { sessionUpdate: "tool_call_update", ...fields, status: "in_progress" });
 	const controller = new AbortController();
 	session.mcpAbort = controller;
@@ -260,6 +262,11 @@ async function mcpRound(session, sessionId, spec) {
 	const pending = callMcp(session, spec.name, spec.arguments, controller.signal);
 	if (spec.lateInProgress) { await sleep(30); update(sessionId, { sessionUpdate: "tool_call_update", ...fields, status: "in_progress" }); }
 	if (spec.whileHeld) { await sleep(50); for (const body of spec.whileHeld) update(sessionId, body); }
+	if (spec.whileHeldPermission) {
+		await sleep(50);
+		const again = await requestClient("session/request_permission", { sessionId, toolCall: { sessionUpdate: "tool_call", ...fields, toolCallId: "call_while_held", status: "pending" }, options });
+		log({ kind: "permission-answer", name: agentName, answer: again, whileHeld: true });
+	}
 	const result = await pending;
 	clearTimeout(timer);
 	session.mcpAbort = undefined;
@@ -443,6 +450,7 @@ async function prompt({ sessionId, prompt: blocks }) {
 			else if (later === "thought") update(sessionId, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "a late thought" } });
 			else if (later === "badmode") update(sessionId, { sessionUpdate: "current_mode_update", currentModeId: 5 });
 			else if (later === "badconfig") update(sessionId, { sessionUpdate: "config_option_update", configOptions: "not a list" });
+			else if (later === "mcp" && session.mcp) void callMcp(session, "lh_echo", { text: "parked" }).then((result) => log({ kind: "mcp-result", name: "lh_echo", raw: true, parked: true, result }));
 		}, 50);
 	}
 	// The real result's usage field names (capture `promptResult`).

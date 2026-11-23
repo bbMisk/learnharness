@@ -9,6 +9,7 @@
 import { AntigravityMessage } from "../agent/antigravity/constants.ts";
 import { checkAntigravityAgent, type ConnectionCheck } from "../agent/antigravity/provider.ts";
 import { antigravityRuntime, describeAgentError } from "../agent/antigravity/runtime.ts";
+import { expireWaitingTurns } from "../agent/antigravity/stream.ts";
 import { ANTIGRAVITY_PROVIDER, ANTIGRAVITY_UNAVAILABLE, type AntigravityStatus } from "../core/contracts/antigravity.ts";
 import { antigravitySwitchOn } from "../core/fork-config.ts";
 import type { TurnInput } from "../core/input-events.ts";
@@ -104,7 +105,7 @@ const production: AntigravityRouteDeps = {
 		state.generation++;
 		// Off stops the agent, but never cuts off a reply that is streaming; on again keeps it.
 		if (enabled) antigravityRuntime().cancelStop();
-		else antigravityRuntime().stopWhenUnused();
+		else { expireWaitingTurns(); antigravityRuntime().stopWhenUnused(); } // a tool call waiting for the learner doesn't keep agy running
 	},
 };
 

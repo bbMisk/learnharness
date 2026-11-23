@@ -36,7 +36,7 @@ Antigravity makes one tool call at a time. While LearnHarness runs a tool, the a
 - A question (quiz, recall, explain, ask, probe, plugin questions and problems) waits for your answer. Antigravity gives up on a tool call after 3 minutes, so LearnHarness keeps the agent's turn open for 2.5 minutes. Answer within that time and the tutor carries on in the same turn. Answer later and nothing is lost: the waiting turn has been closed, and your answer starts a fresh agent session that gets the whole lesson, including the question and your answer, as text. That costs one full resend of the lesson.
 - Jobs (research, PDFs, demos, visuals) start at once and run on their own slot's model. When a job finishes, its result comes back into the lesson as an automatic follow-up, and so does the hand-over from the opening questions to teaching; an Antigravity lesson now accepts those follow-ups. A follow-up that arrives while a tool call is waiting closes that waiting turn, and the lesson goes on in a fresh session.
 
-Anything else that happens while a call waits (the agent writing text, trying another tool, a mode change, the agent cancelling the call, `agy` stopping, Stop, a different request for the lesson) closes the waiting turn the same way.
+Anything else that happens while a call waits (the agent writing text, trying another tool, a mode change, the agent cancelling the call, `agy` stopping, Stop, turning Antigravity off, a different request for the lesson) closes the waiting turn the same way.
 
 ## Pictures
 

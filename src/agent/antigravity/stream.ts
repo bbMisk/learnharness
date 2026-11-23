@@ -390,6 +390,13 @@ export function waitingTurnCount(connection: AgentConnection): number {
 	return waitingTurns.get(connection)?.size ?? 0;
 }
 
+/** Expire every prompt waiting for a tool result on this runtime's process (the provider was turned off). */
+export function expireWaitingTurns(runtime: AntigravityRuntime = antigravityRuntime()): void {
+	const connection = runtime.connection;
+	if (!connection) return;
+	for (const waiting of [...(waitingTurns.get(connection)?.values() ?? [])]) waiting.expire();
+}
+
 type AgentMessages = Parameters<typeof toAntigravityInput>[0];
 
 /**
@@ -990,17 +997,18 @@ export function createAntigravityStreamFunction({ runtime = antigravityRuntime, 
 		const onAbort = () => { if (session) session.abortFrom(turn); else turn.fail(AntigravityMessage.Aborted, "aborted"); };
 		void (async () => {
 			const currentHost = host();
-			// The last door: nothing starts unless the server says this provider is available now.
-			if (!currentHost.available()) { turn.fail(AntigravityMessage.Off); return; }
 			const key = options?.sessionId ? options.sessionId : undefined;
 			const live = key !== undefined ? runtime().connection : undefined;
 			const waiting = live ? waitingTurns.get(live)?.get(key!) : undefined;
+			// The last door: nothing starts unless the server says this provider is available now.
+			if (!currentHost.available()) { waiting?.expire(); turn.fail(AntigravityMessage.Off); return; }
 			if (signal?.aborted) { waiting?.expire(); turn.fail(AntigravityMessage.Aborted, "aborted"); return; }
 			// A prompt of this chat is waiting for a tool result: this request continues it, or it expires.
 			if (waiting?.resume(turn, model, context.messages)) {
 				session = waiting;
 				signal?.addEventListener("abort", onAbort, { once: true });
-				turn.onEnd(() => signal?.removeEventListener("abort", onAbort));
+				// Kept while this stream's own tool call waits: Stop then expires that wait.
+				turn.onEnd(() => { if (turn.output.stopReason !== "toolUse") signal?.removeEventListener("abort", onAbort); });
 				return;
 			}
 			signal?.addEventListener("abort", onAbort, { once: true });
