@@ -373,3 +373,27 @@ test("images: a reused session gets a new image as a block; a changed earlier im
 	await s.lesson([...one.messages, withImage("look", BLUE), replyTwo, user("and now?")], [ECHO]);
 	assert.notEqual(s.entries<Logged>("prompt")[2]!.sessionId, p1!.sessionId, "the image bytes are part of what the session has seen");
 });
+
+test("usage: a tool-round message carries only the context size it saw; the final one adds up to the latest context size", async (t) => {
+	const { measuredContextTokens } = await import("../src/core/context-usage.ts");
+	// Figures from the lead's real probe (agy 1.5.15): usage_update before the call and after the reply.
+	const usage = { inputTokens: 12497, outputTokens: 41, cachedReadTokens: 8296, cachedWriteTokens: 0, thoughtTokens: 0, totalTokens: 20834 };
+	const s = setup(t, { usage, prompt: [{ used: 10368 }, call("lh_echo"), say("ECHO:hello"), { used: 10466 }] });
+	const { finals, messages } = await s.lesson([user("go")], [ECHO]);
+	const buckets = (m: AssistantMessage) => [m.usage.input, m.usage.output, m.usage.cacheRead, m.usage.cacheWrite];
+	assert.deepEqual(buckets(finals[0]!), [10368, 0, 0, 0]);
+	assert.deepEqual(buckets(finals[1]!), [10466 - 41 - 8296, 41, 8296, 0]);
+	assert.equal(finals[1]!.usage.totalTokens, 10466);
+	const saved = messages.map((m, i) => ({ ...m, id: `m${i}` })) as unknown as Parameters<typeof measuredContextTokens>[0];
+	assert.equal(measuredContextTokens(saved), 10466, "the context meter reads the context size, not a sum over rounds");
+	assert.equal(measuredContextTokens(saved.slice(0, 2)), 10368, "and after the tool round alone, its own context size");
+	await t.test("no tool round: the prompt's own counts, as before", async (tt) => {
+		const plain = setup(tt, { usage, prompt: [{ used: 10368 }, say("hi")] });
+		assert.deepEqual(buckets(await plain.once([user("hi")], [ECHO])), [12497, 41, 8296, 0]);
+	});
+	await t.test("never negative", async (tt) => {
+		const small = setup(tt, { usage, prompt: [call("lh_echo"), say("x"), { used: 100 }] });
+		const { last } = await small.lesson([user("go")], [ECHO]);
+		assert.deepEqual(buckets(last), [0, 41, 8296, 0]);
+	});
+});

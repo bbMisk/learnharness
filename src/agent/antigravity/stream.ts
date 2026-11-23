@@ -81,6 +81,21 @@ class AntigravityTurn {
 		target.totalTokens = target.input + target.output + target.cacheRead + target.cacheWrite;
 	}
 
+	/**
+	 * After tool rounds: the prompt's output and cache reads, with input making the message's total the
+	 * context size the agent last reported (never negative). LearnHarness reads the last message's
+	 * buckets as the context size, so a sum over the prompt's model rounds must never land on one message.
+	 */
+	setContextUsage(usage: unknown, used: number): void {
+		const target = this.output.usage;
+		const record = isRecord(usage) ? usage : {};
+		target.output = count(record.outputTokens);
+		target.cacheRead = count(record.cachedReadTokens);
+		target.cacheWrite = 0;
+		target.input = Math.max(0, used - target.output - target.cacheRead);
+		target.totalTokens = target.input + target.output + target.cacheRead;
+	}
+
 	finish(reason: "stop" | "length"): void {
 		if (this.finished) return;
 		this.start();
@@ -414,6 +429,11 @@ class TurnSession {
 	/** Set while waiting: what the agent has seen, and the expiry timer. */
 	private waiting: { seen: SeenFingerprint; timer: NodeJS.Timeout } | undefined;
 	private expired = false;
+	/** Tool rounds this prompt has had (each ended a pi stream with "toolUse"). */
+	private toolRounds = 0;
+	/** The context size (usage_update.used) the agent last reported: in the attached stream, and in the whole prompt. */
+	private streamUsed: number | undefined;
+	private promptUsed: number | undefined;
 
 	constructor(
 		private readonly connection: AgentConnection,
@@ -723,8 +743,11 @@ class TurnSession {
 				if (this.prompt && findConfigOption(this.view(), "mode")?.currentValue !== "default") this.stopReply(AntigravityMessage.ModeChanged);
 				return;
 			}
+			case "usage_update":
+				this.noteUsed(update.used);
+				return; // no progress, no reset
 			default:
-				return; // usage_update, available_commands_update, anything unknown: no progress, no reset
+				return; // available_commands_update, anything unknown: no progress, no reset
 		}
 	}
 
@@ -754,8 +777,11 @@ class TurnSession {
 				this.observe(update.configOptions, frame);
 				if (findConfigOption(this.view(), "mode")?.currentValue !== "default") this.expire();
 				return;
+			case "usage_update":
+				this.noteUsed(update.used);
+				return;
 			default:
-				return; // usage_update and other harmless kinds
+				return; // other harmless kinds
 		}
 	}
 
@@ -800,6 +826,11 @@ class TurnSession {
 		}
 		this.held = { call, toolCallId: allowance.toolCallId };
 		clearTimeout(this.inactivity);
+		this.toolRounds++;
+		// This stream's message carries only the context size it saw: never a sum over model rounds.
+		const usage = this.turn.output.usage;
+		usage.input = this.streamUsed ?? 0;
+		usage.totalTokens = usage.input;
 		this.turn.toolUse({ type: "toolCall", id: call.id, name: call.name, arguments: call.arguments });
 		const seen = [...this.input.messages, replayAssistant(this.turn.output.content)];
 		const timer = setTimeout(() => this.expire(), antigravityTimeouts.toolWaitMs);
@@ -848,9 +879,16 @@ class TurnSession {
 		this.turn = turn;
 		this.model = model;
 		this.input = input;
+		this.streamUsed = undefined;
 		this.touch();
 		if (!this.agent?.tools?.endpoint.resolve(held.call.id, result)) this.refuseCall();
 		return true;
+	}
+
+	private noteUsed(used: unknown): void {
+		if (typeof used !== "number" || !Number.isFinite(used) || used < 0) return;
+		this.promptUsed = used;
+		if (!this.waiting) this.streamUsed = used;
 	}
 
 	/** No longer waiting (resumed, expired or done). */
@@ -922,7 +960,8 @@ class TurnSession {
 	private settle(result: unknown): void {
 		if (this.turn.finished) return;
 		if (!isRecord(result)) { this.turn.fail(AntigravityMessage.NoStopReason); return; }
-		this.turn.setUsage(result.usage);
+		if (this.toolRounds > 0) this.turn.setContextUsage(result.usage, this.promptUsed ?? 0);
+		else this.turn.setUsage(result.usage);
 		const reason = result.stopReason;
 		switch (reason) {
 			case "end_turn": this.turn.finish("stop"); return;
