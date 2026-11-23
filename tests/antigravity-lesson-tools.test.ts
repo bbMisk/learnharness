@@ -77,7 +77,7 @@ const pendingCall = (chatId: string) => {
 	const assistant = messagesOf(chatId).findLast((m) => m.role === "assistant") as { content: { type: string; id?: string; name?: string }[] };
 	return assistant.content.find((b) => b.type === "toolCall")!;
 };
-const askAnswer = () => ({ kind: "ask", questionText: ASK.question, dontKnow: false, answers: [], text: "History", answeredAt: new Date().toISOString() });
+const askAnswer = () => ({ kind: "ask" as const, questionText: ASK.question, dontKnow: false, answers: [], text: "History", answeredAt: new Date().toISOString() });
 
 function harness(t: Parameters<typeof mockHarness>[0], scenario: Record<string, unknown>): MockHarness {
 	const h = mockHarness(t, { sessionClose: true, ...scenario });
