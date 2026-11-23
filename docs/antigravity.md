@@ -34,8 +34,9 @@ Your lesson text, including the replayed conversation and the tutor's instructio
 - Text only: no pictures, PDFs, quizzes or other tools.
 - No sign-in screen. Sign in by running `agy` in a terminal, then press Check connection.
 - No thinking-level choice.
+- Only the current session-options format is understood: an `agy` that offers no "mode" and "model" options in that format (older builds used other fields) can't run lessons, and Check connection lists no models for it.
 - An error on Google's side can arrive as ordinary reply text. Errors Antigravity reports any other way show only their error code; the details stay in the server log.
-- Reopening a lesson that is waiting for a reply resumes it, and so starts `agy`, without a click.
+- Reopening a lesson that is waiting for a reply resumes it, and so starts `agy`, without a click. A lesson whose last reply already finished is not resumed.
 - A message you type while a reply is streaming starts another reply.
 - The model's own reply text is shown as written, links included.
 - One reply is capped at 4 MB of text; a longer one is stopped.

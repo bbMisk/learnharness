@@ -1,0 +1,250 @@
+/**
+ * smoke-antigravity.mjs (Hanson's fork, docs/antigravity.md): prove the
+ * Antigravity provider works inside the PACKAGED server, which unit tests
+ * can't show: its registration, the server→agent wiring and the gates.
+ *
+ * Run after `npm run build && node scripts/build-server.mjs`:
+ *   node scripts/smoke-antigravity.mjs
+ *
+ * The only agent it can start is tests/fixtures/antigravity/mock-agy.mjs,
+ * named explicitly through LH_AGY_BINARY (the server then never searches
+ * PATH for a real `agy`); PATH entries holding an `agy` are also removed
+ * from the server's environment. Everything lives under one throwaway
+ * folder in os.tmpdir(): data, auth file, TMPDIR and the mock's log.
+ *
+ * Steps:
+ *   1. boot WITHOUT the switch: GET /api/antigravity → 200 { available: false },
+ *      and no Antigravity model in GET /api/models;
+ *   2. boot WITH LH_FORK_ANTIGRAVITY=1: GET → available, not enabled;
+ *      PUT enabled; POST check → models listed and in GET /api/models;
+ *   3. create a chat, pin it to a mock model, send one learner message
+ *      (all through the public HTTP API); the scripted reply arrives and is
+ *      saved; the mock saw `acp --sandbox`, no `authenticate`, and mode
+ *      "default" set before the prompt;
+ *   4. stop the server: no mock process is left and the agent's temp
+ *      folders are gone.
+ */
+import { spawn } from "node:child_process";
+import * as fs from "node:fs";
+import * as http from "node:http";
+import * as net from "node:net";
+import * as os from "node:os";
+import * as path from "node:path";
+import { probeEnv } from "./smoke-demo-runtime.mjs";
+
+const ROOT = path.resolve(import.meta.dirname, "..");
+const STANDALONE = path.join(ROOT, ".next", "standalone");
+const SERVER = path.join(STANDALONE, "server.js");
+const MOCK = path.join(ROOT, "tests", "fixtures", "antigravity", "mock-agy.mjs");
+const REPLY = "Smoke reply from the mock agent.";
+const BOOT_TIMEOUT_MS = 30_000;
+const TURN_TIMEOUT_MS = 30_000;
+const INTENT = { "x-learnharness-antigravity": "1" };
+
+const say = (line) => console.log(`[smoke-antigravity] ${line}`);
+function check(condition, message) {
+	if (!condition) throw new Error(message);
+}
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// --- the one agent this script may start ---------------------------------
+if (!fs.existsSync(MOCK)) {
+	console.error(`[smoke-antigravity] ${MOCK} is missing; refusing to run.`);
+	process.exit(1);
+}
+const MOCK_REAL = fs.realpathSync(MOCK);
+if (path.basename(MOCK_REAL) !== "mock-agy.mjs" || !path.isAbsolute(MOCK_REAL)) {
+	console.error(`[smoke-antigravity] the agent path does not resolve to mock-agy.mjs (${MOCK_REAL}); refusing to run.`);
+	process.exit(1);
+}
+fs.accessSync(MOCK_REAL, fs.constants.X_OK);
+if (!fs.existsSync(SERVER)) {
+	console.error("[smoke-antigravity] .next/standalone/server.js missing: run `npm run build && node scripts/build-server.mjs` first.");
+	process.exit(1);
+}
+
+function freePort() {
+	return new Promise((resolve, reject) => {
+		const srv = net.createServer();
+		srv.listen(0, "127.0.0.1", () => {
+			const { port } = srv.address();
+			srv.close(() => resolve(port));
+		});
+		srv.on("error", reject);
+	});
+}
+
+function status(url) {
+	return new Promise((resolve) => {
+		const req = http.get(url, (res) => { res.resume(); resolve(res.statusCode ?? 0); });
+		req.on("error", () => resolve(0));
+		req.setTimeout(5000, () => { req.destroy(); resolve(0); });
+	});
+}
+
+/** PATH without any folder that holds an `agy`, so nothing but LH_AGY_BINARY can name one. */
+function pathWithoutAgy(value) {
+	return (value ?? "").split(path.delimiter).filter((dir) => dir && !fs.existsSync(path.join(dir, process.platform === "win32" ? "agy.exe" : "agy"))).join(path.delimiter);
+}
+
+function readLog(file) {
+	try { return fs.readFileSync(file, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line)); }
+	catch { return []; }
+}
+
+function pidAlive(pid) {
+	try { process.kill(pid, 0); return true; } catch (error) { return error.code !== "ESRCH"; }
+}
+
+/** Boot the standalone server with `extraEnv`; returns { url, stop, tail }. */
+async function boot(home, extraEnv) {
+	const port = await freePort();
+	const url = `http://127.0.0.1:${port}`;
+	const tail = [];
+	const env = {
+		...probeEnv(process.env, home),
+		PATH: pathWithoutAgy(process.env.PATH),
+		NODE_ENV: "production",
+		PORT: String(port),
+		HOSTNAME: "127.0.0.1",
+		TMPDIR: path.join(home, "tmp"),
+		TEMP: path.join(home, "tmp"),
+		TMP: path.join(home, "tmp"),
+		...extraEnv,
+	};
+	delete env.LH_FORK_ANTIGRAVITY;
+	if (extraEnv.LH_FORK_ANTIGRAVITY) env.LH_FORK_ANTIGRAVITY = extraEnv.LH_FORK_ANTIGRAVITY;
+	const child = spawn(process.execPath, [SERVER], { cwd: STANDALONE, env, stdio: ["ignore", "pipe", "pipe"] });
+	let exited = false;
+	const keep = (buf) => { tail.push(...buf.toString().split("\n")); if (tail.length > 200) tail.splice(0, tail.length - 200); };
+	child.stdout.on("data", keep);
+	child.stderr.on("data", keep);
+	child.on("exit", () => { exited = true; });
+	const stop = () => new Promise((resolve) => {
+		if (exited) return resolve();
+		child.once("exit", () => resolve());
+		child.kill("SIGTERM");
+		setTimeout(() => { if (!exited) child.kill("SIGKILL"); }, 5000).unref();
+	});
+	const deadline = Date.now() + BOOT_TIMEOUT_MS;
+	while (Date.now() < deadline) {
+		if (exited) throw Object.assign(new Error(`server exited before answering on ${url}`), { tail });
+		if (await status(url) === 200) return { url, stop, tail };
+		await sleep(500);
+	}
+	await stop();
+	throw Object.assign(new Error(`server never answered 200 on ${url}`), { tail });
+}
+
+async function json(url, init = {}) {
+	const response = await fetch(url, init);
+	const text = await response.text();
+	let body;
+	try { body = JSON.parse(text); } catch { body = text; }
+	return { status: response.status, body };
+}
+
+const send = (url, method, body, headers = {}) => json(url, { method, headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) });
+
+async function main() {
+	const home = fs.mkdtempSync(path.join(os.tmpdir(), "lh-smoke-antigravity-"));
+	fs.mkdirSync(path.join(home, "tmp"));
+	const authFile = path.join(home, "auth.json");
+	fs.writeFileSync(authFile, "{}\n");
+	const logFile = path.join(home, "mock-agy.log");
+	const agentTemp = path.join(home, "tmp", "learnharness-antigravity");
+	let server;
+	try {
+		// 1. Switch off.
+		server = await boot(home, {});
+		const off = await json(`${server.url}/api/antigravity`, { headers: INTENT });
+		check(off.status === 200 && JSON.stringify(off.body) === JSON.stringify({ available: false }), `switch off: GET /api/antigravity → ${off.status} ${JSON.stringify(off.body)}`);
+		const offModels = await json(`${server.url}/api/models`);
+		check(offModels.status === 200 && !offModels.body.models.some((m) => m.provider === "antigravity"), "switch off: an Antigravity model is listed");
+		check((await send(`${server.url}/api/antigravity`, "PUT", { enabled: true }, INTENT)).status === 404, "switch off: PUT is not refused with 404");
+		say("switch off: GET → { available: false }, no models, PUT → 404");
+		await server.stop();
+
+		// 2. Switch on, the mock named explicitly.
+		const agentEnv = {
+			LH_FORK_ANTIGRAVITY: "1",
+			LH_AGY_BINARY: MOCK_REAL,
+			MOCK_AGY_LOG: logFile,
+			MOCK_AGY_SCENARIO: JSON.stringify({ prompt: [{ text: REPLY }, { usageUpdate: true }] }),
+		};
+		check(path.basename(agentEnv.LH_AGY_BINARY) === "mock-agy.mjs", "LH_AGY_BINARY is not the mock");
+		server = await boot(home, agentEnv);
+		const on = await json(`${server.url}/api/antigravity`, { headers: INTENT });
+		check(on.status === 200 && on.body.available === true && on.body.enabled === false && on.body.installed === true, `switch on: GET → ${JSON.stringify(on.body)}`);
+		const enabled = await send(`${server.url}/api/antigravity`, "PUT", { enabled: true }, INTENT);
+		check(enabled.status === 200 && enabled.body.enabled === true, `PUT enabled → ${enabled.status} ${JSON.stringify(enabled.body)}`);
+		const checked = await send(`${server.url}/api/antigravity`, "POST", { action: "check" }, INTENT);
+		check(checked.status === 200 && checked.body.models > 0 && checked.body.checkedAt && !checked.body.problem, `POST check → ${checked.status} ${JSON.stringify(checked.body)}`);
+		const onModels = await json(`${server.url}/api/models`);
+		const models = onModels.body.models.filter((m) => m.provider === "antigravity");
+		check(models.length === checked.body.models, `GET /api/models lists ${models.length} Antigravity models, the check listed ${checked.body.models}`);
+		check(models.every((m) => m.cost === null && m.contextWindow === null), "Antigravity models carry an invented price or limit");
+		say(`switch on: enabled, check listed ${models.length} models (agy ${checked.body.agentVersion}), all in /api/models`);
+
+		// 3. One lesson turn through the public API.
+		const created = await send(`${server.url}/api/chats`, "POST", { title: "Antigravity smoke" });
+		check(created.status === 200 && typeof created.body.id === "string", `POST /api/chats → ${created.status} ${JSON.stringify(created.body)}`);
+		const chatId = created.body.id;
+		const pinned = await send(`${server.url}/api/chats/${chatId}/settings`, "PUT", { model: { provider: "antigravity", id: models[0].id } });
+		check(pinned.status === 200, `pin the chat → ${pinned.status} ${JSON.stringify(pinned.body)}`);
+		const turn = await send(`${server.url}/api/chat`, "POST", { chatId, input: { type: "text", text: "Teach me about fractions." } });
+		check(turn.status === 200, `POST /api/chat → ${turn.status} ${JSON.stringify(turn.body)}`);
+		// Drain the turn's stream (it ends when the turn settles), then read the saved record.
+		await fetch(`${server.url}/api/chats/${chatId}/stream`).then((res) => res.text()).catch(() => "");
+		const chatFile = path.join(home, "data", "chats", `${chatId}.json`);
+		const deadline = Date.now() + TURN_TIMEOUT_MS;
+		let saved;
+		while (Date.now() < deadline) {
+			try { saved = JSON.parse(fs.readFileSync(chatFile, "utf8")); } catch { saved = undefined; }
+			const reply = saved?.messages?.findLast?.((m) => m.role === "assistant");
+			if (reply && reply.stopReason !== "pending") break;
+			await sleep(250);
+		}
+		const reply = saved?.messages?.findLast?.((m) => m.role === "assistant");
+		check(reply, "no assistant message was saved");
+		const replyText = (reply.content ?? []).filter((b) => b.type === "text").map((b) => b.text).join("");
+		check(reply.provider === "antigravity" && replyText === REPLY, `saved reply: provider ${reply.provider}, stop ${reply.stopReason}, error ${JSON.stringify(reply.errorMessage ?? null)}, text ${JSON.stringify(replyText)}`);
+		const read = await json(`${server.url}/api/chats/${chatId}`);
+		check(read.status === 200 && JSON.stringify(read.body).includes(REPLY), "GET /api/chats/:id does not carry the reply");
+		const log = readLog(logFile);
+		const starts = log.filter((entry) => entry.kind === "start");
+		check(starts.length > 0 && starts.every((entry) => JSON.stringify(entry.argv) === JSON.stringify(["acp", "--sandbox"])), `mock launched with ${JSON.stringify(starts.map((s) => s.argv))}`);
+		const received = log.filter((entry) => entry.kind === "recv" && entry.line.trim()).map((entry) => JSON.parse(entry.line));
+		check(!received.some((m) => m.method === "authenticate"), "authenticate was sent");
+		const promptAt = received.findIndex((m) => m.method === "session/prompt");
+		const modeAt = received.findIndex((m) => m.method === "session/set_config_option" && m.params?.configId === "mode" && m.params?.value === "default");
+		check(promptAt >= 0 && modeAt >= 0 && modeAt < promptAt, `mode "default" was not set before the prompt (mode at ${modeAt}, prompt at ${promptAt})`);
+		check(JSON.stringify(received[promptAt]).includes("Teach me about fractions."), "the prompt does not carry the learner's message");
+		say(`lesson turn: reply saved (${JSON.stringify(replyText)}); mock saw acp --sandbox, no authenticate, mode "default" before the prompt`);
+
+		// 4. Stop: nothing left behind (and the agent's temp root did exist while it ran).
+		const during = fs.existsSync(agentTemp) ? fs.readdirSync(agentTemp).filter((name) => name.startsWith("run-")) : [];
+		check(during.length > 0, `no agent temp root under ${agentTemp} while the agent ran`);
+		await server.stop();
+		server = undefined;
+		const pids = starts.map((entry) => entry.pid);
+		const until = Date.now() + 5000;
+		while (pids.some(pidAlive) && Date.now() < until) await sleep(100);
+		check(!pids.some(pidAlive), `mock agent processes left running: ${pids.filter(pidAlive).join(", ")}`);
+		const leftovers = fs.existsSync(agentTemp) ? fs.readdirSync(agentTemp) : [];
+		check(leftovers.length === 0, `agent temp folders left: ${leftovers.join(", ")}`);
+		say(`stopped: ${pids.length} mock process(es) gone, no agent temp folders left`);
+		say("smoke passed: the packaged server registers Antigravity, gates it, and runs a lesson on the mock agent.");
+	} catch (error) {
+		console.error(`[smoke-antigravity] FAIL: ${error.message}`);
+		for (const line of (error.tail ?? server?.tail ?? []).slice(-40)) if (line.trim()) console.error(`    ${line}`);
+		process.exitCode = 1;
+	} finally {
+		if (server) await server.stop();
+		// Belt and braces: never leave a mock behind, but only ever signal the pids this run's mock logged.
+		for (const entry of readLog(logFile).filter((e) => e.kind === "start")) if (pidAlive(entry.pid)) try { process.kill(entry.pid, "SIGKILL"); } catch { /* gone */ }
+		fs.rmSync(home, { recursive: true, force: true });
+	}
+}
+
+await main();

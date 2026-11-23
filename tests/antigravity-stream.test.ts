@@ -16,6 +16,7 @@ import { AntigravityMessage, breachMessage, TEXT_ONLY_NOTE } from "../src/agent/
 import type { AntigravityHost } from "../src/agent/antigravity/host.ts";
 import { toPiModel, type AgentModel } from "../src/agent/antigravity/models.ts";
 import { AntigravityRuntime, antigravityTimeouts } from "../src/agent/antigravity/runtime.ts";
+import { checkAntigravityAgent } from "../src/agent/antigravity/provider.ts";
 import { antigravityLimits, createAntigravityStreamFunction } from "../src/agent/antigravity/stream.ts";
 import { OMITTED_IMAGE, toAntigravityInput } from "../src/agent/antigravity/transcript.ts";
 import { mockHarness, waitFor, type MockHarness, type MockScenario } from "./helpers/antigravity-mock.ts";
@@ -126,19 +127,53 @@ test("mode: no `default` on offer → the turn fails and no prompt is sent", asy
 	}
 });
 
-test("mode: already `default` sends nothing; legacy `modes` pass only when already `default`, and are never changed", async (t) => {
+test("mode: already `default` sends nothing; legacy `modes` are not read at all (fail closed, even when \"default\")", async (t) => {
 	const already = setup(t, { mode: "default" });
 	assert.equal((await collect(already.stream(PRO, ctx([HI])))).final.stopReason, "stop");
 	assert.deepEqual(already.h.methods(), ["initialize", "session/new", "session/prompt"]);
 
-	const legacyDefault = setup(t, { mode: null, legacyModes: { currentModeId: "default", availableModes: ["default", "auto"] } });
-	assert.equal((await collect(legacyDefault.stream(PRO, ctx([HI])))).final.stopReason, "stop");
-	assert.deepEqual(legacyDefault.h.methods(), ["initialize", "session/new", "session/prompt"]);
+	for (const currentModeId of ["default", "auto"]) {
+		const legacy = setup(t, { mode: null, legacyModes: { currentModeId, availableModes: ["default", "auto"] } });
+		const refused = await collect(legacy.stream(PRO, ctx([HI])));
+		assert.equal(refused.final.errorMessage, AntigravityMessage.ModeNotSet, currentModeId);
+		assert.deepEqual(legacy.h.methods(), ["initialize", "session/new"], "no session/set_mode, no prompt");
+	}
+});
 
-	const legacyAuto = setup(t, { mode: null, legacyModes: { currentModeId: "auto", availableModes: ["default", "auto"] } });
-	const refused = await collect(legacyAuto.stream(PRO, ctx([HI])));
-	assert.equal(refused.final.errorMessage, AntigravityMessage.ModeNotSet);
-	assert.deepEqual(legacyAuto.h.methods(), ["initialize", "session/new"], "no session/set_mode, no prompt");
+test("the freshest options decide right before the prompt", async (t) => {
+	// A model change reported right after the model was set (an update in the same read) is caught.
+	const reverted = setup(t, { revertModelAfterSet: true });
+	const turn = await collect(reverted.stream(FLASH, ctx([HI])));
+	assert.equal(turn.final.errorMessage, AntigravityMessage.ModelUnavailable);
+	assert(!reverted.h.methods().includes("session/prompt"));
+	// A model change made while setting the mode is put right by the model step, and confirmed.
+	const moved = setup(t, { modeChangeResetsModel: true });
+	assert.equal((await collect(moved.stream(PRO, ctx([HI])))).final.stopReason, "stop");
+	assert.deepEqual(sent(moved.h, "session/set_config_option").map((p) => [p.configId, p.value]), [["mode", "default"], ["model", "gemini-3-pro"]]);
+});
+
+test("text sent before this turn's prompt is ignored, not shown", async (t) => {
+	const { stream } = setup(t, { chunkAfterNew: "SHOULD NOT SHOW " });
+	const turn = await collect(stream(PRO, ctx([HI])));
+	assert.equal(turn.final.stopReason, "stop");
+	assert.equal(turn.text, "Hello world");
+});
+
+test("a duplicate session id: turn B fails and never closes or cancels turn A's session", async (t) => {
+	const { h, runtime, stream } = setup(t, { fixedSessionId: "dup-session", sessionClose: true, prompt: [{ text: "A " }, { sleepMs: 400 }, { text: "done" }] });
+	const a = collect(stream(PRO, ctx([HI])));
+	await waitFor(() => h.methods().includes("session/prompt"), 3000, "A prompting");
+	const b = await collect(stream(PRO, ctx([HI])));
+	assert.equal(b.final.errorMessage, AntigravityMessage.ProtocolError);
+	assert(!h.methods().includes("session/close"), "B sent no session/close");
+	assert(!h.methods().includes("session/cancel"));
+	// "Check connection" on the same process must not close the id A is watching either.
+	assert.equal((await checkAntigravityAgent(runtime)).models.length, 2);
+	await new Promise((resolve) => setTimeout(resolve, 50));
+	assert(!h.methods().includes("session/close"), "the check left A's session alone");
+	const first = await a;
+	assert.equal(first.text, "A done");
+	await waitFor(() => h.methods().filter((m) => m === "session/close").length === 1, 3000, "A closes its own session");
 });
 
 test("after the model is set, mode and model are re-confirmed from the agent's answer (fail closed)", async (t) => {
@@ -158,7 +193,6 @@ test("not signed in on a set_config_option or set_model answer is reported as no
 	for (const scenario of [
 		{ setConfigError: { configId: "mode", code: -32000, message: "Authentication required" } },
 		{ setConfigError: { configId: "model", code: -32603, message: "No browser is available here" } },
-		{ models: { style: "legacy" }, setModelError: { code: -32000, message: "Authentication required" } },
 	]) {
 		const { h, stream } = setup(t, scenario);
 		const turn = await collect(stream(FLASH, ctx([HI])));
@@ -242,6 +276,15 @@ test("only text and thinking count as progress: usage updates don't hold off the
 	assert.equal(turn.final.errorMessage, AntigravityMessage.StoppedResponding);
 });
 
+test("empty text chunks are not progress either", async (t) => {
+	antigravityTimeouts.inactivityMs = 150;
+	antigravityTimeouts.cancelGraceMs = 100;
+	const { stream } = setup(t, { prompt: [{ text: "a" }, { emptyRepeat: { count: 40, everyMs: 50 } }, { hold: true }] });
+	const started = Date.now();
+	assert.equal((await collect(stream(PRO, ctx([HI])))).final.errorMessage, AntigravityMessage.StoppedResponding);
+	assert.ok(Date.now() - started < 1500, "stopped while the empty chunks (2 s of them) were still arriving");
+});
+
 test("the inactivity timer does not keep the server alive", async (t) => {
 	const { h, stream } = setup(t, { prompt: [{ text: "a" }, { waitForCancel: true }] });
 	const controller = new AbortController();
@@ -320,9 +363,10 @@ test("model: unknown → isn't available, no prompt; a listed other model → se
 		assert.equal((await collect(listed.stream(FLASH, ctx([HI])))).final.stopReason, "stop");
 		assert.deepEqual(sent(listed.h, "session/set_config_option").map((p) => [p.configId, p.value]), [["mode", "default"], ["model", "gemini-3-flash"]], style);
 	}
+	// Legacy `models.availableModels` is not read: no model config option fails closed.
 	const legacy = setup(t, { models: { style: "legacy" } });
-	assert.equal((await collect(legacy.stream(FLASH, ctx([HI])))).final.stopReason, "stop");
-	assert.deepEqual(sent(legacy.h, "session/set_model"), [{ sessionId: sent(legacy.h, "session/prompt")[0]!.sessionId, modelId: "gemini-3-flash" }]);
+	assert.equal((await collect(legacy.stream(FLASH, ctx([HI])))).final.errorMessage, AntigravityMessage.ModelUnavailable);
+	assert(!legacy.h.methods().includes("session/set_model") && !legacy.h.methods().includes("session/prompt"));
 });
 
 test("cancel honoured: the stream ends aborted at once, session/cancel sent, the process survives", async (t) => {

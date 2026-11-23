@@ -34,7 +34,11 @@
  *   stdoutRawAtStart (written with no newline), garbageAfterInitialize,
  *   toolCallAfterNew {...tool_call} / permissionAfterNew (sent in the same write as the session/new answer),
  *   setConfigError {configId?, code, message}, setModelError {code, message}, hangMethods [method],
- *   modelChangeResetsMode, rejectModelChange, modelSetNoOptions
+ *   modelChangeResetsMode, modeChangeResetsModel, rejectModelChange, modelSetNoOptions,
+ *   revertModelAfterSet (a config_option_update undoing the model, in the same write as the answer),
+ *   garbageAfterNew (a non-JSON line in the same write as the session/new answer),
+ *   fixedSessionId (every session/new answers this id), chunkAfterNew (text sent right after session/new),
+ *   steps {emptyRepeat:{count,everyMs}} (empty text chunks)
  */
 import { appendFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -132,7 +136,7 @@ function initializeResult() {
 // session/new result, reconstructed (see configOptions above). It is followed by an
 // available_commands_update notification.
 function newSession() {
-	const sessionId = randomUUID();
+	const sessionId = scenario.fixedSessionId ?? randomUUID();
 	const session = {
 		id: sessionId,
 		mode: scenario.mode === undefined ? "auto" : scenario.mode,
@@ -171,6 +175,7 @@ function setConfigOption({ sessionId, configId, value }) {
 	if (configId === "mode") {
 		if (!session.modeOptions.includes(value)) throw new RpcError(-32602, "Invalid mode");
 		if (!scenario.rejectModeChange) session.mode = value;
+		if (scenario.modeChangeResetsModel) models.current = models.list.find((m) => m.value !== models.current)?.value ?? models.current;
 	} else if (configId === "model") {
 		if (!models.list.some((m) => m.value === value)) throw new RpcError(-32602, "Invalid model");
 		if (!scenario.rejectModelChange) models.current = value;
@@ -257,7 +262,9 @@ async function prompt({ sessionId, prompt: blocks }) {
 		}
 		else if (step.modeUpdate) update(sessionId, { sessionUpdate: "current_mode_update", currentModeId: step.modeUpdate });
 		else if (step.configModeUpdate) { session.mode = step.configModeUpdate; update(sessionId, { sessionUpdate: "config_option_update", configOptions: configOptions(session) }); }
-		else if (step.usageRepeat) {
+		else if (step.emptyRepeat) {
+			for (let i = 0; i < step.emptyRepeat.count; i++) { update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "" } }); await sleep(step.emptyRepeat.everyMs); }
+		} else if (step.usageRepeat) {
 			for (let i = 0; i < step.usageRepeat.count; i++) { update(sessionId, { sessionUpdate: "usage_update", used: i, size: 1_000_000 }); await sleep(step.usageRepeat.everyMs); }
 		} else if (step.permissionAndToolCall) {
 			const id = `mock-${nextOwnId++}`;
@@ -293,15 +300,28 @@ async function handleRequest(method, params) {
 			const result = newSession();
 			const early = scenario.toolCallAfterNew
 				? { method: "session/update", params: { sessionId: result.sessionId, update: { sessionUpdate: "tool_call", ...scenario.toolCallAfterNew } } }
+				: scenario.chunkAfterNew !== undefined
+				? { method: "session/update", params: { sessionId: result.sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: scenario.chunkAfterNew } } } }
 				: scenario.permissionAfterNew ? { id: `mock-${nextOwnId++}`, method: "session/request_permission", params: permissionParams(result.sessionId) } : undefined;
+			if (scenario.garbageAfterNew) return { [RAW]: `${JSON.stringify({ jsonrpc: "2.0", id: requestId, result })}\nnot json after session/new\n` };
 			if (early) {
 				if (early.id) pendingToAgent.set(early.id, (answer) => log({ kind: "permission-answer", answer }));
 				return { [RAW]: [{ id: requestId, result }, early].map((message) => `${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`).join("") };
 			}
 			return result;
 		}
-		case "session/set_config_option":
-			return setConfigOption(params);
+		case "session/set_config_option": {
+			const answer = setConfigOption(params);
+			if (scenario.revertModelAfterSet && params.configId === "model") {
+				// The answer, then (same write) an update putting the old model back.
+				const session = sessions.get(params.sessionId);
+				const previous = models.current;
+				models.current = models.list.find((m) => m.value !== previous)?.value ?? previous;
+				const revert = { method: "session/update", params: { sessionId: params.sessionId, update: { sessionUpdate: "config_option_update", configOptions: configOptions(session) } } };
+				return { [RAW]: [{ id: requestId, result: answer }, revert].map((m) => `${JSON.stringify({ jsonrpc: "2.0", ...m })}\n`).join("") };
+			}
+			return answer;
+		}
 		case "session/set_mode": {
 			const session = sessions.get(params.sessionId);
 			if (!session?.legacy || !session.legacy.availableModes.includes(params.modeId)) throw new RpcError(-32602, "Invalid mode");

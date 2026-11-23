@@ -7,7 +7,7 @@ import { Writable } from "node:stream";
 import { tmpdir } from "node:os";
 import test, { type TestContext } from "node:test";
 
-import { AcpPeer, AcpRpcError, AcpTransportError, isAcpRpcError, isAcpTransportError, LineSplitter, LineTooLongError, MAX_LINE_BYTES, methodNotFound, type AcpPeerHandlers } from "../src/agent/antigravity/acp-client.ts";
+import { AcpPeer, AcpRpcError, AcpTransportError, isAcpRpcError, isAcpTransportError, LineSplitter, LineTooLongError, MAX_LINE_BYTES, methodNotFound, stripUrls, type AcpPeerHandlers } from "../src/agent/antigravity/acp-client.ts";
 import { AntigravityMessage } from "../src/agent/antigravity/constants.ts";
 import { mockHarness, waitFor, type MockHarness, type MockScenario } from "./helpers/antigravity-mock.ts";
 
@@ -170,4 +170,15 @@ test("errors are classified by brand, so ones built by an older copy of the modu
 	assert.equal(isAcpRpcError(foreignRpc), true);
 	assert.equal(isAcpTransportError(foreignTransport), true);
 	assert.equal(isAcpRpcError(new Error("plain")), false);
+});
+
+test("stripUrls removes scheme links, scheme-relative links and anything naming accounts.google.com", () => {
+	assert.equal(stripUrls("see https://example.invalid/a?b=1 now"), "see [link removed] now");
+	assert.equal(stripUrls("open //evil.example/path?code=1 please"), "open [link removed] please");
+	assert.equal(stripUrls("(//evil.example/x)"), "([link removed]");
+	assert.equal(stripUrls("//host-at-start/p"), "[link removed]");
+	assert.equal(stripUrls("go to accounts.google.com/o/oauth2/auth?x=1 now"), "go to [link removed] now");
+	assert.equal(stripUrls("ACCOUNTS.GOOGLE.COM"), "[link removed]");
+	assert.equal(stripUrls("a / b // c"), "a / b // c", "a bare // with no host stays");
+	assert.equal(stripUrls("1/2 and a/b/c"), "1/2 and a/b/c");
 });

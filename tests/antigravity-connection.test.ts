@@ -73,54 +73,55 @@ function recorder() {
 const update = (sessionId: string, n: number) => ({ jsonrpc: "2.0", method: "session/update", params: { sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `#${n}` } } } });
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
-test("updates and permission requests for a session not yet watched are kept and replayed on watch", async (t) => {
+const sessionUpdate = (sessionId: string, body: Record<string, unknown>) => ({ jsonrpc: "2.0", method: "session/update", params: { sessionId, update: body } });
+
+test("before watch, only a sticky breach and the latest options/mode are kept, never text", async (t) => {
 	const { child, connection: c } = connection(t);
-	const permission = { jsonrpc: "2.0", id: 7, method: "session/request_permission", params: { sessionId: "s1", toolCall: { title: "Run ls" }, options: [{ optionId: "no", kind: "reject_once" }] } };
-	child.send(update("s1", 1), permission, { jsonrpc: "2.0", method: "session/update", params: { sessionId: "s1", update: { sessionUpdate: "tool_call", title: "Run ls" } } });
+	const permission = { jsonrpc: "2.0", id: 7, method: "session/request_permission", params: { sessionId: "s1", toolCall: { title: "Run ls", kind: "execute" }, options: [{ optionId: "no", kind: "reject_once" }] } };
+	child.send(
+		update("s1", 1),
+		permission,
+		sessionUpdate("s1", { sessionUpdate: "tool_call", title: "Second tool" }),
+		sessionUpdate("s1", { sessionUpdate: "config_option_update", configOptions: [{ id: "mode", currentValue: "auto" }] }),
+		sessionUpdate("s1", { sessionUpdate: "config_option_update", configOptions: [{ id: "mode", currentValue: "default" }] }),
+		sessionUpdate("s1", { sessionUpdate: "current_mode_update", currentModeId: "plan" }),
+		update("s1", 2),
+	);
 	await tick();
 	// Answered at once, before anyone watches.
 	assert.deepEqual(child.written.find((m) => m.id === 7), { jsonrpc: "2.0", id: 7, result: { outcome: { outcome: "selected", optionId: "no" } } });
 	const r = recorder();
 	c.watch("s1", r.listener);
-	assert.equal(r.updates.length, 2);
-	assert.equal((r.updates[1] as { sessionUpdate: string }).sessionUpdate, "tool_call");
-	assert.equal(r.permissions.length, 1);
-	child.send(update("s1", 2));
+	assert.deepEqual(r.updates, [
+		{ sessionUpdate: "config_option_update", configOptions: [{ id: "mode", currentValue: "default" }] },
+		{ sessionUpdate: "current_mode_update", currentModeId: "plan" },
+	], "latest options and mode only; no chunk is kept");
+	assert.deepEqual(r.permissions, [{ sessionId: "s1", toolCall: { title: "Run ls", kind: "execute" }, options: [] }], "the first breach, sticky");
+	child.send(update("s1", 3));
 	await tick();
 	assert.equal(r.updates.length, 3, "live updates flow after the replay");
 });
 
-test("the early buffer is bounded: 200 entries per session, 20 sessions, 10 s", async (t) => {
+test("the early map holds 20 sessions and drops the oldest one WITHOUT a breach first", async (t) => {
 	const { child, connection: c } = connection(t);
-	child.send(...Array.from({ length: 250 }, (_, n) => update("big", n)));
-	child.send(...Array.from({ length: 25 }, (_, n) => update(`s${n}`, n)));
+	child.send(sessionUpdate("breached", { sessionUpdate: "tool_call", title: "Early tool" }));
+	child.send(...Array.from({ length: 25 }, (_, n) => sessionUpdate(`s${n}`, { sessionUpdate: "current_mode_update", currentModeId: "auto" })));
 	await tick();
-	const big = recorder();
-	c.watch("big", big.listener);
-	assert.equal(big.updates.length, 0, "the oldest session was dropped once 20 more arrived");
-	const early = recorder();
-	c.watch("s0", early.listener);
-	assert.equal(early.updates.length, 0);
-	const late = recorder();
-	c.watch("s24", late.listener);
-	assert.equal(late.updates.length, 1);
-
-	const { child: child2, connection: c2 } = connection(t);
-	child2.send(...Array.from({ length: 250 }, (_, n) => update("one", n)));
+	const breached = recorder();
+	c.watch("breached", breached.listener);
+	assert.deepEqual(breached.updates, [{ sessionUpdate: "tool_call", title: "Early tool", kind: undefined }], "a breach outlives later sessions");
+	const oldest = recorder();
+	c.watch("s0", oldest.listener);
+	assert.equal(oldest.updates.length, 0, "evicted");
+	const newest = recorder();
+	c.watch("s24", newest.listener);
+	assert.equal(newest.updates.length, 1);
+	// A chunk alone creates no entry at all.
+	child.send(update("chatty", 1));
 	await tick();
-	const one = recorder();
-	c2.watch("one", one.listener);
-	assert.equal(one.updates.length, 200);
-	assert.match(JSON.stringify(one.updates.at(-1)), /#249/, "the newest are kept");
-
-	const realNow = Date.now;
-	t.after(() => { Date.now = realNow; });
-	child2.send(update("stale", 1));
-	await tick();
-	Date.now = () => realNow() + 10_001;
-	const stale = recorder();
-	c2.watch("stale", stale.listener);
-	assert.equal(stale.updates.length, 0, "dropped after 10 s");
+	const chatty = recorder();
+	c.watch("chatty", chatty.listener);
+	assert.equal(chatty.updates.length, 0);
 });
 
 test("watch refuses an empty id and a second listener; the first keeps its updates", async (t) => {
@@ -158,7 +159,7 @@ test("a throwing listener never escapes the stdout handler", async (t) => {
 	await c.closed;
 });
 
-test("`exit` alone ends the connection: listeners told, streams destroyed, temp root removed", async (t) => {
+test("`exit` alone ends the connection after the drain delay: listeners told, streams destroyed, temp root removed", async (t) => {
 	const { child, connection: c, root } = connection(t);
 	const r = recorder();
 	c.watch("s1", r.listener);
@@ -213,4 +214,26 @@ test("the sign-in line counts without a newline and after leading spaces", async
 	await sleep(10);
 	child.stdout.end("link to authenticate");
 	await assert.rejects(pending, (error: Error) => error.message === AntigravityMessage.NotSignedIn);
+});
+
+test("after `exit`, output still in the pipe is read: a final answer within the drain delay resolves", async (t) => {
+	const { child, connection: c } = connection(t);
+	antigravityTimeouts.exitDrainMs = 200;
+	const pending = c.request("session/prompt", { sessionId: "s1" });
+	child.emit("exit", 0, null);
+	assert.equal(c.alive, false, "no new turn may use it");
+	child.send({ jsonrpc: "2.0", id: 1, result: { stopReason: "end_turn" } });
+	assert.deepEqual(await pending, { stopReason: "end_turn" });
+	child.emit("close", 0, null);
+	await c.closed;
+});
+
+test("a frame without jsonrpc \"2.0\" is a protocol error", async (t) => {
+	for (const frame of [{ id: 1, result: {} }, { jsonrpc: "1.0", id: 1, result: {} }, { jsonrpc: 2, method: "session/update", params: {} }]) {
+		const { child, connection: c } = connection(t);
+		const pending = c.request("initialize", {});
+		child.send(frame);
+		await assert.rejects(pending, (error: Error) => error.message === AntigravityMessage.ProtocolError, JSON.stringify(frame));
+		await c.closed;
+	}
 });

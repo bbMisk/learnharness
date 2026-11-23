@@ -15,7 +15,11 @@ export const SIGN_IN_LINE_PREFIX = "Open the following link to authenticate";
 
 /** Anything that looks like a link becomes a placeholder: agent text may carry a sign-in URL. */
 export function stripUrls(text: string): string {
-	return text.replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, "[link removed]");
+	return text
+		.replace(/\S*accounts\.google\.com\S*/gi, "[link removed]")
+		.replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, "[link removed]")
+		// Scheme-relative: //host/path, at the start or after a space or opening bracket/quote.
+		.replace(/(^|[\s("'<[])\/\/[^\s/]+\S*/g, "$1[link removed]");
 }
 
 /**
@@ -91,7 +95,10 @@ export class LineSplitter {
 }
 
 type JsonRpcId = number | string;
-type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => void; timer?: NodeJS.Timeout };
+type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => void; timer?: NodeJS.Timeout; stamped?: boolean };
+
+/** A response and the number of the frame it arrived in, so a caller can order it against updates. */
+export type Stamped = { result: unknown; frame: number };
 
 export interface AcpPeerHandlers {
 	onNotification(method: string, params: unknown): void;
@@ -111,6 +118,8 @@ function isId(value: unknown): value is JsonRpcId {
 
 export class AcpPeer {
 	private nextId = 1;
+	/** Incoming frames handled so far; read it inside a notification handler to stamp that update. */
+	frame = 0;
 	private readonly pending = new Map<JsonRpcId, Pending>();
 	private readonly splitter = new LineSplitter();
 	private closedWith: AcpTransportError | undefined;
@@ -127,6 +136,7 @@ export class AcpPeer {
 		catch { this.fatal("protocol", AntigravityMessage.ProtocolError); return; }
 		for (const line of lines) {
 			if (this.closed) return;
+			this.frame++;
 			this.handleLine(line);
 		}
 		// The sign-in line may come without a newline while the agent waits.
@@ -153,6 +163,14 @@ export class AcpPeer {
 			this.pending.set(id, entry);
 			this.write({ jsonrpc: "2.0", id, method, params });
 		});
+	}
+
+	/** Like request(), resolving with the frame number the answer arrived in. */
+	requestStamped(method: string, params: unknown, timeoutMs?: number, timeoutMessage?: string): Promise<Stamped> {
+		const promise = this.request(method, params, timeoutMs, timeoutMessage);
+		const entry = this.pending.get(this.nextId - 1);
+		if (entry) entry.stamped = true;
+		return promise as Promise<Stamped>;
 	}
 
 	notify(method: string, params: unknown): void {
@@ -187,7 +205,7 @@ export class AcpPeer {
 		let message: unknown;
 		try { message = JSON.parse(line); }
 		catch { this.fatal("protocol", AntigravityMessage.ProtocolError); return; }
-		if (!isRecord(message)) { this.fatal("protocol", AntigravityMessage.ProtocolError); return; }
+		if (!isRecord(message) || message.jsonrpc !== "2.0") { this.fatal("protocol", AntigravityMessage.ProtocolError); return; }
 
 		if (typeof message.method === "string") {
 			if (isId(message.id)) this.answer(message.id, message.method, message.params);
@@ -206,7 +224,7 @@ export class AcpPeer {
 			const code = typeof error.code === "number" ? error.code : -32603;
 			entry.reject(new AcpRpcError(code, typeof error.message === "string" ? stripUrls(error.message) : ""));
 		} else {
-			entry.resolve(message.result);
+			entry.resolve(entry.stamped ? { result: message.result, frame: this.frame } : message.result);
 		}
 	}
 

@@ -43,8 +43,13 @@ export async function checkAntigravityAgent(runtime: AntigravityRuntime = antigr
 		if (typeof created !== "object" || created === null || typeof (created as { sessionId?: unknown }).sessionId !== "string") {
 			throw new AcpTransportError("protocol", AntigravityMessage.ProtocolError);
 		}
+		// Killed while the answer was in flight (a bad line, the sign-in line): not a success.
+		if (!connection.alive) throw connection.failure ?? new AcpTransportError("closed", AntigravityMessage.Exited);
 		const sessionId = (created as { sessionId: string }).sessionId;
-		if (connection.handshake.sessionClose) connection.request("session/close", { sessionId }, antigravityTimeouts.startupMs).catch(() => { /* dropped either way */ });
+		// Never close a session a turn is watching (a duplicate id must not end someone else's reply).
+		if (connection.handshake.sessionClose && !connection.watching(sessionId)) {
+			connection.request("session/close", { sessionId }, antigravityTimeouts.startupMs).catch(() => { /* dropped either way */ });
+		}
 		return { agentVersion: connection.handshake.agentVersion, models: modelsFrom(created) ?? [] };
 	} finally {
 		release();

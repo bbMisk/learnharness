@@ -1,7 +1,7 @@
 /**
  * Reading the agent's session config: the approval mode and the model list.
- * The model list comes ONLY from the agent (a `configOptions` select, or the
- * legacy `models` field); LearnHarness never invents model ids.
+ * The model list comes ONLY from the agent's `configOptions` model select;
+ * LearnHarness never invents model ids and reads no older shapes.
  */
 import type { Api, Model } from "@earendil-works/pi-ai";
 
@@ -52,28 +52,14 @@ export function findConfigOption(configOptions: unknown, key: "mode" | "model"):
 	return { configId: option.id, currentValue: typeof option.currentValue === "string" ? option.currentValue : undefined, values: selectValues(option.options) };
 }
 
-/** Legacy `models: { currentModelId, availableModels: [{ modelId, name }] }`. */
-export function legacyModels(result: unknown): { currentModelId: string | undefined; values: AgentModel[] } | null {
-	if (!isRecord(result) || !isRecord(result.models) || !Array.isArray(result.models.availableModels)) return null;
-	const values = result.models.availableModels.flatMap((model): AgentModel[] => (isRecord(model) ? entry(model.modelId, model.name) : []));
-	return { currentModelId: typeof result.models.currentModelId === "string" ? result.models.currentModelId : undefined, values };
-}
-
-/** The models a session/new result (or a config_option_update) offers, or null when it says nothing. */
+/** The models a session/new result (or a config_option_update) offers through its model config option,
+ *  or null when it has none. Older shapes (`models.availableModels`) are not read. */
 export function modelsFrom(result: unknown): AgentModel[] | null {
 	if (!isRecord(result)) return null;
-	const option = findConfigOption(result.configOptions, "model");
-	const values = option?.values ?? legacyModels(result)?.values;
+	const values = findConfigOption(result.configOptions, "model")?.values;
 	if (!values) return null;
 	const seen = new Set<string>();
 	return values.filter((model) => !seen.has(model.id) && seen.add(model.id));
-}
-
-/** Legacy `modes: { currentModeId, availableModes: [{ id }] }`. */
-export function legacyModes(result: unknown): { currentModeId: string | undefined; ids: string[] } | null {
-	if (!isRecord(result) || !isRecord(result.modes) || !Array.isArray(result.modes.availableModes)) return null;
-	const ids = result.modes.availableModes.flatMap((mode) => (isRecord(mode) && typeof mode.id === "string" ? [mode.id] : []));
-	return { currentModeId: typeof result.modes.currentModeId === "string" ? result.modes.currentModeId : undefined, ids };
 }
 
 const SHARED_MODEL_FIELDS = {

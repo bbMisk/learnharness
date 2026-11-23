@@ -33,7 +33,8 @@ const { piModels, piEngineForSpec } = await import("../src/agent/models.ts");
 const { modelCatalog, validateModelsSettings, validateChatSettings, toModelDto } = await import("../src/server/model-catalog.ts");
 const { providerKeyPresent } = await import("../src/server/keys.ts");
 const { providerKeyMissing, isProviderKeyRefusal, ProviderKeyMissingError } = await import("../src/core/settings.ts");
-const { antigravityResponse, antigravityTurnRefusal, checkAntigravityConnection } = await import("../src/server/antigravity.ts");
+const { antigravityResponse, antigravityStatus, antigravityTurnRefusal, checkAntigravityConnection } = await import("../src/server/antigravity.ts");
+const { AcpRpcError } = await import("../src/agent/antigravity/acp-client.ts");
 const { antigravityAvailable } = await import("../src/server/antigravity-config.ts");
 const { antigravityStore, ANTIGRAVITY_FILE, createAntigravityStore } = await import("../src/store/antigravity.ts");
 const { writeSettings } = await import("../src/store/settings.ts");
@@ -222,9 +223,9 @@ test("denied doors refuse before any spawn: jobs, extraction envelope, side tuto
 	assert.equal(launches, before, "no spawn");
 });
 
-test("check connection: flat, grouped and legacy model lists are persisted and survive a restart", async (t) => {
+test("check connection: flat and grouped model lists are persisted and survive a restart", async (t) => {
 	state({ switchOn: true, enabled: true, installed: true });
-	for (const style of ["flat", "grouped", "legacy"]) {
+	for (const style of ["flat", "grouped"]) {
 		const h = mockHarness(t, { models: { style, list: [{ value: `${style}-a`, name: `${style} A` }, { value: `${style}-b`, name: `${style} B` }] } });
 		const runtime = new AntigravityRuntime({ launch: h.launch, tempBase });
 		h.onTeardown(() => runtime.shutdown());
@@ -242,6 +243,11 @@ test("check connection: flat, grouped and legacy model lists are persisted and s
 	}
 	const file = JSON.parse(fs.readFileSync(ANTIGRAVITY_FILE, "utf8"));
 	assert.deepEqual(Object.keys(file).sort(), ["agentVersion", "checkedAt", "enabled", "models", "version"]);
+	// The legacy `models.availableModels` shape is not read: the check lists no models.
+	const h = mockHarness(t, { models: { style: "legacy" } });
+	const runtime = new AntigravityRuntime({ launch: h.launch, tempBase });
+	h.onTeardown(() => runtime.shutdown());
+	assert.deepEqual((await checkAntigravityAgent(runtime)).models, []);
 });
 
 test("check connection when not signed in: the status says so and keeps the old list", async (t) => {
@@ -288,7 +294,7 @@ test("model lists drop entries with a link, a control character or more than 200
 		{ group: "g", options: [{ value: "grouped-ok" }] },
 	] }] });
 	assert.deepEqual(listed, [{ id: "ok", name: "Fine" }, { id: "grouped-ok", name: "grouped-ok" }]);
-	assert.deepEqual(modelsFrom({ models: { availableModels: [{ modelId: "fine" }, { modelId: "bad", name: "see ftp://x" }] } }), [{ id: "fine", name: "fine" }]);
+	assert.equal(modelsFrom({ models: { availableModels: [{ modelId: "fine" }] } }), null, "the legacy shape is not read");
 	const file = path.join(directory, "unsafe-models.json");
 	fs.writeFileSync(file, JSON.stringify({ version: 1, enabled: true, models: [{ id: "ok", name: "Fine" }, { id: "https://evil.example", name: "x" }, { id: "y", name: "\u001b[31mred" }] }));
 	assert.deepEqual(createAntigravityStore(file).read().models, [{ id: "ok", name: "Fine" }]);
@@ -333,6 +339,57 @@ test("a foreground continue with real saved history is ALLOWED: it resumes the r
 	assert.match(JSON.stringify(h.received().find((m) => m.method === "session/prompt")), /Explain fractions/);
 	spyRuntime.shutdown();
 	await h.assertNoChildren();
+});
+
+test("a foreground continue when the saved history already ends with a finished reply is refused: nothing is owed", async () => {
+	state({ switchOn: true, enabled: true, installed: true });
+	const before = launches;
+	const chat = lessonChat("Antigravity nothing owed");
+	chatStore.saveMessages(chat.id, [
+		{ role: "user", id: "learner-1", content: "Explain fractions", timestamp: 1 },
+		{ role: "assistant", id: "reply-1", content: [{ type: "text", text: "Here you go." }], api: "antigravity-acp", provider: "antigravity", model: "gemini-3-pro", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 2 },
+	] as never);
+	const response = await handleChatInput(chat.id, { type: "continue" }, build);
+	assert.equal(response.status, 403);
+	assert.equal(launches, before);
+});
+
+test("check connection is not a success if the agent died right after its session/new answer", async (t) => {
+	state({ switchOn: true, enabled: true, installed: true });
+	const h = mockHarness(t, { garbageAfterNew: true });
+	const runtime = new AntigravityRuntime({ launch: h.launch, tempBase });
+	h.onTeardown(() => runtime.shutdown());
+	const status = await checkAntigravityConnection(() => checkAntigravityAgent(runtime));
+	assert.equal(status.checkedAt, undefined);
+	assert.match(status.problem ?? "", /could not read/);
+	await h.assertNoChildren();
+});
+
+test("every failed check clears checkedAt, and a store that can't be written still answers with the problem", async (t) => {
+	state({ switchOn: true, enabled: true, installed: true });
+	antigravityStore.update({ checkedAt: new Date().toISOString() });
+	delete process.env.LH_AGY_BINARY; // not available: not installed
+	const missing = await checkAntigravityConnection(async () => assert.fail("must not probe"));
+	assert.equal(missing.checkedAt, undefined);
+	assert.equal(antigravityStore.read().checkedAt, undefined, "cleared on the not-available branch too");
+
+	state({ switchOn: true, enabled: true, installed: true });
+	const original = antigravityStore.update;
+	t.after(() => { antigravityStore.update = original; });
+	const logged: unknown[] = [];
+	const originalError = console.error;
+	console.error = (...args: unknown[]) => { logged.push(args); };
+	t.after(() => { console.error = originalError; });
+	antigravityStore.update = () => { throw new Error("EACCES: read-only data folder"); };
+	const failed = await checkAntigravityConnection(async () => { throw new AcpRpcError(-32000, "Authentication required"); });
+	assert.match(failed.problem ?? "", /Not signed in/);
+	const viaRoute = await antigravityResponse(request("POST", { action: "check" }), {
+		check: () => checkAntigravityConnection(async () => { throw new AcpRpcError(-32000, "Authentication required"); }),
+		status: antigravityStatus, setEnabled: () => {},
+	});
+	assert.equal(viaRoute.status, 200);
+	assert.match((await viaRoute.json()).problem, /Not signed in/);
+	assert(!JSON.stringify(logged).includes("EACCES"));
 });
 
 test("a continue whose last cause is automatic (a job result) is refused before any spawn", async () => {

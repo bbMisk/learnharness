@@ -18,7 +18,7 @@ import {
 import { AcpTransportError, isAcpRpcError, stripUrls } from "./acp-client.ts";
 import { AntigravityMessage, breachMessage } from "./constants.ts";
 import { antigravityHost, type AntigravityHost } from "./host.ts";
-import { findConfigOption, legacyModels, legacyModes, modelsFrom } from "./models.ts";
+import { findConfigOption, modelsFrom } from "./models.ts";
 import { antigravityRuntime, antigravityTimeouts, describeAgentError, isSignInError, rejectOnce, type AgentConnection, type AntigravityRuntime } from "./runtime.ts";
 import { toAntigravityInput } from "./transcript.ts";
 
@@ -134,6 +134,10 @@ class TurnSession {
 	/** run() has returned: nothing more may be sent for this session. */
 	private done = false;
 	private replyBytes = 0;
+	/** The session's config options as the agent last stated them (session/new, every set answer, every update). */
+	private options: unknown[] = [];
+	/** The frame the current view came from: an answer read before a later update never overwrites it. */
+	private optionsFrame = -1;
 	private inactivity: NodeJS.Timeout | undefined;
 	private stopWatching: (() => void) | undefined;
 
@@ -155,27 +159,32 @@ class TurnSession {
 		const append = connection.handshake.systemPromptAppend;
 		try {
 			this.checkpoint();
-			const created = await connection.setupRequest("session/new", {
+			const { result: created, frame } = await connection.setupRequestStamped("session/new", {
 				cwd: connection.workspace,
 				mcpServers: [],
 				...(append ? { _meta: { antigravity: { systemPrompt: { append: input.systemText } } } } : {}),
 			});
 			if (!isRecord(created) || typeof created.sessionId !== "string") throw new AcpTransportError("protocol", AntigravityMessage.ProtocolError);
 			const sessionId = created.sessionId;
-			this.sessionId = sessionId;
-			// Replays anything that arrived before this point, so an early tool_call still stops the turn.
+			this.observe(created.configOptions, frame);
+			this.refreshModels(created);
+			// Replays what arrived before this point (a breach, newer options), so an early tool_call still
+			// stops the turn. Throws for an id another turn already watches: this turn then owns nothing.
 			this.stopWatching = connection.watch(sessionId, {
 				onUpdate: (update) => this.onUpdate(update),
 				onPermissionRequest: (params) => this.onPermission(params),
 				onClosed: (error) => this.turn.fail(error.message),
 			});
-			this.refreshModels(created);
+			this.sessionId = sessionId;
 			this.checkpoint();
 
-			if (!await this.pinDefaultMode(sessionId, created)) throw new StopTurn(AntigravityMessage.ModeNotSet);
+			await this.pinDefaultMode(sessionId);
 			this.checkpoint();
-			await this.selectModel(sessionId, created, model.id);
+			await this.selectModel(sessionId, model.id);
 			this.checkpoint();
+			// The freshest view decides: a change made while setting the other option is caught here.
+			if (findConfigOption(this.options, "mode")?.currentValue !== "default") throw new StopTurn(AntigravityMessage.ModeNotSet);
+			if (findConfigOption(this.options, "model")?.currentValue !== model.id) throw new StopTurn(AntigravityMessage.ModelUnavailable);
 
 			const prompt = [...(append ? [] : [{ type: "text", text: input.systemText }]), { type: "text", text: input.transcript }];
 			this.prompt = connection.request("session/prompt", { sessionId, prompt });
@@ -200,40 +209,39 @@ class TurnSession {
 		if (this.turn.finished) throw new StopTurn("");
 	}
 
-	/** Mode "default" or nothing. A legacy `modes` field only passes when it already says "default". */
-	private async pinDefaultMode(sessionId: string, created: Record<string, unknown>): Promise<boolean> {
-		const mode = findConfigOption(created.configOptions, "mode");
-		if (!mode) return legacyModes(created)?.currentModeId === "default";
-		if (!mode.values.some((value) => value.id === "default")) return false;
-		if (mode.currentValue === "default") return true;
-		try {
-			const updated = await this.connection.setupRequest("session/set_config_option", { sessionId, configId: mode.configId, value: "default" });
-			return isRecord(updated) && findConfigOption(updated.configOptions, "mode")?.currentValue === "default";
-		} catch (error) {
-			// A refusal of the value is "could not set"; sign-in and account problems say so.
-			if (isAcpRpcError(error) && !isSignInError(error) && !error.message.includes("SUBSCRIPTION_REQUIRED")) return false;
-			throw error;
-		}
+	/** Replace the current view with the agent's statement of the options, unless a later frame already did. */
+	private observe(configOptions: unknown, frame: number): void {
+		if (!Array.isArray(configOptions) || frame < this.optionsFrame) return;
+		this.options = configOptions;
+		this.optionsFrame = frame;
 	}
 
-	private async selectModel(sessionId: string, created: Record<string, unknown>, modelId: string): Promise<void> {
-		const option = findConfigOption(created.configOptions, "model");
-		if (option) {
-			if (!option.values.some((value) => value.id === modelId)) throw new StopTurn(AntigravityMessage.ModelUnavailable);
-			if (option.currentValue === modelId) return;
-			const updated = await this.connection.setupRequest("session/set_config_option", { sessionId, configId: option.configId, value: modelId });
-			// Re-confirm from the agent's own answer: still "default", and now the requested model.
-			const options = isRecord(updated) ? updated.configOptions : undefined;
-			if (!Array.isArray(options)) throw new StopTurn(AntigravityMessage.ModelUnavailable);
-			const mode = findConfigOption(options, "mode");
-			if (mode && mode.currentValue !== "default") throw new StopTurn(AntigravityMessage.ModeNotSet);
-			if (!mode && legacyModes(created)?.currentModeId !== "default") throw new StopTurn(AntigravityMessage.ModeNotSet);
-			if (findConfigOption(options, "model")?.currentValue !== modelId) throw new StopTurn(AntigravityMessage.ModelUnavailable);
-			return;
-		}
-		const legacy = legacyModels(created);
-		if (!legacy?.values.some((value) => value.id === modelId)) throw new StopTurn(AntigravityMessage.ModelUnavailable);
-		if (legacy.currentModelId !== modelId) await this.connection.setupRequest("session/set_model", { sessionId, modelId });
+	/** A refusal of the value is "could not set"; sign-in and account problems say so. */
+	private refusal(error: unknown, message: string): never {
+		if (isAcpRpcError(error) && !isSignInError(error) && !error.message.includes("SUBSCRIPTION_REQUIRED")) throw new StopTurn(message);
+		throw error;
+	}
+
+	/** Mode "default" from a mode config option, or the turn fails closed. */
+	private async pinDefaultMode(sessionId: string): Promise<void> {
+		const mode = findConfigOption(this.options, "mode");
+		if (!mode || !mode.values.some((value) => value.id === "default")) throw new StopTurn(AntigravityMessage.ModeNotSet);
+		if (mode.currentValue === "default") return;
+		try {
+			const { result: updated, frame } = await this.connection.setupRequestStamped("session/set_config_option", { sessionId, configId: mode.configId, value: "default" });
+			this.observe(isRecord(updated) ? updated.configOptions : undefined, frame);
+		} catch (error) { this.refusal(error, AntigravityMessage.ModeNotSet); }
+	}
+
+	/** The requested model from a model config option, or the turn fails closed. */
+	private async selectModel(sessionId: string, modelId: string): Promise<void> {
+		const option = findConfigOption(this.options, "model");
+		if (!option || !option.values.some((value) => value.id === modelId)) throw new StopTurn(AntigravityMessage.ModelUnavailable);
+		if (option.currentValue === modelId) return;
+		try {
+			const { result: updated, frame } = await this.connection.setupRequestStamped("session/set_config_option", { sessionId, configId: option.configId, value: modelId });
+			this.observe(isRecord(updated) ? updated.configOptions : undefined, frame);
+		} catch (error) { this.refusal(error, AntigravityMessage.ModelUnavailable); }
 	}
 
 	private refreshModels(source: unknown): void {
@@ -252,7 +260,8 @@ class TurnSession {
 		switch (update.sessionUpdate) {
 			case "agent_message_chunk":
 			case "agent_thought_chunk": {
-				if (content?.type !== "text" || typeof content.text !== "string") return;
+				// Nothing is shown before this turn's own prompt, and only non-empty text is progress.
+				if (!this.prompt || content?.type !== "text" || typeof content.text !== "string" || content.text === "") return;
 				this.touch();
 				this.replyBytes += Buffer.byteLength(content.text);
 				if (this.replyBytes > antigravityLimits.replyBytes) { this.stopReply(AntigravityMessage.TooLong); return; }
@@ -264,12 +273,17 @@ class TurnSession {
 				this.breach(update);
 				return;
 			case "current_mode_update":
-				if (update.currentModeId !== "default") this.stopReply(AntigravityMessage.ModeChanged);
+				if (typeof update.currentModeId === "string") {
+					const modeId = update.currentModeId;
+					this.options = this.options.map((option) => (isRecord(option) && (option.id === "mode" || option.category === "mode") ? { ...option, currentValue: modeId } : option));
+					this.optionsFrame = Math.max(this.optionsFrame, this.connection.frame);
+				}
+				if (this.prompt && update.currentModeId !== "default") this.stopReply(AntigravityMessage.ModeChanged);
 				return;
 			case "config_option_update": {
+				this.observe(update.configOptions, this.connection.frame);
 				this.refreshModels(update);
-				const mode = findConfigOption(update.configOptions, "mode");
-				if (mode && mode.currentValue !== "default") this.stopReply(AntigravityMessage.ModeChanged);
+				if (this.prompt && findConfigOption(this.options, "mode")?.currentValue !== "default") this.stopReply(AntigravityMessage.ModeChanged);
 				return;
 			}
 			default:

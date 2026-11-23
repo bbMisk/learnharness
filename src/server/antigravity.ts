@@ -48,22 +48,34 @@ export function antigravityStatus(): AntigravityStatus {
 
 /** The explicit "Check connection": the only place besides a lesson turn that starts the agent. */
 export async function checkAntigravityConnection(probe: () => Promise<ConnectionCheck> = () => checkAntigravityAgent()): Promise<AntigravityStatus> {
-	if (!antigravityAvailable()) {
-		problemState().message = antigravityEnabled() ? AntigravityMessage.NotInstalled : undefined;
-		return antigravityStatus();
-	}
+	if (!antigravityAvailable()) return recordFailedCheck(antigravityEnabled() ? AntigravityMessage.NotInstalled : undefined);
 	initAuthEnv(); // provenance first, so the agent's env never carries file-only keys
+	let result: ConnectionCheck;
 	try {
-		const result = await probe();
+		result = await probe();
+	} catch (error) {
+		return recordFailedCheck(describeAgentError(error));
+	}
+	try {
 		antigravityStore.update({ models: result.models, ...(result.agentVersion ? { agentVersion: result.agentVersion } : {}), checkedAt: new Date().toISOString() });
 		problemState().message = undefined;
-	} catch (error) {
-		problemState().message = describeAgentError(error);
-		// After a restart Settings must not still say "Connected": forget the check, keep the
-		// model list so lessons pinned to one of its models still resolve.
-		antigravityStore.update({ checkedAt: undefined });
+	} catch {
+		return recordFailedCheck("The Antigravity check worked, but its result could not be saved.");
 	}
 	return antigravityStatus();
+}
+
+/**
+ * A failed check: after a restart Settings must not still say "Connected", so `checkedAt` is
+ * cleared (the model list stays, so lessons pinned to one of its models still resolve). A store
+ * that can't be written still answers, with the problem.
+ */
+function recordFailedCheck(problem: string | undefined): AntigravityStatus {
+	problemState().message = problem;
+	try { antigravityStore.update({ checkedAt: undefined }); }
+	catch { console.error("Antigravity: could not record the failed check."); }
+	try { return antigravityStatus(); }
+	catch { return { available: true, enabled: true, installed: antigravityInstalled(), models: 0, ...(problem ? { problem } : {}) }; }
 }
 
 export interface AntigravityRouteDeps {
@@ -145,13 +157,20 @@ const LEARNER_INPUT: Record<TurnInput["type"], boolean> = {
 	next: true,
 	"plugin-question-answer": true,
 	"plugin-problem-submission": true,
-	continue: false, // admitted only when it resumes a reply the learner is owed (foreground cause)
+	continue: false, // admitted only when it resumes a reply the learner is owed (foreground cause, no finished reply yet)
 	steers: false, // the wake pipeline
 };
 
+/** The saved history does not already end with a finished assistant reply. */
+function replyOwed(messages: readonly LhMessage[]): boolean {
+	const last = messages.at(-1) as { role?: string; stopReason?: string } | undefined;
+	return !(last?.role === "assistant" && (last.stopReason === "stop" || last.stopReason === "length"));
+}
+
 export function antigravityTurnRefusal(inputType: string, messages: readonly LhMessage[]): Response | null {
 	const learner = Object.hasOwn(LEARNER_INPUT, inputType) && LEARNER_INPUT[inputType as TurnInput["type"]];
-	if (!learner && !(inputType === "continue" && reconstructRequestCause(messages) === "foreground")) {
+	const owedContinue = inputType === "continue" && reconstructRequestCause(messages) === "foreground" && replyOwed(messages);
+	if (!learner && !owedContinue) {
 		return Response.json({ error: BACKGROUND_REFUSAL }, { status: 403 });
 	}
 	if (!antigravityAvailable()) {

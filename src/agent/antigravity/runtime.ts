@@ -12,7 +12,7 @@ import { join } from "node:path";
 
 import packageMetadata from "../../../package.json" with { type: "json" };
 import { externalCliEnv } from "../../core/auth-env.ts";
-import { AcpPeer, AcpTransportError, isAcpRpcError, isAcpTransportError, methodNotFound, SIGN_IN_LINE_PREFIX, stripUrls } from "./acp-client.ts";
+import { AcpPeer, AcpTransportError, type Stamped, isAcpRpcError, isAcpTransportError, methodNotFound, SIGN_IN_LINE_PREFIX, stripUrls } from "./acp-client.ts";
 import { createAgentLauncher, type LaunchAgent } from "./binary.ts";
 import { AntigravityMessage } from "./constants.ts";
 
@@ -28,12 +28,12 @@ export const antigravityTimeouts = {
 	cancelGraceMs: 5_000,
 	/** SIGTERM, then SIGKILL after this. */
 	killGraceMs: 1_000,
+	/** After `exit`, how long buffered output may still be read if `close` doesn't come first. */
+	exitDrainMs: 250,
 };
 
 const STDERR_PARTIAL_BYTES = 4_096;
-/** Updates for a session nobody watches yet are kept this long, this many, for this many sessions. */
-const EARLY_TTL_MS = 10_000;
-const EARLY_MAX_ENTRIES = 200;
+/** Sessions nobody watches yet whose early state is remembered. */
 const EARLY_MAX_SESSIONS = 20;
 const TEMP_FOLDER = "learnharness-antigravity";
 const RUN_PREFIX = "run-";
@@ -74,7 +74,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-type Early = { at: number; kind: "update"; update: Record<string, unknown> } | { at: number; kind: "permission"; params: Record<string, unknown> };
+/**
+ * What is remembered for a session before anyone watches it: no message or
+ * thought text, only whether a breach happened (sticky), the latest config
+ * options and the latest mode.
+ */
+type Early = {
+	breach?: { kind: "tool" | "permission"; title?: string; toolKind?: string };
+	configOptions?: unknown[];
+	modeId?: string;
+};
+
+function label(value: unknown): string | undefined {
+	return typeof value === "string" ? value.slice(0, 200) : undefined;
+}
 
 const CANCELLED = { outcome: { outcome: "cancelled" } };
 
@@ -158,7 +171,7 @@ export class AgentConnection {
 	readonly closed: Promise<AcpTransportError>;
 	private readonly peer: AcpPeer;
 	private readonly listeners = new Map<string, SessionListener>();
-	private readonly early = new Map<string, Early[]>();
+	private readonly early = new Map<string, Early>();
 	private listenerFailureLogged = false;
 	private holders = 0;
 	private idleTimer: NodeJS.Timeout | undefined;
@@ -167,6 +180,10 @@ export class AgentConnection {
 	private stderrBytes = 0;
 	private stderrPartial = "";
 	private exited = false;
+	/** The process has exited; buffered output may still be read until `close` or the drain delay. */
+	private gone = false;
+	private exitInfo: { code: number | null; signal: NodeJS.Signals | null } = { code: null, signal: null };
+	private drainTimer: NodeJS.Timeout | undefined;
 	private stopping = false;
 	private resolveClosed!: (error: AcpTransportError) => void;
 
@@ -184,16 +201,35 @@ export class AgentConnection {
 		for (const stream of [child.stdin, child.stdout, child.stderr]) stream.on("error", () => { /* the exit handler reports the failure */ });
 		// A spawn failure may emit only `error`; a running child that fails to be signalled emits it too.
 		child.once("error", () => {
-			if (child.pid === undefined) this.handleExit(null, null);
+			if (child.pid === undefined) this.handleExit();
 			else this.fail(new AcpTransportError("closed", AntigravityMessage.Exited));
 		});
-		// `exit` ends it: a helper that inherited the pipes can hold `close` back forever.
-		child.once("exit", (code, signal) => this.handleExit(code, signal));
-		child.once("close", (code, signal) => this.handleExit(code, signal));
+		// `exit` ends the process, but its last output (a final answer, the sign-in line) may still be
+		// in the pipe: finish on `close`, or after a short drain since a helper that inherited the
+		// pipes can hold `close` back forever.
+		child.once("exit", (code, signal) => {
+			this.gone = true;
+			this.exitInfo = { code, signal };
+			clearTimeout(this.killTimer);
+			this.drainTimer = setTimeout(() => this.handleExit(), antigravityTimeouts.exitDrainMs);
+			this.drainTimer.unref();
+		});
+		child.once("close", (code, signal) => {
+			if (!this.gone) this.exitInfo = { code, signal };
+			this.handleExit();
+		});
 		exitState().live.add(this);
 	}
 
-	get alive(): boolean { return !this.exited && !this.stopping; }
+	get alive(): boolean { return !this.exited && !this.gone && !this.stopping; }
+
+	/** Why the connection failed, if it did (sign-in, protocol, timeout). */
+	get failure(): AcpTransportError | undefined { return this.fatalError; }
+
+	/** A turn is watching this session. */
+	watching(sessionId: string): boolean {
+		return this.listeners.has(sessionId);
+	}
 
 	/** The shared handshake; kills the process on any failure. */
 	async initialize(appVersion: string): Promise<void> {
@@ -225,13 +261,21 @@ export class AgentConnection {
 
 	/** A turn's setup request (session/new, set_config_option, …). No answer in time means the agent is wedged: kill it. */
 	async setupRequest(method: string, params: unknown): Promise<unknown> {
+		return (await this.setupRequestStamped(method, params)).result;
+	}
+
+	/** setupRequest, also giving the frame number the answer arrived in (see `frame`). */
+	async setupRequestStamped(method: string, params: unknown): Promise<Stamped> {
 		try {
-			return await this.peer.request(method, params, antigravityTimeouts.startupMs, AntigravityMessage.AnswerTimeout);
+			return await this.peer.requestStamped(method, params, antigravityTimeouts.startupMs, AntigravityMessage.AnswerTimeout);
 		} catch (error) {
 			if (isAcpTransportError(error) && error.kind === "timeout") this.fail(error);
 			throw error;
 		}
 	}
+
+	/** The number of the incoming frame being handled now (or the last one). */
+	get frame(): number { return this.peer.frame; }
 
 	notify(method: string, params: unknown): void {
 		this.peer.notify(method, params);
@@ -245,12 +289,14 @@ export class AgentConnection {
 	watch(sessionId: string, listener: SessionListener): () => void {
 		if (!sessionId || this.listeners.has(sessionId)) throw new AcpTransportError("protocol", AntigravityMessage.ProtocolError);
 		this.listeners.set(sessionId, listener);
-		this.pruneEarly();
-		const early = this.early.get(sessionId) ?? [];
+		const early = this.early.get(sessionId);
 		this.early.delete(sessionId);
-		for (const entry of early) {
-			if (this.listeners.get(sessionId) !== listener) break;
-			this.dispatch(() => entry.kind === "update" ? listener.onUpdate(entry.update) : listener.onPermissionRequest(entry.params));
+		if (early?.configOptions) this.dispatch(() => listener.onUpdate({ sessionUpdate: "config_option_update", configOptions: early.configOptions }));
+		if (early?.modeId !== undefined) this.dispatch(() => listener.onUpdate({ sessionUpdate: "current_mode_update", currentModeId: early.modeId }));
+		const breach = early?.breach;
+		if (breach && this.listeners.get(sessionId) === listener) {
+			const call = { title: breach.title, kind: breach.toolKind };
+			this.dispatch(() => breach.kind === "tool" ? listener.onUpdate({ sessionUpdate: "tool_call", ...call }) : listener.onPermissionRequest({ sessionId, toolCall: call, options: [] }));
 		}
 		return () => { if (this.listeners.get(sessionId) === listener) this.listeners.delete(sessionId); };
 	}
@@ -307,33 +353,45 @@ export class AgentConnection {
 		}
 	}
 
-	private pruneEarly(): void {
-		const cutoff = Date.now() - EARLY_TTL_MS;
-		for (const [sessionId, entries] of this.early) {
-			while (entries[0] && entries[0].at < cutoff) entries.shift();
-			if (entries.length === 0) this.early.delete(sessionId);
+	/** The early state for a session, making room by dropping the oldest session without a breach. */
+	private earlyFor(sessionId: string): Early {
+		let state = this.early.get(sessionId);
+		if (!state) {
+			if (this.early.size >= EARLY_MAX_SESSIONS) {
+				const victim = [...this.early].find(([, value]) => !value.breach)?.[0] ?? this.early.keys().next().value!;
+				this.early.delete(victim);
+			}
+			state = {};
+			this.early.set(sessionId, state);
 		}
+		return state;
 	}
 
-	private keepEarly(sessionId: string, entry: Early): void {
-		if (!sessionId) return;
-		this.pruneEarly();
-		let entries = this.early.get(sessionId);
-		if (!entries) {
-			if (this.early.size >= EARLY_MAX_SESSIONS) this.early.delete(this.early.keys().next().value!);
-			entries = [];
-			this.early.set(sessionId, entries);
+	private keepEarlyUpdate(sessionId: string, update: Record<string, unknown>): void {
+		switch (update.sessionUpdate) {
+			case "tool_call":
+			case "tool_call_update": {
+				const state = this.earlyFor(sessionId);
+				state.breach ??= { kind: "tool", title: label(update.title), toolKind: label(update.kind) };
+				return;
+			}
+			case "config_option_update":
+				if (Array.isArray(update.configOptions)) this.earlyFor(sessionId).configOptions = update.configOptions;
+				return;
+			case "current_mode_update":
+				if (typeof update.currentModeId === "string") this.earlyFor(sessionId).modeId = update.currentModeId.slice(0, 200);
+				return;
+			default:
+				return; // chunks and everything else: nothing is kept
 		}
-		if (entries.length >= EARLY_MAX_ENTRIES) entries.shift();
-		entries.push(entry);
 	}
 
 	private route(method: string, params: unknown): void {
-		if (method !== "session/update" || !isRecord(params) || typeof params.sessionId !== "string" || !isRecord(params.update)) return;
+		if (method !== "session/update" || !isRecord(params) || typeof params.sessionId !== "string" || !params.sessionId || !isRecord(params.update)) return;
 		const update = params.update;
 		const listener = this.listeners.get(params.sessionId);
 		if (listener) this.dispatch(() => listener.onUpdate(update));
-		else this.keepEarly(params.sessionId, { at: Date.now(), kind: "update", update });
+		else this.keepEarlyUpdate(params.sessionId, update);
 	}
 
 	private serve(method: string, params: unknown): unknown {
@@ -342,7 +400,10 @@ export class AgentConnection {
 			const listener = this.listeners.get(sessionId);
 			if (listener) return this.dispatch(() => listener.onPermissionRequest(params)) ?? CANCELLED;
 			// Nobody watches it yet: refuse now, and let the turn see it when it watches.
-			this.keepEarly(sessionId, { at: Date.now(), kind: "permission", params });
+			if (sessionId) {
+				const call = isRecord(params.toolCall) ? params.toolCall : {};
+				this.earlyFor(sessionId).breach ??= { kind: "permission", title: label(call.title), toolKind: label(call.kind) };
+			}
 			return rejectOnce(params);
 		}
 		throw methodNotFound(method);
@@ -358,11 +419,13 @@ export class AgentConnection {
 		}
 	}
 
-	private handleExit(code: number | null, signal: NodeJS.Signals | null): void {
+	private handleExit(): void {
 		if (this.exited) return;
 		this.exited = true;
+		const { code, signal } = this.exitInfo;
 		clearTimeout(this.idleTimer);
 		clearTimeout(this.killTimer);
+		clearTimeout(this.drainTimer);
 		exitState().live.delete(this);
 		for (const stream of [this.child.stdin, this.child.stdout, this.child.stderr]) stream.destroy();
 		const error = this.fatalError ?? new AcpTransportError("closed", AntigravityMessage.Exited);
