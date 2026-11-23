@@ -1,16 +1,24 @@
 /**
- * Reading the agent's session config: the approval mode and the model list.
- * The model list comes ONLY from the agent's `configOptions` model select;
- * LearnHarness never invents model ids and reads no older shapes.
+ * Reading the agent's session config: the approval mode, the model list and
+ * each model's thinking levels. Both lists come ONLY from the agent's
+ * `configOptions` selects; LearnHarness never invents ids or levels and reads
+ * no older shapes.
  */
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { Api, Model, ThinkingLevel } from "@earendil-works/pi-ai";
 
 import { ANTIGRAVITY_API, ANTIGRAVITY_PROVIDER } from "./constants.ts";
 
 export interface AgentModel {
 	id: string;
 	name: string;
+	/** The thinking levels the agent offers for this model, exactly as it names them. Unknown: undefined. */
+	levels?: string[];
+	/** The level the agent selects for this model when none is set. */
+	defaultLevel?: string;
 }
+
+/** A thinking level value LearnHarness keeps: lowercase letters, digits, `_` or `-`, at most 32 characters. */
+const LEVEL_VALUE = /^[a-z0-9_-]{1,32}$/;
 
 export interface ConfigSelect {
 	configId: string;
@@ -44,8 +52,8 @@ function selectValues(options: unknown): AgentModel[] {
 	});
 }
 
-/** The select whose id or category is `key` ("mode" or "model"). */
-export function findConfigOption(configOptions: unknown, key: "mode" | "model"): ConfigSelect | null {
+/** The select whose id or category is `key` ("mode", "model" or "thought_level"). */
+export function findConfigOption(configOptions: unknown, key: "mode" | "model" | "thought_level"): ConfigSelect | null {
 	if (!Array.isArray(configOptions)) return null;
 	const option = configOptions.find((entry) => isRecord(entry) && (entry.id === key || entry.category === key));
 	if (!isRecord(option) || typeof option.id !== "string") return null;
@@ -62,6 +70,29 @@ export function modelsFrom(result: unknown): AgentModel[] | null {
 	return values.filter((model) => !seen.has(model.id) && seen.add(model.id));
 }
 
+/** Only well-formed level values, deduplicated, in the agent's order. */
+export function sanitizeLevels(values: unknown): string[] {
+	if (!Array.isArray(values)) return [];
+	const seen = new Set<string>();
+	return values.filter((value): value is string => typeof value === "string" && LEVEL_VALUE.test(value) && !seen.has(value) && !!seen.add(value)).slice(0, 16);
+}
+
+/** The thinking levels offered by these options (for the model they currently select), and the selected one. */
+export function levelsFrom(configOptions: unknown): { levels: string[]; defaultLevel?: string } {
+	const option = findConfigOption(configOptions, "thought_level");
+	if (!option) return { levels: [] };
+	const levels = sanitizeLevels(option.values.map((value) => value.id));
+	const current = option.currentValue;
+	return { levels, ...(current && levels.includes(current) ? { defaultLevel: current } : {}) };
+}
+
+/** LearnHarness's levels, each sent to the agent under the same name when it offers that name. No "off". */
+const PI_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const satisfies readonly (ThinkingLevel | "off")[];
+
+export function thinkingLevelMap(levels: readonly string[]): Record<(typeof PI_LEVELS)[number], string | null> {
+	return Object.fromEntries(PI_LEVELS.map((level) => [level, level !== "off" && levels.includes(level) ? level : null])) as Record<(typeof PI_LEVELS)[number], string | null>;
+}
+
 const SHARED_MODEL_FIELDS = {
 	api: ANTIGRAVITY_API,
 	provider: ANTIGRAVITY_PROVIDER,
@@ -75,6 +106,10 @@ const SHARED_MODEL_FIELDS = {
 	maxTokens: 64_000,
 } satisfies Omit<Model<Api>, "id" | "name">;
 
+/** A model with at least one level LearnHarness can name reasons, floored at its lowest level (like Claude Code). */
 export function toPiModel(model: AgentModel): Model<Api> {
-	return { ...SHARED_MODEL_FIELDS, input: ["text"], id: model.id, name: model.name };
+	const base = { ...SHARED_MODEL_FIELDS, input: ["text"] as Model<Api>["input"], id: model.id, name: model.name };
+	const map = thinkingLevelMap(model.levels ?? []);
+	if (!Object.values(map).some((value) => value !== null)) return base;
+	return { ...base, reasoning: true, thinkingLevelMap: map };
 }

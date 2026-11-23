@@ -13,7 +13,11 @@ Both switches must be on before anything runs.
 
 Antigravity also needs the `agy` program. LearnHarness finds it on your PATH or in the usual folders such as `~/.local/bin`; `LH_AGY_BINARY` can name it exactly. Finding it only checks that the file exists.
 
-`agy` starts only when a lesson turn needs it or when you press **Check connection**. Check connection signs nothing in. It starts `agy`, opens one session (which also appears in your Antigravity history), and saves the list of models your account offers. Lessons can then use those models.
+`agy` starts only when a lesson turn needs it or when you press **Check connection**. Check connection signs nothing in. It starts `agy`, opens one session (which also appears in your Antigravity history), and saves the list of models your account offers, with the thinking levels each model offers (Antigravity reports a model's levels only while that model is selected, so the check selects each one in turn on that throwaway session). Lessons can then use those models. Press Check connection again after Google changes the models or their levels.
+
+## Thinking levels
+
+Thinking levels are supported per model: the model picker offers exactly the levels Antigravity listed for that model at the last Check connection (for example low, medium, high and extra-high on one model, low to high on another), with no "off"; the lowest offered level is the floor. A model that offered none has no level choice. With no level chosen for a lesson, LearnHarness's usual default order applies (medium where offered), not Antigravity's own default (high). Before each reply LearnHarness selects the chosen level and confirms it, together with the approval mode and the model, before the prompt is sent; a level the model no longer offers is skipped and Antigravity's default is used. If Antigravity refuses the level, the reply doesn't start.
 
 ## In a lesson
 
@@ -33,7 +37,6 @@ Your lesson text, including the replayed conversation and the tutor's instructio
 
 - Text only: no pictures, PDFs, quizzes or other tools.
 - No sign-in screen. Sign in by running `agy` in a terminal, then press Check connection.
-- No thinking-level choice.
 - Only the current session-options format is understood: an `agy` that offers no "mode" and "model" options in that format (older builds used other fields) can't run lessons, and Check connection lists no models for it.
 - An error on Google's side can arrive as ordinary reply text. Errors Antigravity reports any other way show only their error code; the details stay in the server log.
 - Reopening a lesson that is waiting for a reply resumes it, and so starts `agy`, without a click. A lesson whose last reply already finished is not resumed.
@@ -54,7 +57,7 @@ Measured with `agy` 1.5.15 and synthetic prompts:
 - `session/close` is accepted.
 - The agent starts in about 0.3 s and exits about 0.1 s after its input closes.
 - Each turn carries about 10,000 input tokens of the agent's own instructions.
-- Short replies on gemini-3.8-flash took 8 to 11 seconds at the agent's default thinking level (high), which LearnHarness does not change yet.
+- Short replies on gemini-3.8-flash took 8 to 11 seconds at the agent's default thinking level (high).
 - A two-turn lesson on a throwaway packaged server gave correct replies with no tool-use stop and left no process or temporary folder behind.
 
 Still not known: how often a real lesson trips the tool stop, and how errors from Google's side appear.

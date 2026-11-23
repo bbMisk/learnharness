@@ -38,6 +38,8 @@
  *   stdoutRawAtStart (written with no newline), garbageAfterInitialize,
  *   toolCallAfterNew {...tool_call} / permissionAfterNew (sent in the same write as the session/new answer),
  *   setConfigError {configId?, code, message}, setModelError {code, message}, hangMethods [method],
+ *   rejectLevel (thought_level refused), levelFlipsMode (the level answer shows mode "auto"),
+ *   refuseModels [ids] (selecting them fails), models.list entries' levels/defaultLevel,
  *   modelChangeResetsMode, modeChangeResetsModel, rejectModelChange, modelSetNoOptions,
  *   revertModelAfterSet (a config_option_update undoing the model, in the same write as the answer),
  *   garbageAfterNew (a non-JSON line in the same write as the session/new answer),
@@ -72,10 +74,16 @@ for (const line of scenario.stderrAtStart ?? []) process.stderr.write(`${line}\n
 
 // ---- config options -------------------------------------------------------
 
+// Thinking levels are per model and reported only for the selected one, default "high", as in the real
+// capture (tests/fixtures/antigravity/real-agy-1.5.15.json: neon low..xhigh, flash low..high).
+// A list entry may give `levels` (an empty list: the model has no thought_level option) and `defaultLevel`.
 const DEFAULT_MODELS = [
-	{ value: "gemini-3-pro", name: "Gemini 3 Pro" },
-	{ value: "gemini-3-flash", name: "Gemini 3 Flash" },
+	{ value: "gemini-3-pro", name: "Gemini 3 Pro", levels: ["low", "medium", "high", "xhigh"] },
+	{ value: "gemini-3-flash", name: "Gemini 3 Flash", levels: ["low", "medium", "high"] },
 ];
+const LEVEL_NAMES = { low: "Low", medium: "Medium", high: "High", xhigh: "Extra" };
+const levelsOf = (value) => models.list.find((m) => m.value === value)?.levels ?? ["low", "medium", "high"];
+const defaultLevelOf = (value) => models.list.find((m) => m.value === value)?.defaultLevel ?? "high";
 const models = {
 	style: scenario.models?.style ?? "flat",
 	list: scenario.models?.list ?? DEFAULT_MODELS,
@@ -85,11 +93,12 @@ models.current = scenario.models?.current ?? models.list[0]?.value;
 const sessions = new Map();
 
 function modelOptionList() {
+	const plain = models.list.map((m) => ({ value: m.value, name: m.name }));
 	if (models.style === "grouped") {
 		// Grouped select options: ACP's SessionConfigSelectGroup (groups each holding `options`).
-		return [{ group: "recommended", name: "Recommended", options: models.list.slice(0, 1) }, { group: "other", name: "Other", options: models.list.slice(1) }];
+		return [{ group: "recommended", name: "Recommended", options: plain.slice(0, 1) }, { group: "other", name: "Other", options: plain.slice(1) }];
 	}
-	return models.list;
+	return plain;
 }
 
 // session/new configOptions, reconstructed from apps/server/src/provider/AntigravityProvider.ts:78-123,
@@ -99,10 +108,13 @@ function configOptions(session) {
 	if (models.style !== "legacy") {
 		options.push({ id: "model", name: "Model", category: "model", type: "select", currentValue: models.current, options: modelOptionList() });
 	}
-	options.push({
-		id: "thinking_level", name: "Thinking", category: "thought_level", type: "select", currentValue: "medium",
-		options: [{ value: "low", name: "Low" }, { value: "medium", name: "Medium" }, { value: "high", name: "High" }],
-	});
+	const offered = levelsOf(models.current);
+	if (offered.length > 0) {
+		options.push({
+			id: "thought_level", name: "Thinking Level", category: "thought_level", type: "select", currentValue: session.level ?? defaultLevelOf(models.current),
+			options: offered.map((value) => ({ value, name: LEVEL_NAMES[value] ?? value })),
+		});
+	}
 	if (session.mode !== null) {
 		options.push({
 			id: "mode", name: "Mode", category: "mode", type: "select", currentValue: session.mode,
@@ -198,9 +210,17 @@ function setConfigOption({ sessionId, configId, value }) {
 		if (scenario.modeChangeResetsModel) models.current = models.list.find((m) => m.value !== models.current)?.value ?? models.current;
 	} else if (configId === "model") {
 		if (!models.list.some((m) => m.value === value)) throw new RpcError(-32602, "Invalid model");
-		if (!scenario.rejectModelChange) models.current = value;
+		if ((scenario.refuseModels ?? []).includes(value)) throw new RpcError(-32602, "Model not available");
+		if (!scenario.rejectModelChange && models.current !== value) {
+			models.current = value;
+			session.level = undefined; // a new model starts at its own default level
+		}
 		if (scenario.modelChangeResetsMode) session.mode = "auto";
-	} else if (configId !== "thinking_level") throw new RpcError(-32602, "Unknown option");
+	} else if (configId === "thought_level") {
+		if (scenario.rejectLevel || !levelsOf(models.current).includes(value)) throw new RpcError(-32602, "Invalid thinking level");
+		session.level = value;
+		if (scenario.levelFlipsMode) session.mode = "auto";
+	} else throw new RpcError(-32602, "Unknown option");
 	return { configOptions: configOptions(session) };
 }
 

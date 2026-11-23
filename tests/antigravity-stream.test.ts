@@ -469,10 +469,14 @@ test("not signed in through a turn: one fixed message, and the link appears in n
 	assert.equal((await collect(stream(PRO, ctx([HI])))).final.errorMessage, AntigravityMessage.NoSubscription);
 });
 
-test("session/new refreshes the model list; session/close is sent when advertised", async (t) => {
+test("session/new refreshes the model list, the turn refreshes only its own model's levels; session/close is sent when advertised", async (t) => {
 	const { h, stream, saved } = setup(t, { sessionClose: true });
 	assert.equal((await collect(stream(PRO, ctx([HI])))).final.stopReason, "stop");
-	assert.deepEqual(saved, [[{ id: "gemini-3-pro", name: "Gemini 3 Pro" }, { id: "gemini-3-flash", name: "Gemini 3 Flash" }]]);
+	assert.deepEqual(saved, [
+		[{ id: "gemini-3-pro", name: "Gemini 3 Pro" }, { id: "gemini-3-flash", name: "Gemini 3 Flash" }],
+		[{ id: "gemini-3-pro", name: "Gemini 3 Pro", levels: ["low", "medium", "high", "xhigh"], defaultLevel: "high" }, { id: "gemini-3-flash", name: "Gemini 3 Flash" }],
+	], "no level loop: flash's levels are not learned by a turn");
+	assert.equal(h.methods().filter((m) => m === "session/set_config_option").length, 0);
 	await waitFor(() => h.methods().includes("session/close"), 3000, "session/close");
 });
 

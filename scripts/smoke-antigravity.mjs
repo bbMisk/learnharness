@@ -16,11 +16,12 @@
  *   1. boot with the switch forced off (LH_FORK_ANTIGRAVITY=0): GET /api/antigravity → 200 { available: false },
  *      and no Antigravity model in GET /api/models;
  *   2. boot WITH LH_FORK_ANTIGRAVITY=1: GET → available, not enabled;
- *      PUT enabled; POST check → models listed and in GET /api/models;
- *   3. create a chat, pin it to a mock model, send one learner message
+ *      PUT enabled; POST check → models listed and in GET /api/models with
+ *      each model's thinking levels;
+ *   3. create a chat, pin it to a mock model at thinking level "low", send one learner message
  *      (all through the public HTTP API); the scripted reply arrives and is
  *      saved; the mock saw `acp --sandbox`, no `authenticate`, and mode
- *      "default" set before the prompt;
+ *      "default" and level "low" set before the prompt;
  *   4. stop the server: no mock process is left and the agent's temp
  *      folders are gone.
  */
@@ -185,14 +186,20 @@ async function main() {
 		const models = onModels.body.models.filter((m) => m.provider === "antigravity");
 		check(models.length === checked.body.models, `GET /api/models lists ${models.length} Antigravity models, the check listed ${checked.body.models}`);
 		check(models.every((m) => m.cost === null && m.contextWindow === null), "Antigravity models carry an invented price or limit");
+		// The mock offers per-model thinking levels like the real agent (learned at Check connection).
+		const expectedLevels = { "gemini-3-pro": ["low", "medium", "high", "xhigh"], "gemini-3-flash": ["low", "medium", "high"] };
+		for (const model of models) {
+			check(model.reasoning === true && JSON.stringify(model.supportedLevels) === JSON.stringify(expectedLevels[model.id]), `levels of ${model.id}: ${JSON.stringify(model.supportedLevels)}`);
+		}
 		say(`switch on: enabled, check listed ${models.length} models (agy ${checked.body.agentVersion}), all in /api/models`);
 
 		// 3. One lesson turn through the public API.
 		const created = await send(`${server.url}/api/chats`, "POST", { title: "Antigravity smoke" });
 		check(created.status === 200 && typeof created.body.id === "string", `POST /api/chats → ${created.status} ${JSON.stringify(created.body)}`);
 		const chatId = created.body.id;
-		const pinned = await send(`${server.url}/api/chats/${chatId}/settings`, "PUT", { model: { provider: "antigravity", id: models[0].id } });
-		check(pinned.status === 200, `pin the chat → ${pinned.status} ${JSON.stringify(pinned.body)}`);
+		// The same settings call the picker makes: the chat's model and thinking level ("low"; the agent's default is "high").
+		const pinned = await send(`${server.url}/api/chats/${chatId}/settings`, "PUT", { model: { provider: "antigravity", id: models[0].id }, thinkingLevel: "low" });
+		check(pinned.status === 200 && pinned.body.settings?.thinkingLevel === "low", `pin the chat → ${pinned.status} ${JSON.stringify(pinned.body)}`);
 		const turn = await send(`${server.url}/api/chat`, "POST", { chatId, input: { type: "text", text: "Teach me about fractions." } });
 		check(turn.status === 200, `POST /api/chat → ${turn.status} ${JSON.stringify(turn.body)}`);
 		// Drain the turn's stream (it ends when the turn settles), then read the saved record.
@@ -220,8 +227,10 @@ async function main() {
 		const promptAt = received.findIndex((m) => m.method === "session/prompt");
 		const modeAt = received.findIndex((m) => m.method === "session/set_config_option" && m.params?.configId === "mode" && m.params?.value === "default");
 		check(promptAt >= 0 && modeAt >= 0 && modeAt < promptAt, `mode "default" was not set before the prompt (mode at ${modeAt}, prompt at ${promptAt})`);
+		const levelAt = received.findIndex((m) => m.method === "session/set_config_option" && m.params?.configId === "thought_level" && m.params?.value === "low");
+		check(levelAt >= 0 && levelAt < promptAt, `thinking level "low" was not set before the prompt (level at ${levelAt}, prompt at ${promptAt})`);
 		check(JSON.stringify(received[promptAt]).includes("Teach me about fractions."), "the prompt does not carry the learner's message");
-		say(`lesson turn: reply saved (${JSON.stringify(replyText)}); mock saw acp --sandbox, no authenticate, mode "default" before the prompt`);
+		say(`lesson turn: reply saved (${JSON.stringify(replyText)}); mock saw acp --sandbox, no authenticate, mode "default" and level "low" before the prompt`);
 
 		// 4. Stop: nothing left behind (and the agent's temp root did exist while it ran).
 		const during = fs.existsSync(agentTemp) ? fs.readdirSync(agentTemp).filter((name) => name.startsWith("run-")) : [];

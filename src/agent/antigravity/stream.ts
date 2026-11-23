@@ -13,12 +13,13 @@ import {
 	type Model,
 	type SimpleStreamOptions,
 	type StreamFunction,
+	type ThinkingLevel,
 } from "@earendil-works/pi-ai";
 
 import { AcpTransportError, isAcpRpcError, stripUrls } from "./acp-client.ts";
 import { AntigravityMessage, breachMessage } from "./constants.ts";
 import { antigravityHost, type AntigravityHost } from "./host.ts";
-import { findConfigOption, modelsFrom } from "./models.ts";
+import { findConfigOption, levelsFrom, modelsFrom } from "./models.ts";
 import { antigravityRuntime, antigravityTimeouts, describeAgentError, isSignInError, rejectOnce, type AgentConnection, type AntigravityRuntime } from "./runtime.ts";
 import { toAntigravityInput } from "./transcript.ts";
 
@@ -153,7 +154,7 @@ class TurnSession {
 		if (this.prompt) this.cancel();
 	};
 
-	async run(model: Model<Api>, messages: Parameters<typeof toAntigravityInput>[0]): Promise<void> {
+	async run(model: Model<Api>, messages: Parameters<typeof toAntigravityInput>[0], reasoning?: ThinkingLevel): Promise<void> {
 		const { connection } = this;
 		const input = toAntigravityInput(messages);
 		const append = connection.handshake.systemPromptAppend;
@@ -182,9 +183,14 @@ class TurnSession {
 			this.checkpoint();
 			await this.selectModel(sessionId, model.id);
 			this.checkpoint();
-			// The freshest view decides: a change made while setting the other option is caught here.
+			const level = await this.pinThinkingLevel(sessionId, reasoning);
+			this.checkpoint();
+			// The freshest view decides: a change made while setting another option is caught here.
 			if (findConfigOption(this.options, "mode")?.currentValue !== "default") throw new StopTurn(AntigravityMessage.ModeNotSet);
 			if (findConfigOption(this.options, "model")?.currentValue !== model.id) throw new StopTurn(AntigravityMessage.ModelUnavailable);
+			if (level !== undefined && findConfigOption(this.options, "thought_level")?.currentValue !== level) throw new StopTurn(AntigravityMessage.LevelNotSet);
+			// This turn may refresh the levels of the model it selected (only that one), from what it already received.
+			this.refreshModels(this.options, model.id);
 
 			const prompt = [...(append ? [] : [{ type: "text", text: input.systemText }]), { type: "text", text: input.transcript }];
 			this.prompt = connection.request("session/prompt", { sessionId, prompt });
@@ -244,9 +250,29 @@ class TurnSession {
 		} catch (error) { this.refusal(error, AntigravityMessage.ModelUnavailable); }
 	}
 
-	private refreshModels(source: unknown): void {
-		const models = modelsFrom(source);
-		if (!models?.length) return;
+	/**
+	 * The thinking level pi asked for, by its own name, when the current view offers it for the
+	 * selected model. Not offered: nothing is sent and the agent's default stays. Returns the
+	 * value that must be confirmed before the prompt, if any.
+	 */
+	private async pinThinkingLevel(sessionId: string, requested: ThinkingLevel | undefined): Promise<string | undefined> {
+		if (!requested) return undefined;
+		const option = findConfigOption(this.options, "thought_level");
+		if (!option || !option.values.some((value) => value.id === requested)) return undefined;
+		if (option.currentValue === requested) return requested;
+		try {
+			const { result: updated, frame } = await this.connection.setupRequestStamped("session/set_config_option", { sessionId, configId: option.configId, value: requested });
+			this.observe(isRecord(updated) ? updated.configOptions : undefined, frame);
+		} catch (error) { this.refusal(error, AntigravityMessage.LevelNotSet); }
+		return requested;
+	}
+
+	/** Save the listed models; with `selected`, also that model's levels as `configOptions` show them now. */
+	private refreshModels(source: unknown, selected?: string): void {
+		const listed = Array.isArray(source) ? modelsFrom({ configOptions: source }) : modelsFrom(source);
+		if (!listed?.length) return;
+		const options = Array.isArray(source) ? source : isRecord(source) ? source.configOptions : undefined;
+		const models = selected === undefined ? listed : listed.map((model) => (model.id === selected ? { ...model, ...levelsFrom(options) } : model));
 		try { this.host.saveModels(models); }
 		catch {
 			// A full disk must not fail the turn; the list is refreshed again on the next session.
@@ -383,7 +409,7 @@ export function createAntigravityStreamFunction({ runtime = antigravityRuntime, 
 				if (turn.finished) return;
 				const release = connection.hold();
 				session = new TurnSession(connection, turn, currentHost);
-				try { await session.run(model, context.messages); }
+				try { await session.run(model, context.messages, options?.reasoning); }
 				finally { release(); }
 			} finally {
 				signal?.removeEventListener("abort", onAbort);

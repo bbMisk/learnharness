@@ -12,6 +12,9 @@ import { writeFileAtomicSync } from "./atomic-write.ts";
 export interface AntigravityModelEntry {
 	id: string;
 	name: string;
+	/** Thinking levels the agent offered for this model at the last Check connection ([] = none, or never learned). */
+	levels: string[];
+	defaultLevel?: string;
 }
 
 export interface AntigravityRecord {
@@ -26,6 +29,15 @@ export interface AntigravityRecord {
 
 const MAX_MODELS = 200;
 const MAX_TEXT = 200;
+const MAX_LEVELS = 16;
+/** The same rule as agent/antigravity/models.ts: lowercase letters, digits, `_` or `-`, at most 32 characters. */
+const LEVEL_VALUE = /^[a-z0-9_-]{1,32}$/;
+
+function levels(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	const seen = new Set<string>();
+	return value.filter((level): level is string => typeof level === "string" && LEVEL_VALUE.test(level) && !seen.has(level) && !!seen.add(level)).slice(0, MAX_LEVELS);
+}
 
 /** No link, no control character, at most 200 characters (the same rule as agent/antigravity/models.ts). */
 function text(value: unknown): string | undefined {
@@ -42,7 +54,9 @@ export function sanitizeAntigravityRecord(raw: unknown): AntigravityRecord {
 		const named = value.name === undefined || value.name === null || value.name === "" ? id : text(value.name);
 		if (!named) return [];
 		seen.add(id);
-		return [{ id, name: named }];
+		const offered = levels(value.levels);
+		const defaultLevel = typeof value.defaultLevel === "string" && offered.includes(value.defaultLevel) ? value.defaultLevel : undefined;
+		return [{ id, name: named, levels: offered, ...(defaultLevel ? { defaultLevel } : {}) }];
 	}).slice(0, MAX_MODELS);
 	const agentVersion = typeof record.agentVersion === "string" && /^\d+\.\d+\.\d+$/.test(record.agentVersion) ? record.agentVersion : undefined;
 	const checkedAt = typeof record.checkedAt === "string" && !Number.isNaN(Date.parse(record.checkedAt)) ? record.checkedAt : undefined;
@@ -72,7 +86,10 @@ export function createAntigravityStore(file: string): AntigravityStore {
 	return {
 		read,
 		update(patch) {
-			const next = sanitizeAntigravityRecord({ ...read(), ...patch });
+			const current = read();
+			const next = sanitizeAntigravityRecord({ ...current, ...patch });
+			// Lesson turns save the model list each time: skip the write when nothing changed.
+			if (fs.existsSync(/* turbopackIgnore: true */ file) && JSON.stringify(next) === JSON.stringify(current)) return next;
 			fs.mkdirSync(/* turbopackIgnore: true */ path.dirname(file), { recursive: true });
 			writeFileAtomicSync(file, `${JSON.stringify(next, null, "\t")}\n`);
 			cache = undefined;

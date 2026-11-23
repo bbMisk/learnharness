@@ -19,6 +19,7 @@ export const AntigravityMessage = {
 	Exited: "Antigravity stopped unexpectedly.",
 	ModeNotSet: "Antigravity's approval mode could not be set, so the reply was not started.",
 	ModelUnavailable: "That model isn't available for this Google account.",
+	LevelNotSet: "Antigravity could not set that thinking level, so the reply was not started.",
 	Refusal: "Antigravity refused the request. This usually means a usage limit was reached.",
 	StoppedResponding: "Antigravity stopped responding.",
 	NoStopReason: "Antigravity ended the reply without saying why.",

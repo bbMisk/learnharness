@@ -66,7 +66,7 @@ after(() => {
 	fs.rmSync(tempBase, { recursive: true, force: true });
 });
 
-const PRO = { id: "gemini-3-pro", name: "Gemini 3 Pro" };
+const PRO = { id: "gemini-3-pro", name: "Gemini 3 Pro", levels: [] as string[] };
 const SPEC = { provider: "antigravity", id: "gemini-3-pro" };
 
 /** switchOn "default": no LH_FORK_ANTIGRAVITY at all, so the code's default (on) decides. */
@@ -244,7 +244,8 @@ test("check connection: flat and grouped model lists are persisted and survive a
 		await h.assertNoChildren();
 		// A restart: a fresh store over the same file, and the provider reads it.
 		const restarted = createAntigravityStore(ANTIGRAVITY_FILE).read();
-		assert.deepEqual(restarted.models, [{ id: `${style}-a`, name: `${style} A` }, { id: `${style}-b`, name: `${style} B` }]);
+		const levels = ["low", "medium", "high"];
+		assert.deepEqual(restarted.models, [{ id: `${style}-a`, name: `${style} A`, levels, defaultLevel: "high" }, { id: `${style}-b`, name: `${style} B`, levels, defaultLevel: "high" }]);
 		assert.deepEqual(piModels().getModels("antigravity").map((m) => m.id), [`${style}-a`, `${style}-b`]);
 	}
 	const file = JSON.parse(fs.readFileSync(ANTIGRAVITY_FILE, "utf8"));
@@ -303,8 +304,8 @@ test("model lists drop entries with a link, a control character or more than 200
 	assert.equal(modelsFrom({ models: { availableModels: [{ modelId: "fine" }] } }), null, "the legacy shape is not read");
 	const file = path.join(directory, "unsafe-models.json");
 	fs.writeFileSync(file, JSON.stringify({ version: 1, enabled: true, models: [{ id: "ok", name: "Fine" }, { id: "https://evil.example", name: "x" }, { id: "y", name: "\u001b[31mred" }] }));
-	assert.deepEqual(createAntigravityStore(file).read().models, [{ id: "ok", name: "Fine" }]);
-	createAntigravityStore(file).update({ models: [{ id: "a://b", name: "x" }, { id: "kept", name: "Kept" }] });
+	assert.deepEqual(createAntigravityStore(file).read().models, [{ id: "ok", name: "Fine", levels: [] }]);
+	createAntigravityStore(file).update({ models: [{ id: "a://b", name: "x", levels: [] }, { id: "kept", name: "Kept", levels: [] }] });
 	assert(!fs.readFileSync(file, "utf8").includes("a://b"), "never persisted");
 });
 
@@ -431,7 +432,7 @@ test("the stream as the chat's compaction summarizer calls it (runSubagent, no t
 test("store: only `enabled: true` opts in; garbage is sanitized", () => {
 	const file = path.join(directory, "sanitize.json");
 	fs.writeFileSync(file, JSON.stringify({ version: 1, enabled: "true", models: [{ id: "a" }, { id: "a" }, { id: 3 }, null], agentVersion: "1.5", checkedAt: "never" }));
-	assert.deepEqual(createAntigravityStore(file).read(), { version: 1, enabled: false, models: [{ id: "a", name: "a" }] });
+	assert.deepEqual(createAntigravityStore(file).read(), { version: 1, enabled: false, models: [{ id: "a", name: "a", levels: [] }] });
 	fs.writeFileSync(file, "{not json");
 	assert.deepEqual(createAntigravityStore(file).read(), { version: 1, enabled: false, models: [] });
 });

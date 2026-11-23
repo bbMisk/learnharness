@@ -15,7 +15,7 @@ import type { TurnInput } from "../core/input-events.ts";
 import { reconstructRequestCause, type LhMessage } from "../core/native-messages.ts";
 import { PROVIDER_KEY_MISSING_CODE } from "../core/settings.ts";
 import { antigravityStore } from "../store/antigravity.ts";
-import { antigravityAvailable, antigravityEnabled, antigravityInstalled } from "./antigravity-config.ts";
+import { antigravityAvailable, antigravityEnabled, antigravityInstalled, mergeModels } from "./antigravity-config.ts";
 import { initAuthEnv } from "./keys.ts";
 import { subscriptionRequestOrigin } from "./web-subscription-http.ts";
 
@@ -57,7 +57,7 @@ export async function checkAntigravityConnection(probe: () => Promise<Connection
 		return recordFailedCheck(describeAgentError(error));
 	}
 	try {
-		antigravityStore.update({ models: result.models, ...(result.agentVersion ? { agentVersion: result.agentVersion } : {}), checkedAt: new Date().toISOString() });
+		antigravityStore.update({ models: mergeModels(antigravityStore.read().models, result.models), ...(result.agentVersion ? { agentVersion: result.agentVersion } : {}), checkedAt: new Date().toISOString() });
 		problemState().message = undefined;
 	} catch {
 		return recordFailedCheck("The Antigravity check worked, but its result could not be saved.");
