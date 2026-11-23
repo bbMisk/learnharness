@@ -24,6 +24,10 @@
  *      "default" and level "low" set before the prompt;
  *      then a second learner message on the same chat: one session/new for
  *      both turns and only the new message in the second prompt;
+ *      then a third message in which the mock calls the lesson's declared
+ *      ask_user_question tool through the MCP bridge: the server ends the turn
+ *      with the question pending, the smoke answers it through the public API,
+ *      and the same agent prompt continues with the answer (one tool round);
  *   4. stop the server: no mock process is left and the agent's temp
  *      folders are gone.
  */
@@ -40,6 +44,8 @@ const STANDALONE = path.join(ROOT, ".next", "standalone");
 const SERVER = path.join(STANDALONE, "server.js");
 const MOCK = path.join(ROOT, "tests", "fixtures", "antigravity", "mock-agy.mjs");
 const REPLY = "Smoke reply from the mock agent.";
+const ASK = { question: "Which topic should we cover next?", options: [{ label: "Chemistry" }, { label: "History" }] };
+const TOOL_REPLY_END = " Thanks for answering.";
 const BOOT_TIMEOUT_MS = 30_000;
 const TURN_TIMEOUT_MS = 30_000;
 const INTENT = { "x-learnharness-antigravity": "1" };
@@ -174,7 +180,12 @@ async function main() {
 			LH_AGY_BINARY: MOCK_REAL,
 			MOCK_AGY_LOG: logFile,
 			// The real agent starts in "default"; starting the mock in "auto" also exercises setting the mode.
-			MOCK_AGY_SCENARIO: JSON.stringify({ mode: "auto", prompt: [{ text: REPLY }, { usageUpdate: true }] }),
+			MOCK_AGY_SCENARIO: JSON.stringify({ mode: "auto", prompt: [{ text: REPLY }, { usageUpdate: true }], promptSeq: [
+				[{ text: REPLY }, { usageUpdate: true }],
+				[{ text: REPLY }, { usageUpdate: true }],
+				// The third lesson prompt: one tool round with a declared LearnHarness tool.
+				[{ mcpCall: { name: "ask_user_question", arguments: ASK, echo: true } }, { text: TOOL_REPLY_END }],
+			] }),
 		};
 		check(path.basename(agentEnv.LH_AGY_BINARY) === "mock-agy.mjs", "LH_AGY_BINARY is not the mock");
 		server = await boot(home, agentEnv);
@@ -253,6 +264,40 @@ async function main() {
 		check(prompts.length === 2 && sessionNews === 0 && prompts[1].sessionId === prompts[0].sessionId, `two turns: ${sessionNews} session/new after the first prompt, prompts ${JSON.stringify(prompts.map((p) => [p.sessionId, p.n]))}`);
 		check(JSON.stringify(prompts[1].texts) === JSON.stringify(["And what about decimals?"]), `second prompt sent ${JSON.stringify(prompts[1].texts)}, not only the new message`);
 		say("second turn: same agent session (one session/new), only the new message sent");
+
+		// A third turn: the mock calls the lesson's ask_user_question through the bridge; the question waits for the learner.
+		const third = await send(`${server.url}/api/chat`, "POST", { chatId, input: { type: "text", text: "Ask me what to do next." } });
+		check(third.status === 200, `third POST /api/chat → ${third.status} ${JSON.stringify(third.body)}`);
+		await fetch(`${server.url}/api/chats/${chatId}/stream`).then((res) => res.text()).catch(() => "");
+		const until3 = Date.now() + TURN_TIMEOUT_MS;
+		let asked;
+		while (Date.now() < until3) {
+			try { asked = JSON.parse(fs.readFileSync(chatFile, "utf8")).messages.findLast((m) => m.role === "assistant"); } catch { asked = undefined; }
+			if (asked?.stopReason === "toolUse") break;
+			await sleep(250);
+		}
+		const question = asked?.content?.find?.((b) => b.type === "toolCall");
+		check(asked?.stopReason === "toolUse" && question?.name === "ask_user_question", `the tutor's question: ${JSON.stringify(asked ?? null)}`);
+		const answered = await send(`${server.url}/api/chat`, "POST", { chatId, input: { type: "answer", toolCallId: question.id, answer: { kind: "ask", questionText: ASK.question, dontKnow: false, answers: [], text: "History", answeredAt: new Date().toISOString() } } });
+		check(answered.status === 200, `answer POST /api/chat → ${answered.status} ${JSON.stringify(answered.body)}`);
+		await fetch(`${server.url}/api/chats/${chatId}/stream`).then((res) => res.text()).catch(() => "");
+		const until4 = Date.now() + TURN_TIMEOUT_MS;
+		let after;
+		while (Date.now() < until4) {
+			try { after = JSON.parse(fs.readFileSync(chatFile, "utf8")).messages.findLast((m) => m.role === "assistant"); } catch { after = undefined; }
+			if (after && after !== asked && after.stopReason !== "pending" && after.stopReason !== "toolUse") break;
+			await sleep(250);
+		}
+		const afterText = (after?.content ?? []).filter((b) => b.type === "text").map((b) => b.text).join("");
+		check(after?.stopReason === "stop" && afterText.includes("History") && afterText.endsWith(TOOL_REPLY_END), `after the answer: ${JSON.stringify(after ?? null)}`);
+		const log3 = readLog(logFile);
+		const tools = log3.find((entry) => entry.kind === "mcp-tools");
+		check(tools && tools.names.includes("ask_user_question"), `the bridge listed ${JSON.stringify(tools?.names ?? null)}`);
+		const allowed = log3.filter((entry) => entry.kind === "permission-answer").map((entry) => entry.answer?.outcome?.optionId);
+		check(JSON.stringify(allowed) === JSON.stringify(["allow"]), `permission answers ${JSON.stringify(allowed)}`);
+		const prompts3 = log3.filter((entry) => entry.kind === "prompt");
+		check(prompts3.length === 3, `the tool round used ${prompts3.length - 2} agent prompts, not one`);
+		say("tool turn: the mock called ask_user_question through the bridge, the answer resumed the same agent prompt");
 
 		// 4. Stop: nothing left behind (and the agent's temp root did exist while it ran).
 		const during = fs.existsSync(agentTemp) ? fs.readdirSync(agentTemp).filter((name) => name.startsWith("run-")) : [];

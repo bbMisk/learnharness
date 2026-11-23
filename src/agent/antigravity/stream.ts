@@ -417,7 +417,6 @@ class TurnSession {
 	private unseenOutput = false;
 	/** The request the attached stream answers (replaced on resume). */
 	private model!: Model<Api>;
-	private reasoning: ThinkingLevel | undefined;
 	private input!: AntigravityInput;
 	private key: string | undefined;
 	/** The tools this prompt's session is given (none: text-only, exactly as without tools support). */
@@ -456,7 +455,6 @@ class TurnSession {
 		const key = rawKey ? rawKey : undefined;
 		this.key = key;
 		this.model = model;
-		this.reasoning = reasoning;
 		// Tools only with a chat key (a held call resumes under it) and the tools switch on.
 		this.tools = key !== undefined && antigravityToolsOn() ? declaredTools(messages) : [];
 		this.input = toAntigravityInput(messages, this.tools);
@@ -851,11 +849,14 @@ class TurnSession {
 
 	/**
 	 * Continue the waiting prompt into `turn` when this request is exactly the held call's result:
-	 * same model, level, system text and tools; the conversation the agent has seen, then the
-	 * assistant message with that one call, then only its result. Otherwise the prompt expires (the
-	 * caller then runs the ordinary path, a fresh session with the full replay). Returns whether it attached.
+	 * same model, system text and tools; the conversation the agent has seen, then the assistant
+	 * message with that one call, then only its result. Otherwise the prompt expires (the caller then
+	 * runs the ordinary path, a fresh session with the full replay). Returns whether it attached.
+	 * The thinking level is not compared: the open prompt keeps the level it was confirmed at, and
+	 * LearnHarness's answer run can ask for another one (measured: "off" on the question turn,
+	 * "medium" on the answer run of the same lesson).
 	 */
-	resume(turn: AntigravityTurn, model: Model<Api>, messages: AgentMessages, reasoning: ThinkingLevel | undefined): boolean {
+	resume(turn: AntigravityTurn, model: Model<Api>, messages: AgentMessages): boolean {
 		const waiting = this.waiting;
 		const held = this.held;
 		if (!waiting || !held || this.done || !this.connection.alive) { this.expire(); return false; }
@@ -866,7 +867,7 @@ class TurnSession {
 		const assistant = conversation[last - 1];
 		const result = conversation[last];
 		const ids = assistant?.role === "assistant" ? assistant.content.flatMap((block) => (block.type === "toolCall" ? [block.id] : [])) : [];
-		const matches = model.id === this.model.id && reasoning === this.reasoning
+		const matches = model.id === this.model.id
 			&& input.systemText === waiting.seen.systemText && input.toolsHash === waiting.seen.toolsHash
 			&& conversation.length === waiting.seen.messages + 1
 			&& ids.length === 1 && ids[0] === held.call.id
@@ -996,7 +997,7 @@ export function createAntigravityStreamFunction({ runtime = antigravityRuntime, 
 			const waiting = live ? waitingTurns.get(live)?.get(key!) : undefined;
 			if (signal?.aborted) { waiting?.expire(); turn.fail(AntigravityMessage.Aborted, "aborted"); return; }
 			// A prompt of this chat is waiting for a tool result: this request continues it, or it expires.
-			if (waiting?.resume(turn, model, context.messages, options?.reasoning)) {
+			if (waiting?.resume(turn, model, context.messages)) {
 				session = waiting;
 				signal?.addEventListener("abort", onAbort, { once: true });
 				turn.onEnd(() => signal?.removeEventListener("abort", onAbort));
