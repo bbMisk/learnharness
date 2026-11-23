@@ -51,3 +51,11 @@ export function antigravitySwitchOn(): boolean {
 	if (forced === "1") return true;
 	return ANTIGRAVITY;
 }
+
+/** Antigravity session reuse (docs/antigravity.md): a lesson continues its agent session while the
+ *  conversation only grows. On; the SERVER's LH_ANTIGRAVITY_REUSE=0 turns it off (a fresh agent
+ *  session per reply, the earlier behaviour). Read live. */
+export function antigravityReuseOn(): boolean {
+	const proc = typeof process === "undefined" ? undefined : process;
+	return proc?.env?.LH_ANTIGRAVITY_REUSE !== "0";
+}

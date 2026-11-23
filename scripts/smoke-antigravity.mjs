@@ -22,6 +22,8 @@
  *      (all through the public HTTP API); the scripted reply arrives and is
  *      saved; the mock saw `acp --sandbox`, no `authenticate`, and mode
  *      "default" and level "low" set before the prompt;
+ *      then a second learner message on the same chat: one session/new for
+ *      both turns and only the new message in the second prompt;
  *   4. stop the server: no mock process is left and the agent's temp
  *      folders are gone.
  */
@@ -231,6 +233,25 @@ async function main() {
 		check(levelAt >= 0 && levelAt < promptAt, `thinking level "low" was not set before the prompt (level at ${levelAt}, prompt at ${promptAt})`);
 		check(JSON.stringify(received[promptAt]).includes("Teach me about fractions."), "the prompt does not carry the learner's message");
 		say(`lesson turn: reply saved (${JSON.stringify(replyText)}); mock saw acp --sandbox, no authenticate, mode "default" and level "low" before the prompt`);
+
+		// A second turn on the same chat continues the same agent session with only the new message.
+		const second = await send(`${server.url}/api/chat`, "POST", { chatId, input: { type: "text", text: "And what about decimals?" } });
+		check(second.status === 200, `second POST /api/chat → ${second.status} ${JSON.stringify(second.body)}`);
+		await fetch(`${server.url}/api/chats/${chatId}/stream`).then((res) => res.text()).catch(() => "");
+		const until2 = Date.now() + TURN_TIMEOUT_MS;
+		let replies = [];
+		while (Date.now() < until2) {
+			try { replies = JSON.parse(fs.readFileSync(chatFile, "utf8")).messages.filter((m) => m.role === "assistant" && m.stopReason !== "pending"); } catch { replies = []; }
+			if (replies.length >= 2) break;
+			await sleep(250);
+		}
+		check(replies.length >= 2 && replies.at(-1).stopReason === "stop", `second reply: ${JSON.stringify(replies.at(-1) ?? null)}`);
+		const log2 = readLog(logFile);
+		const prompts = log2.filter((entry) => entry.kind === "prompt");
+		const sessionNews = log2.filter((entry) => entry.kind === "recv" && entry.line.includes('"method":"session/new"')).length;
+		check(prompts.length === 2 && sessionNews === 1 && prompts[1].sessionId === prompts[0].sessionId, `two turns: ${sessionNews} session/new, prompts ${JSON.stringify(prompts.map((p) => [p.sessionId, p.n]))}`);
+		check(JSON.stringify(prompts[1].texts) === JSON.stringify(["And what about decimals?"]), `second prompt sent ${JSON.stringify(prompts[1].texts)}, not only the new message`);
+		say("second turn: same agent session (one session/new), only the new message sent");
 
 		// 4. Stop: nothing left behind (and the agent's temp root did exist while it ran).
 		const during = fs.existsSync(agentTemp) ? fs.readdirSync(agentTemp).filter((name) => name.startsWith("run-")) : [];

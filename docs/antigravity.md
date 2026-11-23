@@ -21,13 +21,21 @@ Thinking levels are supported per model: the model picker offers exactly the lev
 
 ## In a lesson
 
-- Every reply is a new Antigravity session that receives the whole conversation as text. Pictures and documents are replaced by a short note saying they were left out.
+- A lesson continues one Antigravity session while its conversation only grows (see below); otherwise a reply starts a new session that receives the whole conversation as text. Pictures and documents are replaced by a short note saying they were left out.
 - The session starts in an empty temporary folder. Antigravity's approval mode is set to "default", which asks before it runs commands, edits files, uses the web or reads outside that folder. LearnHarness checks the mode again after choosing the model, and if the mode can't be confirmed, the reply doesn't start. If the mode changes while the reply is streaming, the reply is stopped.
 - Antigravity gets no LearnHarness tools: no quizzes, no file reading, no background jobs. If it tries to use one of its own tools, LearnHarness refuses the request, stops the reply and says so. Text it had already written stays. A tool that your own Antigravity allow rules already permit may have run before LearnHarness hears about it.
 - The tutor's instructions still describe LearnHarness's quizzes and other tools, which Antigravity can't call here, so lesson steps that need them don't happen.
 - Only lessons you start use Antigravity. Background jobs, note extraction, automatic follow-ups, the side tutor, plugins and other helpers refuse it; pick another model for those. A long lesson can still be compacted (summarized) with the lesson's own model.
 
-Some of your own Antigravity setup still applies: its allow rules, global rules and skills, and MCP servers. Google documents no way to give a third-party app a separate profile. Each reply also creates a session in your Antigravity history.
+Some of your own Antigravity setup still applies: its allow rules, global rules and skills, and MCP servers. Google documents no way to give a third-party app a separate profile. Each lesson also creates a session in your Antigravity history (more than one if the lesson had to start afresh; see below).
+
+## One agent session per lesson
+
+While a lesson's conversation only grows, the next reply continues the same Antigravity session and sends only your new message: LearnHarness checks that the agent has already seen exactly everything before it, the same instructions and the same model. Any edit, a retry that changes the history, compaction, a model or instruction change, or a reply that didn't finish cleanly starts a fresh session with the whole conversation instead. LearnHarness's own transcript stays the record; the agent session is only a cache of it.
+
+On the real agent, a follow-up reply on a continued session reported about 2,100 new input tokens and 10,900 read from Google's cache, instead of about 13,000 new ones on a fresh session (a fresh session never hits the cache, so a long lesson otherwise resends the whole conversation and about 9,700 tokens of the agent's own instructions every time). Replies were not faster at that size; this saves quota on long lessons.
+
+Every reply still passes the same checks before its prompt: approval mode "default", the chosen model and thinking level, confirmed from the agent's latest answer. A session that waits between replies is closed if the agent tries to use a tool on it, and at most 8 waiting sessions are kept (the oldest is closed first). They don't keep `agy` running: the 30-minute idle stop and turning Antigravity off still apply. A server started with `LH_ANTIGRAVITY_REUSE=0` turns this off: every reply gets a fresh session, as before.
 
 ## What is sent to Google
 

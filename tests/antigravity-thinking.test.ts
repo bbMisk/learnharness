@@ -22,7 +22,7 @@ if (process.env.NODE_ENV !== "test") throw new Error("Run with NODE_ENV=test.");
 // Isolation first: no ambient keys, data, network. Every import that reads them follows.
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), "lh-agy-thinking-"));
 const originalEnv = process.env, originalFetch = globalThis.fetch;
-process.env = { PATH: originalEnv.PATH, HOME: directory, NODE_ENV: "test", NODE_TEST_CONTEXT: originalEnv.NODE_TEST_CONTEXT, LH_DATA_DIR: directory, LH_AUTH_FILE: path.join(directory, "auth.json"), LH_FORK_ANTIGRAVITY: "1", LH_AGY_BINARY: MOCK_AGY };
+process.env = { PATH: originalEnv.PATH, HOME: directory, NODE_ENV: "test", NODE_TEST_CONTEXT: originalEnv.NODE_TEST_CONTEXT, ...(originalEnv.LH_ANTIGRAVITY_REUSE ? { LH_ANTIGRAVITY_REUSE: originalEnv.LH_ANTIGRAVITY_REUSE } : {}), LH_DATA_DIR: directory, LH_AUTH_FILE: path.join(directory, "auth.json"), LH_FORK_ANTIGRAVITY: "1", LH_AGY_BINARY: MOCK_AGY };
 fs.writeFileSync(process.env.LH_AUTH_FILE!, "{}");
 globalThis.fetch = async () => { throw new Error("CLOSED: unexpected network request"); };
 

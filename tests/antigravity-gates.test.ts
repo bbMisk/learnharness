@@ -17,7 +17,7 @@ if (process.env.NODE_ENV !== "test") throw new Error("Run with NODE_ENV=test.");
 // Isolation first: no ambient keys, data, network. Every import that reads them follows.
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), "lh-agy-gates-"));
 const originalEnv = process.env, originalFetch = globalThis.fetch;
-process.env = { PATH: originalEnv.PATH, HOME: directory, NODE_ENV: "test", NODE_TEST_CONTEXT: originalEnv.NODE_TEST_CONTEXT, LH_DATA_DIR: directory, LH_AUTH_FILE: path.join(directory, "auth.json") };
+process.env = { PATH: originalEnv.PATH, HOME: directory, NODE_ENV: "test", NODE_TEST_CONTEXT: originalEnv.NODE_TEST_CONTEXT, ...(originalEnv.LH_ANTIGRAVITY_REUSE ? { LH_ANTIGRAVITY_REUSE: originalEnv.LH_ANTIGRAVITY_REUSE } : {}), LH_DATA_DIR: directory, LH_AUTH_FILE: path.join(directory, "auth.json") };
 fs.writeFileSync(process.env.LH_AUTH_FILE!, "{}");
 globalThis.fetch = async () => { throw new Error("CLOSED: unexpected network request"); };
 
@@ -553,6 +553,37 @@ test("off then on again while a reply streams: the process survives the reply an
 	await waitFor(() => !runningTurn(chat.id), 5000, "second turn settled");
 	assert.equal(h.spawns, spawnsBefore, "the next turn reused the process");
 	assert.equal(spyRuntime.connection, live);
+	spyRuntime.shutdown();
+	await h.assertNoChildren();
+});
+
+test("9. through the chat handler and the real chat store: the second learner turn sends only the second message, on the same agent session", async (t) => {
+	const reuse = process.env.LH_ANTIGRAVITY_REUSE !== "0";
+	state({ switchOn: true, enabled: true, installed: true });
+	const h = mockHarness(t);
+	h.onTeardown(() => spyRuntime.shutdown());
+	launchReal = h.launch;
+	const chat = lessonChat("Antigravity session reuse");
+	for (const text of ["What is a fraction?", "And a decimal?"]) {
+		assert.equal((await handleChatInput(chat.id, { type: "text", text }, build)).status, 200);
+		const handle = runningTurn(chat.id);
+		if (handle) await new Response(handle.subscribe()).text();
+		await waitFor(() => !runningTurn(chat.id), 5000, "turn settled");
+	}
+	const prompts = h.log().filter((entry) => entry.kind === "prompt") as unknown as { sessionId: string; n: number; texts: string[] }[];
+	assert.equal(prompts.length, 2);
+	if (reuse) {
+		assert.equal(h.methods().filter((m) => m === "session/new").length, 1, "one agent session for the lesson");
+		assert.equal(prompts[1]!.sessionId, prompts[0]!.sessionId);
+		assert.deepEqual(prompts[1]!.texts, ["And a decimal?"]);
+	} else {
+		// Switched off: today's behaviour, a fresh session with the whole conversation every turn.
+		assert.equal(h.methods().filter((m) => m === "session/new").length, 2);
+		assert.notEqual(prompts[1]!.sessionId, prompts[0]!.sessionId);
+		assert.match(prompts[1]!.texts.at(-1)!, /\[user\]\nWhat is a fraction\?[\s\S]*\[user\]\nAnd a decimal\?/);
+	}
+	const replies = chatStore.getChat(chat.id)!.messages.filter((m) => (m as { role?: string }).role === "assistant");
+	assert.equal(replies.length, 2);
 	spyRuntime.shutdown();
 	await h.assertNoChildren();
 });

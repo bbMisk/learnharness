@@ -14,7 +14,8 @@
  * MOCK_AGY_SCENARIO  JSON object scripting the behaviour (fields below).
  * MOCK_AGY_LOG       file that receives one JSON line per event:
  *                    {kind:"start", argv, cwd, envNames, pid}, then
- *                    {kind:"recv", line} for every raw stdin line.
+ *                    {kind:"recv", line} for every raw stdin line, and
+ *                    {kind:"prompt", sessionId, n, texts} for every prompt (n: that session's prompt count).
  *
  * Scenario fields (all optional):
  *   stdoutAtStart, stderrAtStart  raw lines written at startup
@@ -50,6 +51,8 @@
  *     "after", mode} (a current_mode_update in the same write as the model-set answer),
  *   emptySessionId, noAgentVersion, initializeDelayMs (a slow cold start),
  *   signInAfterSet (the sign-in line in the same write as a set_config_option answer),
+ *   parkedUpdate "tool" | "permission" | "mode" (50 ms after a session's first reply: a tool call, a
+ *     permission request, or the mode flipped to "auto"),
  *   staleUpdateBeforeNew (a config_option_update listing "old-model", written just before the session/new answer)
  */
 import { appendFileSync, readFileSync } from "node:fs";
@@ -268,6 +271,10 @@ async function prompt({ sessionId, prompt: blocks }) {
 	const myId = requestId;
 	const session = sessions.get(sessionId);
 	if (!session) throw new RpcError(-32602, "Unknown session");
+	// Sessions live across prompts, like the real agent: count them and remember what each received.
+	session.prompts = (session.prompts ?? 0) + 1;
+	session.cancelled = false;
+	log({ kind: "prompt", sessionId, n: session.prompts, texts: (blocks ?? []).map((block) => block.text) });
 	const steps = real
 		? ["usage_update", "config_option_update", "session_info_update", "agent_message_chunk", "usage_update"].map((kind) => ({ realUpdate: kind }))
 		: scenario.prompt ?? [{ text: "Hello" }, { text: " world" }, { usageUpdate: true }];
@@ -331,10 +338,20 @@ async function prompt({ sessionId, prompt: blocks }) {
 	// packages/effect-acp/src/client.ts:1305, AcpSessionRuntime.ts:2608-2661.
 	if (session.cancelled && !scenario.ignoreCancel) return { stopReason: "cancelled" };
 	if (real) return real.promptResult;
+	// Something the agent sends to a session after its first reply, while LearnHarness has it parked.
+	const later = scenario.parkedUpdate;
+	if (later && session.prompts === 1) {
+		setTimeout(() => {
+			if (later === "permission") void requestClient("session/request_permission", permissionParams(sessionId)).then((answer) => log({ kind: "permission-answer", answer }));
+			else if (later === "tool") update(sessionId, { sessionUpdate: "tool_call", toolCallId: "parked-1", title: "Parked tool", kind: "execute" });
+			else if (later === "mode") { session.mode = "auto"; update(sessionId, { sessionUpdate: "config_option_update", configOptions: configOptions(session) }); }
+		}, 50);
+	}
 	// The real result's usage field names (capture `promptResult`).
-	const usage = scenario.usage === undefined
-		? { inputTokens: 9684, outputTokens: 60, cachedReadTokens: 0, cachedWriteTokens: 0, thoughtTokens: 59, totalTokens: 9744 }
-		: scenario.usage;
+	// A reused session's later prompts hit the cache (measured on the real agent: ~2,100 new, ~10,900 cached).
+	const usage = scenario.usage !== undefined ? scenario.usage
+		: session.prompts > 1 ? { inputTokens: 2100, outputTokens: 60, cachedReadTokens: 10900, cachedWriteTokens: 0, thoughtTokens: 59, totalTokens: 13060 }
+		: { inputTokens: 9684, outputTokens: 60, cachedReadTokens: 0, cachedWriteTokens: 0, thoughtTokens: 59, totalTokens: 9744 };
 	return { stopReason: scenario.stopReason ?? "end_turn", ...(usage ? { usage } : {}) };
 }
 

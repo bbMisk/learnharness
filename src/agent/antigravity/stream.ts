@@ -20,8 +20,9 @@ import { AcpTransportError, isRecord, stripUrls } from "./acp-client.ts";
 import { AntigravityMessage, breachMessage } from "./constants.ts";
 import { antigravityHost, type AntigravityHost } from "./host.ts";
 import { findConfigOption, levelsFrom, modelsFrom } from "./models.ts";
-import { antigravityRuntime, antigravityTimeouts, describeAgentError, isValueRefusal, rejectOnce, type AgentConnection, type AntigravityRuntime } from "./runtime.ts";
-import { toAntigravityInput } from "./transcript.ts";
+import { antigravityRuntime, antigravityTimeouts, describeAgentError, isValueRefusal, rejectOnce, type AgentConnection, type AntigravityRuntime, type SessionListener } from "./runtime.ts";
+import { antigravityReuseOn } from "../../core/fork-config.ts";
+import { canonicalPieces, hashPieces, replayAssistant, reuseTail, toAntigravityInput, type SeenFingerprint } from "./transcript.ts";
 
 function count(value: unknown): number {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
@@ -123,6 +124,146 @@ function safeLabel(value: unknown): string {
 	return text.slice(0, 120).trim();
 }
 
+/** At most this many parked sessions per agent process; the least recently used is closed first. */
+export const MAX_PARKED_SESSIONS = 8;
+
+/**
+ * One agent session: its config view (kept while parked, so a later turn starts from the freshest
+ * state) and its routing. The connection routes the session to `target`: the turn using it, or
+ * the parked handler between turns. A session is used by one turn at a time.
+ */
+class AgentSession {
+	/** The session's config options as the agent last stated them (session/new, every set answer, every update). */
+	private options: unknown[] = [];
+	/** The frame `options` came from: an answer read before a later update never overwrites it. */
+	private optionsFrame = -1;
+	/** A current_mode_update, kept apart with its own frame: it changes the view only while it is newer than `options`. */
+	private modeOverride: { value: string; frame: number } | undefined;
+	target: SessionListener | undefined;
+	/** What the agent has seen, set when the session is parked. */
+	seen: SeenFingerprint | undefined;
+	poisoned = false;
+	closed = false;
+	private stopWatching: (() => void) | undefined;
+
+	constructor(readonly connection: AgentConnection, readonly sessionId: string) {}
+
+	/** Start routing (throws for an id another turn already watches; then nothing was taken). Early updates replay into `target`. */
+	watch(target: SessionListener): void {
+		this.target = target;
+		this.stopWatching = this.connection.watch(this.sessionId, {
+			onUpdate: (update, frame) => this.target?.onUpdate(update, frame),
+			onPermissionRequest: (params) => (this.target ? this.target.onPermissionRequest(params) : rejectOnce(params)),
+			onClosed: (error) => this.target?.onClosed(error),
+		});
+	}
+
+	/** The options as the agent last stated them, with a newer mode update applied on top. */
+	view(): unknown[] {
+		const override = this.modeOverride;
+		if (!override || override.frame < this.optionsFrame) return this.options;
+		return this.options.map((option) => (isRecord(option) && (option.id === "mode" || option.category === "mode") ? { ...option, currentValue: override.value } : option));
+	}
+
+	/** Returns whether the options were taken (false: not options, or older than the current view). */
+	observe(configOptions: unknown, frame: number): boolean {
+		if (!Array.isArray(configOptions) || frame < this.optionsFrame) return false;
+		this.options = configOptions;
+		this.optionsFrame = frame;
+		return true;
+	}
+
+	observeMode(modeId: unknown, frame: number): void {
+		if (typeof modeId === "string" && frame >= (this.modeOverride?.frame ?? -1)) this.modeOverride = { value: modeId, frame };
+	}
+
+	/** Stop routing and close it on the agent (when the agent supports that). Never parked again. */
+	close(): void {
+		if (this.closed) return;
+		this.closed = true;
+		this.target = undefined;
+		this.stopWatching?.();
+		if (this.connection.handshake.sessionClose && this.connection.alive) {
+			this.connection.request("session/close", { sessionId: this.sessionId }, antigravityTimeouts.startupMs).catch(() => { /* dropped either way */ });
+		}
+	}
+}
+
+/** The parked sessions of one agent process, by pi session id (the chat), least recently used first. */
+class SessionPark {
+	private readonly parked = new Map<string, AgentSession>();
+
+	/** Take the session parked under `key` if `fits` says it can continue; any other parked one is closed. */
+	take(key: string, fits: (session: AgentSession) => string | null): { session: AgentSession; tail: string } | undefined {
+		const session = this.parked.get(key);
+		if (!session) return undefined;
+		this.parked.delete(key);
+		const tail = !session.poisoned && !session.closed && session.connection.alive ? fits(session) : null;
+		if (tail === null) { session.close(); return undefined; }
+		return { session, tail };
+	}
+
+	/** Park after a clean turn. The last clean finisher for a key wins; the one it replaces is closed. */
+	put(key: string, session: AgentSession): void {
+		const previous = this.parked.get(key);
+		if (previous && previous !== session) previous.close();
+		this.parked.delete(key);
+		this.parked.set(key, session);
+		session.target = {
+			onUpdate: (update, frame) => this.whileParked(key, session, update, frame),
+			onPermissionRequest: (params) => { this.poison(key, session); return rejectOnce(params); },
+			onClosed: () => this.drop(key, session),
+		};
+		while (this.parked.size > MAX_PARKED_SESSIONS) {
+			const [oldestKey, oldest] = this.parked.entries().next().value!;
+			this.parked.delete(oldestKey);
+			oldest.close();
+		}
+	}
+
+	get size(): number { return this.parked.size; }
+
+	private whileParked(key: string, session: AgentSession, update: Record<string, unknown>, frame: number): void {
+		switch (update.sessionUpdate) {
+			case "tool_call":
+			case "tool_call_update":
+				this.poison(key, session);
+				return;
+			case "config_option_update":
+				session.observe(update.configOptions, frame);
+				return;
+			case "current_mode_update":
+				session.observeMode(update.currentModeId, frame);
+				return;
+			default:
+				return; // text and thought chunks, usage: ignored while parked
+		}
+	}
+
+	/** The agent tried to use a tool while nobody was asking: never use this session again. */
+	private poison(key: string, session: AgentSession): void {
+		session.poisoned = true;
+		this.drop(key, session);
+		session.close();
+	}
+
+	private drop(key: string, session: AgentSession): void {
+		if (this.parked.get(key) === session) this.parked.delete(key);
+	}
+}
+
+const parks = new WeakMap<AgentConnection, SessionPark>();
+function parkFor(connection: AgentConnection): SessionPark {
+	let park = parks.get(connection);
+	if (!park) { park = new SessionPark(); parks.set(connection, park); }
+	return park;
+}
+
+/** Parked sessions on this connection (tests). */
+export function parkedSessionCount(connection: AgentConnection): number {
+	return parks.get(connection)?.size ?? 0;
+}
+
 /** The session part of one turn: setup, prompt, routing and every way it can stop. */
 class TurnSession {
 	private sessionId: string | undefined;
@@ -131,14 +272,9 @@ class TurnSession {
 	/** run() has returned: nothing more may be sent for this session. */
 	private done = false;
 	private replyBytes = 0;
-	/** The session's config options as the agent last stated them (session/new, every set answer, every update). */
-	private options: unknown[] = [];
-	/** The frame `options` came from: an answer read before a later update never overwrites it. */
-	private optionsFrame = -1;
-	/** A current_mode_update, kept apart with its own frame: it changes the view only while it is newer than `options`. */
-	private modeOverride: { value: string; frame: number } | undefined;
 	private inactivity: NodeJS.Timeout | undefined;
-	private stopWatching: (() => void) | undefined;
+	/** The agent session this turn uses (fresh or reused). */
+	private agent: AgentSession | undefined;
 
 	constructor(
 		private readonly connection: AgentConnection,
@@ -152,34 +288,47 @@ class TurnSession {
 		if (this.prompt) this.cancel();
 	};
 
-	async run(model: Model<Api>, messages: Parameters<typeof toAntigravityInput>[0], reasoning?: ThinkingLevel): Promise<void> {
+	async run(model: Model<Api>, messages: Parameters<typeof toAntigravityInput>[0], reasoning?: ThinkingLevel, key?: string): Promise<void> {
 		const { connection } = this;
 		const input = toAntigravityInput(messages);
 		const append = connection.handshake.systemPromptAppend;
+		// Reuse only with a session key (the chat) and the switch on; otherwise exactly one fresh session per turn.
+		const park = key !== undefined && antigravityReuseOn() ? parkFor(connection) : undefined;
 		try {
 			this.checkpoint();
-			const { result: created, frame } = await connection.setupRequestStamped("session/new", {
-				cwd: connection.workspace,
-				mcpServers: [],
-				...(append ? { _meta: { antigravity: { systemPrompt: { append: input.systemText } } } } : {}),
-			});
-			// A malformed answer breaks the protocol for the whole connection, not just this turn.
-			if (!isRecord(created) || typeof created.sessionId !== "string" || !created.sessionId) throw connection.failProtocol();
-			// Killed while the answer was in flight: nothing from it is saved.
-			if (!connection.alive) throw connection.failure ?? new AcpTransportError("closed", AntigravityMessage.Exited);
-			const sessionId = created.sessionId;
-			this.observe(created.configOptions, frame);
-			this.refreshModels(created.configOptions);
-			// Replays what arrived before this point (a breach, newer options), so an early tool_call still
-			// stops the turn. Throws for an id another turn already watches: this turn then owns nothing.
-			this.stopWatching = connection.watch(sessionId, {
-				onUpdate: (update, updateFrame) => this.onUpdate(update, updateFrame),
-				onPermissionRequest: (params) => this.onPermission(params),
-				onClosed: (error) => this.turn.fail(error.message),
-			});
-			this.sessionId = sessionId;
+			const reused = park?.take(key!, (session) => (session.seen ? reuseTail(session.seen, input, model.id) : null));
+			let prompt: { type: string; text: string }[];
+			if (reused) {
+				// The agent already has the system text and everything but the tail.
+				this.agent = reused.session;
+				reused.session.target = this.listener;
+				this.sessionId = reused.session.sessionId;
+				prompt = [{ type: "text", text: reused.tail }];
+			} else {
+				const { result: created, frame } = await connection.setupRequestStamped("session/new", {
+					cwd: connection.workspace,
+					mcpServers: [],
+					...(append ? { _meta: { antigravity: { systemPrompt: { append: input.systemText } } } } : {}),
+				});
+				// A malformed answer breaks the protocol for the whole connection, not just this turn.
+				if (!isRecord(created) || typeof created.sessionId !== "string" || !created.sessionId) throw connection.failProtocol();
+				// Killed while the answer was in flight: nothing from it is saved.
+				if (!connection.alive) throw connection.failure ?? new AcpTransportError("closed", AntigravityMessage.Exited);
+				const session = new AgentSession(connection, created.sessionId);
+				session.observe(created.configOptions, frame);
+				this.refreshModels(created.configOptions);
+				// Replays what arrived before this point (a breach, newer options), so an early tool_call still
+				// stops the turn. Throws for an id another turn already watches: this turn then owns nothing.
+				this.agent = session;
+				try { session.watch(this.listener); }
+				catch (error) { this.agent = undefined; throw error; }
+				this.sessionId = session.sessionId;
+				prompt = [...(append ? [] : [{ type: "text", text: input.systemText }]), { type: "text", text: input.transcript }];
+			}
+			const sessionId = this.sessionId!;
 			this.checkpoint();
 
+			// Every prompt, reused session or not, passes the same fail-closed checks from the freshest view.
 			await this.pinDefaultMode(sessionId);
 			this.checkpoint();
 			await this.selectModel(sessionId, model.id);
@@ -193,7 +342,6 @@ class TurnSession {
 			// This turn may refresh the levels of the model it selected (only that one), from what it already received.
 			this.refreshModels(this.view(), model.id);
 
-			const prompt = [...(append ? [] : [{ type: "text", text: input.systemText }]), { type: "text", text: input.transcript }];
 			this.prompt = connection.request("session/prompt", { sessionId, prompt });
 			this.touch();
 			const result = await this.prompt;
@@ -204,9 +352,14 @@ class TurnSession {
 		} finally {
 			this.done = true;
 			clearTimeout(this.inactivity);
-			this.stopWatching?.();
-			if (this.sessionId && connection.handshake.sessionClose && connection.alive) {
-				connection.request("session/close", { sessionId: this.sessionId }, antigravityTimeouts.startupMs).catch(() => { /* dropped either way */ });
+			const session = this.agent;
+			if (session) {
+				// Parked only after a clean "stop", on a live, unpoisoned session; anything else is closed.
+				if (park && this.turn.output.stopReason === "stop" && !session.poisoned && !session.closed && connection.alive) {
+					const pieces = [...canonicalPieces(input.messages), ...canonicalPieces([replayAssistant(this.turn.output.content)])];
+					session.seen = { systemText: input.systemText, modelId: model.id, count: pieces.length, hash: hashPieces(pieces) };
+					park.put(key!, session);
+				} else session.close();
 			}
 		}
 	}
@@ -216,21 +369,20 @@ class TurnSession {
 		if (this.turn.finished) throw new StopTurn("");
 	}
 
-	/** Replace the current view with the agent's statement of the options, unless a later frame already did. */
-	/** The options as the agent last stated them, with a newer mode update applied on top. */
 	private view(): unknown[] {
-		const override = this.modeOverride;
-		if (!override || override.frame < this.optionsFrame) return this.options;
-		return this.options.map((option) => (isRecord(option) && (option.id === "mode" || option.category === "mode") ? { ...option, currentValue: override.value } : option));
+		return this.agent?.view() ?? [];
 	}
 
-	/** Returns whether the options were taken (false: not options, or older than the current view). */
 	private observe(configOptions: unknown, frame: number): boolean {
-		if (!Array.isArray(configOptions) || frame < this.optionsFrame) return false;
-		this.options = configOptions;
-		this.optionsFrame = frame;
-		return true;
+		return this.agent?.observe(configOptions, frame) ?? false;
 	}
+
+	/** This turn's routing for its agent session. */
+	private readonly listener: SessionListener = {
+		onUpdate: (update, frame) => this.onUpdate(update, frame),
+		onPermissionRequest: (params) => this.onPermission(params),
+		onClosed: (error) => this.turn.fail(error.message),
+	};
 
 	/** One session/set_config_option as a setup request; its answer updates the view. A refusal of the
 	 *  value fails the turn with `refused`; sign-in and account problems keep their own message. */
@@ -304,9 +456,7 @@ class TurnSession {
 				this.breach(update);
 				return;
 			case "current_mode_update":
-				if (typeof update.currentModeId === "string" && frame >= (this.modeOverride?.frame ?? -1)) {
-					this.modeOverride = { value: update.currentModeId, frame };
-				}
+				this.agent?.observeMode(update.currentModeId, frame);
 				if (this.prompt && update.currentModeId !== "default") this.stopReply(AntigravityMessage.ModeChanged);
 				return;
 			case "config_option_update": {
@@ -417,7 +567,7 @@ export function createAntigravityStreamFunction({ runtime = antigravityRuntime, 
 				try {
 					if (turn.finished) return;
 					session = new TurnSession(connection, turn, currentHost);
-					await session.run(model, context.messages, options?.reasoning);
+					await session.run(model, context.messages, options?.reasoning, options?.sessionId);
 				} finally { release(); }
 			} finally {
 				signal?.removeEventListener("abort", onAbort);
