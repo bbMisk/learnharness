@@ -237,3 +237,31 @@ test("a frame without jsonrpc \"2.0\" is a protocol error", async (t) => {
 		await c.closed;
 	}
 });
+
+test("a second child `error` is handled, and kill calls that throw never escape", async (t) => {
+	const { child, connection: c } = connection(t);
+	child.exitOnKill = false;
+	child.kill = () => { throw new Error("ESRCH"); };
+	assert.doesNotThrow(() => { child.emit("error", new Error("first")); child.emit("error", new Error("second")); });
+	assert.equal(c.alive, false);
+	assert.doesNotThrow(() => c.killNow());
+	child.emit("exit", null, "SIGKILL");
+	await c.closed;
+});
+
+test("turning the provider off stops an unused agent at once, and a busy one when its last turn lets go", async (t) => {
+	const idle = connection(t);
+	idle.connection.stopWhenUnused();
+	assert.equal(idle.connection.alive, false);
+	assert.deepEqual(idle.child.signals, ["SIGTERM"]);
+
+	const busy = connection(t);
+	const release = busy.connection.hold();
+	busy.connection.stopWhenUnused();
+	assert.equal(busy.connection.alive, true, "a reply in flight is not cut off");
+	assert.deepEqual(busy.child.signals, []);
+	release();
+	assert.equal(busy.connection.alive, false);
+	assert.deepEqual(busy.child.signals, ["SIGTERM"]);
+	await busy.connection.closed;
+});

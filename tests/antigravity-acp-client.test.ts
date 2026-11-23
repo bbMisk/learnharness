@@ -185,3 +185,11 @@ test("stripUrls removes scheme links, scheme-relative links and anything naming 
 	assert.equal(stripUrls("a / b // c"), "a / b // c", "a bare // with no host stays");
 	assert.equal(stripUrls("1/2 and a/b/c"), "1/2 and a/b/c");
 });
+
+test("peer: a write that throws leaves no pending entry or timer behind", async () => {
+	const broken = new Writable({ write(_chunk, _encoding, done) { done(); } });
+	broken.write = () => { throw new Error("EPIPE"); };
+	const peer = new AcpPeer(broken, handlers());
+	await assert.rejects(peer.request("session/new", {}, 60_000), /EPIPE/);
+	assert.equal((peer as unknown as { pending: Map<unknown, unknown> }).pending.size, 0);
+});

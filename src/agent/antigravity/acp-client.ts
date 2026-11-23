@@ -161,7 +161,13 @@ export class AcpPeer {
 				entry.timer.unref();
 			}
 			this.pending.set(id, entry);
-			this.write({ jsonrpc: "2.0", id, method, params });
+			try { this.write({ jsonrpc: "2.0", id, method, params }); }
+			catch (error) {
+				// Never leave an entry (or its timer) behind for a request that was not sent.
+				this.pending.delete(id);
+				clearTimeout(entry.timer);
+				throw error;
+			}
 		});
 	}
 

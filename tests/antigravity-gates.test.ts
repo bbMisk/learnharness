@@ -450,3 +450,82 @@ test("route protections: cross-site, foreign origin and missing header are refus
 	const on = await antigravityResponse(request("PUT", { enabled: true }));
 	assert.equal((await on.json()).enabled, true);
 });
+
+test("check connection closes its throwaway session however it ends, and rejects an empty session id", async (t) => {
+	state({ switchOn: true, enabled: true, installed: true });
+	const failing = mockHarness(t, { setConfigError: { configId: "model", code: -32000, message: "Authentication required" } });
+	const runtime = new AntigravityRuntime({ launch: failing.launch, tempBase });
+	failing.onTeardown(() => runtime.shutdown());
+	const status = await checkAntigravityConnection(() => checkAntigravityAgent(runtime));
+	assert.match(status.problem ?? "", /Not signed in/);
+	await waitFor(() => failing.methods().includes("session/close"), 3000, "session/close after a failed discovery");
+
+	const empty = mockHarness(t, { emptySessionId: true });
+	const second = new AntigravityRuntime({ launch: empty.launch, tempBase });
+	empty.onTeardown(() => second.shutdown());
+	await assert.rejects(checkAntigravityAgent(second), (error: Error) => error.message === "Antigravity sent output LearnHarness could not read, so it was stopped.");
+	assert(!empty.methods().includes("session/set_config_option") && !empty.methods().includes("session/close"), "nothing is sent for an empty id");
+	await empty.assertNoChildren();
+});
+
+test("a check without an agent version clears the stored one; a superseded check changes nothing; a disabled check writes nothing", async (t) => {
+	state({ switchOn: true, enabled: true, installed: true });
+	antigravityStore.update({ agentVersion: "1.5.15" });
+	const h = mockHarness(t, { noAgentVersion: true });
+	const runtime = new AntigravityRuntime({ launch: h.launch, tempBase });
+	h.onTeardown(() => runtime.shutdown());
+	const fresh = await checkAntigravityConnection(() => checkAntigravityAgent(runtime));
+	assert.equal(fresh.agentVersion, undefined);
+	assert.equal(antigravityStore.read().agentVersion, undefined);
+
+	// Check A is slow and then fails; check B starts later and succeeds: A's late failure is ignored.
+	let failA!: (error: Error) => void;
+	const slow = checkAntigravityConnection(() => new Promise((_resolve, reject) => { failA = reject; }));
+	const newer = await checkAntigravityConnection(async () => ({ agentVersion: "1.5.15", models: [{ id: "m", name: "M", levels: [] }] }));
+	assert.ok(newer.checkedAt);
+	failA(new AcpRpcError(-32000, "Authentication required"));
+	const late = await slow;
+	assert.equal(late.problem, undefined, "the stale failure does not overwrite the newer result");
+	assert.equal(antigravityStore.read().checkedAt, newer.checkedAt);
+
+	// An opt-in change also supersedes a running check.
+	let passC!: () => void;
+	const running = checkAntigravityConnection(() => new Promise((resolve) => { passC = () => resolve({ agentVersion: "9.9.9", models: [] }); }));
+	await antigravityResponse(request("PUT", { enabled: true }));
+	passC();
+	await running;
+	assert.equal(antigravityStore.read().agentVersion, "1.5.15", "the superseded success was not recorded");
+
+	// Disabled: the check writes nothing.
+	antigravityStore.update({ enabled: false });
+	const before = antigravityStore.read().checkedAt;
+	await checkAntigravityConnection(async () => assert.fail("must not probe"));
+	assert.equal(antigravityStore.read().checkedAt, before);
+});
+
+test("turning Antigravity off through the API stops the agent, but lets a streaming reply finish first", async (t) => {
+	state({ switchOn: true, enabled: true, installed: true });
+	const h = mockHarness(t, { prompt: [{ text: "slow" }, { sleepMs: 400 }, { text: " reply" }] });
+	h.onTeardown(() => spyRuntime.shutdown());
+	launchReal = h.launch;
+	const connection = await spyRuntime.connect();
+	assert.equal((await antigravityResponse(request("PUT", { enabled: false }))).status, 200);
+	await connection.closed;
+	assert.equal(connection.alive, false, "no turn in flight: stopped at once");
+
+	antigravityStore.update({ enabled: true });
+	const chat = lessonChat("Antigravity switched off mid-reply");
+	const response = await handleChatInput(chat.id, { type: "text", text: "hi" }, build);
+	assert.equal(response.status, 200);
+	await waitFor(() => h.methods().filter((m) => m === "session/prompt").length === 1, 5000, "the reply is streaming");
+	const live = spyRuntime.connection!;
+	assert.equal((await antigravityResponse(request("PUT", { enabled: false }))).status, 200);
+	assert.equal(live.alive, true, "the streaming reply is not cut off");
+	const handle = runningTurn(chat.id);
+	if (handle) await new Response(handle.subscribe()).text();
+	await waitFor(() => !runningTurn(chat.id), 5000, "turn settled");
+	const reply = chatStore.getChat(chat.id)!.messages.findLast((m) => (m as { role?: string }).role === "assistant") as { content: { text?: string }[] };
+	assert.equal(reply.content.map((b) => b.text ?? "").join(""), "slow reply");
+	await live.closed;
+	await h.assertNoChildren();
+});

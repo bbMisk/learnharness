@@ -139,11 +139,15 @@ test("status labels", () => {
 	assert.equal(antigravityStatusLabel({ ...base, checkedAt: "t", models: 2, agentVersion: "1.5.12" }), "Connected · 2 models · agy 1.5.12");
 });
 
-test("not installed: the check button is disabled", async () => {
-	fixture(() => Response.json({ ...base, enabled: true, installed: false }));
+test("not installed: Check connection stays pressable, so installing agy and pressing it again works", async () => {
+	let installed = false;
+	const calls = fixture((call) => Response.json({ ...base, enabled: true, installed: call.method === "POST" ? (installed = true) : installed, ...(call.method === "POST" ? { checkedAt: "2026-11-23T12:00:00.000Z", models: 2 } : {}) }));
 	await mount();
 	assert.equal(label(), "Not installed");
-	assert.equal(check()?.disabled, true);
+	assert.equal(check()?.disabled, false);
+	await act(async () => check()!.click());
+	assert.equal(calls[1]!.method, "POST");
+	assert.equal(label(), "Connected · 2 models");
 });
 
 test("while the switch is off the route answers GET with 200 { available: false } only, and PUT/POST with 404", async () => {

@@ -79,7 +79,7 @@ export function AntigravityProviderStatus() {
 		{error && <p role="alert" className="text-xs text-error">{error}</p>}
 		{status.enabled && <div className="flex flex-wrap items-center gap-3">
 			<span role="status" className="text-xs text-muted-foreground">{busy === "checking" ? "Checking…" : antigravityStatusLabel(status)}</span>
-			<Button type="button" size="xs" variant="outline" className="cursor-pointer disabled:cursor-not-allowed" disabled={busy !== null || !status.installed} onClick={() => void send("checking", { action: "check" })} data-testid="antigravity-check">Check connection</Button>
+			<Button type="button" size="xs" variant="outline" className="cursor-pointer disabled:cursor-not-allowed" disabled={busy !== null} onClick={() => void send("checking", { action: "check" })} data-testid="antigravity-check">Check connection</Button>
 		</div>}
 		<p className="text-xs leading-relaxed text-muted-foreground">Uses your Google Antigravity account. Google&apos;s terms restrict using consumer plans through third-party apps.</p>
 	</div>;

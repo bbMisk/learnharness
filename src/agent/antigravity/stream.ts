@@ -137,8 +137,10 @@ class TurnSession {
 	private replyBytes = 0;
 	/** The session's config options as the agent last stated them (session/new, every set answer, every update). */
 	private options: unknown[] = [];
-	/** The frame the current view came from: an answer read before a later update never overwrites it. */
+	/** The frame `options` came from: an answer read before a later update never overwrites it. */
 	private optionsFrame = -1;
+	/** A current_mode_update, kept apart with its own frame: it changes the view only while it is newer than `options`. */
+	private modeOverride: { value: string; frame: number } | undefined;
 	private inactivity: NodeJS.Timeout | undefined;
 	private stopWatching: (() => void) | undefined;
 
@@ -165,14 +167,17 @@ class TurnSession {
 				mcpServers: [],
 				...(append ? { _meta: { antigravity: { systemPrompt: { append: input.systemText } } } } : {}),
 			});
-			if (!isRecord(created) || typeof created.sessionId !== "string") throw new AcpTransportError("protocol", AntigravityMessage.ProtocolError);
+			// A malformed answer breaks the protocol for the whole connection, not just this turn.
+			if (!isRecord(created) || typeof created.sessionId !== "string" || !created.sessionId) throw connection.failProtocol();
+			// Killed while the answer was in flight: nothing from it is saved.
+			if (!connection.alive) throw connection.failure ?? new AcpTransportError("closed", AntigravityMessage.Exited);
 			const sessionId = created.sessionId;
 			this.observe(created.configOptions, frame);
 			this.refreshModels(created);
 			// Replays what arrived before this point (a breach, newer options), so an early tool_call still
 			// stops the turn. Throws for an id another turn already watches: this turn then owns nothing.
 			this.stopWatching = connection.watch(sessionId, {
-				onUpdate: (update) => this.onUpdate(update),
+				onUpdate: (update, updateFrame) => this.onUpdate(update, updateFrame),
 				onPermissionRequest: (params) => this.onPermission(params),
 				onClosed: (error) => this.turn.fail(error.message),
 			});
@@ -186,11 +191,11 @@ class TurnSession {
 			const level = await this.pinThinkingLevel(sessionId, reasoning);
 			this.checkpoint();
 			// The freshest view decides: a change made while setting another option is caught here.
-			if (findConfigOption(this.options, "mode")?.currentValue !== "default") throw new StopTurn(AntigravityMessage.ModeNotSet);
-			if (findConfigOption(this.options, "model")?.currentValue !== model.id) throw new StopTurn(AntigravityMessage.ModelUnavailable);
-			if (level !== undefined && findConfigOption(this.options, "thought_level")?.currentValue !== level) throw new StopTurn(AntigravityMessage.LevelNotSet);
+			if (findConfigOption(this.view(), "mode")?.currentValue !== "default") throw new StopTurn(AntigravityMessage.ModeNotSet);
+			if (findConfigOption(this.view(), "model")?.currentValue !== model.id) throw new StopTurn(AntigravityMessage.ModelUnavailable);
+			if (level !== undefined && findConfigOption(this.view(), "thought_level")?.currentValue !== level) throw new StopTurn(AntigravityMessage.LevelNotSet);
 			// This turn may refresh the levels of the model it selected (only that one), from what it already received.
-			this.refreshModels(this.options, model.id);
+			this.refreshModels(this.view(), model.id);
 
 			const prompt = [...(append ? [] : [{ type: "text", text: input.systemText }]), { type: "text", text: input.transcript }];
 			this.prompt = connection.request("session/prompt", { sessionId, prompt });
@@ -216,6 +221,13 @@ class TurnSession {
 	}
 
 	/** Replace the current view with the agent's statement of the options, unless a later frame already did. */
+	/** The options as the agent last stated them, with a newer mode update applied on top. */
+	private view(): unknown[] {
+		const override = this.modeOverride;
+		if (!override || override.frame < this.optionsFrame) return this.options;
+		return this.options.map((option) => (isRecord(option) && (option.id === "mode" || option.category === "mode") ? { ...option, currentValue: override.value } : option));
+	}
+
 	private observe(configOptions: unknown, frame: number): void {
 		if (!Array.isArray(configOptions) || frame < this.optionsFrame) return;
 		this.options = configOptions;
@@ -230,7 +242,7 @@ class TurnSession {
 
 	/** Mode "default" from a mode config option, or the turn fails closed. */
 	private async pinDefaultMode(sessionId: string): Promise<void> {
-		const mode = findConfigOption(this.options, "mode");
+		const mode = findConfigOption(this.view(), "mode");
 		if (!mode || !mode.values.some((value) => value.id === "default")) throw new StopTurn(AntigravityMessage.ModeNotSet);
 		if (mode.currentValue === "default") return;
 		try {
@@ -241,7 +253,7 @@ class TurnSession {
 
 	/** The requested model from a model config option, or the turn fails closed. */
 	private async selectModel(sessionId: string, modelId: string): Promise<void> {
-		const option = findConfigOption(this.options, "model");
+		const option = findConfigOption(this.view(), "model");
 		if (!option || !option.values.some((value) => value.id === modelId)) throw new StopTurn(AntigravityMessage.ModelUnavailable);
 		if (option.currentValue === modelId) return;
 		try {
@@ -257,7 +269,7 @@ class TurnSession {
 	 */
 	private async pinThinkingLevel(sessionId: string, requested: ThinkingLevel | undefined): Promise<string | undefined> {
 		if (!requested) return undefined;
-		const option = findConfigOption(this.options, "thought_level");
+		const option = findConfigOption(this.view(), "thought_level");
 		if (!option || !option.values.some((value) => value.id === requested)) return undefined;
 		if (option.currentValue === requested) return requested;
 		try {
@@ -280,7 +292,7 @@ class TurnSession {
 		}
 	}
 
-	private onUpdate(update: Record<string, unknown>): void {
+	private onUpdate(update: Record<string, unknown>, frame: number): void {
 		if (this.turn.finished) return;
 		const content = isRecord(update.content) ? update.content : undefined;
 		switch (update.sessionUpdate) {
@@ -299,17 +311,15 @@ class TurnSession {
 				this.breach(update);
 				return;
 			case "current_mode_update":
-				if (typeof update.currentModeId === "string") {
-					const modeId = update.currentModeId;
-					this.options = this.options.map((option) => (isRecord(option) && (option.id === "mode" || option.category === "mode") ? { ...option, currentValue: modeId } : option));
-					this.optionsFrame = Math.max(this.optionsFrame, this.connection.frame);
+				if (typeof update.currentModeId === "string" && frame >= (this.modeOverride?.frame ?? -1)) {
+					this.modeOverride = { value: update.currentModeId, frame };
 				}
 				if (this.prompt && update.currentModeId !== "default") this.stopReply(AntigravityMessage.ModeChanged);
 				return;
 			case "config_option_update": {
-				this.observe(update.configOptions, this.connection.frame);
+				this.observe(update.configOptions, frame);
 				this.refreshModels(update);
-				if (this.prompt && findConfigOption(this.options, "mode")?.currentValue !== "default") this.stopReply(AntigravityMessage.ModeChanged);
+				if (this.prompt && findConfigOption(this.view(), "mode")?.currentValue !== "default") this.stopReply(AntigravityMessage.ModeChanged);
 				return;
 			}
 			default:
@@ -349,7 +359,10 @@ class TurnSession {
 		if (!prompt) return;
 		this.connection.notify("session/cancel", { sessionId: this.sessionId });
 		let timer: NodeJS.Timeout | undefined;
-		const graceOver = new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), antigravityTimeouts.cancelGraceMs); });
+		const graceOver = new Promise<boolean>((resolve) => {
+			timer = setTimeout(() => resolve(false), antigravityTimeouts.cancelGraceMs);
+			timer.unref();
+		});
 		void Promise.race([prompt.then(() => true, () => true), graceOver]).then((settled) => {
 			clearTimeout(timer);
 			if (!settled) this.connection.kill();

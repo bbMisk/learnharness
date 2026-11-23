@@ -45,6 +45,10 @@
  *   garbageAfterNew (a non-JSON line in the same write as the session/new answer),
  *   fixedSessionId (every session/new answers this id), chunkAfterNew (text sent right after session/new),
  *   steps {emptyRepeat:{count,everyMs}} (empty text chunks)
+ *   earlyModeThenOptions (after the session/new answer, same write: current_mode_update "default", then
+ *     config_option_update showing the session's real mode), modeUpdateWithModelSet {order: "before" |
+ *     "after", mode} (a current_mode_update in the same write as the model-set answer),
+ *   emptySessionId, noAgentVersion
  */
 import { appendFileSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -142,7 +146,7 @@ function initializeResult() {
 		auth: { logout: {} },
 		_meta: { antigravity: { tier: true, ...(scenario.systemPromptAppend === false ? {} : { systemPrompt: { append: true } }) } },
 	};
-	const info = { name: "Antigravity ACP Server", version: "1.5.15" };
+	const info = scenario.noAgentVersion ? { name: "Antigravity ACP Server" } : { name: "Antigravity ACP Server", version: "1.5.15" };
 	const authMethods = [
 		{ id: "oauth-personal", name: "Log in with Google", description: "Log in with your Google account" },
 		{ id: "oauth-business", name: "Log in with Gemini Enterprise", description: "Log in with your Gemini Enterprise account" },
@@ -353,6 +357,16 @@ async function handleRequest(method, params) {
 				: scenario.chunkAfterNew !== undefined
 				? { method: "session/update", params: { sessionId: result.sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: scenario.chunkAfterNew } } } }
 				: scenario.permissionAfterNew ? { id: `mock-${nextOwnId++}`, method: "session/request_permission", params: permissionParams(result.sessionId) } : undefined;
+			if (scenario.emptySessionId) return { ...result, sessionId: "" };
+			if (scenario.earlyModeThenOptions) {
+				const session = sessions.get(result.sessionId);
+				const frames = [
+					{ id: requestId, result: { ...result, configOptions: configOptions(session) } },
+					{ method: "session/update", params: { sessionId: result.sessionId, update: { sessionUpdate: "current_mode_update", currentModeId: "default" } } },
+					{ method: "session/update", params: { sessionId: result.sessionId, update: { sessionUpdate: "config_option_update", configOptions: configOptions(session) } } },
+				];
+				return { [RAW]: frames.map((m) => `${JSON.stringify({ jsonrpc: "2.0", ...m })}\n`).join("") };
+			}
 			if (scenario.garbageAfterNew) return { [RAW]: `${JSON.stringify({ jsonrpc: "2.0", id: requestId, result })}\nnot json after session/new\n` };
 			if (early) {
 				if (early.id) pendingToAgent.set(early.id, (answer) => log({ kind: "permission-answer", answer }));
@@ -362,6 +376,12 @@ async function handleRequest(method, params) {
 		}
 		case "session/set_config_option": {
 			const answer = setConfigOption(params);
+			const extra = scenario.modeUpdateWithModelSet;
+			if (extra && params.configId === "model") {
+				const modeUpdate = { method: "session/update", params: { sessionId: params.sessionId, update: { sessionUpdate: "current_mode_update", currentModeId: extra.mode } } };
+				const frames = extra.order === "before" ? [modeUpdate, { id: requestId, result: answer }] : [{ id: requestId, result: answer }, modeUpdate];
+				return { [RAW]: frames.map((m) => `${JSON.stringify({ jsonrpc: "2.0", ...m })}\n`).join("") };
+			}
 			if (scenario.revertModelAfterSet && params.configId === "model") {
 				// The answer, then (same write) an update putting the old model back.
 				const session = sessions.get(params.sessionId);

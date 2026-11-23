@@ -490,3 +490,48 @@ test("idle kill: a turn holds the process past the idle timeout, and it stops on
 	await h.assertNoChildren(3000);
 	assert.equal(runtime.connection, undefined);
 });
+
+test("early updates replay in arrival order: a stale mode \"default\" never hides a newer options update showing \"auto\"", async (t) => {
+	const { h, stream } = setup(t, { mode: "auto", earlyModeThenOptions: true });
+	const turn = await collect(stream(PRO, ctx([HI])));
+	assert.equal(turn.final.stopReason, "stop", turn.final.errorMessage);
+	assert.deepEqual(sent(h, "session/set_config_option").map((p) => [p.configId, p.value]), [["mode", "default"]], "the session was seen as \"auto\" and pinned");
+});
+
+test("a mode update and a model-set answer in one read: the answer is never dropped, whichever came first", async (t) => {
+	for (const order of ["after", "before"]) {
+		const ok = setup(t, { modeUpdateWithModelSet: { order, mode: "default" } });
+		const turn = await collect(ok.stream(FLASH, ctx([HI])));
+		assert.equal(turn.final.stopReason, "stop", `${order}: ${turn.final.errorMessage}`);
+	}
+	// A NEWER mode update showing "auto" still wins over the answer: fail closed, no prompt.
+	const flipped = setup(t, { modeUpdateWithModelSet: { order: "after", mode: "auto" } });
+	const refused = await collect(flipped.stream(FLASH, ctx([HI])));
+	assert.equal(refused.final.errorMessage, AntigravityMessage.ModeNotSet);
+	assert(!flipped.h.methods().includes("session/prompt"));
+	// An OLDER mode update showing "auto" is superseded by the answer that followed it.
+	const stale = setup(t, { modeUpdateWithModelSet: { order: "before", mode: "auto" } });
+	assert.equal((await collect(stale.stream(FLASH, ctx([HI])))).final.stopReason, "stop");
+});
+
+test("a malformed session/new answer fails the connection, and a dying one saves nothing", async (t) => {
+	const empty = setup(t, { emptySessionId: true });
+	assert.equal((await collect(empty.stream(PRO, ctx([HI])))).final.errorMessage, AntigravityMessage.ProtocolError);
+	await empty.h.assertNoChildren(3000);
+	const dying = setup(t, { garbageAfterNew: true });
+	assert.equal((await collect(dying.stream(PRO, ctx([HI])))).final.errorMessage, AntigravityMessage.ProtocolError);
+	assert.deepEqual(dying.saved, [], "no model list saved from a broken connection");
+	await dying.h.assertNoChildren(3000);
+});
+
+test("the cancel grace timer does not keep the server alive", async (t) => {
+	antigravityTimeouts.cancelGraceMs = 60_000;
+	const { h, stream } = setup(t, { ignoreCancel: true, prompt: [{ text: "a" }, { hold: true }] });
+	const controller = new AbortController();
+	const running = collect(stream(PRO, ctx([HI]), { signal: controller.signal }));
+	await waitFor(() => h.methods().includes("session/prompt"), 3000, "prompt open");
+	controller.abort();
+	await running;
+	await waitFor(() => h.methods().includes("session/cancel"), 3000, "session/cancel");
+	assert.equal(process.getActiveResourcesInfo().filter((name) => name === "Timeout").length, 0, "no ref'd timer during the grace period");
+});

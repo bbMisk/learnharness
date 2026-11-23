@@ -8,7 +8,7 @@
  */
 import { AntigravityMessage } from "../agent/antigravity/constants.ts";
 import { checkAntigravityAgent, type ConnectionCheck } from "../agent/antigravity/provider.ts";
-import { describeAgentError } from "../agent/antigravity/runtime.ts";
+import { antigravityRuntime, describeAgentError } from "../agent/antigravity/runtime.ts";
 import { ANTIGRAVITY_PROVIDER, ANTIGRAVITY_UNAVAILABLE, type AntigravityStatus } from "../core/contracts/antigravity.ts";
 import { antigravitySwitchOn } from "../core/fork-config.ts";
 import type { TurnInput } from "../core/input-events.ts";
@@ -23,12 +23,15 @@ const HEADERS = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosnif
 export const ANTIGRAVITY_INTENT_HEADER = "x-learnharness-antigravity";
 const BACKGROUND_REFUSAL = "Antigravity runs only lessons you start. Automatic follow-ups stay queued.";
 
-// The last failed check's message, per server process (not persisted).
+// The last failed check's message, per server process (not persisted), and the generation that
+// makes a superseded check's late result harmless (bumped at every check start and opt-in change).
 const PROBLEM_KEY = Symbol.for("lh.antigravity.problem");
-type ProblemGlobal = Record<symbol, { message?: string } | undefined>;
-function problemState(): { message?: string } {
+type CheckState = { message?: string; generation: number };
+type ProblemGlobal = Record<symbol, CheckState | undefined>;
+function problemState(): CheckState {
 	const g = globalThis as ProblemGlobal;
-	g[PROBLEM_KEY] ??= {};
+	g[PROBLEM_KEY] ??= { generation: 0 };
+	g[PROBLEM_KEY].generation ??= 0;
 	return g[PROBLEM_KEY];
 }
 
@@ -48,17 +51,25 @@ export function antigravityStatus(): AntigravityStatus {
 
 /** The explicit "Check connection": the only place besides a lesson turn that starts the agent. */
 export async function checkAntigravityConnection(probe: () => Promise<ConnectionCheck> = () => checkAntigravityAgent()): Promise<AntigravityStatus> {
-	if (!antigravityAvailable()) return recordFailedCheck(antigravityEnabled() ? AntigravityMessage.NotInstalled : undefined);
+	const state = problemState();
+	const generation = ++state.generation;
+	// Off: nothing to check, and nothing is written.
+	if (!antigravityEnabled()) { state.message = undefined; return antigravityStatus(); }
+	if (!antigravityInstalled()) return recordFailedCheck(AntigravityMessage.NotInstalled);
 	initAuthEnv(); // provenance first, so the agent's env never carries file-only keys
 	let result: ConnectionCheck;
 	try {
 		result = await probe();
 	} catch (error) {
+		// A newer check or an opt-in change has the last word.
+		if (state.generation !== generation) return antigravityStatus();
 		return recordFailedCheck(describeAgentError(error));
 	}
+	if (state.generation !== generation) return antigravityStatus();
 	try {
-		antigravityStore.update({ models: mergeModels(antigravityStore.read().models, result.models), ...(result.agentVersion ? { agentVersion: result.agentVersion } : {}), checkedAt: new Date().toISOString() });
-		problemState().message = undefined;
+		// No version reported: the stored one is cleared, not kept.
+		antigravityStore.update({ models: mergeModels(antigravityStore.read().models, result.models), agentVersion: result.agentVersion ?? undefined, checkedAt: new Date().toISOString() });
+		state.message = undefined;
 	} catch {
 		return recordFailedCheck("The Antigravity check worked, but its result could not be saved.");
 	}
@@ -89,7 +100,11 @@ const production: AntigravityRouteDeps = {
 	status: antigravityStatus,
 	setEnabled: (enabled) => {
 		antigravityStore.update({ enabled });
-		problemState().message = undefined;
+		const state = problemState();
+		state.message = undefined;
+		state.generation++;
+		// Off stops the agent, but never cuts off a reply that is streaming.
+		if (!enabled) antigravityRuntime().stopWhenUnused();
 	},
 };
 

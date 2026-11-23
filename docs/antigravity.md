@@ -9,9 +9,9 @@ Phase 1 is text only: you write, the tutor answers in text.
 Both switches must be on before anything runs.
 
 1. **Server switch.** On in the code (`src/core/fork-config.ts`). Starting a server with `LH_FORK_ANTIGRAVITY=0` turns it off for that server. While it is off, Antigravity offers no models, lessons on it are refused, `GET /api/antigravity` answers only `{ available: false }` (changes are refused with 404), and Settings shows nothing.
-2. **Your opt-in.** Settings → Providers → External CLI shows an Antigravity toggle. It is still off until you turn it on. The choice is saved in `antigravity.json` in the data folder, not in the main settings.
+2. **Your opt-in.** Settings → Providers → External CLI shows an Antigravity toggle. It is still off until you turn it on. The choice is saved in `antigravity.json` in the data folder, not in the main settings. Turning it off stops `agy` at once, or, if a reply is streaming, as soon as that reply ends.
 
-Antigravity also needs the `agy` program. LearnHarness finds it on your PATH or in the usual folders such as `~/.local/bin`; `LH_AGY_BINARY` can name it exactly. Finding it only checks that the file exists.
+Antigravity also needs the `agy` program. LearnHarness finds it on your PATH or in the usual folders such as `~/.local/bin`; `LH_AGY_BINARY` can name it exactly. Finding it only checks that the file exists. If Settings says "Not installed", install `agy` and press **Check connection** again; it looks for the program afresh.
 
 `agy` starts only when a lesson turn needs it or when you press **Check connection**. Check connection signs nothing in. It starts `agy`, opens one session (which also appears in your Antigravity history), and saves the list of models your account offers, with the thinking levels each model offers (Antigravity reports a model's levels only while that model is selected, so the check selects each one in turn on that throwaway session). Lessons can then use those models. Press Check connection again after Google changes the models or their levels.
 

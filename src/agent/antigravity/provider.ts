@@ -66,24 +66,26 @@ async function discoverLevels(connection: AgentConnection, sessionId: string, in
 export async function checkAntigravityAgent(runtime: AntigravityRuntime = antigravityRuntime()): Promise<ConnectionCheck> {
 	const connection = await runtime.connect();
 	const release = connection.hold();
+	let sessionId = "";
 	try {
 		const created = await connection.setupRequest("session/new", { cwd: connection.workspace, mcpServers: [] });
-		if (typeof created !== "object" || created === null || typeof (created as { sessionId?: unknown }).sessionId !== "string") {
-			throw new AcpTransportError("protocol", AntigravityMessage.ProtocolError);
-		}
+		const id = typeof created === "object" && created !== null ? (created as { sessionId?: unknown }).sessionId : undefined;
+		// A missing or empty id breaks the protocol for the whole connection.
+		if (typeof id !== "string" || !id) throw connection.failProtocol();
 		// Killed while the answer was in flight (a bad line, the sign-in line): not a success.
 		if (!connection.alive) throw connection.failure ?? new AcpTransportError("closed", AntigravityMessage.Exited);
-		const sessionId = (created as { sessionId: string }).sessionId;
+		sessionId = id;
 		// Never touch a session a turn is watching (a duplicate id must not change or end someone else's reply):
 		// then the levels stay as they were.
 		const shared = connection.watching(sessionId);
 		const listed = modelsFrom(created) ?? [];
 		const models = shared ? listed : await discoverLevels(connection, sessionId, (created as { configOptions?: unknown }).configOptions, listed);
-		if (connection.handshake.sessionClose && !connection.watching(sessionId)) {
-			connection.request("session/close", { sessionId }, antigravityTimeouts.startupMs).catch(() => { /* dropped either way */ });
-		}
 		return { agentVersion: connection.handshake.agentVersion, models };
 	} finally {
+		// The throwaway session is closed however the check ended, unless a turn owns that id.
+		if (sessionId && connection.handshake.sessionClose && connection.alive && !connection.watching(sessionId)) {
+			connection.request("session/close", { sessionId }, antigravityTimeouts.startupMs).catch(() => { /* dropped either way */ });
+		}
 		release();
 	}
 }

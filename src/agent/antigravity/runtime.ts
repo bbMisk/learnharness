@@ -63,7 +63,8 @@ export interface AgentHandshake {
 }
 
 export interface SessionListener {
-	onUpdate(update: Record<string, unknown>): void;
+	/** `frame`: the number of the incoming frame the update arrived in (kept when an early update is replayed). */
+	onUpdate(update: Record<string, unknown>, frame: number): void;
 	/** The answer to session/request_permission for this session. */
 	onPermissionRequest(params: Record<string, unknown>): unknown;
 	/** The process is gone; `error.message` is one of ours. */
@@ -81,8 +82,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  */
 type Early = {
 	breach?: { kind: "tool" | "permission"; title?: string; toolKind?: string };
-	configOptions?: unknown[];
-	modeId?: string;
+	/** Each with the frame it arrived in, so the replay keeps their order. */
+	configOptions?: { value: unknown[]; frame: number };
+	modeId?: { value: string; frame: number };
 };
 
 function label(value: unknown): string | undefined {
@@ -174,6 +176,7 @@ export class AgentConnection {
 	private readonly early = new Map<string, Early>();
 	private listenerFailureLogged = false;
 	private holders = 0;
+	private stopWhenIdle = false;
 	private idleTimer: NodeJS.Timeout | undefined;
 	private killTimer: NodeJS.Timeout | undefined;
 	private fatalError: AcpTransportError | undefined;
@@ -199,8 +202,9 @@ export class AgentConnection {
 		child.stdout.on("end", () => this.peer.end());
 		child.stderr.on("data", (chunk: Buffer) => this.readStderr(chunk));
 		for (const stream of [child.stdin, child.stdout, child.stderr]) stream.on("error", () => { /* the exit handler reports the failure */ });
-		// A spawn failure may emit only `error`; a running child that fails to be signalled emits it too.
-		child.once("error", () => {
+		// A spawn failure may emit only `error`; a running child that fails to be signalled emits it too,
+		// possibly more than once: `on`, and both branches are idempotent.
+		child.on("error", () => {
 			if (child.pid === undefined) this.handleExit();
 			else this.fail(new AcpTransportError("closed", AntigravityMessage.Exited));
 		});
@@ -291,12 +295,15 @@ export class AgentConnection {
 		this.listeners.set(sessionId, listener);
 		const early = this.early.get(sessionId);
 		this.early.delete(sessionId);
-		if (early?.configOptions) this.dispatch(() => listener.onUpdate({ sessionUpdate: "config_option_update", configOptions: early.configOptions }));
-		if (early?.modeId !== undefined) this.dispatch(() => listener.onUpdate({ sessionUpdate: "current_mode_update", currentModeId: early.modeId }));
+		// Options and mode replay in the order they arrived, each with its own frame.
+		const replay: { frame: number; update: Record<string, unknown> }[] = [];
+		if (early?.configOptions) replay.push({ frame: early.configOptions.frame, update: { sessionUpdate: "config_option_update", configOptions: early.configOptions.value } });
+		if (early?.modeId) replay.push({ frame: early.modeId.frame, update: { sessionUpdate: "current_mode_update", currentModeId: early.modeId.value } });
+		for (const { frame, update } of replay.sort((a, b) => a.frame - b.frame)) this.dispatch(() => listener.onUpdate(update, frame));
 		const breach = early?.breach;
 		if (breach && this.listeners.get(sessionId) === listener) {
 			const call = { title: breach.title, kind: breach.toolKind };
-			this.dispatch(() => breach.kind === "tool" ? listener.onUpdate({ sessionUpdate: "tool_call", ...call }) : listener.onPermissionRequest({ sessionId, toolCall: call, options: [] }));
+			this.dispatch(() => breach.kind === "tool" ? listener.onUpdate({ sessionUpdate: "tool_call", ...call }, this.peer.frame) : listener.onPermissionRequest({ sessionId, toolCall: call, options: [] }));
 		}
 		return () => { if (this.listeners.get(sessionId) === listener) this.listeners.delete(sessionId); };
 	}
@@ -310,8 +317,16 @@ export class AgentConnection {
 			if (released) return;
 			released = true;
 			this.holders--;
-			if (this.holders === 0) this.armIdle();
+			if (this.holders > 0) return;
+			if (this.stopWhenIdle) this.kill();
+			else this.armIdle();
 		};
+	}
+
+	/** Stop now if no turn holds the process, otherwise as soon as the last one lets go (a streaming reply finishes). */
+	stopWhenUnused(): void {
+		if (this.holders === 0) this.kill();
+		else this.stopWhenIdle = true;
 	}
 
 	/** SIGTERM, then SIGKILL after the grace period. */
@@ -319,16 +334,27 @@ export class AgentConnection {
 		if (this.exited || this.stopping) return;
 		this.stopping = true;
 		clearTimeout(this.idleTimer);
-		this.child.kill("SIGTERM");
-		this.killTimer = setTimeout(() => this.child.kill("SIGKILL"), antigravityTimeouts.killGraceMs);
+		this.signal("SIGTERM");
+		this.killTimer = setTimeout(() => this.signal("SIGKILL"), antigravityTimeouts.killGraceMs);
 		this.killTimer.unref();
 	}
 
-	/** Process exit: synchronous, no grace. */
+	/** Process exit: synchronous, no grace. Never throws: the exit hook must reach every connection. */
 	killNow(): void {
 		if (this.exited) return;
-		this.child.kill("SIGKILL");
+		this.signal("SIGKILL");
 		try { rmSync(this.root, { recursive: true, force: true }); } catch { /* best effort at exit */ }
+	}
+
+	/** The connection broke the protocol (e.g. a malformed session/new answer): kill it, and return the error for the caller. */
+	failProtocol(): AcpTransportError {
+		const error = new AcpTransportError("protocol", AntigravityMessage.ProtocolError);
+		this.fail(error);
+		return this.fatalError ?? error;
+	}
+
+	private signal(name: NodeJS.Signals): void {
+		try { this.child.kill(name); } catch { /* already gone; `exit`/`error` report it */ }
 	}
 
 	private armIdle(): void {
@@ -376,10 +402,10 @@ export class AgentConnection {
 				return;
 			}
 			case "config_option_update":
-				if (Array.isArray(update.configOptions)) this.earlyFor(sessionId).configOptions = update.configOptions;
+				if (Array.isArray(update.configOptions)) this.earlyFor(sessionId).configOptions = { value: update.configOptions, frame: this.peer.frame };
 				return;
 			case "current_mode_update":
-				if (typeof update.currentModeId === "string") this.earlyFor(sessionId).modeId = update.currentModeId.slice(0, 200);
+				if (typeof update.currentModeId === "string") this.earlyFor(sessionId).modeId = { value: update.currentModeId.slice(0, 200), frame: this.peer.frame };
 				return;
 			default:
 				return; // chunks and everything else: nothing is kept
@@ -390,7 +416,7 @@ export class AgentConnection {
 		if (method !== "session/update" || !isRecord(params) || typeof params.sessionId !== "string" || !params.sessionId || !isRecord(params.update)) return;
 		const update = params.update;
 		const listener = this.listeners.get(params.sessionId);
-		if (listener) this.dispatch(() => listener.onUpdate(update));
+		if (listener) this.dispatch(() => listener.onUpdate(update, this.peer.frame));
 		else this.keepEarlyUpdate(params.sessionId, update);
 	}
 
@@ -485,6 +511,11 @@ export class AntigravityRuntime {
 
 	shutdown(): void {
 		this.current?.connection.kill();
+	}
+
+	/** The provider was turned off: stop the agent without cutting off a reply in flight. */
+	stopWhenUnused(): void {
+		this.current?.connection.stopWhenUnused();
 	}
 
 	private spawn(): AgentConnection {
