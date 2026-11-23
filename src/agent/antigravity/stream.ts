@@ -1,9 +1,12 @@
 /**
  * One Antigravity turn as a pi stream function (the shape of
- * claude-code/stream.ts): a fresh agent session on the shared process,
- * approval mode pinned to "default" (fail closed), the requested model,
- * the replayed transcript as text, and streamed text back. The agent is
- * granted no tools; any attempt to use one stops the reply.
+ * claude-code/stream.ts): an agent session on the shared process (fresh, or
+ * the chat's parked one), approval mode pinned to "default" (fail closed),
+ * the requested model, the replayed transcript as text, and streamed text
+ * back. The agent gets no tool of its own: any attempt to use one stops the
+ * reply. A lesson's declared LearnHarness tools reach it through the
+ * loopback MCP bridge (tool-bridge.ts); a call it makes ends the pi stream
+ * with "toolUse" while the agent's prompt stays open, waiting for the result.
  */
 import {
 	createAssistantMessageEventStream,
@@ -14,15 +17,18 @@ import {
 	type SimpleStreamOptions,
 	type StreamFunction,
 	type ThinkingLevel,
+	type Tool,
+	type ToolCall,
 } from "@earendil-works/pi-ai";
 
 import { AcpTransportError, isRecord, stripUrls } from "./acp-client.ts";
-import { AntigravityMessage, breachMessage } from "./constants.ts";
+import { AntigravityMessage, breachMessage, toolBreachMessage } from "./constants.ts";
 import { antigravityHost, type AntigravityHost } from "./host.ts";
 import { findConfigOption, levelsFrom, modelsFrom } from "./models.ts";
 import { antigravityRuntime, antigravityTimeouts, describeAgentError, isValueRefusal, rejectOnce, type AgentConnection, type AntigravityRuntime, type SessionListener } from "./runtime.ts";
-import { antigravityReuseOn } from "../../core/fork-config.ts";
-import { fingerprintHash, replayAssistant, reuseTail, toAntigravityInput, type AntigravityInput, type SeenFingerprint } from "./transcript.ts";
+import { antigravityReuseOn, antigravityToolsOn } from "../../core/fork-config.ts";
+import { AGENT_TOOL_PREFIX, ToolBridge, type EndpointHooks, type HeldCall, type SessionEndpoint } from "./tool-bridge.ts";
+import { declaredTools, fingerprintHash, replayAssistant, reuseTail, toAntigravityInput, type AntigravityInput, type SeenFingerprint } from "./transcript.ts";
 
 function count(value: unknown): number {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
@@ -33,6 +39,7 @@ class AntigravityTurn {
 	finished = false;
 	private started = false;
 	private open: { kind: "text" | "thinking"; index: number } | null = null;
+	private readonly ended: (() => void)[] = [];
 
 	constructor(private readonly stream: AssistantMessageEventStream, model: Model<Api>) {
 		this.output = {
@@ -81,7 +88,28 @@ class AntigravityTurn {
 		this.finished = true;
 		this.output.stopReason = reason;
 		this.stream.push({ type: "done", reason, message: this.output });
-		this.stream.end();
+		this.end();
+	}
+
+	/** End this stream with one tool call for pi to run. */
+	toolUse(call: ToolCall): void {
+		if (this.finished) return;
+		this.start();
+		this.closeBlock();
+		const contentIndex = this.output.content.length;
+		this.output.content.push(call);
+		this.stream.push({ type: "toolcall_start", contentIndex, partial: this.output });
+		this.stream.push({ type: "toolcall_end", contentIndex, toolCall: call, partial: this.output });
+		this.finished = true;
+		this.output.stopReason = "toolUse";
+		this.stream.push({ type: "done", reason: "toolUse", message: this.output });
+		this.end();
+	}
+
+	/** Run `fn` once the stream has ended (at once if it has). */
+	onEnd(fn: () => void): void {
+		if (this.finished) fn();
+		else this.ended.push(fn);
 	}
 
 	/** Text already streamed stays in the partial message. */
@@ -91,7 +119,12 @@ class AntigravityTurn {
 		this.output.stopReason = reason;
 		this.output.errorMessage = message;
 		this.stream.push({ type: "error", reason, error: this.output });
+		this.end();
+	}
+
+	private end(): void {
 		this.stream.end();
+		for (const fn of this.ended.splice(0)) fn();
 	}
 
 	private start(): void {
@@ -148,9 +181,18 @@ class AgentSession {
 	appliedLevel: string | undefined;
 	poisoned = false;
 	closed = false;
+	/** The session's MCP endpoint and the plain names of the tools it was given, if any (fixed for its life). */
+	tools: { endpoint: SessionEndpoint; names: ReadonlySet<string> } | undefined;
+	/** Where the endpoint's calls go: the turn using the session, or the park. */
+	calls: EndpointHooks | undefined;
 	private stopWatching: (() => void) | undefined;
 
 	constructor(readonly connection: AgentConnection, readonly sessionId: string) {}
+
+	/** Whether `name` (as the agent reports it) is one of the tools this session was given. */
+	isOurs(name: unknown): boolean {
+		return typeof name === "string" && name.startsWith(AGENT_TOOL_PREFIX) && !!this.tools?.names.has(name.slice(AGENT_TOOL_PREFIX.length));
+	}
 
 	/** Start routing (throws for an id another turn already watches; then nothing was taken). Early updates replay into `target`. */
 	watch(target: SessionListener): void {
@@ -186,10 +228,16 @@ class AgentSession {
 		if (this.closed) return;
 		this.closed = true;
 		this.target = undefined;
+		this.calls = undefined;
 		this.stopWatching?.();
+		const endpoint = this.tools?.endpoint;
+		endpoint?.failHeld("The session ended.");
+		let closing: Promise<unknown> = Promise.resolve();
 		if (this.connection.handshake.sessionClose && this.connection.alive) {
-			this.connection.request("session/close", { sessionId: this.sessionId }, antigravityTimeouts.startupMs).catch(() => { /* dropped either way */ });
+			closing = this.connection.request("session/close", { sessionId: this.sessionId }, antigravityTimeouts.startupMs).catch(() => { /* dropped either way */ });
 		}
+		// After session/close, so the agent's own disconnect (DELETE) still finds its endpoint.
+		if (endpoint) void closing.then(() => endpoint.close());
 	}
 }
 
@@ -218,6 +266,12 @@ class SessionPark {
 			// The reject answer is written when this returns; the close follows after it (poison defers it).
 			onPermissionRequest: (params) => { this.poison(key, session); return rejectOnce(params); },
 			onClosed: () => this.drop(key, session),
+		};
+		// A parked session has no open prompt: any MCP call is the agent acting on its own.
+		session.calls = {
+			onCall: () => { this.poison(key, session); return false; },
+			onAbort: () => {},
+			onInvalid: () => this.poison(key, session),
 		};
 		while (this.parked.size > MAX_PARKED_SESSIONS) {
 			const [oldestKey, oldest] = this.parked.entries().next().value!;
@@ -287,7 +341,49 @@ export function parkedSessionCount(connection: AgentConnection): number {
 	return parks.get(connection)?.size ?? 0;
 }
 
-/** The session part of one turn: setup, prompt, routing and every way it can stop. */
+/** One tool bridge per agent process, started for its first tool-carrying session, closed with it. */
+const bridges = new WeakMap<AgentConnection, Promise<ToolBridge>>();
+const startedBridges = new WeakMap<AgentConnection, ToolBridge>();
+function bridgeFor(connection: AgentConnection): Promise<ToolBridge> {
+	let bridge = bridges.get(connection);
+	if (!bridge) {
+		bridge = ToolBridge.start();
+		bridges.set(connection, bridge);
+		bridge.then((started) => {
+			startedBridges.set(connection, started);
+			void connection.closed.then(() => started.close());
+		}, () => bridges.delete(connection));
+	}
+	return bridge;
+}
+
+/** The tool bridge of this connection, if one was started (tests). */
+export function toolBridgeOf(connection: AgentConnection): ToolBridge | undefined {
+	return startedBridges.get(connection);
+}
+
+/** Prompts waiting for a held tool call's result, by chat key, per agent process. */
+const waitingTurns = new WeakMap<AgentConnection, Map<string, TurnSession>>();
+function waitingOn(connection: AgentConnection): Map<string, TurnSession> {
+	let waiting = waitingTurns.get(connection);
+	if (!waiting) { waiting = new Map(); waitingTurns.set(connection, waiting); }
+	return waiting;
+}
+
+/** Prompts waiting for a tool result on this connection (tests). */
+export function waitingTurnCount(connection: AgentConnection): number {
+	return waitingTurns.get(connection)?.size ?? 0;
+}
+
+type AgentMessages = Parameters<typeof toAntigravityInput>[0];
+
+/**
+ * The session part of one PROMPT: setup, the prompt, routing and every way it can stop. A prompt
+ * streams into one pi stream at a time: when the agent calls a LearnHarness tool, that stream ends
+ * with "toolUse" and the prompt WAITS (open, no stream attached, holding the process) until the
+ * next stream call for the chat brings exactly that call's result and attaches (resume), or it
+ * expires.
+ */
 class TurnSession {
 	private sessionId: string | undefined;
 	private prompt: Promise<unknown> | undefined;
@@ -304,24 +400,47 @@ class TurnSession {
 	private abandonReuse = false;
 	/** The agent produced something this turn did not capture: the session is not parked. */
 	private unseenOutput = false;
+	/** The request the attached stream answers (replaced on resume). */
+	private model!: Model<Api>;
+	private reasoning: ThinkingLevel | undefined;
+	private input!: AntigravityInput;
+	private key: string | undefined;
+	/** The tools this prompt's session is given (none: text-only, exactly as without tools support). */
+	private tools: readonly Tool[] = [];
+	/** A permission LearnHarness granted, for the one MCP call it allows. */
+	private allowance: { name: string; toolCallId: unknown } | undefined;
+	/** The MCP call the agent is blocked on, from its arrival until its result is handed over. */
+	private held: { call: HeldCall; toolCallId: unknown } | undefined;
+	/** Set while waiting: what the agent has seen, and the expiry timer. */
+	private waiting: { seen: SeenFingerprint; timer: NodeJS.Timeout } | undefined;
+	private expired = false;
 
 	constructor(
 		private readonly connection: AgentConnection,
-		private readonly turn: AntigravityTurn,
+		/** The pi stream the prompt streams into now. */
+		private turn: AntigravityTurn,
 		private readonly host: AntigravityHost,
 	) {}
 
-	/** Abort: fail at once; cancel only once a prompt is open. */
-	readonly abort = () => {
+	/** The learner pressed Stop on `turn`'s request. A stream this prompt has moved past is ignored. */
+	abortFrom(turn: AntigravityTurn): void {
+		if (turn !== this.turn) return;
+		if (this.waiting) { this.expire(); return; }
 		this.turn.fail(AntigravityMessage.Aborted, "aborted");
 		if (this.prompt) this.cancel();
-	};
+	}
 
-	async run(model: Model<Api>, messages: Parameters<typeof toAntigravityInput>[0], reasoning?: ThinkingLevel, rawKey?: string): Promise<void> {
+	async run(model: Model<Api>, messages: AgentMessages, reasoning?: ThinkingLevel, rawKey?: string): Promise<void> {
 		const { connection } = this;
-		const input = toAntigravityInput(messages);
 		// Reuse only with a session key (the chat) and the switch on; otherwise exactly one fresh session per turn.
 		const key = rawKey ? rawKey : undefined;
+		this.key = key;
+		this.model = model;
+		this.reasoning = reasoning;
+		// Tools only with a chat key (a held call resumes under it) and the tools switch on.
+		this.tools = key !== undefined && antigravityToolsOn() ? declaredTools(messages) : [];
+		this.input = toAntigravityInput(messages, this.tools);
+		const input = this.input;
 		const park = key !== undefined && antigravityReuseOn() ? parkFor(connection) : undefined;
 		try {
 			let prompt = await this.setUp(model, input, reasoning, park ? { park, key: key! } : undefined);
@@ -348,12 +467,14 @@ class TurnSession {
 		} finally {
 			this.done = true;
 			clearTimeout(this.inactivity);
+			this.leaveWaiting();
 			const session = this.agent;
 			if (session) {
-				// Parked only after a clean "stop" with nothing unseen, on a live, unpoisoned session; anything else is closed.
-				if (park && this.turn.output.stopReason === "stop" && !this.unseenOutput && !session.poisoned && !session.closed && connection.alive) {
-					const seen = [...input.messages, replayAssistant(this.turn.output.content)];
-					session.seen = { systemText: input.systemText, modelId: model.id, messages: seen.length, hash: fingerprintHash(seen) };
+				// Parked only after a clean "stop" with nothing unseen or held, on a live, unpoisoned session;
+				// anything else is closed. The last attached stream's request is what the session has seen.
+				if (park && this.turn.output.stopReason === "stop" && !this.unseenOutput && !this.held && !session.poisoned && !session.closed && connection.alive) {
+					const seen = [...this.input.messages, replayAssistant(this.turn.output.content)];
+					session.seen = { systemText: this.input.systemText, modelId: this.model.id, messages: seen.length, hash: fingerprintHash(seen), toolsHash: this.input.toolsHash };
 					park.put(key!, session);
 				} else session.close();
 			}
@@ -376,26 +497,11 @@ class TurnSession {
 			this.agent = reused.session;
 			this.reusing = true;
 			reused.session.target = this.listener;
+			reused.session.calls = this.callRoute;
 			this.sessionId = reused.session.sessionId;
 			prompt = [{ type: "text", text: reused.tail }];
 		} else {
-			const { result: created, frame } = await connection.setupRequestStamped("session/new", {
-				cwd: connection.workspace,
-				mcpServers: [],
-				...(append ? { _meta: { antigravity: { systemPrompt: { append: input.systemText } } } } : {}),
-			});
-			// A malformed answer breaks the protocol for the whole connection, not just this turn.
-			if (!isRecord(created) || typeof created.sessionId !== "string" || !created.sessionId) throw connection.failProtocol();
-			// Killed while the answer was in flight: nothing from it is saved.
-			if (!connection.alive) throw connection.failure ?? new AcpTransportError("closed", AntigravityMessage.Exited);
-			const session = new AgentSession(connection, created.sessionId);
-			session.observe(created.configOptions, frame);
-			this.refreshModels(created.configOptions);
-			// Replays what arrived before this point (a breach, newer options), so an early tool_call still
-			// stops the turn. Throws for an id another turn already watches: this turn then owns nothing.
-			this.agent = session;
-			try { session.watch(this.listener); }
-			catch (error) { this.agent = undefined; throw error; }
+			const session = await this.openSession(input, append);
 			this.sessionId = session.sessionId;
 			prompt = [...(append ? [] : [{ type: "text", text: input.systemText }]), { type: "text", text: input.transcript }];
 		}
@@ -421,6 +527,48 @@ class TurnSession {
 		// This turn may refresh the levels of the model it selected (only that one), from what it already received.
 		this.refreshModels(this.view(), model.id);
 		return prompt;
+	}
+
+	/** session/new, with this prompt's tools on a new bridge endpoint when it has any; the session becomes this turn's. */
+	private async openSession(input: AntigravityInput, append: boolean): Promise<AgentSession> {
+		const { connection } = this;
+		let endpoint: SessionEndpoint | undefined;
+		// The endpoint routes through the session once there is one; nothing is accepted before.
+		let owner: AgentSession | undefined;
+		if (this.tools.length) {
+			endpoint = await (await bridgeFor(connection)).open(this.tools, {
+				onCall: (call) => owner?.calls?.onCall(call) ?? false,
+				onAbort: (call) => owner?.calls?.onAbort(call),
+				onInvalid: (reason) => owner?.calls?.onInvalid(reason),
+			});
+		}
+		try {
+			this.checkpoint();
+			const { result: created, frame } = await connection.setupRequestStamped("session/new", {
+				cwd: connection.workspace,
+				mcpServers: endpoint ? [endpoint.mcpServer] : [],
+				...(append ? { _meta: { antigravity: { systemPrompt: { append: input.systemText } } } } : {}),
+			});
+			// A malformed answer breaks the protocol for the whole connection, not just this turn.
+			if (!isRecord(created) || typeof created.sessionId !== "string" || !created.sessionId) throw connection.failProtocol();
+			// Killed while the answer was in flight: nothing from it is saved.
+			if (!connection.alive) throw connection.failure ?? new AcpTransportError("closed", AntigravityMessage.Exited);
+			const session = new AgentSession(connection, created.sessionId);
+			session.observe(created.configOptions, frame);
+			this.refreshModels(created.configOptions);
+			if (endpoint) session.tools = { endpoint, names: new Set(this.tools.map((tool) => tool.name)) };
+			session.calls = this.callRoute;
+			// Replays what arrived before this point (a breach, newer options), so an early tool_call still
+			// stops the turn. Throws for an id another turn already watches: this turn then owns nothing.
+			this.agent = session;
+			try { session.watch(this.listener); }
+			catch (error) { this.agent = undefined; throw error; }
+			owner = session;
+			return session;
+		} catch (error) {
+			void endpoint?.close();
+			throw error;
+		}
 	}
 
 	/**
@@ -460,6 +608,18 @@ class TurnSession {
 		onUpdate: (update, frame) => this.onUpdate(update, frame),
 		onPermissionRequest: (params) => this.onPermission(params),
 		onClosed: (error) => this.turn.fail(error.message),
+	};
+
+	/** This turn's routing for its session's MCP endpoint. */
+	private readonly callRoute: EndpointHooks = {
+		onCall: (call) => this.onToolCall(call),
+		onAbort: (call) => {
+			// The agent gave up on the held call (its own limit, or a cancel): the round can't complete.
+			if (this.held?.call.id !== call.id) return;
+			this.held = undefined;
+			if (this.waiting) this.expire();
+		},
+		onInvalid: () => this.refuseCall(),
 	};
 
 	/** One session/set_config_option as a setup request; its answer updates the view. A refusal of the
@@ -516,6 +676,7 @@ class TurnSession {
 	}
 
 	private onUpdate(update: Record<string, unknown>, frame: number): void {
+		if (this.waiting) { this.whileWaiting(update, frame); return; }
 		if (this.turn.finished) return;
 		const content = isRecord(update.content) ? update.content : undefined;
 		switch (update.sessionUpdate) {
@@ -540,6 +701,13 @@ class TurnSession {
 			}
 			case "tool_call":
 			case "tool_call_update":
+				// One of this session's LearnHarness tools, during the prompt: the agent announcing its call.
+				if (this.prompt && this.agent?.isOurs(update.name)) {
+					// The allowed call ended without reaching the bridge: the allowance goes with it.
+					if (this.allowance && update.toolCallId === this.allowance.toolCallId && (update.status === "completed" || update.status === "failed")) this.allowance = undefined;
+					this.touch();
+					return;
+				}
 				this.breach(update);
 				return;
 			case "current_mode_update":
@@ -557,15 +725,153 @@ class TurnSession {
 		}
 	}
 
+	/**
+	 * While waiting the agent is blocked on the held call and should say nothing. Anything it does
+	 * besides usage reports means the round can't be trusted to resume: expire. Updates for the held
+	 * call itself may still arrive (stdout and the MCP request are separate channels).
+	 */
+	private whileWaiting(update: Record<string, unknown>, frame: number): void {
+		switch (update.sessionUpdate) {
+			case "agent_message_chunk":
+			case "agent_thought_chunk":
+				if (saysSomething(update)) this.expire();
+				return;
+			case "tool_call":
+			case "tool_call_update": {
+				const own = this.held !== undefined && update.toolCallId === this.held.toolCallId && this.agent?.isOurs(update.name) && (update.status === "pending" || update.status === "in_progress");
+				if (!own) this.expire();
+				return;
+			}
+			case "current_mode_update":
+				this.agent?.observeMode(update.currentModeId, frame);
+				this.expire();
+				return;
+			case "config_option_update":
+				if (!Array.isArray(update.configOptions)) { this.expire(); return; }
+				this.observe(update.configOptions, frame);
+				if (findConfigOption(this.view(), "mode")?.currentValue !== "default") this.expire();
+				return;
+			default:
+				return; // usage_update and other harmless kinds
+		}
+	}
+
+	/**
+	 * Fail closed: allowed only for one of this session's tools, by its exact agent name, while this
+	 * prompt is open and streaming with no call allowed or held, by selecting the allow_once option
+	 * (never an "always" one). Everything else is rejected and stops the reply.
+	 */
 	private onPermission(params: Record<string, unknown>): unknown {
-		this.breach(isRecord(params.toolCall) ? params.toolCall : {});
+		const call = isRecord(params.toolCall) ? params.toolCall : {};
+		if (this.waiting) { this.expire(); return rejectOnce(params); }
+		if (this.prompt && !this.turn.finished && !this.held && !this.allowance && this.agent?.isOurs(call.name)) {
+			const options = Array.isArray(params.options) ? params.options : [];
+			const allow = options.find((option) => isRecord(option) && option.kind === "allow_once" && typeof option.optionId === "string") as { optionId: string } | undefined;
+			if (allow) {
+				this.allowance = { name: (call.name as string).slice(AGENT_TOOL_PREFIX.length), toolCallId: call.toolCallId };
+				this.touch();
+				return { outcome: { outcome: "selected", optionId: allow.optionId } };
+			}
+		}
+		this.breach(call);
 		return rejectOnce(params);
 	}
 
-	/** LearnHarness granted no tools: any tool use stops the reply. */
+	/** Any tool use LearnHarness did not grant stops the reply. */
 	private breach(call: Record<string, unknown>): void {
 		const what = [call.title, call.kind].map(safeLabel).find((value) => value !== "");
-		this.stopReply(breachMessage(what ?? "a tool"));
+		this.stopReply(this.agent?.tools ? toolBreachMessage(what ?? "a tool") : breachMessage(what ?? "a tool"));
+	}
+
+	/**
+	 * An MCP call for one of this session's tools. Valid only as the call the last permission allowed,
+	 * while a stream is attached and nothing is held: it becomes pi's tool call, the stream ends with
+	 * "toolUse", and the prompt waits. Anything else is refused and ends the turn.
+	 */
+	private onToolCall(call: HeldCall): boolean {
+		const allowance = this.allowance;
+		this.allowance = undefined;
+		if (this.waiting || this.held || !this.prompt || this.turn.finished || this.done || allowance?.name !== call.name) {
+			this.refuseCall();
+			return false;
+		}
+		this.held = { call, toolCallId: allowance.toolCallId };
+		clearTimeout(this.inactivity);
+		this.turn.toolUse({ type: "toolCall", id: call.id, name: call.name, arguments: call.arguments });
+		const seen = [...this.input.messages, replayAssistant(this.turn.output.content)];
+		const timer = setTimeout(() => this.expire(), antigravityTimeouts.toolWaitMs);
+		timer.unref();
+		this.waiting = { seen: { systemText: this.input.systemText, modelId: this.model.id, messages: seen.length, hash: fingerprintHash(seen), toolsHash: this.input.toolsHash }, timer };
+		const registry = waitingOn(this.connection);
+		const other = registry.get(this.key!);
+		if (other && other !== this) other.expire();
+		registry.set(this.key!, this);
+		return true;
+	}
+
+	/** A call LearnHarness won't run: the waiting prompt expires, a streaming one stops. */
+	private refuseCall(): void {
+		if (this.waiting) this.expire();
+		else if (!this.turn.finished) this.stopReply(AntigravityMessage.UnexpectedToolCall);
+	}
+
+	/**
+	 * Continue the waiting prompt into `turn` when this request is exactly the held call's result:
+	 * same model, level, system text and tools; the conversation the agent has seen, then the
+	 * assistant message with that one call, then only its result. Otherwise the prompt expires (the
+	 * caller then runs the ordinary path, a fresh session with the full replay). Returns whether it attached.
+	 */
+	resume(turn: AntigravityTurn, model: Model<Api>, messages: AgentMessages, reasoning: ThinkingLevel | undefined): boolean {
+		const waiting = this.waiting;
+		const held = this.held;
+		if (!waiting || !held || this.done || !this.connection.alive) { this.expire(); return false; }
+		const tools = antigravityToolsOn() ? declaredTools(messages) : [];
+		const input = toAntigravityInput(messages, tools);
+		const conversation = messages.filter((message) => message.role !== "system");
+		const last = conversation.length - 1;
+		const assistant = conversation[last - 1];
+		const result = conversation[last];
+		const ids = assistant?.role === "assistant" ? assistant.content.flatMap((block) => (block.type === "toolCall" ? [block.id] : [])) : [];
+		const matches = model.id === this.model.id && reasoning === this.reasoning
+			&& input.systemText === waiting.seen.systemText && input.toolsHash === waiting.seen.toolsHash
+			&& conversation.length === waiting.seen.messages + 1
+			&& ids.length === 1 && ids[0] === held.call.id
+			&& result?.role === "toolResult" && result.toolCallId === held.call.id
+			&& fingerprintHash(input.messages.slice(0, waiting.seen.messages)) === waiting.seen.hash;
+		if (!matches || result?.role !== "toolResult") { this.expire(); return false; }
+		this.leaveWaiting();
+		this.held = undefined;
+		// Attach first, then answer: the agent's next updates must find the new stream.
+		this.turn = turn;
+		this.model = model;
+		this.input = input;
+		this.touch();
+		if (!this.agent?.tools?.endpoint.resolve(held.call.id, result)) this.refuseCall();
+		return true;
+	}
+
+	/** No longer waiting (resumed, expired or done). */
+	private leaveWaiting(): void {
+		if (!this.waiting) return;
+		clearTimeout(this.waiting.timer);
+		this.waiting = undefined;
+		const registry = waitingTurns.get(this.connection);
+		if (this.key !== undefined && registry?.get(this.key) === this) registry.delete(this.key);
+	}
+
+	/**
+	 * The waiting prompt can't resume: cancel it (the agent aborts the held request itself), fail what
+	 * is still held, and let run() close the session and release the process. A later request with
+	 * the result finds no waiting prompt and gets a fresh session with the full replay.
+	 */
+	expire(): void {
+		if (this.expired || this.done) return;
+		this.expired = true;
+		this.leaveWaiting();
+		this.allowance = undefined;
+		this.held = undefined;
+		this.cancel();
+		this.agent?.tools?.endpoint.failHeld("The tool call expired.");
 	}
 
 	/**
@@ -638,12 +944,22 @@ export function createAntigravityStreamFunction({ runtime = antigravityRuntime, 
 		const signal = options?.signal;
 		let session: TurnSession | undefined;
 		// Abort fails the turn at once, whatever stage it is in.
-		const onAbort = () => { if (session) session.abort(); else turn.fail(AntigravityMessage.Aborted, "aborted"); };
+		const onAbort = () => { if (session) session.abortFrom(turn); else turn.fail(AntigravityMessage.Aborted, "aborted"); };
 		void (async () => {
 			const currentHost = host();
 			// The last door: nothing starts unless the server says this provider is available now.
 			if (!currentHost.available()) { turn.fail(AntigravityMessage.Off); return; }
-			if (signal?.aborted) { turn.fail(AntigravityMessage.Aborted, "aborted"); return; }
+			const key = options?.sessionId ? options.sessionId : undefined;
+			const live = key !== undefined ? runtime().connection : undefined;
+			const waiting = live ? waitingTurns.get(live)?.get(key!) : undefined;
+			if (signal?.aborted) { waiting?.expire(); turn.fail(AntigravityMessage.Aborted, "aborted"); return; }
+			// A prompt of this chat is waiting for a tool result: this request continues it, or it expires.
+			if (waiting?.resume(turn, model, context.messages, options?.reasoning)) {
+				session = waiting;
+				signal?.addEventListener("abort", onAbort, { once: true });
+				turn.onEnd(() => signal?.removeEventListener("abort", onAbort));
+				return;
+			}
 			signal?.addEventListener("abort", onAbort, { once: true });
 			try {
 				let acquired: { connection: AgentConnection; release: () => void };

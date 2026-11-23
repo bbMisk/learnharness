@@ -59,3 +59,12 @@ export function antigravityReuseOn(): boolean {
 	const proc = typeof process === "undefined" ? undefined : process;
 	return proc?.env?.LH_ANTIGRAVITY_REUSE !== "0";
 }
+
+/** LearnHarness tools on Antigravity lessons (docs/antigravity.md): the agent may call the lesson's
+ *  declared tools through a loopback MCP bridge, and a lesson accepts the follow-ups its own tools
+ *  cause. On; the SERVER's LH_ANTIGRAVITY_TOOLS=0 turns it off (text-only, the earlier behaviour).
+ *  Read live. */
+export function antigravityToolsOn(): boolean {
+	const proc = typeof process === "undefined" ? undefined : process;
+	return proc?.env?.LH_ANTIGRAVITY_TOOLS !== "0";
+}

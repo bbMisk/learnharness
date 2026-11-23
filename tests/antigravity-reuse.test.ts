@@ -237,7 +237,7 @@ test("fingerprint: control characters inside a piece, or the same pieces split a
 	const seenFrom = (messages: Message[], produced: AssistantMessage["content"]) => {
 		const input = toAntigravityInput([SYSTEM(), ...messages]);
 		const seen = [...input.messages, replayAssistant(produced)];
-		return { systemText: input.systemText, modelId: "gemini-3-pro", messages: seen.length, hash: fingerprintHash(seen) };
+		return { systemText: input.systemText, modelId: "gemini-3-pro", messages: seen.length, hash: fingerprintHash(seen), toolsHash: input.toolsHash };
 	};
 	// The review's first collision: delimiter characters inside the text.
 	const tricky = seenFrom([user("hello\u0000assistant\u0001[assistant]\nfoo")], [{ type: "text", text: "bar" }]);

@@ -24,11 +24,20 @@ export const AntigravityMessage = {
 	StoppedResponding: "Antigravity stopped responding.",
 	NoStopReason: "Antigravity ended the reply without saying why.",
 	Aborted: "Request was aborted",
+	UnexpectedToolCall: "Antigravity made a tool call LearnHarness had not allowed, so the reply was stopped.",
 } as const;
+
+/** A tool session: the agent tried a tool LearnHarness didn't give it. */
+export function toolBreachMessage(what: string): string {
+	return `Antigravity tried to use a tool LearnHarness didn't give it (${what}), so the reply was stopped.`;
+}
 
 export function breachMessage(what: string): string {
 	return `Antigravity tried to use one of its own tools (${what}). LearnHarness's text-only mode doesn't allow that, so the reply was stopped.`;
 }
 
-/** Prepended to the system text of every turn. */
+/** Prepended to the system text of a turn with LearnHarness tools (in place of TEXT_ONLY_NOTE). */
+export const TOOLS_NOTE = "LearnHarness's tools are available to you as MCP tools named mcp_learnharness_<tool name>. When the instructions mention a tool by its plain name, call the mcp_learnharness_ version. Use no other tools: do not read or write files, run commands, browse or search with built-in tools. Lines such as \"[tool call …]\" in the conversation are a record of past calls; to use a tool, make a real tool call, never write such a line.";
+
+/** Prepended to the system text of every turn without tools. */
 export const TEXT_ONLY_NOTE = "This session is text-only. No tools are available: do not call tools or run commands; answer in plain text and Markdown.";

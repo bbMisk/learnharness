@@ -8,10 +8,10 @@
  */
 import { createHash } from "node:crypto";
 
-import type { ImageContent, Message, TextContent } from "@earendil-works/pi-ai";
-import { getCurrentSystemPrompt } from "@earendil-works/pi-ai/utils/transcript";
+import type { ImageContent, Message, TextContent, Tool } from "@earendil-works/pi-ai";
+import { getCurrentSystemPrompt, getCurrentTools, toToolDeclaration } from "@earendil-works/pi-ai/utils/transcript";
 
-import { TEXT_ONLY_NOTE } from "./constants.ts";
+import { TEXT_ONLY_NOTE, TOOLS_NOTE } from "./constants.ts";
 
 export const OMITTED_IMAGE = "[image omitted: Antigravity is text-only here]";
 
@@ -22,6 +22,8 @@ export interface AntigravityInput {
 	transcript: string;
 	/** The conversation (system messages left out), one entry per message, for session reuse. */
 	messages: ReplayedMessage[];
+	/** The tools the session is given ("" for none): names, descriptions and schemas, hashed. */
+	toolsHash: string;
 }
 
 /** One message as the agent sees it: its labelled pieces (labelled even when alone), thinking dropped from the text. */
@@ -40,6 +42,18 @@ export interface SeenFingerprint {
 	modelId: string;
 	messages: number;
 	hash: string;
+	toolsHash: string;
+}
+
+/** The tools pi declares for this request (the source the Claude Code provider uses). */
+export function declaredTools(messages: readonly Message[]): Tool[] {
+	return getCurrentTools(messages);
+}
+
+/** A SHA-256 of the tools' declarations, in order; "" for no tools. */
+export function toolsHash(tools: readonly Tool[]): string {
+	if (!tools.length) return "";
+	return createHash("sha256").update(JSON.stringify(tools.map(toToolDeclaration))).digest("hex");
 }
 
 /**
@@ -62,7 +76,7 @@ export function replayAssistant(content: Extract<Message, { role: "assistant" }>
  * learner's (user or tool-result messages, at least one).
  */
 export function reuseTail(seen: SeenFingerprint, input: AntigravityInput, modelId: string): string | null {
-	if (seen.systemText !== input.systemText || seen.modelId !== modelId) return null;
+	if (seen.systemText !== input.systemText || seen.modelId !== modelId || seen.toolsHash !== input.toolsHash) return null;
 	if (input.messages.length <= seen.messages) return null;
 	if (fingerprintHash(input.messages.slice(0, seen.messages)) !== seen.hash) return null;
 	const tail = input.messages.slice(seen.messages);
@@ -109,12 +123,14 @@ function replay(message: Message): string[] {
 	}
 }
 
-export function toAntigravityInput(messages: Message[]): AntigravityInput {
+/** `tools`: what the session is given; none means the text-only note, exactly as without tools support. */
+export function toAntigravityInput(messages: Message[], tools: readonly Tool[] = []): AntigravityInput {
 	const conversation = messages.filter((message) => message.role !== "system");
 	const [first] = conversation;
 	const transcript = conversation.length === 1 && first?.role === "user"
 		? plain(first.content)
 		: conversation.flatMap(replay).join("\n\n");
 	const system = getCurrentSystemPrompt(messages);
-	return { systemText: system ? `${TEXT_ONLY_NOTE}\n\n${system}` : TEXT_ONLY_NOTE, transcript, messages: conversation.map(replayed) };
+	const note = tools.length ? TOOLS_NOTE : TEXT_ONLY_NOTE;
+	return { systemText: system ? `${note}\n\n${system}` : note, transcript, messages: conversation.map(replayed), toolsHash: toolsHash(tools) };
 }

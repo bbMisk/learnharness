@@ -55,6 +55,9 @@
  *     result's text back as a chunk. Logged {kind:"permission-answer"} and {kind:"mcp-result"}.
  *   {mcpRaw: {name, arguments?}} an MCP call nobody announced; {mcpWhileHeld: {first, second}} the
  *   second call made while the first is held; {mcpBadAuth: true} wrong token and wrong path, logged.
+ *   mcpCall.whileHeld: updates sent 50 ms into the held call; mcpCall.lateInProgress: the in_progress
+ *   update sent 30 ms AFTER the MCP request instead of before it. {used: n}: a usage_update.
+ *   promptSeq: [[steps], …] the k-th prompt this process receives runs promptSeq[k] (else `prompt`).
  *   earlyModeThenOptions (after the session/new answer, same write: current_mode_update "default", then
  *     config_option_update showing the session's real mode), modeUpdateWithModelSet {order: "before" |
  *     "after", mode} (a current_mode_update in the same write as the model-set answer),
@@ -223,6 +226,7 @@ async function connectMcp(session, servers) {
 }
 
 let toolCallCounter = 8114546200903021683n;
+let promptCount = 0;
 
 function resultText(result) {
 	return (result?.content ?? []).map((block) => (block.type === "text" ? block.text : `[${block.type}]`)).join("");
@@ -247,11 +251,14 @@ async function mcpRound(session, sessionId, spec) {
 	const answer = await requestClient("session/request_permission", { sessionId, toolCall: { sessionUpdate: "tool_call", ...fields, status: "pending" }, options });
 	log({ kind: "permission-answer", name: agentName, answer });
 	if (answer?.outcome?.optionId !== "allow" || !session.mcp) return undefined;
-	update(sessionId, { sessionUpdate: "tool_call_update", ...fields, status: "in_progress" });
+	if (!spec.lateInProgress) update(sessionId, { sessionUpdate: "tool_call_update", ...fields, status: "in_progress" });
 	const controller = new AbortController();
 	session.mcpAbort = controller;
 	const timer = spec.cancelAfterMs ? setTimeout(() => controller.abort(), spec.cancelAfterMs) : undefined;
-	const result = await callMcp(session, spec.name, spec.arguments, controller.signal);
+	const pending = callMcp(session, spec.name, spec.arguments, controller.signal);
+	if (spec.lateInProgress) { await sleep(30); update(sessionId, { sessionUpdate: "tool_call_update", ...fields, status: "in_progress" }); }
+	if (spec.whileHeld) { await sleep(50); for (const body of spec.whileHeld) update(sessionId, body); }
+	const result = await pending;
 	clearTimeout(timer);
 	session.mcpAbort = undefined;
 	log({ kind: "mcp-result", name: spec.name, result });
@@ -345,7 +352,7 @@ async function prompt({ sessionId, prompt: blocks }) {
 	log({ kind: "prompt", sessionId, n: session.prompts, texts: (blocks ?? []).map((block) => block.text) });
 	const steps = real
 		? ["usage_update", "config_option_update", "session_info_update", "agent_message_chunk", "usage_update"].map((kind) => ({ realUpdate: kind }))
-		: scenario.prompt ?? [{ text: "Hello" }, { text: " world" }, { usageUpdate: true }];
+		: scenario.promptSeq?.[promptCount++] ?? scenario.prompt ?? [{ text: "Hello" }, { text: " world" }, { usageUpdate: true }];
 	// Every real reply carries a session_info_update (a generated title; capture `notifications`).
 	if (!real && !scenario.noSessionInfo) update(sessionId, { sessionUpdate: "session_info_update", title: "<generated title>" });
 	const lastText = [...(blocks ?? [])].reverse().find((block) => block.type === "text")?.text ?? "";
@@ -381,6 +388,7 @@ async function prompt({ sessionId, prompt: blocks }) {
 		else if (step.stderr !== undefined) process.stderr.write(`${step.stderr}\n`);
 		else if (step.error) throw new RpcError(step.error.code, step.error.message);
 		else if (step.usageUpdate) update(sessionId, { sessionUpdate: "usage_update", used: 1200, size: 1_000_000 });
+		else if (step.used !== undefined) update(sessionId, { sessionUpdate: "usage_update", used: step.used, size: 1_048_576 });
 		else if (step.toolCallWithResult) {
 			// The tool_call and the prompt's own answer in one write.
 			const tool = { method: "session/update", params: { sessionId, update: { sessionUpdate: "tool_call", toolCallId: "call-3", title: "Late tool", kind: "read" } } };

@@ -31,6 +31,8 @@ export const antigravityTimeouts = {
 	killGraceMs: 1_000,
 	/** After `exit`, how long buffered output may still be read if `close` doesn't come first. */
 	exitDrainMs: 250,
+	/** A held tool call waits this long for its result (the agent itself gives up at 3 minutes). */
+	toolWaitMs: 150_000,
 };
 
 const STDERR_PARTIAL_BYTES = 4_096;
