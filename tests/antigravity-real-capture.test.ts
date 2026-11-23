@@ -35,7 +35,7 @@ const real = JSON.parse(readFileSync(CAPTURE, "utf8")) as {
 
 test("the real initialize is accepted: protocol 1, append and close advertised, version 1.5.15", () => {
 	assert.equal((real.initialize as { protocolVersion: number }).protocolVersion, 1);
-	assert.deepEqual(parseHandshake(real.initialize), { agentVersion: "1.5.15", systemPromptAppend: true, sessionClose: true });
+	assert.deepEqual(parseHandshake(real.initialize), { agentVersion: "1.5.15", systemPromptAppend: true, sessionClose: true, promptImages: true });
 });
 
 test("the model list is the configOptions model option (9 ids), never the legacy availableModels list", () => {

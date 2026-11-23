@@ -144,7 +144,7 @@ test("available: models from the saved list, picker accepts them, a lesson turn 
 	launchReal = h.launch;
 	assert.equal(antigravityAvailable(), true);
 	const dto = modelCatalog().models.find((m) => m.provider === "antigravity");
-	assert.deepEqual(dto, { id: "gemini-3-pro", name: "Gemini 3 Pro", provider: "antigravity", reasoning: false, input: ["text"], supportedLevels: ["off"], cost: null, contextWindow: null, maxTokens: null });
+	assert.deepEqual(dto, { id: "gemini-3-pro", name: "Gemini 3 Pro", provider: "antigravity", reasoning: false, input: process.env.LH_ANTIGRAVITY_TOOLS === "0" ? ["text"] : ["text", "image"], supportedLevels: ["off"], cost: null, contextWindow: null, maxTokens: null });
 	assert.deepEqual(toModelDto(piModels().getModel("antigravity", "gemini-3-pro")!).cost, null);
 	assert.equal(modelCatalog().providers.find((p) => p.id === "antigravity")?.keyPresent, true);
 	assert.equal(validateChatSettings({ model: SPEC }).ok, true);

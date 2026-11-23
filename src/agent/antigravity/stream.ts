@@ -28,7 +28,7 @@ import { findConfigOption, levelsFrom, modelsFrom } from "./models.ts";
 import { antigravityRuntime, antigravityTimeouts, describeAgentError, isValueRefusal, rejectOnce, type AgentConnection, type AntigravityRuntime, type SessionListener } from "./runtime.ts";
 import { antigravityReuseOn, antigravityToolsOn } from "../../core/fork-config.ts";
 import { AGENT_TOOL_PREFIX, ToolBridge, type EndpointHooks, type HeldCall, type SessionEndpoint } from "./tool-bridge.ts";
-import { declaredTools, fingerprintHash, replayAssistant, reuseTail, toAntigravityInput, type AntigravityInput, type SeenFingerprint } from "./transcript.ts";
+import { declaredTools, fingerprintHash, replayAssistant, reuseTailParts, toAntigravityInput, toPromptBlocks, type AntigravityInput, type Part, type PromptBlock, type SeenFingerprint } from "./transcript.ts";
 
 function count(value: unknown): number {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
@@ -246,7 +246,7 @@ class SessionPark {
 	private readonly parked = new Map<string, AgentSession>();
 
 	/** Take the session parked under `key` if `fits` says it can continue; any other parked one is closed. */
-	take(key: string, fits: (session: AgentSession) => string | null): { session: AgentSession; tail: string } | undefined {
+	take(key: string, fits: (session: AgentSession) => Part[] | null): { session: AgentSession; tail: Part[] } | undefined {
 		const session = this.parked.get(key);
 		if (!session) return undefined;
 		this.parked.delete(key);
@@ -486,12 +486,14 @@ class TurnSession {
 	 * one; then the fail-closed checks every prompt passes. Returns the prompt blocks, or null when a
 	 * reused session spoke during setup and must be abandoned.
 	 */
-	private async setUp(model: Model<Api>, input: AntigravityInput, reasoning: ThinkingLevel | undefined, reuse: { park: SessionPark; key: string } | undefined): Promise<{ type: string; text: string }[] | null> {
+	private async setUp(model: Model<Api>, input: AntigravityInput, reasoning: ThinkingLevel | undefined, reuse: { park: SessionPark; key: string } | undefined): Promise<PromptBlock[] | null> {
 		const { connection } = this;
 		const append = connection.handshake.systemPromptAppend;
+		// Learner images go out as image blocks only with the tools switch on and an agent that takes them.
+		const images = antigravityToolsOn() && connection.handshake.promptImages;
 		this.checkpoint();
 		const reused = reuse?.park.take(reuse.key, (session) => this.fits(session, input, model.id, reasoning));
-		let prompt: { type: string; text: string }[];
+		let prompt: PromptBlock[];
 		if (reused) {
 			// The agent already has the system text and everything but the tail.
 			this.agent = reused.session;
@@ -499,11 +501,12 @@ class TurnSession {
 			reused.session.target = this.listener;
 			reused.session.calls = this.callRoute;
 			this.sessionId = reused.session.sessionId;
-			prompt = [{ type: "text", text: reused.tail }];
+			prompt = toPromptBlocks(reused.tail, images);
 		} else {
 			const session = await this.openSession(input, append);
 			this.sessionId = session.sessionId;
-			prompt = [...(append ? [] : [{ type: "text", text: input.systemText }]), { type: "text", text: input.transcript }];
+			const transcript = toPromptBlocks(input.transcriptParts, images);
+			prompt = append ? transcript : [{ type: "text", text: input.systemText }, ...transcript];
 		}
 		const sessionId = this.sessionId!;
 		const session = this.agent!;
@@ -577,9 +580,9 @@ class TurnSession {
 	 * requested level when the session offers it (it is then set and confirmed), otherwise the
 	 * agent's own default for the model.
 	 */
-	private fits(session: AgentSession, input: AntigravityInput, modelId: string, reasoning: ThinkingLevel | undefined): string | null {
+	private fits(session: AgentSession, input: AntigravityInput, modelId: string, reasoning: ThinkingLevel | undefined): Part[] | null {
 		if (!session.seen) return null;
-		const tail = reuseTail(session.seen, input, modelId);
+		const tail = reuseTailParts(session.seen, input, modelId);
 		if (tail === null) return null;
 		const option = findConfigOption(session.view(), "thought_level");
 		const offered = reasoning !== undefined && !!option?.values.some((value) => value.id === reasoning);

@@ -9,6 +9,7 @@ import type { Api, Model, ThinkingLevel } from "@earendil-works/pi-ai";
 import { safeModelText, sanitizeLevels } from "../../core/contracts/antigravity.ts";
 import { isRecord } from "./acp-client.ts";
 import { ANTIGRAVITY_API, ANTIGRAVITY_PROVIDER } from "./constants.ts";
+import { antigravityToolsOn } from "../../core/fork-config.ts";
 
 export { safeModelText, sanitizeLevels };
 
@@ -93,7 +94,8 @@ const SHARED_MODEL_FIELDS = {
 
 /** A model with at least one level LearnHarness can name reasons, floored at its lowest level (like Claude Code). */
 export function toPiModel(model: AgentModel): Model<Api> {
-	const base = { ...SHARED_MODEL_FIELDS, input: ["text"] as Model<Api>["input"], id: model.id, name: model.name };
+	// Images reach the model with the tools switch on (learner images as prompt blocks, tool images as MCP results).
+	const base = { ...SHARED_MODEL_FIELDS, input: (antigravityToolsOn() ? ["text", "image"] : ["text"]) as Model<Api>["input"], id: model.id, name: model.name };
 	const map = thinkingLevelMap(model.levels ?? []);
 	if (!Object.values(map).some((value) => value !== null)) return base;
 	return { ...base, reasoning: true, thinkingLevelMap: map };

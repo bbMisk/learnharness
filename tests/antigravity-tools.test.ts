@@ -321,3 +321,55 @@ test("kill switch off (LH_ANTIGRAVITY_TOOLS=0), or no chat key: no bridge, the t
 		});
 	}
 });
+
+const RED = Buffer.from("red pixels").toString("base64");
+const BLUE = Buffer.from("blue pixels, a few more bytes").toString("base64");
+const withImage = (text: string, data: string): Message => ({ role: "user", content: [{ type: "text", text }, { type: "image", data, mimeType: "image/png" }], timestamp: 0 });
+type Logged = { sessionId: string; texts: (string | undefined)[]; blocks: { type: string; data?: string }[] };
+
+test("images: a learner image goes out as an image block in order; over the cap or not advertised it is the placeholder", async (t) => {
+	const { OMITTED_IMAGE, promptImageLimit } = await import("../src/agent/antigravity/transcript.ts");
+	const saved = promptImageLimit.bytes;
+	t.after(() => { promptImageLimit.bytes = saved; });
+	const s = setup(t, { prompt: [say("A red square.")] });
+	assert.deepEqual(toPiModel({ id: "m", name: "M" }).input, ["text", "image"], "the model takes images with the tools switch on");
+	await s.once([withImage("What is this?", RED)], [ECHO]);
+	const [first] = s.entries<Logged>("prompt");
+	assert.deepEqual(first!.blocks, [{ type: "text" }, { type: "image", mimeType: "image/png", data: RED }]);
+	assert.equal(first!.texts[0], "What is this?\n");
+	await t.test("over the cap", async (tt) => {
+		promptImageLimit.bytes = Buffer.byteLength(RED, "base64") + 1;
+		const c = setup(tt, { prompt: [say("ok")] });
+		await c.once([withImage("one", RED), { role: "assistant", content: [{ type: "text", text: "seen" }], api: "x", provider: "x", model: "x", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 0 } as AssistantMessage, withImage("two", BLUE)], [ECHO], { sessionId: "chat-cap" });
+		const [prompt] = c.entries<Logged>("prompt");
+		assert.deepEqual(prompt!.blocks.map((b) => b.type), ["text", "image", "text"], "the first image fits, the second becomes the placeholder");
+		assert.ok(prompt!.texts.at(-1)!.endsWith(`two\n${OMITTED_IMAGE}`));
+		promptImageLimit.bytes = saved;
+	});
+	await t.test("not advertised", async (tt) => {
+		const c = setup(tt, { noImagePrompts: true, prompt: [say("ok")] });
+		await c.once([withImage("What is this?", RED)], [ECHO]);
+		const [prompt] = c.entries<Logged>("prompt");
+		assert.deepEqual(prompt!.blocks.map((b) => b.type), ["text"]);
+		assert.equal(prompt!.texts[0], `What is this?\n${OMITTED_IMAGE}`);
+	});
+	await t.test("switch off", async (tt) => {
+		const c = setup(tt, { prompt: [say("ok")] });
+		process.env.LH_ANTIGRAVITY_TOOLS = "0";
+		assert.deepEqual(toPiModel({ id: "m", name: "M" }).input, ["text"]);
+		await c.once([withImage("What is this?", RED)], [ECHO]);
+		assert.deepEqual(c.entries<Logged>("prompt")[0]!.blocks.map((b) => b.type), ["text"]);
+	});
+});
+
+test("images: a reused session gets a new image as a block; a changed earlier image (same placeholder) means a fresh session", async (t) => {
+	const s = setup(t, { prompt: [say("ok")] });
+	const one = await s.lesson([user("hi")], [ECHO]);
+	await s.lesson([...one.messages, withImage("look", RED)], [ECHO]);
+	const [p1, p2] = s.entries<Logged>("prompt");
+	assert.equal(p2!.sessionId, p1!.sessionId, "reused");
+	assert.deepEqual(p2!.blocks, [{ type: "text" }, { type: "image", mimeType: "image/png", data: RED }]);
+	const replyTwo = { role: "assistant", content: [{ type: "text", text: "ok" }], api: "x", provider: "x", model: "x", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 0 } as AssistantMessage;
+	await s.lesson([...one.messages, withImage("look", BLUE), replyTwo, user("and now?")], [ECHO]);
+	assert.notEqual(s.entries<Logged>("prompt")[2]!.sessionId, p1!.sessionId, "the image bytes are part of what the session has seen");
+});

@@ -76,6 +76,8 @@ export interface AgentHandshake {
 	systemPromptAppend: boolean;
 	/** initialize advertised sessionCapabilities.close. */
 	sessionClose: boolean;
+	/** initialize advertised promptCapabilities.image. */
+	promptImages: boolean;
 }
 
 export interface SessionListener {
@@ -123,7 +125,8 @@ export function parseHandshake(result: unknown): AgentHandshake | null {
 		? capabilities._meta.antigravity.systemPrompt : undefined;
 	const sessionCapabilities = isRecord(capabilities?.sessionCapabilities) ? capabilities.sessionCapabilities : undefined;
 	const close = sessionCapabilities?.close;
-	return { agentVersion: version, systemPromptAppend: meta?.append === true, sessionClose: close === true || isRecord(close) };
+	const prompts = isRecord(capabilities?.promptCapabilities) ? capabilities.promptCapabilities : undefined;
+	return { agentVersion: version, systemPromptAppend: meta?.append === true, sessionClose: close === true || isRecord(close), promptImages: prompts?.image === true };
 }
 
 /** One plain sentence for any failure; never raw agent output, never a link. */
@@ -180,7 +183,7 @@ function exitState(): ExitState {
 }
 
 export class AgentConnection {
-	handshake: AgentHandshake = { agentVersion: null, systemPromptAppend: false, sessionClose: false };
+	handshake: AgentHandshake = { agentVersion: null, systemPromptAppend: false, sessionClose: false, promptImages: false };
 	readonly workspace: string;
 	readonly closed: Promise<AcpTransportError>;
 	private readonly peer: AcpPeer;

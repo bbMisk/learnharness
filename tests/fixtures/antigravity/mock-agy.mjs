@@ -15,7 +15,9 @@
  * MOCK_AGY_LOG       file that receives one JSON line per event:
  *                    {kind:"start", argv, cwd, envNames, pid}, then
  *                    {kind:"recv", line} for every raw stdin line, and
- *                    {kind:"prompt", sessionId, n, texts} for every prompt (n: that session's prompt count).
+ *                    {kind:"prompt", sessionId, n, texts, blocks} for every prompt (n: that session's prompt count;
+ *                    blocks: each block's type, and an image block's mimeType and data).
+ *   noImagePrompts: initialize advertises promptCapabilities.image false.
  *
  * Scenario fields (all optional):
  *   stdoutAtStart, stderrAtStart  raw lines written at startup
@@ -162,7 +164,7 @@ function initializeResult() {
 	const capabilities = {
 		loadSession: true,
 		load_session: true,
-		promptCapabilities: { image: true, audio: false, embeddedContext: true },
+		promptCapabilities: { image: !scenario.noImagePrompts, audio: false, embeddedContext: true },
 		sessionCapabilities,
 		session_capabilities: sessionCapabilities,
 		auth: { logout: {} },
@@ -349,7 +351,7 @@ async function prompt({ sessionId, prompt: blocks }) {
 	// Sessions live across prompts, like the real agent: count them and remember what each received.
 	session.prompts = (session.prompts ?? 0) + 1;
 	session.cancelled = false;
-	log({ kind: "prompt", sessionId, n: session.prompts, texts: (blocks ?? []).map((block) => block.text) });
+	log({ kind: "prompt", sessionId, n: session.prompts, texts: (blocks ?? []).map((block) => block.text), blocks: (blocks ?? []).map((block) => (block.type === "image" ? { type: "image", mimeType: block.mimeType, data: block.data } : { type: block.type })) });
 	const steps = real
 		? ["usage_update", "config_option_update", "session_info_update", "agent_message_chunk", "usage_update"].map((kind) => ({ realUpdate: kind }))
 		: scenario.promptSeq?.[promptCount++] ?? scenario.prompt ?? [{ text: "Hello" }, { text: " world" }, { usageUpdate: true }];
