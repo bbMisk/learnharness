@@ -46,6 +46,15 @@
  *   garbageAfterNew (a non-JSON line in the same write as the session/new answer),
  *   fixedSessionId (every session/new answers this id), chunkAfterNew (text sent right after session/new),
  *   steps {emptyRepeat:{count,everyMs}} (empty text chunks)
+ * MCP tools (shapes re-typed from the lead's scrubbed frames of agy 1.5.15, see docs/antigravity.md):
+ *   session/new with an http mcpServers entry: probe the .well-known paths WITHOUT the header, connect,
+ *   list tools (logged {kind:"mcp-tools"}); session/close closes the MCP client (DELETE).
+ *   steps {mcpCall: {name, arguments?, agentName?, options?, cancelAfterMs?, echo?}}: tool_call
+ *     (in_progress) → tool_call_update (pending) → session/request_permission → if "allow":
+ *     tool_call_update (in_progress) → MCP tools/call → tool_call_update (completed); echo sends the
+ *     result's text back as a chunk. Logged {kind:"permission-answer"} and {kind:"mcp-result"}.
+ *   {mcpRaw: {name, arguments?}} an MCP call nobody announced; {mcpWhileHeld: {first, second}} the
+ *   second call made while the first is held; {mcpBadAuth: true} wrong token and wrong path, logged.
  *   earlyModeThenOptions (after the session/new answer, same write: current_mode_update "default", then
  *     config_option_update showing the session's real mode), modeUpdateWithModelSet {order: "before" |
  *     "after", mode} (a current_mode_update in the same write as the model-set answer),
@@ -59,6 +68,9 @@
  */
 import { appendFileSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 if (process.argv[2] !== "acp") {
 	process.stderr.write("mock-agy: refusing to run without the acp subcommand\n");
@@ -194,6 +206,60 @@ function newSession() {
 	return result;
 }
 
+async function connectMcp(session, servers) {
+	const entry = (Array.isArray(servers) ? servers : []).find((server) => server?.type === "http" && server.name === "learnharness");
+	if (!entry) return;
+	const headers = Object.fromEntries((entry.headers ?? []).map((header) => [header.name, header.value]));
+	// The real agent probes these WITHOUT the header.
+	for (const path of ["/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp"]) {
+		const res = await fetch(new URL(path, entry.url)).catch(() => undefined);
+		log({ kind: "well-known", path, status: res?.status });
+	}
+	const client = new Client({ name: "mock-agy", version: "1.5.15" });
+	await client.connect(new StreamableHTTPClientTransport(new URL(entry.url), { requestInit: { headers } }));
+	const { tools } = await client.listTools();
+	session.mcp = { client, entry, headers };
+	log({ kind: "mcp-tools", sessionId: session.id, names: tools.map((tool) => tool.name) });
+}
+
+let toolCallCounter = 8114546200903021683n;
+
+function resultText(result) {
+	return (result?.content ?? []).map((block) => (block.type === "text" ? block.text : `[${block.type}]`)).join("");
+}
+
+async function callMcp(session, name, args, signal) {
+	try {
+		return await session.mcp.client.callTool({ name, arguments: args ?? {} }, undefined, { signal, timeout: 600_000 });
+	} catch (error) {
+		return { error: String(error?.message ?? error).slice(0, 200) };
+	}
+}
+
+/** One announced, permitted, called tool round, the way agy 1.5.15 does it. */
+async function mcpRound(session, sessionId, spec) {
+	const agentName = spec.agentName ?? `mcp_learnharness_${spec.name}`;
+	const args = { ...(spec.arguments ?? {}), toolSummary: spec.summary ?? "Using a LearnHarness tool" };
+	const fields = { toolCallId: `call_${toolCallCounter++}`, name: agentName, args, kind: "other", title: `Run ${agentName}`, rawInput: args };
+	update(sessionId, { sessionUpdate: "tool_call", ...fields, status: "in_progress" });
+	update(sessionId, { sessionUpdate: "tool_call_update", ...fields, status: "pending" });
+	const options = spec.options ?? [{ optionId: "allow", name: "Allow", kind: "allow_once" }, { optionId: "deny", name: "Deny", kind: "reject_once" }];
+	const answer = await requestClient("session/request_permission", { sessionId, toolCall: { sessionUpdate: "tool_call", ...fields, status: "pending" }, options });
+	log({ kind: "permission-answer", name: agentName, answer });
+	if (answer?.outcome?.optionId !== "allow" || !session.mcp) return undefined;
+	update(sessionId, { sessionUpdate: "tool_call_update", ...fields, status: "in_progress" });
+	const controller = new AbortController();
+	session.mcpAbort = controller;
+	const timer = spec.cancelAfterMs ? setTimeout(() => controller.abort(), spec.cancelAfterMs) : undefined;
+	const result = await callMcp(session, spec.name, spec.arguments, controller.signal);
+	clearTimeout(timer);
+	session.mcpAbort = undefined;
+	log({ kind: "mcp-result", name: spec.name, result });
+	update(sessionId, { sessionUpdate: "tool_call_update", ...fields, status: "completed" });
+	if (spec.echo && !result.error) update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `tool said: ${resultText(result)}` } });
+	return result;
+}
+
 function update(sessionId, body) {
 	send({ method: "session/update", params: { sessionId, update: body } });
 }
@@ -321,6 +387,21 @@ async function prompt({ sessionId, prompt: blocks }) {
 			return { [RAW]: [tool, { id: myId, result: { stopReason: "end_turn" } }].map((m) => `${JSON.stringify({ jsonrpc: "2.0", ...m })}\n`).join("") };
 		}
 		else if (step.rawChunk) update(sessionId, { sessionUpdate: "agent_message_chunk", content: step.rawChunk });
+		else if (step.mcpCall) await mcpRound(session, sessionId, step.mcpCall);
+		else if (step.mcpRaw) log({ kind: "mcp-result", name: step.mcpRaw.name, raw: true, result: await callMcp(session, step.mcpRaw.name, step.mcpRaw.arguments) });
+		else if (step.mcpWhileHeld) {
+			const first = mcpRound(session, sessionId, step.mcpWhileHeld.first);
+			await sleep(100); // the first is held now
+			log({ kind: "mcp-result", name: step.mcpWhileHeld.second.name, raw: true, result: await callMcp(session, step.mcpWhileHeld.second.name, step.mcpWhileHeld.second.arguments) });
+			await first;
+		} else if (step.mcpBadAuth) {
+			const url = new URL(session.mcp.entry.url);
+			const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+			const headers = { "Content-Type": "application/json", Accept: "application/json, text/event-stream" };
+			const wrongToken = await fetch(url, { method: "POST", headers: { ...headers, Authorization: "Bearer wrong" }, body }).then((r) => r.status, () => 0);
+			const wrongPath = await fetch(new URL(`/mcp/${"0".repeat(64)}`, url), { method: "POST", headers: { ...headers, ...session.mcp.headers }, body }).then((r) => r.status, () => 0);
+			log({ kind: "mcp-bad-auth", wrongToken, wrongPath });
+		}
 		else if (step.modeUpdate) update(sessionId, { sessionUpdate: "current_mode_update", currentModeId: step.modeUpdate });
 		else if (step.configModeUpdate) { session.mode = step.configModeUpdate; update(sessionId, { sessionUpdate: "config_option_update", configOptions: configOptions(session) }); }
 		else if (step.emptyRepeat) {
@@ -366,6 +447,7 @@ const RAW = Symbol("raw stdout");
 let requestId;
 
 async function handleRequest(method, params) {
+	const myId = requestId;
 	if ((scenario.hangMethods ?? []).includes(method)) return new Promise(() => {});
 	switch (method) {
 		case "initialize":
@@ -377,8 +459,11 @@ async function handleRequest(method, params) {
 			if (scenario.initializeError) throw new RpcError(scenario.initializeError.code, scenario.initializeError.message);
 			return initializeResult();
 		case "session/new": {
+			const requestId = myId;
 			if (scenario.sessionNewError) throw new RpcError(scenario.sessionNewError.code, scenario.sessionNewError.message);
 			const result = newSession();
+			// Like the real agent: the MCP server is connected and listed before session/new answers.
+			await connectMcp(sessions.get(result.sessionId), params.mcpServers);
 			const early = scenario.toolCallAfterNew
 				? { method: "session/update", params: { sessionId: result.sessionId, update: { sessionUpdate: "tool_call", ...scenario.toolCallAfterNew } } }
 				: scenario.chunkAfterNew !== undefined
@@ -444,10 +529,13 @@ async function handleRequest(method, params) {
 			return {};
 		case "session/prompt":
 			return prompt(params);
-		case "session/close":
-			// The real agent answers {} (checked live, 1.5.15).
+		case "session/close": {
+			// The real agent answers {} (checked live, 1.5.15), and its MCP client sends DELETE.
+			const closing = sessions.get(params.sessionId);
 			sessions.delete(params.sessionId);
+			if (closing?.mcp) { await closing.mcp.client.close().catch(() => {}); log({ kind: "mcp-closed", sessionId: params.sessionId }); }
 			return {};
+		}
 		default:
 			throw new RpcError(-32601, `Method not found: ${method}`);
 	}
@@ -458,6 +546,7 @@ function handleNotification(method, params) {
 	const session = sessions.get(params?.sessionId);
 	if (!session || scenario.ignoreCancel) return;
 	session.cancelled = true;
+	session.mcpAbort?.abort(); // the real agent aborts a held MCP request on cancel
 	for (const resolve of session.cancelWaiters.splice(0)) resolve();
 }
 
