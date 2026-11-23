@@ -1,8 +1,10 @@
 /** Hanson's fork: the opt-in Antigravity provider (docs/antigravity.md). */
 export const ANTIGRAVITY_PROVIDER = "antigravity";
 
-/** What GET /api/antigravity reports. Never a path, a sign-in link or raw agent output. */
+/** What GET /api/antigravity reports while the server switch is on. Never a path, a sign-in link or raw agent output. */
 export interface AntigravityStatus {
+	/** The server switch is on. (While it is off, GET answers only `{ available: false }`.) */
+	available: true;
 	enabled: boolean;
 	/** An `agy` file was found. Nothing was executed to learn this. */
 	installed: boolean;
@@ -15,6 +17,9 @@ export interface AntigravityStatus {
 	/** A plain message from the last failed check, e.g. not signed in. */
 	problem?: string;
 }
+
+/** GET /api/antigravity: 200 either way, so a switched-off server causes no browser console error. */
+export type AntigravityStatusResponse = AntigravityStatus | { available: false };
 
 /** Every helper (jobs, extraction, side tutor, plugins, …) refuses Antigravity. */
 export const ANTIGRAVITY_LESSONS_ONLY = "Antigravity runs only lessons you start. Choose another model for this in Settings → Models.";

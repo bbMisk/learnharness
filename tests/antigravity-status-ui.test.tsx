@@ -1,7 +1,8 @@
 /**
  * The Antigravity settings row (components/settings/antigravity-status.tsx)
  * and its route file. The browser side never learns the server switch from a
- * bundled constant: it renders nothing while GET /api/antigravity is 404.
+ * bundled constant: it renders nothing unless GET /api/antigravity says
+ * `available: true`, and a switched-off server answers 200 `{ available: false }`.
  */
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
@@ -50,11 +51,20 @@ afterEach(async () => {
 	globalThis.fetch = originalFetch;
 });
 
-const base: AntigravityStatus = { enabled: false, installed: true, models: 0 };
+const base: AntigravityStatus = { available: true, enabled: false, installed: true, models: 0 };
 
-test("hidden while the API answers 404 (switch off), or fails, or answers garbage", async () => {
+test("hidden while the API says available: false (switch off), errors, fails, or answers garbage; nothing is logged", async (t) => {
+	const logged: unknown[] = [];
+	const originals = { error: console.error, warn: console.warn };
+	console.error = (...args: unknown[]) => { logged.push(args); };
+	console.warn = (...args: unknown[]) => { logged.push(args); };
+	t.after(() => Object.assign(console, originals));
 	for (const respond of [
+		() => Response.json({ available: false }),
+		() => Response.json({ ...base, available: false }),
+		() => Response.json({ ...base, available: undefined }),
 		() => Response.json({ error: "Not found" }, { status: 404 }),
+		() => new Response("not json", { status: 200 }),
 		() => { throw new Error("offline"); },
 		() => Response.json({ enabled: "yes" }),
 	]) {
@@ -66,6 +76,7 @@ test("hidden while the API answers 404 (switch off), or fails, or answers garbag
 		assert.equal(calls[0]!.cache, "no-store");
 		await act(async () => root?.unmount()); host?.remove(); root = undefined;
 	}
+	assert.deepEqual(logged, []);
 });
 
 test("off by default: the toggle is off, the caution line shows, no check button", async () => {
@@ -135,7 +146,7 @@ test("not installed: the check button is disabled", async () => {
 	assert.equal(check()?.disabled, true);
 });
 
-test("the route file answers 404 for every method while the switch is off", async () => {
+test("while the switch is off the route answers GET with 200 { available: false } only, and PUT/POST with 404", async () => {
 	const previous = process.env.LH_FORK_ANTIGRAVITY;
 	delete process.env.LH_FORK_ANTIGRAVITY;
 	// The server barrel loads the stores: keep them out of the checkout's data folder.
@@ -144,8 +155,11 @@ test("the route file answers 404 for every method while the switch is off", asyn
 	process.env.LH_AUTH_FILE ??= join(data, "auth.json");
 	try {
 		const route = await import("../app/api/antigravity/route.ts");
-		for (const method of ["GET", "PUT", "POST"] as const) {
-			const response = await route[method](new Request("http://localhost/api/antigravity", { method, headers: { "x-learnharness-antigravity": "1" }, ...(method === "GET" ? {} : { body: "{}" }) }));
+		const get = await route.GET(new Request("http://localhost/api/antigravity", { headers: { "x-learnharness-antigravity": "1" } }));
+		assert.equal(get.status, 200);
+		assert.deepEqual(await get.json(), { available: false });
+		for (const method of ["PUT", "POST"] as const) {
+			const response = await route[method](new Request("http://localhost/api/antigravity", { method, headers: { "x-learnharness-antigravity": "1" }, body: "{}" }));
 			assert.equal(response.status, 404, method);
 		}
 	} finally {

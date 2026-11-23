@@ -5,7 +5,7 @@
  * an edit inside upstream code. Browser-safe: no node builtins.
  */
 
-export { ANTIGRAVITY_PROVIDER, isAntigravityRefusal, type AntigravityStatus } from "./contracts/antigravity.ts";
+export { ANTIGRAVITY_PROVIDER, isAntigravityRefusal, type AntigravityStatus, type AntigravityStatusResponse } from "./contracts/antigravity.ts";
 
 export type SideChatMode = "tutor" | "questions";
 

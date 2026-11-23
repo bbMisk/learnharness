@@ -1,6 +1,7 @@
 "use client";
 /** Hanson's fork (docs/antigravity.md): the Antigravity row under Settings → Providers → External CLI.
- *  Renders nothing unless the server switch is on (GET /api/antigravity answers 404 while off). */
+ *  Renders nothing unless GET /api/antigravity says `available: true` (the server switch is on).
+ *  Any other answer, or a failed request, hides it quietly: no throw, no log. */
 import { useEffect, useRef, useState } from "react";
 import type { AntigravityStatus } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
@@ -20,7 +21,7 @@ export function antigravityStatusLabel(status: AntigravityStatus): string {
 
 function isStatus(value: unknown): value is AntigravityStatus {
 	const v = value as Partial<AntigravityStatus> | null;
-	return !!v && typeof v === "object" && typeof v.enabled === "boolean" && typeof v.installed === "boolean"
+	return !!v && typeof v === "object" && v.available === true && typeof v.enabled === "boolean" && typeof v.installed === "boolean"
 		&& typeof v.models === "number" && Number.isSafeInteger(v.models) && v.models >= 0
 		&& (v.agentVersion === undefined || (typeof v.agentVersion === "string" && /^\d+\.\d+\.\d+$/.test(v.agentVersion)))
 		&& (v.checkedAt === undefined || typeof v.checkedAt === "string")
@@ -30,12 +31,12 @@ function isStatus(value: unknown): value is AntigravityStatus {
 async function call(init: RequestInit & { signal: AbortSignal }): Promise<AntigravityStatus | null> {
 	const response = await fetch(ENDPOINT, { cache: "no-store", ...init, headers: { ...INTENT, ...(init.body ? { "Content-Type": "application/json" } : {}) } });
 	if (!response.ok) return null;
-	const value: unknown = await response.json();
+	const value: unknown = await response.json().catch(() => null);
 	return isStatus(value) ? value : null;
 }
 
 export function AntigravityProviderStatus() {
-	// null: hidden (switch off, unreachable, or not loaded yet).
+	// null: hidden (switch off, unreachable, unreadable, or not loaded yet).
 	const [status, setStatus] = useState<AntigravityStatus | null>(null);
 	const [busy, setBusy] = useState<"saving" | "checking" | null>(null);
 	const [error, setError] = useState<string | null>(null);

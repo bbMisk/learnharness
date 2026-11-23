@@ -2,7 +2,9 @@
  * Hanson's fork: the Antigravity provider's server surface
  * (docs/antigravity.md): GET /api/antigravity status, PUT the opt-in,
  * POST "check connection", and the lesson-turn gate chat-handler calls.
- * While the server switch is off, every request here answers 404.
+ * While the server switch is off, GET answers 200 `{ available: false }` and
+ * nothing else (a 404 would be a console error in every Settings window);
+ * PUT and POST answer 404.
  */
 import { AntigravityMessage } from "../agent/antigravity/constants.ts";
 import { checkAntigravityAgent, type ConnectionCheck } from "../agent/antigravity/provider.ts";
@@ -33,6 +35,7 @@ export function antigravityStatus(): AntigravityStatus {
 	const record = antigravityStore.read();
 	const problem = problemState().message;
 	return {
+		available: true,
 		enabled: antigravityEnabled(),
 		installed: antigravityInstalled(),
 		...(record.agentVersion ? { agentVersion: record.agentVersion } : {}),
@@ -82,7 +85,11 @@ async function jsonBody(request: Request): Promise<unknown> {
 
 /** Same request protections as /api/claude-code: same-origin intent plus a custom header. No CORS grants. */
 export async function antigravityResponse(request: Request, deps: AntigravityRouteDeps = production): Promise<Response> {
-	if (!antigravitySwitchOn()) return Response.json({ error: "Not found" }, { status: 404, headers: HEADERS });
+	if (!antigravitySwitchOn()) {
+		return request.method === "GET"
+			? Response.json({ available: false }, { headers: HEADERS })
+			: Response.json({ error: "Not found" }, { status: 404, headers: HEADERS });
+	}
 	const origin = subscriptionRequestOrigin(request);
 	const supplied = request.headers.get("origin");
 	if (!origin || request.headers.get(ANTIGRAVITY_INTENT_HEADER) !== "1"

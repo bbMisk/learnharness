@@ -8,7 +8,7 @@ Phase 1 is text only: you write, the tutor answers in text.
 
 Both switches must be on before anything runs.
 
-1. **Server switch.** Off in the code (`src/core/fork-config.ts`). Starting the server with `LH_FORK_ANTIGRAVITY=1` turns it on for that server only. While it is off, Antigravity offers no models, lessons on it are refused, `/api/antigravity` answers 404, and Settings shows nothing.
+1. **Server switch.** Off in the code (`src/core/fork-config.ts`). Starting the server with `LH_FORK_ANTIGRAVITY=1` turns it on for that server only. While it is off, Antigravity offers no models, lessons on it are refused, `GET /api/antigravity` answers only `{ available: false }` (changes are refused with 404), and Settings shows nothing.
 2. **Your opt-in.** With the server switch on, Settings → Providers → External CLI shows an Antigravity toggle. It is off until you turn it on. The choice is saved in `antigravity.json` in the data folder, not in the main settings.
 
 Antigravity also needs the `agy` program. LearnHarness finds it on your PATH or in the usual folders such as `~/.local/bin`; `LH_AGY_BINARY` can name it exactly. Finding it only checks that the file exists.
@@ -44,4 +44,24 @@ Every message format here comes from reading the source of T3 Code's Antigravity
 
 ## Terms
 
-TODO (lead): what Google's terms allow for consumer plans used through a third-party app.
+Not settled. No live use of this provider on a personal Google plan until Hanson decides. This is a reading of Google's public pages on 2026-11-23, not legal advice.
+
+What supports this use:
+
+- The ACP page (antigravity.google/docs/ide/extensions/acp, "Other clients"): "Any ACP client can launch Antigravity CLI." It lists a personal Google sign-in as a method, and says `agy acp` "uses the credentials you cached with an interactive `agy` session."
+- LearnHarness runs Google's own unmodified program and never handles the sign-in or its tokens.
+
+What cuts against it:
+
+- Antigravity's terms (antigravity.google/terms): "You must not abuse, harm, interfere with, or disrupt the Service. This includes, but is not limited to, using the Service in connection with products not provided by us. Using third party software, tools, or services to access the Service (e.g. using OpenClaw with Antigravity OAuth) is a breach of this Agreement. Such actions may be grounds for suspension or termination of your Antigravity and/or Gemini CLI accounts."
+- Antigravity's FAQ (antigravity.google/docs/faq): "Wrapping agy inside third-party coding agents or applications, or automating account rotation, is not supported under consumer plans." That answer is about headless mode (`agy -p`), but its wording is general. The same page says: "To use a third-party coding agent with Gemini, we recommend using a Gemini Enterprise or Google AI Studio API key."
+
+What nobody says:
+
+- The terms, the plans page and the FAQ never mention ACP, so nothing states whether an app that launches Google's own `agy acp` counts as "third party software" accessing the Service.
+- The terms carry no date. The plans page says every plan includes "the CLI" and says nothing about other clients.
+- T3 Code ships the same kind of integration; that shows it works, not that Google allows it for a tutoring app.
+
+Also in the terms: Google records interactions and uses them to improve its products and models, and asks users not to submit confidential information. Lesson text sent through this provider falls under that.
+
+The route Google itself points third-party tools to is an API key. Phase 1 deliberately does not support one (it removes any Gemini or Google key from the agent's environment), and a key is billed separately.

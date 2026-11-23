@@ -114,12 +114,13 @@ for (const [label, setup] of [
 
 	const status = await antigravityResponse(request("GET"));
 	if (!setup.switchOn) {
-		assert.equal(status.status, 404);
+		assert.equal(status.status, 200);
+		assert.deepEqual(await status.json(), { available: false }, "nothing but the switch state");
 		assert.equal((await antigravityResponse(request("PUT", { enabled: true }))).status, 404);
 		assert.equal((await antigravityResponse(request("POST", { action: "check" }))).status, 404);
 	} else {
 		assert.equal(status.status, 200);
-		assert.deepEqual(await status.json(), { enabled: setup.enabled, installed: setup.installed, models: 1 });
+		assert.deepEqual(await status.json(), { available: true, enabled: setup.enabled, installed: setup.installed, models: 1 });
 	}
 	if (setup.switchOn && !setup.enabled) assert.equal((await antigravityResponse(request("POST", { action: "check" }))).status, 403);
 	assert.equal(launches, before, "no spawn");
