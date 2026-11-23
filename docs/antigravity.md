@@ -31,7 +31,7 @@ Some of your own Antigravity setup still applies: its allow rules, global rules 
 
 ## One agent session per lesson
 
-While a lesson's conversation only grows, the next reply continues the same Antigravity session and sends only your new message: LearnHarness checks that the agent has already seen exactly everything before it, the same instructions and the same model. Any edit, a retry that changes the history, compaction, a model or instruction change, or a reply that didn't finish cleanly starts a fresh session with the whole conversation instead. LearnHarness's own transcript stays the record; the agent session is only a cache of it.
+While a lesson's conversation only grows, the next reply continues the same Antigravity session and sends only your new message: LearnHarness checks that the agent has already seen exactly everything before it, the same instructions and the same model. Any edit (including to a reply's thinking), a retry that changes the history, compaction, a model or instruction change, going back to the default thinking level after choosing another one, anything the agent says outside a reply, or a reply that didn't finish cleanly starts a fresh session with the whole conversation instead. LearnHarness's own transcript stays the record; the agent session is only a cache of it.
 
 On the real agent, a follow-up reply on a continued session reported about 2,100 new input tokens and 10,900 read from Google's cache, instead of about 13,000 new ones on a fresh session (a fresh session never hits the cache, so a long lesson otherwise resends the whole conversation and about 9,700 tokens of the agent's own instructions every time). Replies were not faster at that size; this saves quota on long lessons.
 

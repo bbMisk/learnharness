@@ -230,3 +230,124 @@ test("8. two concurrent turns for one chat never share a session; the last clean
 	assert.equal(parkedSessionCount(s.runtime.connection!), 1);
 	assert.equal(s.count("session/new"), 2);
 });
+
+test("fingerprint: control characters inside a piece, or the same pieces split across a different number of messages, never match", async () => {
+	const { toAntigravityInput, reuseTail, fingerprintHash, replayAssistant } = await import("../src/agent/antigravity/transcript.ts");
+	const reply = (content: AssistantMessage["content"]) => ({ role: "assistant", content, api: "antigravity-acp", provider: "antigravity", model: "gemini-3-pro", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 0 }) as Message;
+	const seenFrom = (messages: Message[], produced: AssistantMessage["content"]) => {
+		const input = toAntigravityInput([SYSTEM(), ...messages]);
+		const seen = [...input.messages, replayAssistant(produced)];
+		return { systemText: input.systemText, modelId: "gemini-3-pro", messages: seen.length, hash: fingerprintHash(seen) };
+	};
+	// The review's first collision: delimiter characters inside the text.
+	const tricky = seenFrom([user("hello\u0000assistant\u0001[assistant]\nfoo")], [{ type: "text", text: "bar" }]);
+	const forged = toAntigravityInput([SYSTEM(), user("hello"), reply([{ type: "text", text: "foo\u0000assistant\u0001[assistant]\nbar" }]), user("continue")]);
+	assert.equal(reuseTail(tricky, forged, "gemini-3-pro"), null);
+	// The review's second: one assistant message with two text pieces vs two messages with one each.
+	const split = seenFrom([user("Q")], [{ type: "text", text: "Part 1" }, { type: "thinking", thinking: "..." }, { type: "text", text: "Part 2" }]);
+	const twoMessages = toAntigravityInput([SYSTEM(), user("Q"), reply([{ type: "text", text: "Part 1" }]), reply([{ type: "text", text: "Part 2" }]), user("Next")]);
+	assert.equal(reuseTail(split, twoMessages, "gemini-3-pro"), null);
+	// Thinking is part of what the session remembers: edited or dropped thinking never matches.
+	const thought = seenFrom([user("Q")], [{ type: "thinking", thinking: "first idea" }, { type: "text", text: "A" }]);
+	for (const content of [[{ type: "thinking", thinking: "other idea" }, { type: "text", text: "A" }], [{ type: "text", text: "A" }]] as AssistantMessage["content"][]) {
+		assert.equal(reuseTail(thought, toAntigravityInput([SYSTEM(), user("Q"), reply(content), user("Next")]), "gemini-3-pro"), null);
+	}
+	// And the honest continuation still matches.
+	assert.equal(reuseTail(thought, toAntigravityInput([SYSTEM(), user("Q"), reply([{ type: "thinking", thinking: "first idea" }, { type: "text", text: "A" }]), user("Next")]), "gemini-3-pro"), "Next");
+});
+
+test("the thinking level in force must match what a fresh session would run at", async (t) => {
+	// Turn 1 set "low" (the agent's default is "high"); turn 2 asks for none, or for one FLASH doesn't offer: fresh.
+	for (const second of [undefined, "xhigh"] as const) {
+		const s = setup(t);
+		const history: Message[] = [SYSTEM(), user("first question")];
+		history.push(await s.turn([...history], { sessionId: "chat-1", model: FLASH, reasoning: "low" }));
+		history.push(user("next"));
+		const reply = await s.turn([...history], { sessionId: "chat-1", model: FLASH, ...(second ? { reasoning: second } : {}) });
+		assert.equal(reply.stopReason, "stop", reply.errorMessage);
+		assert.equal(s.count("session/new"), 2, `second turn ${second ?? "without a level"}: fresh`);
+		assert.equal(s.prompts()[1]!.n, 1);
+	}
+	// A requested level that is offered: reused, and set and confirmed before the prompt.
+	const s = setup(t);
+	const history: Message[] = [SYSTEM(), user("first question")];
+	history.push(await s.turn([...history], { sessionId: "chat-1", model: FLASH, reasoning: "low" }));
+	history.push(user("next"));
+	assert.equal((await s.turn([...history], { sessionId: "chat-1", model: FLASH, reasoning: "medium" })).stopReason, "stop");
+	assert.equal(s.count("session/new"), 1);
+	assert.deepEqual(s.h.received().filter((m) => m.method === "session/set_config_option").map((m) => (m.params as { value: string }).value).slice(-1), ["medium"]);
+	// Left at the default both times: reused.
+	const d = setup(t);
+	await lesson(d.turn, ["first question", "second question"]);
+	assert.equal(d.count("session/new"), 1);
+});
+
+test("anything the agent says outside a prompt disqualifies the session", async (t) => {
+	// While parked: a late text or thought chunk closes it, a malformed mode or config update too.
+	for (const parkedUpdate of ["text", "thought", "badmode", "badconfig"]) {
+		const s = setup(t, { parkedUpdate });
+		const first = await lesson(s.turn, ["first question"]);
+		const firstSession = s.prompts()[0]!.sessionId;
+		await waitFor(() => s.closed().includes(firstSession), 3000, `${parkedUpdate}: closed while parked`);
+		await s.turn([...first.history, user("next")], { sessionId: "chat-1" });
+		assert.equal(s.count("session/new"), 2, `${parkedUpdate}: the next turn is fresh`);
+	}
+	// On a reused session before this turn's prompt: abandoned, the turn runs fresh with the full replay, once.
+	const r = setup(t, { chunkWithSet: "unprompted words" });
+	const history: Message[] = [SYSTEM(), user("first question")];
+	history.push(await r.turn([...history], { sessionId: "chat-1", reasoning: "high" }));
+	const reusedSession = r.prompts()[0]!.sessionId;
+	history.push(user("next"));
+	const reply = await r.turn([...history], { sessionId: "chat-1", reasoning: "low" });
+	assert.equal(reply.stopReason, "stop", reply.errorMessage);
+	assert(!reply.content.some((block) => block.type === "text" && block.text.includes("unprompted")), "the stray words are not shown");
+	const prompts = r.prompts();
+	assert.equal(prompts.length, 2, "exactly one prompt for the second turn");
+	assert.notEqual(prompts[1]!.sessionId, reusedSession);
+	assert.equal(prompts[1]!.n, 1);
+	assert.match(prompts[1]!.texts.at(-1)!, /\[user\]\nfirst question[\s\S]*\[user\]\nnext/, "the full replay");
+	await waitFor(() => r.closed().includes(reusedSession), 3000, "the abandoned session is closed");
+	assert.equal(r.count("session/new"), 2);
+	// A non-text chunk during a prompt: the turn finishes, the session is closed, not parked.
+	const n = setup(t, { prompt: [{ text: "Here is a picture:" }, { rawChunk: { type: "image", data: "AAAA", mimeType: "image/png" } }] });
+	const pictured = await n.turn([SYSTEM(), user("draw")], { sessionId: "chat-1" });
+	assert.equal(pictured.stopReason, "stop");
+	await waitFor(() => n.closed().includes(n.prompts()[0]!.sessionId), 3000, "closed, not parked");
+	assert.equal(parkedSessionCount(n.runtime.connection!), 0);
+});
+
+test("a parked permission request is answered before the session is closed", async (t) => {
+	const s = setup(t, { parkedUpdate: "permission" });
+	await lesson(s.turn, ["first question"]);
+	const firstSession = s.prompts()[0]!.sessionId;
+	await waitFor(() => s.closed().includes(firstSession), 3000, "closed");
+	const received = s.h.received();
+	const answerAt = received.findIndex((m) => typeof m.id === "string" && m.method === undefined);
+	const closeAt = received.findIndex((m) => m.method === "session/close" && (m.params as { sessionId: string }).sessionId === firstSession);
+	assert.ok(answerAt >= 0 && answerAt < closeAt, `reject answer (${answerAt}) before session/close (${closeAt})`);
+});
+
+test("a reused session's prompt is not sent on a connection that died during setup", async (t) => {
+	const previous = process.env.LH_ANTIGRAVITY_REUSE;
+	delete process.env.LH_ANTIGRAVITY_REUSE; // about reuse ON
+	t.after(() => { if (previous !== undefined) process.env.LH_ANTIGRAVITY_REUSE = previous; });
+	const h = mockHarness(t, { sessionClose: true });
+	const tempBase = mkdtempSync(join(tmpdir(), "lh-agy-reuse-"));
+	const runtime = new AntigravityRuntime({ launch: h.launch, tempBase });
+	h.onTeardown(() => runtime.shutdown());
+	t.after(() => rmSync(tempBase, { recursive: true, force: true }));
+	let killOnSave = false;
+	const stream = createAntigravityStreamFunction({ runtime: () => runtime, host: () => ({ available: () => true, models: () => [], saveModels: () => { if (killOnSave) runtime.connection?.kill(); } }) });
+	const run = async (messages: Message[]) => { const events = stream(PRO, normalizeContext({ messages }), { sessionId: "chat-1" }); for await (const _e of events) { /* drain */ } return events.result(); };
+	const history: Message[] = [SYSTEM(), user("first question")];
+	history.push(await run([...history]));
+	killOnSave = true; // the reused turn's last setup step (saving its model's levels) kills the process
+	const connection = runtime.connection!;
+	const sent: string[] = [];
+	const original = connection.request.bind(connection);
+	connection.request = (method, params, timeoutMs) => { sent.push(method); return original(method, params, timeoutMs); };
+	const reply = await run([...history, user("next")]);
+	assert.equal(reply.stopReason, "error");
+	assert(!sent.includes("session/prompt"), `no prompt sent to the dying process (sent: ${sent.join(", ")})`);
+	await h.assertNoChildren();
+});

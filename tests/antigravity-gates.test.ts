@@ -587,3 +587,28 @@ test("9. through the chat handler and the real chat store: the second learner tu
 	spyRuntime.shutdown();
 	await h.assertNoChildren();
 });
+
+test("reuse survives a reply with thinking: the saved message keeps the thought text the fingerprint includes", async (t) => {
+	const reuse = process.env.LH_ANTIGRAVITY_REUSE !== "0";
+	state({ switchOn: true, enabled: true, installed: true });
+	const h = mockHarness(t, { prompt: [{ thought: "Let me think about fractions." }, { text: "A fraction is part of a whole." }] });
+	h.onTeardown(() => spyRuntime.shutdown());
+	launchReal = h.launch;
+	const chat = lessonChat("Antigravity reuse with thinking");
+	for (const text of ["What is a fraction?", "Give me an example."]) {
+		assert.equal((await handleChatInput(chat.id, { type: "text", text }, build)).status, 200);
+		const handle = runningTurn(chat.id);
+		if (handle) await new Response(handle.subscribe()).text();
+		await waitFor(() => !runningTurn(chat.id), 5000, "turn settled");
+	}
+	const saved = chatStore.getChat(chat.id)!.messages.find((m) => (m as { role?: string }).role === "assistant") as { content: { type: string; thinking?: string }[] };
+	assert.deepEqual(saved.content.filter((b) => b.type === "thinking").map((b) => b.thinking), ["Let me think about fractions."], "the thinking block is stored verbatim");
+	const prompts = h.log().filter((entry) => entry.kind === "prompt") as unknown as { sessionId: string; texts: string[] }[];
+	assert.equal(prompts.length, 2);
+	if (reuse) {
+		assert.equal(prompts[1]!.sessionId, prompts[0]!.sessionId, "the second turn reused the session");
+		assert.deepEqual(prompts[1]!.texts, ["Give me an example."]);
+	} else assert.notEqual(prompts[1]!.sessionId, prompts[0]!.sessionId);
+	spyRuntime.shutdown();
+	await h.assertNoChildren();
+});

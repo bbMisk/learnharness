@@ -51,8 +51,10 @@
  *     "after", mode} (a current_mode_update in the same write as the model-set answer),
  *   emptySessionId, noAgentVersion, initializeDelayMs (a slow cold start),
  *   signInAfterSet (the sign-in line in the same write as a set_config_option answer),
- *   parkedUpdate "tool" | "permission" | "mode" (50 ms after a session's first reply: a tool call, a
- *     permission request, or the mode flipped to "auto"),
+ *   parkedUpdate "tool" | "permission" | "mode" | "text" | "thought" | "badmode" | "badconfig" (50 ms after
+ *     a session's first reply: a tool call, a permission request, the mode flipped to "auto", a late text
+ *     or thought chunk, a malformed mode or config update),
+ *   chunkWithSet (a text chunk in the same write as a set_config_option answer, on a session that already had a prompt), steps {rawChunk: content}
  *   staleUpdateBeforeNew (a config_option_update listing "old-model", written just before the session/new answer)
  */
 import { appendFileSync, readFileSync } from "node:fs";
@@ -318,6 +320,7 @@ async function prompt({ sessionId, prompt: blocks }) {
 			const tool = { method: "session/update", params: { sessionId, update: { sessionUpdate: "tool_call", toolCallId: "call-3", title: "Late tool", kind: "read" } } };
 			return { [RAW]: [tool, { id: myId, result: { stopReason: "end_turn" } }].map((m) => `${JSON.stringify({ jsonrpc: "2.0", ...m })}\n`).join("") };
 		}
+		else if (step.rawChunk) update(sessionId, { sessionUpdate: "agent_message_chunk", content: step.rawChunk });
 		else if (step.modeUpdate) update(sessionId, { sessionUpdate: "current_mode_update", currentModeId: step.modeUpdate });
 		else if (step.configModeUpdate) { session.mode = step.configModeUpdate; update(sessionId, { sessionUpdate: "config_option_update", configOptions: configOptions(session) }); }
 		else if (step.emptyRepeat) {
@@ -345,6 +348,10 @@ async function prompt({ sessionId, prompt: blocks }) {
 			if (later === "permission") void requestClient("session/request_permission", permissionParams(sessionId)).then((answer) => log({ kind: "permission-answer", answer }));
 			else if (later === "tool") update(sessionId, { sessionUpdate: "tool_call", toolCallId: "parked-1", title: "Parked tool", kind: "execute" });
 			else if (later === "mode") { session.mode = "auto"; update(sessionId, { sessionUpdate: "config_option_update", configOptions: configOptions(session) }); }
+			else if (later === "text") update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "a late word" } });
+			else if (later === "thought") update(sessionId, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "a late thought" } });
+			else if (later === "badmode") update(sessionId, { sessionUpdate: "current_mode_update", currentModeId: 5 });
+			else if (later === "badconfig") update(sessionId, { sessionUpdate: "config_option_update", configOptions: "not a list" });
 		}, 50);
 	}
 	// The real result's usage field names (capture `promptResult`).
@@ -401,6 +408,10 @@ async function handleRequest(method, params) {
 		}
 		case "session/set_config_option": {
 			const answer = setConfigOption(params);
+			if (scenario.chunkWithSet && (sessions.get(params.sessionId)?.prompts ?? 0) > 0) {
+				const chunk = { method: "session/update", params: { sessionId: params.sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: scenario.chunkWithSet } } } };
+				return { [RAW]: [{ id: requestId, result: answer }, chunk].map((m) => `${JSON.stringify({ jsonrpc: "2.0", ...m })}\n`).join("") };
+			}
 			if (scenario.signInAfterSet) {
 				return { [RAW]: `${JSON.stringify({ jsonrpc: "2.0", id: requestId, result: answer })}\nOpen the following link to authenticate the ACP server: https://example.invalid/x\n` };
 			}

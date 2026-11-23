@@ -22,7 +22,7 @@ import { antigravityHost, type AntigravityHost } from "./host.ts";
 import { findConfigOption, levelsFrom, modelsFrom } from "./models.ts";
 import { antigravityRuntime, antigravityTimeouts, describeAgentError, isValueRefusal, rejectOnce, type AgentConnection, type AntigravityRuntime, type SessionListener } from "./runtime.ts";
 import { antigravityReuseOn } from "../../core/fork-config.ts";
-import { canonicalPieces, hashPieces, replayAssistant, reuseTail, toAntigravityInput, type SeenFingerprint } from "./transcript.ts";
+import { fingerprintHash, replayAssistant, reuseTail, toAntigravityInput, type AntigravityInput, type SeenFingerprint } from "./transcript.ts";
 
 function count(value: unknown): number {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
@@ -142,6 +142,10 @@ class AgentSession {
 	target: SessionListener | undefined;
 	/** What the agent has seen, set when the session is parked. */
 	seen: SeenFingerprint | undefined;
+	/** The thinking level the agent picks for this session's model by itself (read before any level was set). */
+	defaultLevel: string | undefined;
+	/** The level the last turn set and confirmed, or undefined when it left the agent's default. */
+	appliedLevel: string | undefined;
 	poisoned = false;
 	closed = false;
 	private stopWatching: (() => void) | undefined;
@@ -211,6 +215,7 @@ class SessionPark {
 		this.parked.set(key, session);
 		session.target = {
 			onUpdate: (update, frame) => this.whileParked(key, session, update, frame),
+			// The reject answer is written when this returns; the close follows after it (poison defers it).
 			onPermissionRequest: (params) => { this.poison(key, session); return rejectOnce(params); },
 			onClosed: () => this.drop(key, session),
 		};
@@ -230,26 +235,44 @@ class SessionPark {
 				this.poison(key, session);
 				return;
 			case "config_option_update":
-				session.observe(update.configOptions, frame);
+				// An update LearnHarness can't read leaves the session's state unknown.
+				if (!Array.isArray(update.configOptions)) this.poison(key, session);
+				else session.observe(update.configOptions, frame);
 				return;
 			case "current_mode_update":
-				session.observeMode(update.currentModeId, frame);
+				if (typeof update.currentModeId !== "string") this.poison(key, session);
+				else session.observeMode(update.currentModeId, frame);
+				return;
+			case "agent_message_chunk":
+			case "agent_thought_chunk":
+				// Anything the agent says outside a prompt is something no transcript holds.
+				if (saysSomething(update)) this.poison(key, session);
 				return;
 			default:
-				return; // text and thought chunks, usage: ignored while parked
+				return; // usage and the like: ignored while parked
 		}
 	}
 
-	/** The agent tried to use a tool while nobody was asking: never use this session again. */
+	/**
+	 * The agent acted while nobody was asking: never use this session again. It leaves the park at
+	 * once; the close waits until the current stdout chunk is handled, so a permission answer (and
+	 * anything else in that chunk for this session) is still routed here and written first.
+	 */
 	private poison(key: string, session: AgentSession): void {
 		session.poisoned = true;
 		this.drop(key, session);
-		session.close();
+		setImmediate(() => session.close());
 	}
 
 	private drop(key: string, session: AgentSession): void {
 		if (this.parked.get(key) === session) this.parked.delete(key);
 	}
+}
+
+/** A message or thought chunk with anything in it: non-empty text, or content that isn't text. */
+function saysSomething(update: Record<string, unknown>): boolean {
+	const content = isRecord(update.content) ? update.content : undefined;
+	return !(content?.type === "text" && content.text === "");
 }
 
 const parks = new WeakMap<AgentConnection, SessionPark>();
@@ -275,6 +298,12 @@ class TurnSession {
 	private inactivity: NodeJS.Timeout | undefined;
 	/** The agent session this turn uses (fresh or reused). */
 	private agent: AgentSession | undefined;
+	/** This turn is on a reused session and has not sent its prompt yet. */
+	private reusing = false;
+	/** The reused session spoke before this turn's prompt: abandon it for a fresh one. */
+	private abandonReuse = false;
+	/** The agent produced something this turn did not capture: the session is not parked. */
+	private unseenOutput = false;
 
 	constructor(
 		private readonly connection: AgentConnection,
@@ -288,60 +317,27 @@ class TurnSession {
 		if (this.prompt) this.cancel();
 	};
 
-	async run(model: Model<Api>, messages: Parameters<typeof toAntigravityInput>[0], reasoning?: ThinkingLevel, key?: string): Promise<void> {
+	async run(model: Model<Api>, messages: Parameters<typeof toAntigravityInput>[0], reasoning?: ThinkingLevel, rawKey?: string): Promise<void> {
 		const { connection } = this;
 		const input = toAntigravityInput(messages);
-		const append = connection.handshake.systemPromptAppend;
 		// Reuse only with a session key (the chat) and the switch on; otherwise exactly one fresh session per turn.
+		const key = rawKey ? rawKey : undefined;
 		const park = key !== undefined && antigravityReuseOn() ? parkFor(connection) : undefined;
 		try {
-			this.checkpoint();
-			const reused = park?.take(key!, (session) => (session.seen ? reuseTail(session.seen, input, model.id) : null));
-			let prompt: { type: string; text: string }[];
-			if (reused) {
-				// The agent already has the system text and everything but the tail.
-				this.agent = reused.session;
-				reused.session.target = this.listener;
-				this.sessionId = reused.session.sessionId;
-				prompt = [{ type: "text", text: reused.tail }];
-			} else {
-				const { result: created, frame } = await connection.setupRequestStamped("session/new", {
-					cwd: connection.workspace,
-					mcpServers: [],
-					...(append ? { _meta: { antigravity: { systemPrompt: { append: input.systemText } } } } : {}),
-				});
-				// A malformed answer breaks the protocol for the whole connection, not just this turn.
-				if (!isRecord(created) || typeof created.sessionId !== "string" || !created.sessionId) throw connection.failProtocol();
-				// Killed while the answer was in flight: nothing from it is saved.
-				if (!connection.alive) throw connection.failure ?? new AcpTransportError("closed", AntigravityMessage.Exited);
-				const session = new AgentSession(connection, created.sessionId);
-				session.observe(created.configOptions, frame);
-				this.refreshModels(created.configOptions);
-				// Replays what arrived before this point (a breach, newer options), so an early tool_call still
-				// stops the turn. Throws for an id another turn already watches: this turn then owns nothing.
-				this.agent = session;
-				try { session.watch(this.listener); }
-				catch (error) { this.agent = undefined; throw error; }
-				this.sessionId = session.sessionId;
-				prompt = [...(append ? [] : [{ type: "text", text: input.systemText }]), { type: "text", text: input.transcript }];
+			let prompt = await this.setUp(model, input, reasoning, park ? { park, key: key! } : undefined);
+			if (prompt === null) {
+				// The reused session spoke before this turn's prompt: close it and run this turn fresh, once.
+				this.agent?.close();
+				this.agent = undefined;
+				this.sessionId = undefined;
+				this.reusing = false;
+				this.abandonReuse = false;
+				prompt = (await this.setUp(model, input, reasoning, undefined))!;
 			}
 			const sessionId = this.sessionId!;
-			this.checkpoint();
-
-			// Every prompt, reused session or not, passes the same fail-closed checks from the freshest view.
-			await this.pinDefaultMode(sessionId);
-			this.checkpoint();
-			await this.selectModel(sessionId, model.id);
-			this.checkpoint();
-			const level = await this.pinThinkingLevel(sessionId, reasoning);
-			this.checkpoint();
-			// The freshest view decides: a change made while setting another option is caught here.
-			if (findConfigOption(this.view(), "mode")?.currentValue !== "default") throw new StopTurn(AntigravityMessage.ModeNotSet);
-			if (findConfigOption(this.view(), "model")?.currentValue !== model.id) throw new StopTurn(AntigravityMessage.ModelUnavailable);
-			if (level !== undefined && findConfigOption(this.view(), "thought_level")?.currentValue !== level) throw new StopTurn(AntigravityMessage.LevelNotSet);
-			// This turn may refresh the levels of the model it selected (only that one), from what it already received.
-			this.refreshModels(this.view(), model.id);
-
+			// A reused session gets no session/new to discover a dead connection: check right before its prompt.
+			if (this.reusing && !connection.alive) throw connection.failure ?? new AcpTransportError("closed", AntigravityMessage.Exited);
+			this.reusing = false;
 			this.prompt = connection.request("session/prompt", { sessionId, prompt });
 			this.touch();
 			const result = await this.prompt;
@@ -354,14 +350,96 @@ class TurnSession {
 			clearTimeout(this.inactivity);
 			const session = this.agent;
 			if (session) {
-				// Parked only after a clean "stop", on a live, unpoisoned session; anything else is closed.
-				if (park && this.turn.output.stopReason === "stop" && !session.poisoned && !session.closed && connection.alive) {
-					const pieces = [...canonicalPieces(input.messages), ...canonicalPieces([replayAssistant(this.turn.output.content)])];
-					session.seen = { systemText: input.systemText, modelId: model.id, count: pieces.length, hash: hashPieces(pieces) };
+				// Parked only after a clean "stop" with nothing unseen, on a live, unpoisoned session; anything else is closed.
+				if (park && this.turn.output.stopReason === "stop" && !this.unseenOutput && !session.poisoned && !session.closed && connection.alive) {
+					const seen = [...input.messages, replayAssistant(this.turn.output.content)];
+					session.seen = { systemText: input.systemText, modelId: model.id, messages: seen.length, hash: fingerprintHash(seen) };
 					park.put(key!, session);
 				} else session.close();
 			}
 		}
+	}
+
+	/**
+	 * Get a session ready for the prompt: the parked one when it may continue (`reuse`), else a fresh
+	 * one; then the fail-closed checks every prompt passes. Returns the prompt blocks, or null when a
+	 * reused session spoke during setup and must be abandoned.
+	 */
+	private async setUp(model: Model<Api>, input: AntigravityInput, reasoning: ThinkingLevel | undefined, reuse: { park: SessionPark; key: string } | undefined): Promise<{ type: string; text: string }[] | null> {
+		const { connection } = this;
+		const append = connection.handshake.systemPromptAppend;
+		this.checkpoint();
+		const reused = reuse?.park.take(reuse.key, (session) => this.fits(session, input, model.id, reasoning));
+		let prompt: { type: string; text: string }[];
+		if (reused) {
+			// The agent already has the system text and everything but the tail.
+			this.agent = reused.session;
+			this.reusing = true;
+			reused.session.target = this.listener;
+			this.sessionId = reused.session.sessionId;
+			prompt = [{ type: "text", text: reused.tail }];
+		} else {
+			const { result: created, frame } = await connection.setupRequestStamped("session/new", {
+				cwd: connection.workspace,
+				mcpServers: [],
+				...(append ? { _meta: { antigravity: { systemPrompt: { append: input.systemText } } } } : {}),
+			});
+			// A malformed answer breaks the protocol for the whole connection, not just this turn.
+			if (!isRecord(created) || typeof created.sessionId !== "string" || !created.sessionId) throw connection.failProtocol();
+			// Killed while the answer was in flight: nothing from it is saved.
+			if (!connection.alive) throw connection.failure ?? new AcpTransportError("closed", AntigravityMessage.Exited);
+			const session = new AgentSession(connection, created.sessionId);
+			session.observe(created.configOptions, frame);
+			this.refreshModels(created.configOptions);
+			// Replays what arrived before this point (a breach, newer options), so an early tool_call still
+			// stops the turn. Throws for an id another turn already watches: this turn then owns nothing.
+			this.agent = session;
+			try { session.watch(this.listener); }
+			catch (error) { this.agent = undefined; throw error; }
+			this.sessionId = session.sessionId;
+			prompt = [...(append ? [] : [{ type: "text", text: input.systemText }]), { type: "text", text: input.transcript }];
+		}
+		const sessionId = this.sessionId!;
+		const session = this.agent!;
+		this.checkpoint();
+
+		// Every prompt, reused session or not, passes the same fail-closed checks from the freshest view.
+		await this.pinDefaultMode(sessionId);
+		this.checkpoint();
+		await this.selectModel(sessionId, model.id);
+		this.checkpoint();
+		// A fresh session's own level for this model, before LearnHarness sets one.
+		if (!reused) session.defaultLevel = findConfigOption(this.view(), "thought_level")?.currentValue;
+		const level = await this.pinThinkingLevel(sessionId, reasoning);
+		this.checkpoint();
+		session.appliedLevel = level;
+		// The freshest view decides: a change made while setting another option is caught here.
+		if (findConfigOption(this.view(), "mode")?.currentValue !== "default") throw new StopTurn(AntigravityMessage.ModeNotSet);
+		if (findConfigOption(this.view(), "model")?.currentValue !== model.id) throw new StopTurn(AntigravityMessage.ModelUnavailable);
+		if (level !== undefined && findConfigOption(this.view(), "thought_level")?.currentValue !== level) throw new StopTurn(AntigravityMessage.LevelNotSet);
+		if (this.abandonReuse) return null;
+		// This turn may refresh the levels of the model it selected (only that one), from what it already received.
+		this.refreshModels(this.view(), model.id);
+		return prompt;
+	}
+
+	/**
+	 * The tail to send when `session` may continue this conversation, else null. Besides the transcript
+	 * rule (reuseTail), the thinking level in force must be what a fresh session would run at: the
+	 * requested level when the session offers it (it is then set and confirmed), otherwise the
+	 * agent's own default for the model.
+	 */
+	private fits(session: AgentSession, input: AntigravityInput, modelId: string, reasoning: ThinkingLevel | undefined): string | null {
+		if (!session.seen) return null;
+		const tail = reuseTail(session.seen, input, modelId);
+		if (tail === null) return null;
+		const option = findConfigOption(session.view(), "thought_level");
+		const offered = reasoning !== undefined && !!option?.values.some((value) => value.id === reasoning);
+		if (!offered) {
+			if (session.appliedLevel !== undefined && session.appliedLevel !== session.defaultLevel) return null;
+			if (option?.currentValue !== session.defaultLevel) return null;
+		}
+		return tail;
 	}
 
 	/** Between setup steps: stop quietly if the turn already ended (abort, crash, breach). */
@@ -443,12 +521,21 @@ class TurnSession {
 		switch (update.sessionUpdate) {
 			case "agent_message_chunk":
 			case "agent_thought_chunk": {
-				// Nothing is shown before this turn's own prompt, and only non-empty text is progress.
-				if (!this.prompt || content?.type !== "text" || typeof content.text !== "string" || content.text === "") return;
+				const text = content?.type === "text" && typeof content.text === "string" ? content.text : undefined;
+				// Nothing is shown before this turn's own prompt. Said there, it disqualifies the session:
+				// a reused one is abandoned for a fresh one, a fresh one is not parked afterwards.
+				if (!this.prompt) {
+					if (text !== "") { if (this.reusing) this.abandonReuse = true; else this.unseenOutput = true; }
+					return;
+				}
+				// Non-text content: the turn may finish, but the session saw something its transcript won't hold.
+				if (text === undefined) { this.unseenOutput = true; return; }
+				// Only non-empty text is progress.
+				if (text === "") return;
 				this.touch();
-				this.replyBytes += Buffer.byteLength(content.text);
+				this.replyBytes += Buffer.byteLength(text);
 				if (this.replyBytes > antigravityLimits.replyBytes) { this.stopReply(AntigravityMessage.TooLong); return; }
-				this.turn.delta(update.sessionUpdate === "agent_message_chunk" ? "text" : "thinking", content.text);
+				this.turn.delta(update.sessionUpdate === "agent_message_chunk" ? "text" : "thinking", text);
 				return;
 			}
 			case "tool_call":
