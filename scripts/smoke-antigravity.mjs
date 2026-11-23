@@ -248,8 +248,9 @@ async function main() {
 		check(replies.length >= 2 && replies.at(-1).stopReason === "stop", `second reply: ${JSON.stringify(replies.at(-1) ?? null)}`);
 		const log2 = readLog(logFile);
 		const prompts = log2.filter((entry) => entry.kind === "prompt");
-		const sessionNews = log2.filter((entry) => entry.kind === "recv" && entry.line.includes('"method":"session/new"')).length;
-		check(prompts.length === 2 && sessionNews === 1 && prompts[1].sessionId === prompts[0].sessionId, `two turns: ${sessionNews} session/new, prompts ${JSON.stringify(prompts.map((p) => [p.sessionId, p.n]))}`);
+		// Check connection opened its own throwaway session earlier: count only what came after the lesson's first prompt.
+		const sessionNews = log2.slice(log2.indexOf(prompts[0]) + 1).filter((entry) => entry.kind === "recv" && entry.line.includes('"method":"session/new"')).length;
+		check(prompts.length === 2 && sessionNews === 0 && prompts[1].sessionId === prompts[0].sessionId, `two turns: ${sessionNews} session/new after the first prompt, prompts ${JSON.stringify(prompts.map((p) => [p.sessionId, p.n]))}`);
 		check(JSON.stringify(prompts[1].texts) === JSON.stringify(["And what about decimals?"]), `second prompt sent ${JSON.stringify(prompts[1].texts)}, not only the new message`);
 		say("second turn: same agent session (one session/new), only the new message sent");
 
