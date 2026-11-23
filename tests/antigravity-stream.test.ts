@@ -61,8 +61,8 @@ function sent(h: MockHarness, method: string): Record<string, unknown>[] {
 	return h.received().filter((message) => message.method === method).map((message) => message.params as Record<string, unknown>);
 }
 
-test("happy path: streamed text, protocolVersion 2 accepted, mode pinned before the prompt, usage mapped", async (t) => {
-	const { h, runtime, stream } = setup(t, { usage: { inputTokens: 10, outputTokens: 5, cachedReadTokens: 2, thoughtTokens: 1 } });
+test("happy path: streamed text, protocolVersion 2 accepted, a mode starting \"auto\" pinned before the prompt, usage mapped", async (t) => {
+	const { h, runtime, stream } = setup(t, { protocolVersion: 2, mode: "auto", sessionClose: false, usage: { inputTokens: 10, outputTokens: 5, cachedReadTokens: 2, thoughtTokens: 1 } });
 	const turn = await collect(stream(PRO, ctx([SYSTEM, HI])));
 	assert.equal(turn.final.stopReason, "stop");
 	assert.equal(turn.text, "Hello world");
@@ -118,7 +118,7 @@ test("replay: labelled transcript, images become placeholders, thinking is dropp
 });
 
 test("mode: no `default` on offer → the turn fails and no prompt is sent", async (t) => {
-	for (const scenario of [{ modeOptions: ["auto", "plan"] }, { rejectModeChange: true }, { mode: null }]) {
+	for (const scenario of [{ mode: "auto", modeOptions: ["auto", "plan"] }, { mode: "auto", rejectModeChange: true }, { mode: null }]) {
 		const { h, stream } = setup(t, scenario);
 		const turn = await collect(stream(PRO, ctx([HI])));
 		assert.equal(turn.final.stopReason, "error", JSON.stringify(scenario));
@@ -128,12 +128,12 @@ test("mode: no `default` on offer → the turn fails and no prompt is sent", asy
 });
 
 test("mode: already `default` sends nothing; legacy `modes` are not read at all (fail closed, even when \"default\")", async (t) => {
-	const already = setup(t, { mode: "default" });
+	const already = setup(t, { mode: "default", sessionClose: false });
 	assert.equal((await collect(already.stream(PRO, ctx([HI])))).final.stopReason, "stop");
 	assert.deepEqual(already.h.methods(), ["initialize", "session/new", "session/prompt"]);
 
 	for (const currentModeId of ["default", "auto"]) {
-		const legacy = setup(t, { mode: null, legacyModes: { currentModeId, availableModes: ["default", "auto"] } });
+		const legacy = setup(t, { mode: null, sessionClose: false, legacyModes: { currentModeId, availableModes: ["default", "auto"] } });
 		const refused = await collect(legacy.stream(PRO, ctx([HI])));
 		assert.equal(refused.final.errorMessage, AntigravityMessage.ModeNotSet, currentModeId);
 		assert.deepEqual(legacy.h.methods(), ["initialize", "session/new"], "no session/set_mode, no prompt");
@@ -147,7 +147,7 @@ test("the freshest options decide right before the prompt", async (t) => {
 	assert.equal(turn.final.errorMessage, AntigravityMessage.ModelUnavailable);
 	assert(!reverted.h.methods().includes("session/prompt"));
 	// A model change made while setting the mode is put right by the model step, and confirmed.
-	const moved = setup(t, { modeChangeResetsModel: true });
+	const moved = setup(t, { mode: "auto", modeChangeResetsModel: true });
 	assert.equal((await collect(moved.stream(PRO, ctx([HI])))).final.stopReason, "stop");
 	assert.deepEqual(sent(moved.h, "session/set_config_option").map((p) => [p.configId, p.value]), [["mode", "default"], ["model", "gemini-3-pro"]]);
 });
@@ -191,7 +191,7 @@ test("after the model is set, mode and model are re-confirmed from the agent's a
 
 test("not signed in on a set_config_option or set_model answer is reported as not signed in", async (t) => {
 	for (const scenario of [
-		{ setConfigError: { configId: "mode", code: -32000, message: "Authentication required" } },
+		{ mode: "auto", setConfigError: { configId: "mode", code: -32000, message: "Authentication required" } },
 		{ setConfigError: { configId: "model", code: -32603, message: "No browser is available here" } },
 	]) {
 		const { h, stream } = setup(t, scenario);
@@ -199,7 +199,7 @@ test("not signed in on a set_config_option or set_model answer is reported as no
 		assert.equal(turn.final.errorMessage, AntigravityMessage.NotSignedIn, JSON.stringify(scenario));
 		assert(!h.methods().includes("session/prompt"));
 	}
-	const refusedValue = setup(t, { setConfigError: { configId: "mode", code: -32602, message: "Invalid value" } });
+	const refusedValue = setup(t, { mode: "auto", setConfigError: { configId: "mode", code: -32602, message: "Invalid value" } });
 	assert.equal((await collect(refusedValue.stream(PRO, ctx([HI])))).final.errorMessage, AntigravityMessage.ModeNotSet);
 });
 
@@ -261,7 +261,7 @@ test("breach labels lose links and control characters; nothing safe left means \
 test("a setup request with no answer kills the wedged process: did not answer in time", async (t) => {
 	antigravityTimeouts.startupMs = 150;
 	for (const method of ["session/new", "session/set_config_option"]) {
-		const { h, stream } = setup(t, { hangMethods: [method] });
+		const { h, stream } = setup(t, { mode: "auto", hangMethods: [method] });
 		const turn = await collect(stream(PRO, ctx([HI])));
 		assert.equal(turn.final.errorMessage, AntigravityMessage.AnswerTimeout, method);
 		await h.assertNoChildren(3000);
@@ -361,7 +361,7 @@ test("model: unknown → isn't available, no prompt; a listed other model → se
 	for (const style of ["flat", "grouped"]) {
 		const listed = setup(t, { models: { style } });
 		assert.equal((await collect(listed.stream(FLASH, ctx([HI])))).final.stopReason, "stop");
-		assert.deepEqual(sent(listed.h, "session/set_config_option").map((p) => [p.configId, p.value]), [["mode", "default"], ["model", "gemini-3-flash"]], style);
+		assert.deepEqual(sent(listed.h, "session/set_config_option").map((p) => [p.configId, p.value]), [["model", "gemini-3-flash"]], style);
 	}
 	// Legacy `models.availableModels` is not read: no model config option fails closed.
 	const legacy = setup(t, { models: { style: "legacy" } });

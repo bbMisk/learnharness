@@ -36,6 +36,7 @@ const { providerKeyMissing, isProviderKeyRefusal, ProviderKeyMissingError } = aw
 const { antigravityResponse, antigravityStatus, antigravityTurnRefusal, checkAntigravityConnection } = await import("../src/server/antigravity.ts");
 const { AcpRpcError } = await import("../src/agent/antigravity/acp-client.ts");
 const { antigravityAvailable } = await import("../src/server/antigravity-config.ts");
+const { antigravitySwitchOn } = await import("../src/core/fork-config.ts");
 const { antigravityStore, ANTIGRAVITY_FILE, createAntigravityStore } = await import("../src/store/antigravity.ts");
 const { writeSettings } = await import("../src/store/settings.ts");
 const { handleChatInput, extraction } = await import("../src/server/chat-handler.ts");
@@ -68,8 +69,10 @@ after(() => {
 const PRO = { id: "gemini-3-pro", name: "Gemini 3 Pro" };
 const SPEC = { provider: "antigravity", id: "gemini-3-pro" };
 
-function state({ switchOn, enabled, installed }: { switchOn: boolean; enabled: boolean; installed: boolean }) {
-	if (switchOn) process.env.LH_FORK_ANTIGRAVITY = "1"; else delete process.env.LH_FORK_ANTIGRAVITY;
+/** switchOn "default": no LH_FORK_ANTIGRAVITY at all, so the code's default (on) decides. */
+function state({ switchOn, enabled, installed }: { switchOn: boolean | "default"; enabled: boolean; installed: boolean }) {
+	if (switchOn === "default") delete process.env.LH_FORK_ANTIGRAVITY;
+	else process.env.LH_FORK_ANTIGRAVITY = switchOn ? "1" : "0";
 	if (installed) process.env.LH_AGY_BINARY = MOCK_AGY; else delete process.env.LH_AGY_BINARY;
 	antigravityStore.update({ enabled, models: [PRO] });
 }
@@ -95,16 +98,19 @@ beforeEach(() => {
 });
 
 for (const [label, setup] of [
-	["switch off (even opted in, installed, with saved models)", { switchOn: false, enabled: true, installed: true }],
+	["switch forced off by LH_FORK_ANTIGRAVITY=0 (even opted in, installed, with saved models)", { switchOn: false, enabled: true, installed: true }],
+	["no env: the switch is on by default, but nothing runs until the user opts in", { switchOn: "default", enabled: false, installed: true }],
 	["switch on but not opted in", { switchOn: true, enabled: false, installed: true }],
 	["switch on, opted in, no binary", { switchOn: true, enabled: true, installed: false }],
 ] as const) test(`${label}: no models, admission refuses, nothing spawns`, async () => {
 	state(setup);
+	const switchOn = setup.switchOn !== false;
+	assert.equal(antigravitySwitchOn(), switchOn);
 	const before = launches;
 	assert.equal(antigravityAvailable(), false);
 	assert(!modelCatalog().models.some((m) => m.provider === "antigravity"));
 	assert.deepEqual(piModels().getModels("antigravity"), []);
-	assert.equal(modelCatalog().providers.some((p) => p.id === "antigravity"), setup.switchOn, "a provider row only while the switch is on");
+	assert.equal(modelCatalog().providers.some((p) => p.id === "antigravity"), switchOn, "a provider row only while the switch is on");
 	assert.equal(modelCatalog().providers.find((p) => p.id === "antigravity")?.keyPresent ?? false, false);
 	assert.equal(validateModelsSettings({ strong: { model: SPEC } }).ok, false);
 	assert.equal(validateChatSettings({ model: SPEC }).ok, false);
@@ -118,7 +124,7 @@ for (const [label, setup] of [
 	assert.equal(chatStore.getChat(chat.id)!.messages.length, 0, "nothing was written");
 
 	const status = await antigravityResponse(request("GET"));
-	if (!setup.switchOn) {
+	if (!switchOn) {
 		assert.equal(status.status, 200);
 		assert.deepEqual(await status.json(), { available: false }, "nothing but the switch state");
 		assert.equal((await antigravityResponse(request("PUT", { enabled: true }))).status, 404);
@@ -127,7 +133,7 @@ for (const [label, setup] of [
 		assert.equal(status.status, 200);
 		assert.deepEqual(await status.json(), { available: true, enabled: setup.enabled, installed: setup.installed, models: 1 });
 	}
-	if (setup.switchOn && !setup.enabled) assert.equal((await antigravityResponse(request("POST", { action: "check" }))).status, 403);
+	if (switchOn && !setup.enabled) assert.equal((await antigravityResponse(request("POST", { action: "check" }))).status, 403);
 	assert.equal(launches, before, "no spawn");
 });
 
@@ -155,7 +161,7 @@ test("available: models from the saved list, picker accepts them, a lesson turn 
 	assert.equal(reply?.provider, "antigravity");
 	assert.equal(reply?.content.filter((block) => block.type === "text").map((block) => block.text).join(""), "Hello world");
 	assert.equal(launches > 0, true);
-	assert.deepEqual(h.methods().filter((m) => m !== "session/close"), ["initialize", "session/new", "session/set_config_option", "session/prompt"]);
+	assert.deepEqual(h.methods().filter((m) => m !== "session/close"), ["initialize", "session/new", "session/prompt"], "mode already \"default\", model already the requested one");
 	const prompt = h.received().find((m) => m.method === "session/prompt")!.params as { prompt: { text: string }[] };
 	assert.match(prompt.prompt.at(-1)!.text, /Teach me fractions/);
 	assert(!JSON.stringify(prompt).includes("send_to_user"), "no tool channel is offered");
@@ -231,7 +237,7 @@ test("check connection: flat and grouped model lists are persisted and survive a
 		h.onTeardown(() => runtime.shutdown());
 		const status = await checkAntigravityConnection(() => checkAntigravityAgent(runtime));
 		assert.equal(status.models, 2, style);
-		assert.equal(status.agentVersion, "1.5.12");
+		assert.equal(status.agentVersion, "1.5.15");
 		assert.ok(status.checkedAt && !status.problem);
 		assert(!h.methods().includes("session/prompt"), "a check sends no prompt");
 		runtime.shutdown();

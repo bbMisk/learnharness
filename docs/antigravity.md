@@ -4,12 +4,12 @@ LearnHarness can use Google Antigravity as a lesson model. It starts Google's ow
 
 Phase 1 is text only: you write, the tutor answers in text.
 
-## Off twice
+## Two switches
 
 Both switches must be on before anything runs.
 
-1. **Server switch.** Off in the code (`src/core/fork-config.ts`). Starting the server with `LH_FORK_ANTIGRAVITY=1` turns it on for that server only. While it is off, Antigravity offers no models, lessons on it are refused, `GET /api/antigravity` answers only `{ available: false }` (changes are refused with 404), and Settings shows nothing.
-2. **Your opt-in.** With the server switch on, Settings → Providers → External CLI shows an Antigravity toggle. It is off until you turn it on. The choice is saved in `antigravity.json` in the data folder, not in the main settings.
+1. **Server switch.** On in the code (`src/core/fork-config.ts`). Starting a server with `LH_FORK_ANTIGRAVITY=0` turns it off for that server. While it is off, Antigravity offers no models, lessons on it are refused, `GET /api/antigravity` answers only `{ available: false }` (changes are refused with 404), and Settings shows nothing.
+2. **Your opt-in.** Settings → Providers → External CLI shows an Antigravity toggle. It is still off until you turn it on. The choice is saved in `antigravity.json` in the data folder, not in the main settings.
 
 Antigravity also needs the `agy` program. LearnHarness finds it on your PATH or in the usual folders such as `~/.local/bin`; `LH_AGY_BINARY` can name it exactly. Finding it only checks that the file exists.
 
@@ -41,15 +41,29 @@ Your lesson text, including the replayed conversation and the tutor's instructio
 - The model's own reply text is shown as written, links included.
 - One reply is capped at 4 MB of text; a longer one is stopped.
 - If `agy` stops answering, the reply ends after 15 minutes without progress. An idle `agy` is stopped after 10 minutes.
-- When the server is stopped by a signal, `agy` is expected to exit when its input closes; any temporary folder left behind is removed on the next start. This hasn't been checked with the real `agy`.
+- When the server is stopped by a signal, `agy` exits when its input closes (checked with the real `agy`); a temporary folder left behind in that case is removed on the next start.
 
-## Not verified against the real agent
+## Checked against the real agent
 
-Every message format here comes from reading the source of T3 Code's Antigravity integration. None comes from a captured real session. The tests run only against `tests/fixtures/antigravity/mock-agy.mjs`, and two guards stop the real `agy` from starting under tests. The first step of any authorised live test is to capture a real session and compare it with the mock.
+Measured with `agy` 1.5.15 and synthetic prompts:
+
+- `initialize` answers protocol version 1 in the expected format.
+- A session opens with the sign-in made in a terminal; LearnHarness sends no sign-in request.
+- The approval mode starts as "default".
+- The system instructions sent through the documented hook are followed.
+- `session/close` is accepted.
+- The agent starts in about 0.3 s and exits about 0.1 s after its input closes.
+- Each turn carries about 10,000 input tokens of the agent's own instructions.
+- Short replies on gemini-3.8-flash took 8 to 11 seconds at the agent's default thinking level (high), which LearnHarness does not change yet.
+- A two-turn lesson on a throwaway packaged server gave correct replies with no tool-use stop and left no process or temporary folder behind.
+
+Still not known: how often a real lesson trips the tool stop, and how errors from Google's side appear.
+
+The tests still run only against `tests/fixtures/antigravity/mock-agy.mjs`, whose default answers now follow a sanitized capture of that session (`tests/fixtures/antigravity/real-agy-1.5.15.json`); two guards stop the real `agy` from starting under tests.
 
 ## Terms
 
-Not settled. No live use of this provider on a personal Google plan until Hanson decides. This is a reading of Google's public pages on 2026-11-23, not legal advice.
+Not settled by Google's public pages. Whether to turn this on with a personal Google plan is the account holder's decision and risk. This is a reading of those pages as of 2026-11-23, not legal advice.
 
 What supports this use:
 

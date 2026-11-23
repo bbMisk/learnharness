@@ -13,7 +13,7 @@
  * folder in os.tmpdir(): data, auth file, TMPDIR and the mock's log.
  *
  * Steps:
- *   1. boot WITHOUT the switch: GET /api/antigravity → 200 { available: false },
+ *   1. boot with the switch forced off (LH_FORK_ANTIGRAVITY=0): GET /api/antigravity → 200 { available: false },
  *      and no Antigravity model in GET /api/models;
  *   2. boot WITH LH_FORK_ANTIGRAVITY=1: GET → available, not enabled;
  *      PUT enabled; POST check → models listed and in GET /api/models;
@@ -112,8 +112,8 @@ async function boot(home, extraEnv) {
 		TMP: path.join(home, "tmp"),
 		...extraEnv,
 	};
-	delete env.LH_FORK_ANTIGRAVITY;
-	if (extraEnv.LH_FORK_ANTIGRAVITY) env.LH_FORK_ANTIGRAVITY = extraEnv.LH_FORK_ANTIGRAVITY;
+	// The switch is on by default in the code: each boot states it explicitly.
+	env.LH_FORK_ANTIGRAVITY = extraEnv.LH_FORK_ANTIGRAVITY ?? "0";
 	const child = spawn(process.execPath, [SERVER], { cwd: STANDALONE, env, stdio: ["ignore", "pipe", "pipe"] });
 	let exited = false;
 	const keep = (buf) => { tail.push(...buf.toString().split("\n")); if (tail.length > 200) tail.splice(0, tail.length - 200); };
@@ -155,8 +155,8 @@ async function main() {
 	const agentTemp = path.join(home, "tmp", "learnharness-antigravity");
 	let server;
 	try {
-		// 1. Switch off.
-		server = await boot(home, {});
+		// 1. Switch forced off.
+		server = await boot(home, { LH_FORK_ANTIGRAVITY: "0" });
 		const off = await json(`${server.url}/api/antigravity`, { headers: INTENT });
 		check(off.status === 200 && JSON.stringify(off.body) === JSON.stringify({ available: false }), `switch off: GET /api/antigravity → ${off.status} ${JSON.stringify(off.body)}`);
 		const offModels = await json(`${server.url}/api/models`);
@@ -170,7 +170,8 @@ async function main() {
 			LH_FORK_ANTIGRAVITY: "1",
 			LH_AGY_BINARY: MOCK_REAL,
 			MOCK_AGY_LOG: logFile,
-			MOCK_AGY_SCENARIO: JSON.stringify({ prompt: [{ text: REPLY }, { usageUpdate: true }] }),
+			// The real agent starts in "default"; starting the mock in "auto" also exercises setting the mode.
+			MOCK_AGY_SCENARIO: JSON.stringify({ mode: "auto", prompt: [{ text: REPLY }, { usageUpdate: true }] }),
 		};
 		check(path.basename(agentEnv.LH_AGY_BINARY) === "mock-agy.mjs", "LH_AGY_BINARY is not the mock");
 		server = await boot(home, agentEnv);

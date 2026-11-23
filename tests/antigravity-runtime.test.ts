@@ -66,7 +66,7 @@ test("happy path: `acp --sandbox` in an empty workspace, honest initialize, keys
 	const env = { ...process.env, GEMINI_API_KEY: "g-key", GOOGLE_API_KEY: "go-key", gemini_api_key: "lower", LH_DESKTOP_API_SECRET: "secret", LH_DESKTOP_SERVER: "srv" };
 	const { h, runtime, tempBase } = setup(t, {}, env);
 	const connection = await runtime.connect();
-	assert.deepEqual(connection.handshake, { agentVersion: "1.5.12", systemPromptAppend: false, sessionClose: false });
+	assert.deepEqual(connection.handshake, { agentVersion: "1.5.15", systemPromptAppend: true, sessionClose: true });
 
 	const start = h.log()[0]!;
 	assert.deepEqual(start.argv, ["acp", "--sandbox"]);
@@ -90,7 +90,7 @@ test("happy path: `acp --sandbox` in an empty workspace, honest initialize, keys
 	const l = listener();
 	const stop = connection.watch(sessionId, l.value);
 	const release = connection.hold();
-	assert.deepEqual(await connection.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "hi" }] }), { stopReason: "end_turn" });
+	assert.equal((await connection.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "hi" }] }) as { stopReason: string }).stopReason, "end_turn");
 	assert.equal(l.text(), "Hello world");
 	stop(); release();
 	assert(!h.methods().includes("authenticate"));

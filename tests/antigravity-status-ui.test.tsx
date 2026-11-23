@@ -148,7 +148,7 @@ test("not installed: the check button is disabled", async () => {
 
 test("while the switch is off the route answers GET with 200 { available: false } only, and PUT/POST with 404", async () => {
 	const previous = process.env.LH_FORK_ANTIGRAVITY;
-	delete process.env.LH_FORK_ANTIGRAVITY;
+	process.env.LH_FORK_ANTIGRAVITY = "0";
 	// The server barrel loads the stores: keep them out of the checkout's data folder.
 	const data = mkdtempSync(join(tmpdir(), "lh-agy-route-"));
 	process.env.LH_DATA_DIR ??= data;

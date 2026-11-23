@@ -111,10 +111,13 @@ async function withMock(t: TestContext, scenario: MockScenario, body: (c: Return
 	await h.assertNoChildren();
 }
 
-test("mock: initialize answers protocolVersion 2 with the v1 shapes, launched as `acp --sandbox`", async (t) => {
+test("mock: initialize answers protocolVersion 1 with the v1 shapes like the real 1.5.15 (2 on request), launched as `acp --sandbox`", async (t) => {
+	await withMock(t, { protocolVersion: 2 }, async ({ peer }) => {
+		assert.equal((await peer.request("initialize", { protocolVersion: 1 }) as Record<string, unknown>).protocolVersion, 2);
+	});
 	await withMock(t, {}, async ({ peer }, h) => {
 		const result = await peer.request("initialize", { protocolVersion: 1 }) as Record<string, unknown>;
-		assert.equal(result.protocolVersion, 2);
+		assert.equal(result.protocolVersion, 1);
 		assert.ok(result.agentInfo && result.agentCapabilities);
 		assert.deepEqual(h.log()[0]!.argv, ["acp", "--sandbox"]);
 		assert.deepEqual(h.methods(), ["initialize"]);
@@ -125,7 +128,7 @@ test("mock: an agent request LearnHarness doesn't serve gets -32601", async (t) 
 	await withMock(t, { prompt: [{ fsRead: true }] }, async ({ peer }, h) => {
 		await peer.request("initialize", {});
 		const { sessionId } = await peer.request("session/new", { cwd: tmpdir(), mcpServers: [] }) as { sessionId: string };
-		assert.deepEqual(await peer.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "hi" }] }), { stopReason: "end_turn" });
+		assert.equal((await peer.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "hi" }] }) as { stopReason: string }).stopReason, "end_turn");
 		const answer = h.log().find((entry) => entry.kind === "fs-answer")?.answer as { error: { code: number; message: string } };
 		assert.deepEqual(answer.error, { code: -32601, message: "Method not found: fs/read_text_file" });
 	});

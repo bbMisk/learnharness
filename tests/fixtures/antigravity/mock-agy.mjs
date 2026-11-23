@@ -2,10 +2,14 @@
 /**
  * Stand-in for Google's `agy acp` in tests. Launched exactly like the real
  * binary (`<path> acp --sandbox`) and speaks the ACP v1 wire shapes over
- * stdio. NONE of these shapes comes from a captured real session: each is
- * reconstructed from reading T3 Code's source, and the file:line above each
- * one says where. The first authorised live test must capture a real
- * session and diff it against this file.
+ * stdio. Its DEFAULT answers mirror a real session captured from agy acp
+ * 1.5.15 on 2026-11-23 (tests/fixtures/antigravity/real-agy-1.5.15.json):
+ * initialize, session/new (legacy `models`/`modes` blocks beside
+ * `configOptions`, mode already "default"), session_info_update, the
+ * prompt's usage field names, session/close. Shapes the capture does not
+ * contain (tool calls, permission requests, cancel, sign-in) are still
+ * reconstructed from T3 Code's source; the file:line above each says where.
+ * Scenario `realCapture: <path>` answers with the capture's exact frames.
  *
  * MOCK_AGY_SCENARIO  JSON object scripting the behaviour (fields below).
  * MOCK_AGY_LOG       file that receives one JSON line per event:
@@ -14,10 +18,10 @@
  *
  * Scenario fields (all optional):
  *   stdoutAtStart, stderrAtStart  raw lines written at startup
- *   protocolVersion (2), shape ("v1" | "v2"), systemPromptAppend, sessionClose
+ *   protocolVersion (1), shape ("v1" | "v2"), systemPromptAppend (true), sessionClose (true)
  *   initializeError {code,message}, initializeHang
  *   sessionNewError {code,message}
- *   mode ("auto"; null = no mode option), modeOptions, rejectModeChange
+ *   mode ("default"; "auto" like older builds; null = no mode option), modeOptions, rejectModeChange
  *   legacyModes {currentModeId, availableModes: [ids]}  (sent as `modes`)
  *   models {style: "flat" | "grouped" | "legacy", current, list: [{value,name}]}
  *   prompt: steps run per session/prompt, in order:
@@ -28,7 +32,7 @@
  *     {modeUpdate:id} (current_mode_update) {configModeUpdate:value} (config_option_update)
  *     {usageRepeat:{count,everyMs}} {permissionAndToolCall:"permission-first"|"tool-first"}
  *     {toolCallWithResult:true} (a tool_call and the prompt's answer in one write)
- *   stopReason ("end_turn"), usage (result usage object)
+ *   stopReason ("end_turn"), usage (result usage object; null = none)
  *   ignoreCancel, ignoreTerm
  * Edge cases (not real-agent shapes, only ways to break the client):
  *   stdoutRawAtStart (written with no newline), garbageAfterInitialize,
@@ -40,7 +44,7 @@
  *   fixedSessionId (every session/new answers this id), chunkAfterNew (text sent right after session/new),
  *   steps {emptyRepeat:{count,everyMs}} (empty text chunks)
  */
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
 if (process.argv[2] !== "acp") {
@@ -49,6 +53,8 @@ if (process.argv[2] !== "acp") {
 }
 
 const scenario = process.env.MOCK_AGY_SCENARIO ? JSON.parse(process.env.MOCK_AGY_SCENARIO) : {};
+// The real capture, when a test asks for its exact frames.
+const real = scenario.realCapture ? JSON.parse(readFileSync(scenario.realCapture, "utf8")) : undefined;
 const logFile = process.env.MOCK_AGY_LOG;
 const log = (entry) => { if (logFile) appendFileSync(logFile, `${JSON.stringify(entry)}\n`); };
 log({ kind: "start", argv: process.argv.slice(2), cwd: process.cwd(), envNames: Object.keys(process.env).sort(), pid: process.pid });
@@ -108,47 +114,59 @@ function configOptions(session) {
 
 // ---- handlers ------------------------------------------------------------------
 
-// initialize result. The 1.5 agent reports protocolVersion 2 with the v1 agentInfo/agentCapabilities
-// shapes: packages/effect-acp/src/client.ts:719-723,1108-1113; expectations of a 1.5 build in
-// apps/server/src/provider/AntigravityInstallation.ts:788-799 and AntigravityAcpSupport.test.ts:61-85.
-// (packages/effect-acp/test/fixtures/antigravity-initialize.json is from an older 1.1.1 build.)
+// initialize result, from the real capture (tests/fixtures/antigravity/real-agy-1.5.15.json, `initialize`):
+// protocolVersion 1, the v1 agentInfo/agentCapabilities shapes, snake_case duplicates, append and close
+// advertised. Older builds answered protocolVersion 2 with the same v1 shapes (scenario protocolVersion: 2;
+// packages/effect-acp/src/client.ts:719-723,1108-1113 in T3 Code).
 function initializeResult() {
+	if (real) return real.initialize;
+	const sessionCapabilities = { resume: {}, ...(scenario.sessionClose === false ? {} : { close: {} }), load: {}, list: {}, additionalDirectories: {} };
 	const capabilities = {
 		loadSession: true,
-		promptCapabilities: { image: true, audio: true, embeddedContext: true },
-		mcpCapabilities: { http: true, sse: true },
-		sessionCapabilities: { list: {}, resume: {}, ...(scenario.sessionClose ? { close: {} } : {}) },
+		load_session: true,
+		promptCapabilities: { image: true, audio: false, embeddedContext: true },
+		sessionCapabilities,
+		session_capabilities: sessionCapabilities,
 		auth: { logout: {} },
-		...(scenario.systemPromptAppend ? { _meta: { antigravity: { systemPrompt: { append: true } } } } : {}),
+		_meta: { antigravity: { tier: true, ...(scenario.systemPromptAppend === false ? {} : { systemPrompt: { append: true } }) } },
 	};
-	const info = { name: "Antigravity ACP Server", title: "Google Antigravity", version: "1.5.12" };
+	const info = { name: "Antigravity ACP Server", version: "1.5.15" };
 	const authMethods = [
-		{ id: "oauth-personal", name: "Log in with Google" },
-		{ id: "oauth-business", name: "Log in with Google (business)" },
-		{ id: "gemini-api-key", name: "Use a Gemini API key" },
-		{ id: "agent-platform", name: "Agent Platform" },
+		{ id: "oauth-personal", name: "Log in with Google", description: "Log in with your Google account" },
+		{ id: "oauth-business", name: "Log in with Gemini Enterprise", description: "Log in with your Gemini Enterprise account" },
+		{ id: "gemini-api-key", name: "Gemini API key", description: "Use an API key with Gemini Developer API" },
+		{ id: "agent-platform", name: "Gemini Enterprise Agent Platform", description: "Use Gemini Enterprise Agent Platform (formerly Vertex AI) with Application Default Credentials" },
 	];
-	const protocolVersion = scenario.protocolVersion ?? 2;
+	const protocolVersion = scenario.protocolVersion ?? 1;
 	if (scenario.shape === "v2") return { protocolVersion, capabilities, authMethods, info };
 	return { protocolVersion, agentCapabilities: capabilities, authMethods, agentInfo: info };
 }
 
-// session/new result, reconstructed (see configOptions above). It is followed by an
-// available_commands_update notification.
+// session/new result, from the real capture (`sessionNew`): the legacy `models` block (different ids,
+// e.g. "gemini-4-neon-high") and `modes` block beside `configOptions`, mode already "default". It is
+// followed by an available_commands_update notification.
 function newSession() {
 	const sessionId = scenario.fixedSessionId ?? randomUUID();
 	const session = {
 		id: sessionId,
-		mode: scenario.mode === undefined ? "auto" : scenario.mode,
+		mode: scenario.mode === undefined ? "default" : scenario.mode,
 		modeOptions: scenario.modeOptions ?? ["default", "accept-edits", "auto", "plan"],
 		legacy: scenario.legacyModes ? { ...scenario.legacyModes } : undefined,
 		cancelled: false,
 		cancelWaiters: [],
 	};
 	sessions.set(sessionId, session);
+	if (real) {
+		sessions.set(sessionId, { ...session, mode: "default" });
+		setTimeout(() => update(sessionId, real.notifications.available_commands_update.params.update), 0);
+		return { ...real.sessionNew, sessionId };
+	}
 	const result = { sessionId, configOptions: configOptions(session) };
-	if (session.legacy) result.modes = { currentModeId: session.legacy.currentModeId, availableModes: session.legacy.availableModes.map((id) => ({ id, name: id })) };
-	if (models.style === "legacy") result.models = { currentModelId: models.current, availableModels: models.list.map((m) => ({ modelId: m.value, name: m.name })) };
+	const legacyModes = session.legacy ?? { currentModeId: session.mode ?? "default", availableModes: session.modeOptions };
+	result.modes = { currentModeId: legacyModes.currentModeId, availableModes: legacyModes.availableModes.map((id) => ({ id, name: id })) };
+	// The real agent's legacy list names other ids than its config option; "legacy" style has only this list.
+	const legacyId = (value) => (models.style === "legacy" ? value : `${value}-high`);
+	result.models = { currentModelId: legacyId(models.current), availableModels: models.list.map((m) => ({ modelId: legacyId(m.value), name: m.name })) };
 	setTimeout(() => update(sessionId, { sessionUpdate: "available_commands_update", availableCommands: [] }), 0);
 	return result;
 }
@@ -166,6 +184,8 @@ class RpcError extends Error {
 function setConfigOption({ sessionId, configId, value }) {
 	const session = sessions.get(sessionId);
 	if (!session) throw new RpcError(-32602, "Unknown session");
+	// The capture's answer to a model change (`setConfigOption`).
+	if (real) return real.setConfigOption;
 	const failure = scenario.setConfigError;
 	if (failure && (!failure.configId || failure.configId === configId)) throw new RpcError(failure.code, failure.message);
 	if (configId === "model" && scenario.modelSetNoOptions) {
@@ -222,11 +242,16 @@ async function prompt({ sessionId, prompt: blocks }) {
 	const myId = requestId;
 	const session = sessions.get(sessionId);
 	if (!session) throw new RpcError(-32602, "Unknown session");
-	const steps = scenario.prompt ?? [{ text: "Hello" }, { text: " world" }, { usageUpdate: true }];
+	const steps = real
+		? ["usage_update", "config_option_update", "session_info_update", "agent_message_chunk", "usage_update"].map((kind) => ({ realUpdate: kind }))
+		: scenario.prompt ?? [{ text: "Hello" }, { text: " world" }, { usageUpdate: true }];
+	// Every real reply carries a session_info_update (a generated title; capture `notifications`).
+	if (!real && !scenario.noSessionInfo) update(sessionId, { sessionUpdate: "session_info_update", title: "<generated title>" });
 	const lastText = [...(blocks ?? [])].reverse().find((block) => block.type === "text")?.text ?? "";
 	for (const step of steps) {
 		if (session.cancelled && !scenario.ignoreCancel) break;
-		if (step.text !== undefined) update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: step.text } });
+		if (step.realUpdate) update(sessionId, real.notifications[step.realUpdate].params.update);
+		else if (step.text !== undefined) update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: step.text } });
 		else if (step.thought !== undefined) update(sessionId, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: step.thought } });
 		else if (step.echo) {
 			for (const piece of [`echo:`, lastText]) { update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: piece } }); await sleep(5); }
@@ -279,7 +304,12 @@ async function prompt({ sessionId, prompt: blocks }) {
 	// session/cancel is a notification; the open prompt then resolves { stopReason: "cancelled" }:
 	// packages/effect-acp/src/client.ts:1305, AcpSessionRuntime.ts:2608-2661.
 	if (session.cancelled && !scenario.ignoreCancel) return { stopReason: "cancelled" };
-	return { stopReason: scenario.stopReason ?? "end_turn", ...(scenario.usage ? { usage: scenario.usage } : {}) };
+	if (real) return real.promptResult;
+	// The real result's usage field names (capture `promptResult`).
+	const usage = scenario.usage === undefined
+		? { inputTokens: 9684, outputTokens: 60, cachedReadTokens: 0, cachedWriteTokens: 0, thoughtTokens: 59, totalTokens: 9744 }
+		: scenario.usage;
+	return { stopReason: scenario.stopReason ?? "end_turn", ...(usage ? { usage } : {}) };
 }
 
 const RAW = Symbol("raw stdout");
@@ -336,6 +366,7 @@ async function handleRequest(method, params) {
 		case "session/prompt":
 			return prompt(params);
 		case "session/close":
+			// The real agent answers {} (checked live, 1.5.15).
 			sessions.delete(params.sessionId);
 			return {};
 		default:

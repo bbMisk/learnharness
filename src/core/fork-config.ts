@@ -37,11 +37,17 @@ export const sideTutorEnabled = forkSideChat === "tutor";
  *  CURRENT_CHAT_VERSION (1) until the next release adopts upstream's. */
 export const READABLE_CHAT_VERSION = 2;
 
-/** The Antigravity provider (docs/antigravity.md), off unless the SERVER's
- *  environment sets LH_FORK_ANTIGRAVITY=1. Read live, server side only: the
- *  renderer learns it from GET /api/antigravity, which answers 404 while off. */
-const ANTIGRAVITY = false;
+/** The Antigravity provider's server switch (docs/antigravity.md): on (owner
+ *  go-ahead 2026-11-23). The SERVER's environment can force it:
+ *  LH_FORK_ANTIGRAVITY=0 off, =1 on; anything else keeps this default. Each
+ *  user still opts in separately (antigravity.json, off by default). Read live,
+ *  server side only: the renderer learns it from GET /api/antigravity
+ *  (`{ available: false }` while off). */
+const ANTIGRAVITY = true;
 export function antigravitySwitchOn(): boolean {
 	const proc = typeof process === "undefined" ? undefined : process;
-	return ANTIGRAVITY || proc?.env?.LH_FORK_ANTIGRAVITY === "1";
+	const forced = proc?.env?.LH_FORK_ANTIGRAVITY;
+	if (forced === "0") return false;
+	if (forced === "1") return true;
+	return ANTIGRAVITY;
 }

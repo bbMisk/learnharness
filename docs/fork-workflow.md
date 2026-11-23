@@ -40,4 +40,5 @@ Owner priorities (2026-11-22): simple to use, snappy, polished, easy to merge up
 - Question-tool prompts: upstream's wording (no fork turn rule).
 - Startup announcements from learnharness.ai: off (`electron/fork-config.cjs`), because they advertise upstream builds that lack the fork's features.
 - Shortcuts stay blocked while a modal is open, and Escape reverts an invalid Settings number; `scripts/smoke-plugin-browser.mjs` asserts the fork's behaviour for those steps.
+- Antigravity provider: fork-owned and text-only, attached by small `// FORK` hooks; on by default at the server, off per user until they opt in (`docs/antigravity.md`).
 - `proxy.ts`: `remoteAccessError` first; API calls through the Tailscale host use `desktopAPIAuthorized`; every other API call uses upstream's `apiRequestRefusal`.
