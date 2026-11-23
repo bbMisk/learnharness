@@ -13,7 +13,12 @@ export const MAX_LINE_BYTES = 16 * 1024 * 1024;
 /** The not-signed-in signal the agent prints instead of JSON. */
 export const SIGN_IN_LINE_PREFIX = "Open the following link to authenticate";
 
-/** A JSON-RPC error answer from the agent. */
+/** Anything that looks like a link becomes a placeholder: agent text may carry a sign-in URL. */
+export function stripUrls(text: string): string {
+	return text.replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, "[link removed]");
+}
+
+/** A JSON-RPC error answer from the agent, with any link already removed from its message. */
 export class AcpRpcError extends Error {
 	constructor(readonly code: number, message: string) {
 		super(message);
@@ -163,7 +168,7 @@ export class AcpPeer {
 		clearTimeout(entry.timer);
 		if (isRecord(message.error)) {
 			const code = typeof message.error.code === "number" ? message.error.code : -32603;
-			entry.reject(new AcpRpcError(code, typeof message.error.message === "string" ? message.error.message : ""));
+			entry.reject(new AcpRpcError(code, typeof message.error.message === "string" ? stripUrls(message.error.message) : ""));
 		} else {
 			entry.resolve(message.result);
 		}
