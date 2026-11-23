@@ -43,7 +43,7 @@ Your lesson text, including the replayed conversation and the tutor's instructio
 - A message you type while a reply is streaming starts another reply.
 - The model's own reply text is shown as written, links included.
 - One reply is capped at 4 MB of text; a longer one is stopped.
-- If `agy` stops answering, the reply ends after 15 minutes without progress. An idle `agy` is stopped after 10 minutes.
+- If `agy` stops answering, the reply ends after 15 minutes without progress. An idle `agy` is stopped after 30 minutes (so a learner who thinks for a while doesn't wait for it to start again); turning Antigravity off stops it sooner.
 - When the server is stopped by a signal, `agy` exits when its input closes (checked with the real `agy`); a temporary folder left behind in that case is removed on the next start.
 
 ## Checked against the real agent

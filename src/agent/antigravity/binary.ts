@@ -38,11 +38,16 @@ function searchSpec(env: BinaryLookup["env"], platform: NodeJS.Platform, homeDir
 }
 
 /** PATH, then the usual user bin folders (claude-code/binary.ts's list). File checks only. */
-export function resolveAgyBinary({ env, platform, homeDir, cwd = process.cwd(), isExecutable }: BinaryLookup): string | null {
+export function resolveAgyBinary({ env, platform, homeDir, cwd, isExecutable }: BinaryLookup): string | null {
 	const { paths, name, knownDirs } = searchSpec(env, platform, homeDir);
 	const pathDirs = (env.PATH ?? "").split(paths.delimiter).filter(Boolean);
+	const checked = new Set<string>();
 	for (const dir of [...pathDirs, ...knownDirs]) {
-		const candidate = paths.resolve(cwd, dir, name);
+		// The server's cwd matters only for a relative PATH entry (on Windows also for a drive-relative one);
+		// a folder listed twice is checked once.
+		const candidate = platform !== "win32" && paths.isAbsolute(dir) ? paths.join(dir, name) : paths.resolve(cwd ?? process.cwd(), dir, name);
+		if (checked.has(candidate)) continue;
+		checked.add(candidate);
 		if (isExecutable(candidate)) return candidate;
 	}
 	return null;

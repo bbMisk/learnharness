@@ -40,7 +40,7 @@ export function antigravityStatus(): AntigravityStatus {
 	const problem = problemState().message;
 	return {
 		available: true,
-		enabled: antigravityEnabled(),
+		enabled: antigravitySwitchOn() && record.enabled,
 		installed: antigravityInstalled(),
 		...(record.agentVersion ? { agentVersion: record.agentVersion } : {}),
 		models: record.models.length,
@@ -68,7 +68,7 @@ export async function checkAntigravityConnection(probe: () => Promise<Connection
 	if (state.generation !== generation) return antigravityStatus();
 	try {
 		// No version reported: the stored one is cleared, not kept.
-		antigravityStore.update({ models: mergeModels(antigravityStore.read().models, result.models), agentVersion: result.agentVersion ?? undefined, checkedAt: new Date().toISOString() });
+		antigravityStore.update((current) => ({ models: mergeModels(current.models, result.models), agentVersion: result.agentVersion ?? undefined, checkedAt: new Date().toISOString() }));
 		state.message = undefined;
 	} catch {
 		return recordFailedCheck("The Antigravity check worked, but its result could not be saved.");

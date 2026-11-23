@@ -20,8 +20,9 @@ import { AntigravityMessage } from "./constants.ts";
 export const antigravityTimeouts = {
 	/** initialize, and every setup request of a turn (session/new, set_config_option, …). */
 	startupMs: 90_000,
-	/** No turn in flight for this long: the process is stopped. */
-	idleMs: 10 * 60_000,
+	/** No turn in flight for this long: the process is stopped. Long enough that a learner thinking for a
+	 *  while doesn't pay the cold start again; turning the provider off stops it at once. */
+	idleMs: 30 * 60_000,
 	/** An open prompt with no update for this long is cancelled. */
 	inactivityMs: 15 * 60_000,
 	/** After session/cancel, how long the prompt may take to resolve before the process is killed. */

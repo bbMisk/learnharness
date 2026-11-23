@@ -63,9 +63,12 @@ export function sanitizeAntigravityRecord(raw: unknown): AntigravityRecord {
 	return { version: 1, enabled: record.enabled === true, models, ...(agentVersion ? { agentVersion } : {}), ...(checkedAt ? { checkedAt } : {}) };
 }
 
+type Patch = Partial<Omit<AntigravityRecord, "version">>;
+
 export interface AntigravityStore {
 	read(): AntigravityRecord;
-	update(patch: Partial<Omit<AntigravityRecord, "version">>): AntigravityRecord;
+	/** A patch, or a function of the current record (one read) that returns one. */
+	update(patch: Patch | ((current: AntigravityRecord) => Patch)): AntigravityRecord;
 }
 
 export function createAntigravityStore(file: string): AntigravityStore {
@@ -87,9 +90,9 @@ export function createAntigravityStore(file: string): AntigravityStore {
 		read,
 		update(patch) {
 			const current = read();
-			const next = sanitizeAntigravityRecord({ ...current, ...patch });
+			const next = sanitizeAntigravityRecord({ ...current, ...(typeof patch === "function" ? patch(current) : patch) });
 			// Lesson turns save the model list each time: skip the write when nothing changed.
-			if (fs.existsSync(/* turbopackIgnore: true */ file) && JSON.stringify(next) === JSON.stringify(current)) return next;
+			if (JSON.stringify(next) === JSON.stringify(current)) return next;
 			fs.mkdirSync(/* turbopackIgnore: true */ path.dirname(file), { recursive: true });
 			writeFileAtomicSync(file, `${JSON.stringify(next, null, "\t")}\n`);
 			cache = undefined;

@@ -35,8 +35,12 @@ export function antigravityCatalogRows(): CatalogProvider[] {
 
 configureAntigravityHost({
 	available: antigravityAvailable,
-	models: () => (antigravityAvailable() ? antigravityStore.read().models : []),
-	saveModels: (models) => { antigravityStore.update({ models: mergeModels(antigravityStore.read().models, models) }); },
+	models: () => {
+		if (!antigravitySwitchOn()) return [];
+		const record = antigravityStore.read(); // one read: availability and the list from the same record
+		return record.enabled && antigravityInstalled() ? record.models : [];
+	},
+	saveModels: (models) => { antigravityStore.update((current) => ({ models: mergeModels(current.models, models) })); },
 });
 
 /** A new list keeps each model's known levels unless the new entry states its own. */

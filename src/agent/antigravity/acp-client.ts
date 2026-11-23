@@ -4,6 +4,7 @@
  * kills the process on any fatal transport error. No line the agent writes
  * is ever logged or copied into an error: it may carry a sign-in link.
  */
+import { StringDecoder } from "node:string_decoder";
 import type { Writable } from "node:stream";
 
 import { AntigravityMessage } from "./constants.ts";
@@ -61,10 +62,21 @@ function startsWithSignIn(text: string): boolean {
 
 export class LineTooLongError extends Error {}
 
-/** Splits a byte stream on "\n" with a hard cap per line, counted in bytes. */
+/**
+ * Splits a byte stream on "\n" with a hard cap per line, counted in bytes,
+ * and tells whether the unfinished line is the sign-in line. That decision
+ * reads only the line's first characters, once, as they arrive (leading
+ * whitespace, then the prefix): each further chunk of a long line costs
+ * nothing extra.
+ */
 export class LineSplitter {
 	private parts: Buffer[] = [];
 	private size = 0;
+	// The unfinished line's sign-in decision: undefined until its first non-space characters settle it.
+	private decoder = new StringDecoder("utf8");
+	private matched = 0;
+	private signIn: boolean | undefined;
+	private decoding = false;
 
 	constructor(private readonly maxBytes = MAX_LINE_BYTES) {}
 
@@ -74,9 +86,14 @@ export class LineSplitter {
 		for (let newline = chunk.indexOf(10, start); newline >= 0; newline = chunk.indexOf(10, start)) {
 			const piece = chunk.subarray(start, newline);
 			if (this.size + piece.length > this.maxBytes) throw new LineTooLongError("line too long");
-			lines.push(Buffer.concat([...this.parts, piece]).toString("utf8"));
-			this.parts = [];
-			this.size = 0;
+			if (this.size === 0) lines.push(piece.toString("utf8"));
+			else {
+				this.parts.push(piece);
+				lines.push(Buffer.concat(this.parts, this.size + piece.length).toString("utf8"));
+				this.parts = [];
+				this.size = 0;
+			}
+			this.resetSignIn();
 			start = newline + 1;
 		}
 		const rest = chunk.subarray(start);
@@ -84,13 +101,33 @@ export class LineSplitter {
 			this.size += rest.length;
 			if (this.size > this.maxBytes) throw new LineTooLongError("line too long");
 			this.parts.push(rest);
+			this.scanSignIn(rest);
 		}
 		return lines;
 	}
 
-	/** The bytes after the last newline, decoded. */
-	remainder(): string {
-		return this.size === 0 ? "" : Buffer.concat(this.parts).toString("utf8");
+	/** The bytes after the last newline, with leading whitespace removed, start with the sign-in prefix. */
+	unfinishedIsSignIn(): boolean {
+		return this.signIn === true;
+	}
+
+	private resetSignIn(): void {
+		// A partial character the decoder still holds belongs to the finished line.
+		if (this.decoding) this.decoder = new StringDecoder("utf8");
+		this.decoding = false;
+		this.matched = 0;
+		this.signIn = undefined;
+	}
+
+	private scanSignIn(bytes: Buffer): void {
+		if (this.signIn !== undefined) return;
+		this.decoding = true;
+		for (const char of this.decoder.write(bytes)) {
+			// The same whitespace trimStart() removes.
+			if (this.matched === 0 && /^\s$/u.test(char)) continue;
+			if (char !== SIGN_IN_LINE_PREFIX[this.matched]) { this.signIn = false; return; }
+			if (++this.matched === SIGN_IN_LINE_PREFIX.length) { this.signIn = true; return; }
+		}
 	}
 }
 
@@ -140,12 +177,12 @@ export class AcpPeer {
 			this.handleLine(line);
 		}
 		// The sign-in line may come without a newline while the agent waits.
-		if (!this.closed && startsWithSignIn(this.splitter.remainder())) this.fatal("sign-in", AntigravityMessage.NotSignedIn);
+		if (!this.closed && this.splitter.unfinishedIsSignIn()) this.fatal("sign-in", AntigravityMessage.NotSignedIn);
 	}
 
 	/** stdout ended: an unterminated sign-in line still counts. */
 	end(): void {
-		if (!this.closed && startsWithSignIn(this.splitter.remainder())) this.fatal("sign-in", AntigravityMessage.NotSignedIn);
+		if (!this.closed && this.splitter.unfinishedIsSignIn()) this.fatal("sign-in", AntigravityMessage.NotSignedIn);
 	}
 
 	request(method: string, params: unknown, timeoutMs?: number, timeoutMessage: string = AntigravityMessage.StartTimeout): Promise<unknown> {

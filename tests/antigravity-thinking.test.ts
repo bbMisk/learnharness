@@ -211,3 +211,22 @@ test("through the chat handler: a chat pinned at \"low\" sets that level on the 
 	globalRuntime.shutdown();
 	await h.assertNoChildren();
 });
+
+test("one store read per models(), status and save (the record is not read twice)", async (t) => {
+	const { antigravityHost } = await import("../src/agent/antigravity/host.ts");
+	const { antigravityStatus } = await import("../src/server/antigravity.ts");
+	antigravityStore.update({ enabled: true, models: [{ id: "gemini-3-pro", name: "Gemini 3 Pro", levels: ["low"] }] });
+	const originalStat = fs.statSync;
+	let reads = 0;
+	const writable = fs as { statSync: typeof fs.statSync };
+	writable.statSync = ((file: fs.PathLike, ...rest: unknown[]) => {
+		if (String(file) === ANTIGRAVITY_FILE) reads++;
+		return (originalStat as (...args: unknown[]) => unknown)(file, ...rest);
+	}) as typeof fs.statSync;
+	t.after(() => { writable.statSync = originalStat; });
+	const count = (run: () => unknown) => { reads = 0; run(); return reads; };
+	assert.equal(count(() => antigravityHost().models()), 1);
+	assert.equal(count(() => antigravityStatus()), 1);
+	assert.equal(count(() => antigravityHost().saveModels([{ id: "gemini-3-pro", name: "Gemini 3 Pro" }])), 1, "an unchanged list reads once and writes nothing");
+	assert.deepEqual(antigravityStore.read().models[0]!.levels, ["low"], "the known levels were kept");
+});

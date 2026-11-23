@@ -76,3 +76,16 @@ test("guard 2 admits the mock, and no binary means no spawn", () => {
 	assert.equal(launch(["acp", "--sandbox"], { cwd: tmpdir(), env: {} as NodeJS.ProcessEnv }), null);
 	assert.equal(spawned, 0);
 });
+
+test("the search checks each folder once and reads the server's cwd only for a relative PATH entry", (t) => {
+	const { dir } = decoyDir(t);
+	const seen: string[] = [];
+	const lookup = (path: string) => { seen.push(path); return false; };
+	resolveAgyBinary({ env: { PATH: `${dir}${delimiter}${dir}${delimiter}/opt/homebrew/bin` }, platform: "darwin", homeDir: "/home/x", cwd: "/must/not/be/used", isExecutable: lookup });
+	assert.equal(new Set(seen).size, seen.length, "no folder checked twice");
+	assert.equal(seen.filter((p) => p === join(dir, "agy")).length, 1);
+	assert(!seen.some((p) => p.startsWith("/must/not/be/used")));
+	seen.length = 0;
+	resolveAgyBinary({ env: { PATH: "relative/bin" }, platform: "darwin", homeDir: "/home/x", cwd: "/srv/app", isExecutable: lookup });
+	assert.equal(seen[0], "/srv/app/relative/bin/agy");
+});
