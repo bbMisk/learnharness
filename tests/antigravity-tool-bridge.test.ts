@@ -106,3 +106,39 @@ test("each session has its own endpoint and token", async (t) => {
 	await other.close();
 	assert.equal(bridge.size, 1);
 });
+
+/** Initialize over raw HTTP (no SDK client), like an agent that manages its own requests. */
+async function rawSession(entry: McpServerEntry) {
+	const headers = { Authorization: entry.headers[0]!.value, "Content-Type": "application/json", Accept: "application/json, text/event-stream" };
+	const init = await fetch(entry.url, { method: "POST", headers, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "raw", version: "1" } } }) });
+	const session = init.headers.get("mcp-session-id")!;
+	await init.text();
+	const withSession = { ...headers, "mcp-session-id": session, "mcp-protocol-version": "2025-06-18" };
+	await (await fetch(entry.url, { method: "POST", headers: withSession, body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) })).text();
+	return (body: unknown, signal?: AbortSignal) => fetch(entry.url, { method: "POST", headers: withSession, body: JSON.stringify(body), signal });
+}
+
+test("the agent dropping the HTTP request of a held call (no MCP cancel notification) is reported as an abort", async (t) => {
+	const { endpoint, calls, aborted } = await bridgeFor(t);
+	const post = await rawSession(endpoint.mcpServer);
+	const controller = new AbortController();
+	const pending = post({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "lh_echo", arguments: { text: "a" } } }, controller.signal).then((res) => res.text()).catch(() => "aborted");
+	await until(() => calls.length === 1);
+	controller.abort();
+	assert.equal(await pending, "aborted");
+	await until(() => aborted.length === 1);
+	assert.equal(aborted[0]!.id, calls[0]!.id);
+	assert.equal(endpoint.resolve(calls[0]!.id, result([])), false, "an aborted call can no longer be answered");
+});
+
+test("tools/call with arguments that are not an object is refused and reported", async (t) => {
+	const { endpoint, calls, invalid } = await bridgeFor(t);
+	const post = await rawSession(endpoint.mcpServer);
+	for (const [id, args] of [[2, "text"], [3, [1, 2]], [4, 5]] as const) {
+		const text = await (await post({ jsonrpc: "2.0", id, method: "tools/call", params: { name: "lh_echo", arguments: args } })).text();
+		assert.match(text, /error/i);
+	}
+	assert.equal(calls.length, 0);
+	assert.equal(invalid.length, 3, "each malformed call is reported");
+});
+

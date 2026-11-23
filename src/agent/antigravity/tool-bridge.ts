@@ -85,6 +85,9 @@ type Endpoint = {
 	transport: StreamableHTTPServerTransport;
 	server: Server;
 	held: Map<string, (result: CallToolResult) => void>;
+	/** The held call each tools/call request (by JSON-RPC id) became, so a dropped request aborts it. */
+	byRequest: Map<string | number, () => void>;
+	hooks: EndpointHooks;
 	/** Requests in flight, so closing never leaves the agent waiting on a response that won't come. */
 	open: Set<http.ServerResponse>;
 	closed: boolean;
@@ -128,6 +131,7 @@ export class ToolBridge {
 		const token = randomBytes(SECRET_BYTES).toString("hex");
 		const declared = new Map(tools.map((tool) => [tool.name, tool]));
 		const held = new Map<string, (result: CallToolResult) => void>();
+		const byRequest = new Map<string | number, () => void>();
 		const server = new Server({ name: BRIDGE_SERVER_NAME, version: "1.0.0" }, { capabilities: { tools: {} } });
 		server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [...declared.values()].map(toMcpTool) }));
 		server.setRequestHandler(CallToolRequestSchema, (request, extra) => {
@@ -140,6 +144,7 @@ export class ToolBridge {
 			const call: HeldCall = { id: randomUUID(), name, arguments: args as JsonObject };
 			return new Promise<CallToolResult>((resolve) => {
 				const settle = (result: CallToolResult) => {
+					byRequest.delete(extra.requestId);
 					if (!held.delete(call.id)) return;
 					extra.signal.removeEventListener("abort", aborted);
 					resolve(result);
@@ -150,6 +155,7 @@ export class ToolBridge {
 					hooks.onAbort(call);
 				};
 				held.set(call.id, settle);
+				byRequest.set(extra.requestId, aborted);
 				extra.signal.addEventListener("abort", aborted, { once: true });
 				if (!hooks.onCall(call)) {
 					settle({ content: [{ type: "text", text: "LearnHarness did not accept this call." }], isError: true });
@@ -158,7 +164,7 @@ export class ToolBridge {
 		});
 		const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
 		await server.connect(transport);
-		const endpoint: Endpoint = { authorization: Buffer.from(`Bearer ${token}`), transport, server, held, open: new Set(), closed: false };
+		const endpoint: Endpoint = { authorization: Buffer.from(`Bearer ${token}`), transport, server, held, byRequest, hooks, open: new Set(), closed: false };
 		this.endpoints.set(segment, endpoint);
 		const failHeld = (reason: string) => {
 			for (const settle of [...held.values()]) settle({ content: [{ type: "text", text: reason }], isError: true });
@@ -223,6 +229,18 @@ export class ToolBridge {
 			let body: unknown;
 			try { body = JSON.parse(Buffer.concat(parts).toString("utf8")); }
 			catch { res.writeHead(400).end(); return; }
+			const messages = Array.isArray(body) ? body : [body];
+			const calls = messages.filter((message) => isRecord(message) && message.method === "tools/call") as Record<string, unknown>[];
+			// Checked here: the SDK's own schema would refuse these before LearnHarness hears of them.
+			const malformed = calls.find((message) => !isRecord(message.params) || typeof message.params.name !== "string" || (message.params.arguments !== undefined && !isRecord(message.params.arguments)));
+			if (malformed) {
+				endpoint.hooks.onInvalid("malformed tool call");
+				res.writeHead(400, { "Content-Type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", id: malformed.id ?? null, error: { code: ErrorCode.InvalidParams, message: "Malformed tool call." } }));
+				return;
+			}
+			// The agent gives up on a call by dropping its request: abort what that request was holding.
+			const ids = calls.flatMap((message) => (typeof message.id === "string" || typeof message.id === "number" ? [message.id] : []));
+			if (ids.length) res.once("close", () => { if (!res.writableFinished) for (const id of ids) endpoint.byRequest.get(id)?.(); });
 			endpoint.transport.handleRequest(req, res, body).catch(() => { if (!res.headersSent) res.writeHead(500); res.end(); });
 		});
 		req.on("error", () => { if (!res.headersSent) res.writeHead(400); res.end(); });
