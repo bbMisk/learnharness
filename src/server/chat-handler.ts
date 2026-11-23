@@ -41,6 +41,7 @@ import { searchProvider } from "./search.ts";
 import { prepareSubmissionImages, prepareSubmissionImageChannels, prepareProblemSubmissionImageChannels, submissionImagePolicyKey } from "./submission-images.ts";
 import { preparePluginProblemSubmission, requirePluginProblemTarget, type ProblemTypeResolver } from "./plugin-problems.ts";
 import { providerKeyPresent } from "./keys.ts";
+import { ANTIGRAVITY_PROVIDER, antigravityTurnRefusal } from "./antigravity.ts"; // FORK
 import { CLAUDE_CODE_PROVIDER } from "../core/contracts/claude-code.ts";
 import {
 	extractionEnabled,
@@ -331,7 +332,8 @@ export async function handleChatInput(
 			return Response.json({ error: "Background use is off for this connection. Automatic follow-up remains deferred in its queue." }, { status: 403 });
 		}
 	}
-	if (!providerKeyPresent(conversation.provider)) {
+	if (conversation.provider === ANTIGRAVITY_PROVIDER) { const refusal = antigravityTurnRefusal(input.type, record.messages); if (refusal) return refusal; } // FORK: lessons the learner starts, only while available (docs/antigravity.md)
+	else if (!providerKeyPresent(conversation.provider)) {
 		const envelope = providerKeyMissingEnvelope(conversation.provider, ["strong"]);
 		console.info(`[chat ${chatId}] turn refused — ${JSON.stringify(envelope)}`);
 		return Response.json(envelope, { status: 503 });

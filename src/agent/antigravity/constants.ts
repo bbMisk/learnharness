@@ -1,10 +1,12 @@
+import { ANTIGRAVITY_UNAVAILABLE } from "../../core/contracts/antigravity.ts";
+
 export { ANTIGRAVITY_PROVIDER } from "../../core/contracts/antigravity.ts";
 
 export const ANTIGRAVITY_API = "antigravity-acp";
 
 /** Every message a learner can see from this provider. None of them carries agent output. */
 export const AntigravityMessage = {
-	Off: "Antigravity is off. Turn it on in Settings → Providers.",
+	Off: ANTIGRAVITY_UNAVAILABLE,
 	NotInstalled: "Antigravity's agy command was not found. Install Antigravity, then check again in Settings.",
 	NotSignedIn: 'Not signed in to Antigravity. Run "agy" in a terminal and sign in, then check again in Settings.',
 	NoSubscription: "This Google account can't use Antigravity.",

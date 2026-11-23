@@ -75,6 +75,7 @@ import { fireJobAbort, isJobLive } from "../agent/subagents/aborts.ts";
 import { stores, effectiveSettings } from "./stores.ts";
 import { resolveConversationSpec } from "../core/settings-resolution.ts";
 import { connectionBackgroundAllowed, isSubscriptionProvider, onSubscriptionChange } from "../agent/subscription-connections.ts";
+import { ANTIGRAVITY_PROVIDER } from "../core/contracts/antigravity.ts"; // FORK
 import { isTurnRunning } from "./turn-liveness.ts";
 import type { Agent } from "@earendil-works/pi-agent-core";
 
@@ -260,6 +261,7 @@ function queueSteer(chatId: string, steer: SteerMessage): QueuedSteer {
 export function automaticFollowUpAllowed(chatId: string, agent?: Agent): boolean {
 	if (agent && state().automaticDeferred.has(agent)) return false;
 	const provider = agent?.state?.model?.provider ?? resolveConversationSpec(stores.chatStore.getChat(chatId)?.settings, effectiveSettings().models.strong)?.provider;
+	if (provider === ANTIGRAVITY_PROVIDER) return false; // FORK: no automatic follow-up on Antigravity (docs/antigravity.md)
 	return connectionBackgroundAllowed(provider);
 }
 

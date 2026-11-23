@@ -5,6 +5,8 @@
  * an edit inside upstream code. Browser-safe: no node builtins.
  */
 
+export { ANTIGRAVITY_PROVIDER, isAntigravityRefusal, type AntigravityStatus } from "./contracts/antigravity.ts";
+
 export type SideChatMode = "tutor" | "questions";
 
 /** Which side conversation the app offers. "tutor": the fork's temporary
@@ -34,3 +36,12 @@ export const sideTutorEnabled = forkSideChat === "tutor";
  *  added side-question threads). Stage one of two: writes keep stamping
  *  CURRENT_CHAT_VERSION (1) until the next release adopts upstream's. */
 export const READABLE_CHAT_VERSION = 2;
+
+/** The Antigravity provider (docs/antigravity.md), off unless the SERVER's
+ *  environment sets LH_FORK_ANTIGRAVITY=1. Read live, server side only: the
+ *  renderer learns it from GET /api/antigravity, which answers 404 while off. */
+const ANTIGRAVITY = false;
+export function antigravitySwitchOn(): boolean {
+	const proc = typeof process === "undefined" ? undefined : process;
+	return ANTIGRAVITY || proc?.env?.LH_FORK_ANTIGRAVITY === "1";
+}

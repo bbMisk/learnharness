@@ -2,12 +2,14 @@ import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { SEND_TO_USER_TOOL } from "../../core/native-messages.ts";
 import { CLAUDE_CODE_PROVIDER } from "../claude-code/constants.ts";
+import { ANTIGRAVITY_PROVIDER } from "../../core/contracts/antigravity.ts"; // FORK
 import { serverExecute } from "../tool-execute.ts";
 
 /** Claude models get the output tool (their plain text may be summarized
  *  into thinking). Matches Claude across providers (including OpenRouter),
  *  not the API transport. The side-question agent uses this directly. */
 export function needsSendToUser(model: { provider: string; id: string }): boolean {
+	if (model.provider === ANTIGRAVITY_PROVIDER) return false; // FORK: text-only, no tools, even for a Claude model id (docs/antigravity.md)
 	return model.provider === CLAUDE_CODE_PROVIDER || model.id.toLowerCase().includes("claude");
 }
 

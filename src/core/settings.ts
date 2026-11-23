@@ -32,6 +32,7 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { CacheRetention } from "@earendil-works/pi-ai";
 import { AUTH_PROVIDER_KEYS } from "./auth-keys.ts";
 import { CLAUDE_CODE_PROVIDER } from "./contracts/claude-code.ts";
+import { ANTIGRAVITY_LESSONS_ONLY, ANTIGRAVITY_PROVIDER, isAntigravityRefusal } from "./contracts/antigravity.ts"; // FORK
 import type { ModelRole } from "../../config.ts";
 import { isSearchEngineId, type SearchEngineId } from "./search.ts";
 import { isDictationLanguage, type DictationLanguage } from "./dictation.ts";
@@ -169,6 +170,7 @@ const PROVIDER_KEY_MISSING_TAIL = "key is set — add one in Settings → Provid
 const LEGACY_PROVIDER_KEY_MISSING_TAIL = "key is set — add one in Settings → Keys";
 const CLAUDE_CODE_UNAVAILABLE = "Claude Code is unavailable. Enable and set it up in Settings → Providers.";
 export function providerKeyMissing(provider: string, slots: ModelSlotName[]): ProviderKeyMissing {
+	if (provider === ANTIGRAVITY_PROVIDER) return { error: ANTIGRAVITY_LESSONS_ONLY, code: PROVIDER_KEY_MISSING_CODE, provider, slots }; // FORK
 	const label = AUTH_PROVIDER_KEYS.find((p) => p.id === provider)?.label ?? provider;
 	return {
 		error: provider === CLAUDE_CODE_PROVIDER ? CLAUDE_CODE_UNAVAILABLE : `No ${label} ${PROVIDER_KEY_MISSING_TAIL}`,
@@ -182,6 +184,7 @@ export function providerKeyMissing(provider: string, slots: ModelSlotName[]): Pr
  * scary-error) — the envelope's home module owns the string so the
  * writer and the matcher can never drift. */
 export function isProviderKeyRefusal(error: string | undefined): boolean {
+	if (isAntigravityRefusal(error)) return true; // FORK
 	return !!error && (error.endsWith(PROVIDER_KEY_MISSING_TAIL) || error.endsWith(LEGACY_PROVIDER_KEY_MISSING_TAIL) || error === CLAUDE_CODE_UNAVAILABLE);
 }
 /** The typed throw for in-process seams (extraction pipeline) — the
