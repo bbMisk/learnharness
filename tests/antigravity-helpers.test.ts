@@ -155,6 +155,7 @@ test("door: a research job runs on Antigravity (search provider stubbed, no othe
 	assert.equal(done.status, "done", JSON.stringify(done.result));
 	assert.match((done.result as { brief: string }).brief, /sigma\.js v3/);
 	assert.deepEqual(queries, ["sigma.js latest version"]);
+	assert.equal(h.methods().filter((m) => m === "session/prompt").length, 1, "the round resumed on the same agent prompt");
 	assert.ok(offered(h)[0]!.includes("web_search"));
 	runtime.shutdown();
 	await h.assertNoChildren();
@@ -246,6 +247,7 @@ test("door: a demo job runs on Antigravity with its real tools (Chrome stubbed)"
 	const done = jobStore.getJob(job.id)!;
 	assert.equal(done.status, "done", JSON.stringify(done.result));
 	assert.ok(headless.runs.length >= 1, "the demo was verified in the (stubbed) browser");
+	assert.equal(h.methods().filter((m) => m === "session/prompt").length, 1, "both rounds on one agent prompt");
 	assert.ok(offered(h)[0]!.includes("write_demo"));
 	runtime.shutdown();
 	await h.assertNoChildren();
@@ -283,4 +285,68 @@ test("tools switch off: a job that needs tools refuses Antigravity with a clear 
 	assert.equal(done.status, "error");
 	assert.match(JSON.stringify(done.result), new RegExp(AntigravityMessage.HelperNeedsTools.slice(0, 40)));
 	assert.equal(h.spawns, 0, "the agent was never started");
+});
+
+test("a learner can pin a helper slot or role to an Antigravity model (the settings validation accepts it)", async () => {
+	const { validateModelsSettings } = await import("../src/server/model-catalog.ts");
+	for (const slot of ["strong", "cheap", "vision"]) assert.equal(validateModelsSettings({ [slot]: { model: SPEC } } as never).ok, true, slot);
+	// The PDF reader runs on the vision slot (no role override exists for it): the body the smoke script sends.
+	const { parseAgentSettingsBody, parseModelsSettingsBody } = await import("../src/server/settings-body.ts");
+	assert.equal(parseModelsSettingsBody({ vision: { model: SPEC } }).ok, true);
+	// A role override (e.g. the researcher) accepts an Antigravity model too.
+	assert.equal(parseAgentSettingsBody({ models: { researcher: { model: SPEC } } }).ok, true);
+});
+
+test("door: a plugin worker runs on Antigravity through the production inference wrapper; its tool rounds", async (t) => {
+	const { createPluginWorkerService } = await import("../src/agent/plugin-workers.ts");
+	const { createPluginTaskRecordStore } = await import("../src/store/plugin-task-records.ts");
+	const { Type } = await import("typebox");
+	// First a result the schema refuses (no value), then a valid one: two tool rounds.
+	const h = harness(t, { promptSeq: [[call("submit_result", { result: {} }), call("submit_result", { result: { value: "done by antigravity" } })]], prompt: [call("submit_result", { result: { value: "done by antigravity" } })] });
+	const controller = new AbortController();
+	t.after(() => controller.abort());
+	const inference = createPluginInference({ signal: controller.signal, dataDirectory: path.join(directory, "plugin-data-workers") }, { catalog: modelCatalog, providerKeyPresent, engineForSpec: piEngineForSpec });
+	const service = createPluginWorkerService({ store: createPluginTaskRecordStore(path.join(directory, "worker-tasks")), signal: controller.signal, onChange: () => {}, onUsage: () => {}, engineFor: inference.engineFor } as never);
+	t.after(() => service.dispose().catch(() => {}));
+	service.register({ id: "worker", instructions: "Use submit_result to finish", resultSchema: Type.Object({ value: Type.String() }) } as never);
+	const started = service.start("worker", { requestId: "r1", input: { a: 1 }, prompt: "Produce the result", model: SPEC, purpose: "background" } as never);
+	const final = await service.wait(started.id);
+	assert.deepEqual(final, { id: started.id, status: "succeeded", result: { value: "done by antigravity" } });
+	assert.ok(offered(h)[0]!.includes("submit_result"));
+	// Measured cost: plugin inference's wrapper ends each request's signal itself, so the parked call
+	// can't be handed over; every round after the first replays on a fresh session (nothing is lost).
+	assert.equal(h.methods().filter((m) => m === "session/new").length, 2, "two rounds, two agent sessions");
+	runtime.shutdown();
+	await h.assertNoChildren();
+});
+
+test("a lesson and helper runs on one agent process at once: each its own session and server, all finish", async (t) => {
+	const { createAntigravityStreamFunction } = await import("../src/agent/antigravity/stream.ts");
+	const { normalizeContext } = await import("@earendil-works/pi-ai/utils/transcript");
+	const h = harness(t, { prompt: [{ text: "part " }, { sleepMs: 150 }, call("lh_echo", { text: "x" }), { text: "done" }] });
+	const stream = createAntigravityStreamFunction({ runtime: () => runtime });
+	const lessonChat = chatStore.createChat("Antigravity concurrent lesson");
+	t.after(() => chatStore.deleteChat(lessonChat.id));
+	const ECHO = { name: "lh_echo", description: "Echo", parameters: { type: "object", properties: { text: { type: "string" } } } };
+	const runOnce = async (key: string) => {
+		const messages: unknown[] = [{ role: "user", content: `go ${key}`, timestamp: 0 }];
+		for (let round = 0; round < 3; round++) {
+			const events = stream(piEngineForSpec(SPEC).model, normalizeContext({ systemPrompt: "Tutor", messages: messages as never, tools: [ECHO as never] }), { sessionId: key });
+			for await (const _event of events) { /* drain */ }
+			const reply = await events.result();
+			messages.push(reply);
+			if (reply.stopReason !== "toolUse") return reply;
+			const toolCall = reply.content.find((b) => b.type === "toolCall")!;
+			messages.push({ role: "toolResult", toolCallId: (toolCall as { id: string }).id, toolName: "lh_echo", content: [{ type: "text", text: "ok" }], isError: false, timestamp: 0 });
+		}
+		throw new Error("too many rounds");
+	};
+	const replies = await Promise.all([runOnce(lessonChat.id), runOnce("helper-run-a"), runOnce("helper-run-b")]);
+	assert.deepEqual(replies.map((r) => r.stopReason), ["stop", "stop", "stop"]);
+	const servers = h.received().filter((m) => m.method === "session/new").map((m) => (m.params as { mcpServers: { name: string }[] }).mcpServers[0]?.name);
+	assert.equal(new Set(servers).size, 3);
+	assert.equal(h.spawns, 1, "one agent process");
+	assert.equal(h.methods().filter((m) => m === "session/prompt").length, 3, "each run one agent prompt");
+	runtime.shutdown();
+	await h.assertNoChildren();
 });

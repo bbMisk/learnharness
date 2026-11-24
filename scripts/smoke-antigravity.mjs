@@ -28,7 +28,7 @@
  *      ask_user_question tool through the MCP bridge: the server ends the turn
  *      with the question pending, the smoke answers it through the public API,
  *      and the same agent prompt continues with the answer (one tool round);
- *      then a helper run: the pdfReader role pinned to the mock model, the
+ *      then a helper run: the vision slot pinned to the mock model, the
  *      prober hands over (probe_done), the teacher calls pdf on
  *      tests/fixtures/sample-3page.pdf, and the PDF-reader job runs on the mock
  *      with its real tools (pdf_info, pdf_extract) and finishes;
@@ -196,7 +196,7 @@ async function main() {
 				// The prober hands over; the teacher (a fresh session) dispatches the PDF job.
 				[{ mcpCall: { name: "probe_done", arguments: ASSESSMENT } }, { text: "Handing over to teaching." }],
 				[{ mcpCall: { name: "pdf", arguments: { path: path.join(home, "lesson.pdf"), question: "What is on page 1?" } } }, { text: " I'll read it." }],
-				// The PDF-reader job on the pdfReader role's (mock) model, with its real tools.
+				// The PDF-reader job on the vision slot's (mock) model, with its real tools.
 				[{ mcpCall: { name: "pdf_info", arguments: {} } }, { mcpCall: { name: "pdf_extract", arguments: { pages: "1" } } }, { text: PDF_BRIEF }],
 				// The job's result re-enters the lesson.
 				[{ text: "From your PDF: the integral rule." }],
@@ -314,10 +314,10 @@ async function main() {
 		check(prompts3.length === 3, `the tool round used ${prompts3.length - 2} agent prompts, not one`);
 		say("tool turn: the mock called ask_user_question through the bridge, the answer resumed the same agent prompt");
 
-		// A helper run: the pdfReader role pinned to the mock model; the teacher's pdf tool starts the job.
+		// A helper run: the vision slot (the PDF reader's) pinned to the mock model; the teacher's pdf tool starts the job.
 		fs.copyFileSync(path.join(ROOT, "tests", "fixtures", "sample-3page.pdf"), path.join(home, "lesson.pdf"));
-		const role = await send(`${server.url}/api/settings/agent`, "PUT", { models: { pdfReader: { model: { provider: "antigravity", id: models[0].id } } } });
-		check(role.status === 200, `pin the pdfReader role → ${role.status} ${JSON.stringify(role.body)}`);
+		const slot = await send(`${server.url}/api/settings/models`, "PUT", { vision: { model: { provider: "antigravity", id: models[0].id } } });
+		check(slot.status === 200, `pin the vision slot → ${slot.status} ${JSON.stringify(slot.body)}`);
 		const handover = await send(`${server.url}/api/chat`, "POST", { chatId, input: { type: "text", text: "Let's start the lesson." } });
 		check(handover.status === 200, `handover POST /api/chat → ${handover.status} ${JSON.stringify(handover.body)}`);
 		await fetch(`${server.url}/api/chats/${chatId}/stream`).then((res) => res.text()).catch(() => "");
