@@ -166,3 +166,36 @@ test("one PDF tool round: the tutor calls pdf on a fixture PDF, LearnHarness run
 	runtime.shutdown();
 	await h.assertNoChildren();
 });
+
+test("two tool sessions on one process: the prober asks and hands over, the handoff steer starts the teacher on a fresh session whose first act is a tool call; both phases' tools are allowed", async (t) => {
+	const assessment = { assessment: { strands: [{ strand: "fractions as parts of a whole", assessment: "Reasons from equal parts; untested on unlike denominators." }], summary: "Start at adding unlike fractions." } };
+	const h = harness(t, { promptSeq: [
+		// The prober: a question, then (after the answer) probe_done and a closing sentence, all in one agent prompt.
+		[{ mcpCall: { name: "ask_user_question", arguments: ASK } }, { mcpCall: { name: "probe_done", arguments: assessment } }, { text: "Handing over to teaching." }],
+		// The teacher, on a fresh session (other tools): its first act is a tool call.
+		[{ mcpCall: { name: "plan_init", arguments: { mermaid: "graph TD\n  parts[Parts of a whole] --> add[Adding unlike fractions]" } } }, { text: "Here is our plan." }],
+	] });
+	const chat = lessonChat("Antigravity prober to teacher");
+	await settle(chat.id, await handleChatInput(chat.id, { type: "text", text: "Teach me fractions" }));
+	const call = pendingCall(chat.id);
+	assert.equal(call.name, "ask_user_question");
+	await settle(chat.id, await handleChatInput(chat.id, { type: "answer", toolCallId: call.id!, answer: askAnswer() }));
+	// The handoff steer wakes the teacher by itself (the wake pipeline, follow-ups allowed with tools on).
+	await waitFor(() => lastReply(chat.id).text === "Here is our plan.", 15_000, "the teacher's first reply").catch((error: unknown) => {
+		const stopped = messagesOf(chat.id).filter((m) => m.stopReason === "error").map((m) => (m as { errorMessage?: string }).errorMessage);
+		throw new Error(`${String(error)}; stopped replies: ${JSON.stringify(stopped)}`);
+	});
+	await waitFor(() => !runningTurn(chat.id), 10_000, "settled");
+	const errors = messagesOf(chat.id).filter((m) => m.role === "assistant" && m.stopReason === "error");
+	assert.deepEqual(errors, [], "no phase was stopped");
+	const answers = (h.log().filter((e) => e.kind === "permission-answer") as unknown as { name: string; answer: { outcome: { optionId: string } } }[]);
+	assert.deepEqual(answers.map((e) => [e.name.replace(/^mcp_lh[0-9a-f]{10}_/, ""), e.answer.outcome.optionId]), [["ask_user_question", "allow"], ["probe_done", "allow"], ["plan_init", "allow"]]);
+	const servers = h.received().filter((m) => m.method === "session/new").map((m) => (m.params as { mcpServers: { name: string }[] }).mcpServers[0]?.name);
+	assert.equal(servers.length, 2, "the teacher got a fresh session");
+	assert.equal(new Set(servers).size, 2, "each session its own server name");
+	const listed = h.log().filter((e) => e.kind === "mcp-tools") as unknown as { names: string[]; agentNames: string[] }[];
+	assert.ok(listed[1]!.names.includes("plan_init"));
+	assert.ok(listed.every((e) => e.agentNames.every((name) => !/^mcp_[a-z0-9]+_[0-9a-f]{8}_/.test(name))), "no agent-invented suffix");
+	runtime.shutdown();
+	await h.assertNoChildren();
+});

@@ -37,7 +37,7 @@ export function breachMessage(what: string): string {
 }
 
 /** Prepended to the system text of a turn with LearnHarness tools (in place of TEXT_ONLY_NOTE). */
-export const TOOLS_NOTE = "LearnHarness's tools are available to you as MCP tools named mcp_learnharness_<tool name>. When the instructions mention a tool by its plain name, call the mcp_learnharness_ version. Use no other tools: do not read or write files, run commands, browse or search with built-in tools. Lines such as \"[tool call …]\" in the conversation are a record of past calls; to use a tool, make a real tool call, never write such a line.";
+export const TOOLS_NOTE = "LearnHarness's tools are the MCP tools you have been given: their names start with mcp_ and end with _<plain tool name>. When the instructions mention a tool by its plain name, call the MCP tool whose name ends with that name. Use no other tools: do not read or write files, run commands, browse or search with built-in tools. Lines such as \"[tool call …]\" in the conversation are a record of past calls; to use a tool, make a real tool call, never write such a line.";
 
 /** Prepended to the system text of every turn without tools. */
 export const TEXT_ONLY_NOTE = "This session is text-only. No tools are available: do not call tools or run commands; answer in plain text and Markdown.";

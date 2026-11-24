@@ -27,7 +27,7 @@ import { antigravityHost, type AntigravityHost } from "./host.ts";
 import { findConfigOption, levelsFrom, modelsFrom } from "./models.ts";
 import { antigravityRuntime, antigravityTimeouts, describeAgentError, isValueRefusal, rejectOnce, type AgentConnection, type AntigravityRuntime, type SessionListener } from "./runtime.ts";
 import { antigravityReuseOn, antigravityToolsOn } from "../../core/fork-config.ts";
-import { AGENT_TOOL_PREFIX, ToolBridge, type EndpointHooks, type HeldCall, type SessionEndpoint } from "./tool-bridge.ts";
+import { agentToolName, ToolBridge, type EndpointHooks, type HeldCall, type SessionEndpoint } from "./tool-bridge.ts";
 import { declaredTools, fingerprintHash, replayAssistant, reuseTailParts, toAntigravityInput, toPromptBlocks, type AntigravityInput, type Part, type PromptBlock, type SeenFingerprint } from "./transcript.ts";
 
 function count(value: unknown): number {
@@ -89,11 +89,13 @@ class AntigravityTurn {
 	setContextUsage(usage: unknown, used: number): void {
 		const target = this.output.usage;
 		const record = isRecord(usage) ? usage : {};
-		target.output = count(record.outputTokens);
-		target.cacheRead = count(record.cachedReadTokens);
+		// The result's counts are sums over the prompt's rounds (measured: cache reads 64,557 against a
+		// context of 18,846): clamp them so the buckets always add up to exactly `used`.
+		target.output = Math.min(count(record.outputTokens), used);
+		target.cacheRead = Math.min(count(record.cachedReadTokens), used - target.output);
+		target.input = used - target.output - target.cacheRead;
 		target.cacheWrite = 0;
-		target.input = Math.max(0, used - target.output - target.cacheRead);
-		target.totalTokens = target.input + target.output + target.cacheRead;
+		target.totalTokens = used;
 	}
 
 	finish(reason: "stop" | "length"): void {
@@ -196,17 +198,28 @@ class AgentSession {
 	appliedLevel: string | undefined;
 	poisoned = false;
 	closed = false;
-	/** The session's MCP endpoint and the plain names of the tools it was given, if any (fixed for its life). */
-	tools: { endpoint: SessionEndpoint; names: ReadonlySet<string> } | undefined;
+	/** The session's MCP endpoint and its tools, agent name → plain name, if any (fixed for its life). */
+	tools: { endpoint: SessionEndpoint; names: ReadonlyMap<string, string> } | undefined;
 	/** Where the endpoint's calls go: the turn using the session, or the park. */
 	calls: EndpointHooks | undefined;
 	private stopWatching: (() => void) | undefined;
 
 	constructor(readonly connection: AgentConnection, readonly sessionId: string) {}
 
-	/** Whether `name` (as the agent reports it) is one of the tools this session was given. */
+	/** Whether `name` (as the agent reports it) is EXACTLY mcp_<this session's server>_<a tool it was given>. */
 	isOurs(name: unknown): boolean {
-		return typeof name === "string" && name.startsWith(AGENT_TOOL_PREFIX) && !!this.tools?.names.has(name.slice(AGENT_TOOL_PREFIX.length));
+		return typeof name === "string" && !!this.tools?.names.has(name);
+	}
+
+	/** The plain name of one of this session's tools, by its agent name. */
+	plainName(name: unknown): string | undefined {
+		return typeof name === "string" ? this.tools?.names.get(name) : undefined;
+	}
+
+	/** For a breach message: the rest of `name` when it carries this session's server segment. */
+	underOurServer(name: unknown): string | undefined {
+		const prefix = this.tools ? agentToolName(this.tools.endpoint.serverName, "") : undefined;
+		return prefix && typeof name === "string" && name.startsWith(prefix) ? name.slice(prefix.length) : undefined;
 	}
 
 	/** Start routing (throws for an id another turn already watches; then nothing was taken). Early updates replay into `target`. */
@@ -584,7 +597,7 @@ class TurnSession {
 			const session = new AgentSession(connection, created.sessionId);
 			session.observe(created.configOptions, frame);
 			this.refreshModels(created.configOptions);
-			if (endpoint) session.tools = { endpoint, names: new Set(this.tools.map((tool) => tool.name)) };
+			if (endpoint) session.tools = { endpoint, names: new Map(this.tools.map((tool) => [agentToolName(endpoint.serverName, tool.name), tool.name])) };
 			session.calls = this.callRoute;
 			// Replays what arrived before this point (a breach, newer options), so an early tool_call still
 			// stops the turn. Throws for an id another turn already watches: this turn then owns nothing.
@@ -802,7 +815,7 @@ class TurnSession {
 			const options = Array.isArray(params.options) ? params.options : [];
 			const allow = options.find((option) => isRecord(option) && option.kind === "allow_once" && typeof option.optionId === "string") as { optionId: string } | undefined;
 			if (allow) {
-				this.allowance = { name: (call.name as string).slice(AGENT_TOOL_PREFIX.length), toolCallId: call.toolCallId };
+				this.allowance = { name: this.agent.plainName(call.name)!, toolCallId: call.toolCallId };
 				this.touch();
 				return { outcome: { outcome: "selected", optionId: allow.optionId } };
 			}
@@ -813,7 +826,9 @@ class TurnSession {
 
 	/** Any tool use LearnHarness did not grant stops the reply. */
 	private breach(call: Record<string, unknown>): void {
-		const what = [call.title, call.kind].map(safeLabel).find((value) => value !== "");
+		// Under this session's own server segment, the tool's plain name; otherwise the title, as before.
+		const ours = this.agent?.underOurServer(call.name);
+		const what = [ours, call.title, call.kind].map(safeLabel).find((value) => value !== "");
 		this.stopReply(this.agent?.tools ? toolBreachMessage(what ?? "a tool") : breachMessage(what ?? "a tool"));
 	}
 
@@ -968,7 +983,8 @@ class TurnSession {
 	private settle(result: unknown): void {
 		if (this.turn.finished) return;
 		if (!isRecord(result)) { this.turn.fail(AntigravityMessage.NoStopReason); return; }
-		if (this.toolRounds > 0) this.turn.setContextUsage(result.usage, this.promptUsed ?? 0);
+		// After tool rounds the context size the agent last reported decides; never seen one: the result's own counts.
+		if (this.toolRounds > 0 && this.promptUsed !== undefined) this.turn.setContextUsage(result.usage, this.promptUsed);
 		else this.turn.setUsage(result.usage);
 		const reason = result.stopReason;
 		switch (reason) {

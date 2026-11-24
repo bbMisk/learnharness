@@ -20,9 +20,15 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError, type CallToolResult, type Tool as McpTool } from "@modelcontextprotocol/sdk/types.js";
 
+/** The MCP server's own name in its initialize answer (not the per-session name the agent is given). */
 export const BRIDGE_SERVER_NAME = "learnharness";
-/** What the model sees a declared tool as. */
-export const AGENT_TOOL_PREFIX = `mcp_${BRIDGE_SERVER_NAME}_`;
+/** Bytes of randomness in a session's server name: "lh" + 10 lowercase hex. */
+const SERVER_NAME_BYTES = 5;
+
+/** What the model sees a declared tool as, for a session whose MCP server is called `serverName`. */
+export function agentToolName(serverName: string, tool: string): string {
+	return `mcp_${serverName}_${tool}`;
+}
 const LOOPBACK_HOST = "127.0.0.1";
 const SECRET_BYTES = 32;
 export const MAX_BRIDGE_BODY_BYTES = 8 * 1024 * 1024;
@@ -54,6 +60,12 @@ export interface McpServerEntry {
 
 export interface SessionEndpoint {
 	readonly mcpServer: McpServerEntry;
+	/**
+	 * This session's own MCP server name, never reused in the agent process. The agent names a tool
+	 * mcp_<server name>_<tool>, but adds a suffix of its own when a process sees one name with two
+	 * urls (measured on agy 1.5.15), so a shared name would break every session after the first.
+	 */
+	readonly serverName: string;
 	/** Answer the held call `id` with a pi tool result. False if no such call is held. */
 	resolve(id: string, result: ToolResultMessage): boolean;
 	/** Fail every held call (with an error result) and forget them. */
@@ -104,6 +116,8 @@ async function shutDown(endpoint: Endpoint): Promise<void> {
 /** One listener per agent process; endpoints come and go with sessions. */
 export class ToolBridge {
 	private readonly endpoints = new Map<string, Endpoint>();
+	/** Every server name this process was given, so none is used twice. */
+	private readonly serverNames = new Set<string>();
 	private closed = false;
 
 	private constructor(private readonly http: http.Server, readonly port: number) {}
@@ -129,6 +143,10 @@ export class ToolBridge {
 		if (this.closed) throw new Error("tool bridge closed");
 		const segment = randomBytes(SECRET_BYTES).toString("hex");
 		const token = randomBytes(SECRET_BYTES).toString("hex");
+		let serverName: string;
+		do serverName = `lh${randomBytes(SERVER_NAME_BYTES).toString("hex")}`;
+		while (this.serverNames.has(serverName));
+		this.serverNames.add(serverName);
 		const declared = new Map(tools.map((tool) => [tool.name, tool]));
 		const held = new Map<string, (result: CallToolResult) => void>();
 		const byRequest = new Map<string | number, () => void>();
@@ -170,7 +188,8 @@ export class ToolBridge {
 			for (const settle of [...held.values()]) settle({ content: [{ type: "text", text: reason }], isError: true });
 		};
 		return {
-			mcpServer: { type: "http", name: BRIDGE_SERVER_NAME, url: `http://${LOOPBACK_HOST}:${this.port}/mcp/${segment}`, headers: [{ name: "Authorization", value: `Bearer ${token}` }] },
+			serverName,
+			mcpServer: { type: "http", name: serverName, url: `http://${LOOPBACK_HOST}:${this.port}/mcp/${segment}`, headers: [{ name: "Authorization", value: `Bearer ${token}` }] },
 			resolve: (id, result) => {
 				const settle = held.get(id);
 				if (!settle) return false;

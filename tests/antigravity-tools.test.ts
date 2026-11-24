@@ -115,7 +115,8 @@ test("one tool round: the call becomes pi's tool call, the result goes back, and
 	assert.equal(s.sent("session/new").length, 1);
 	assert.equal(s.prompts().length, 1, "one ACP prompt across both pi streams");
 	const newParams = s.sent("session/new")[0]!.params as { mcpServers: { name: string; url: string }[] };
-	assert.deepEqual(newParams.mcpServers.map((server) => server.name), ["learnharness"]);
+	assert.equal(newParams.mcpServers.length, 1);
+	assert.match(newParams.mcpServers[0]!.name, /^lh[0-9a-f]{10}$/, "the session's own server name");
 	assert.deepEqual(s.systemTexts(), [`${TOOLS_NOTE}\n\n${SYSTEM_TEXT}`]);
 	assert.deepEqual(s.entries<{ answer: unknown }>("permission-answer").map((e) => e.answer), [{ outcome: { outcome: "selected", optionId: "allow" } }]);
 	assert.deepEqual(s.entries<{ result: unknown }>("mcp-result").map((e) => e.result), [{ content: [{ type: "text", text: "ECHO:hello" }], isError: false }]);
@@ -136,8 +137,8 @@ test("two calls in one step run as two serial rounds; several rounds share one p
 	assert.deepEqual(finals.map((m) => m.stopReason), ["toolUse", "toolUse", "toolUse", "stop"]);
 	assert.equal(s.textOf(last), "end");
 	assert.equal(s.prompts().length, 1);
-	const order = s.h.log().filter((e) => e.kind === "permission-answer" || e.kind === "mcp-result").map((e) => `${e.kind}:${(e as unknown as { name: string }).name}`);
-	assert.deepEqual(order, ["permission-answer:mcp_learnharness_lh_echo", "mcp-result:lh_echo", "permission-answer:mcp_learnharness_lh_image", "mcp-result:lh_image", "permission-answer:mcp_learnharness_lh_echo", "mcp-result:lh_echo"]);
+	const order = s.h.log().filter((e) => e.kind === "permission-answer" || e.kind === "mcp-result").map((e) => `${e.kind}:${(e as unknown as { name: string }).name.replace(/^mcp_lh[0-9a-f]{10}_/, "mcp_<ours>_")}`);
+	assert.deepEqual(order, ["permission-answer:mcp_<ours>_lh_echo", "mcp-result:lh_echo", "permission-answer:mcp_<ours>_lh_image", "mcp-result:lh_image", "permission-answer:mcp_<ours>_lh_echo", "mcp-result:lh_echo"]);
 });
 
 test("a second MCP call while one is held is refused and the turn expires; the result then gets a fresh session with the full replay", async (t) => {
@@ -162,7 +163,7 @@ test("permission: ours selects allow_once (never allow_always); an undeclared mc
 	assert.equal((await ok.lesson([user("go")], [ECHO])).last.stopReason, "stop");
 	assert.deepEqual(ok.entries<{ answer: unknown }>("permission-answer").map((e) => e.answer), [{ outcome: { outcome: "selected", optionId: "once" } }]);
 	const cases: [string, Record<string, unknown>][] = [
-		["undeclared", call("lh_x", { agentName: "mcp_learnharness_lh_x" })],
+		["undeclared", call("lh_x", { agentName: "mcp_{server}_lh_x" })],
 		["built-in", call("lh_echo", { agentName: "run_command" })],
 		["no allow_once", call("lh_echo", { options: [always[0], always[2]] })],
 	];
@@ -172,6 +173,7 @@ test("permission: ours selects allow_once (never allow_always); an undeclared mc
 			const { last } = await s.lesson([user("go")], [ECHO]);
 			assert.equal(last.stopReason, "error", what);
 			assert.match(last.errorMessage ?? "", /^Antigravity tried to use a tool LearnHarness didn't give it/);
+			if (what === "undeclared") assert.equal(last.errorMessage, toolBreachMessage("lh_x"), "our server segment: the plain tool name");
 			await waitFor(() => s.entries("permission-answer").length === 1, 3000, "the answer to reach the mock");
 			assert.deepEqual(s.entries<{ answer: unknown }>("permission-answer").map((e) => e.answer), [{ outcome: { outcome: "selected", optionId: what === "no allow_once" ? "no" : "deny" } }]);
 			assert.equal(s.entries("mcp-result").length, 0, "nothing was called");
@@ -391,10 +393,23 @@ test("usage: a tool-round message carries only the context size it saw; the fina
 		const plain = setup(tt, { usage, prompt: [{ used: 10368 }, say("hi")] });
 		assert.deepEqual(buckets(await plain.once([user("hi")], [ECHO])), [12497, 41, 8296, 0]);
 	});
-	await t.test("never negative", async (tt) => {
+	await t.test("clamped to the context size: the summed cache reads never inflate the total", async (tt) => {
 		const small = setup(tt, { usage, prompt: [call("lh_echo"), say("x"), { used: 100 }] });
 		const { last } = await small.lesson([user("go")], [ECHO]);
-		assert.deepEqual(buckets(last), [0, 41, 8296, 0]);
+		assert.deepEqual(buckets(last), [0, 41, 59, 0]);
+	});
+	await t.test("the real four-round figures: the total is the latest used", async (tt) => {
+		// Measured by the lead: a four-round prompt's result summed cache reads to 64,557 while the context was ~18.8k.
+		const real = setup(tt, { usage: { inputTokens: 0, outputTokens: 632, cachedReadTokens: 64557, cachedWriteTokens: 0, thoughtTokens: 0, totalTokens: 65189 }, prompt: [{ used: 17000 }, call("lh_echo"), { used: 18000 }, call("lh_echo"), { used: 18500 }, call("lh_echo"), { used: 18846 }, call("lh_echo"), say("done")] });
+		const { finals, last } = await real.lesson([user("go")], [ECHO]);
+		assert.deepEqual(finals.slice(0, 4).map((m) => m.usage.input), [17000, 18000, 18500, 18846]);
+		assert.deepEqual(buckets(last), [0, 632, 18846 - 632, 0]);
+		assert.equal(buckets(last).reduce((a, b) => a + b, 0), 18846);
+	});
+	await t.test("no usage_update ever: the result's own numbers, as for a prompt with no tool round", async (tt) => {
+		const none = setup(tt, { usage, prompt: [call("lh_echo"), say("x")] });
+		const { last } = await none.lesson([user("go")], [ECHO]);
+		assert.deepEqual(buckets(last), [12497, 41, 8296, 0]);
 	});
 });
 
@@ -460,8 +475,40 @@ test("fail closed: an MCP call on a parked session poisons it; a permission whil
 		assert.deepEqual(s.entries<{ answer: { outcome: { optionId: string } } }>("permission-answer").map((e) => e.answer.outcome.optionId), ["allow", "deny"]);
 	});
 	await t.test("our tool name with another call id while waiting", async (tt) => {
-		const s = setup(tt, { promptSeq: [[call("lh_echo", { whileHeld: [{ sessionUpdate: "tool_call_update", toolCallId: "call_other", name: "mcp_learnharness_lh_echo", status: "in_progress" }] }), say("never")]], prompt: [say("Fresh")] });
+		const s = setup(tt, { promptSeq: [[call("lh_echo", { whileHeld: [{ sessionUpdate: "tool_call_update", toolCallId: "call_other", name: "mcp_{server}_lh_echo", status: "in_progress" }] }), say("never")]], prompt: [say("Fresh")] });
 		const { last } = await s.lesson([user("go")], [ECHO], async (c) => { await waitFor(() => s.sent("session/cancel").length === 1, 3000, "expiry"); return echoExec(c); });
 		assert.equal(s.textOf(last), "Fresh");
 	});
+});
+
+test("every tool session gets its own MCP server name (lh + 10 hex, never reused in the process), so the agent never suffixes our tools", async (t) => {
+	const s = setup(t, { prompt: [call("lh_echo"), say("ok")] });
+	for (const chat of ["chat-a", "chat-b", "chat-c"]) {
+		const { last } = await s.lesson([user(`go ${chat}`)], [ECHO], echoExec, { sessionId: chat });
+		assert.equal(last.stopReason, "stop", `${chat}: ${last.errorMessage ?? ""}`);
+	}
+	const names = s.sent("session/new").map((m) => (m.params as { mcpServers: { name: string }[] }).mcpServers[0]!.name);
+	assert.equal(names.length, 3);
+	for (const name of names) assert.match(name, /^lh[0-9a-f]{10}$/);
+	assert.equal(new Set(names).size, 3, "no server name is sent twice in one process");
+	const listed = s.entries<{ server: string; agentNames: string[] }>("mcp-tools");
+	assert.deepEqual(listed.map((e) => e.agentNames), names.map((name) => [`mcp_${name}_lh_echo`]), "the agent added no suffix");
+	assert.deepEqual(new Set(s.systemTexts()).size, 1, "the system note names no server, so it is the same for every session");
+	assert.ok(!s.systemTexts()[0]!.includes("mcp_lh"));
+});
+
+test("only mcp_<this session's server>_<declared tool> is ours: a foreign or suffixed server segment is refused", async (t) => {
+	for (const [what, agentName, shown] of [
+		["foreign server", "mcp_learnharness_lh_echo", "Run mcp_learnharness_lh_echo"],
+		["agent-suffixed", "mcp_{server}_94df266b_lh_echo", "94df266b_lh_echo"],
+		["other session's shape", "mcp_lh0000000000_lh_echo", "Run mcp_lh0000000000_lh_echo"],
+	] as const) {
+		await t.test(what, async (tt) => {
+			const s = setup(tt, { prompt: [call("lh_echo", { agentName }), say("never")] });
+			const { last } = await s.lesson([user("go")], [ECHO]);
+			assert.equal(last.stopReason, "error");
+			assert.equal(last.errorMessage, toolBreachMessage(shown));
+			assert.equal(s.entries("mcp-result").length, 0);
+		});
+	}
 });

@@ -59,6 +59,8 @@
  *   second call made while the first is held; {mcpBadAuth: true} wrong token and wrong path, logged.
  *   mcpCall.whileHeld: updates sent 50 ms into the held call; mcpCall.lateInProgress: the in_progress
  *   update sent 30 ms AFTER the MCP request instead of before it. {used: n}: a usage_update.
+ *   The model sees a tool as mcp_<server name>_<tool>, with the agent's 8-hex suffix after the name when
+ *   the process already saw that name with another url (toolPrefix). mcpCall.agentName may use {server}.
  *   mcpCall.noCall: ask permission, then make no MCP call; mcpCall.whileHeldPermission: a second
  *   permission request 50 ms into the held call. parkedUpdate "mcp": an MCP call 50 ms after the reply.
  *   promptSeq: [[steps], …] the k-th prompt this process receives runs promptSeq[k] (else `prompt`).
@@ -213,8 +215,21 @@ function newSession() {
 	return result;
 }
 
+/**
+ * The agent's own naming rule (measured on agy 1.5.15 by the lead): a server name it has seen with
+ * one url, brought again with a DIFFERENT url (even after the first session closed), gets an 8-hex
+ * suffix the agent invents: mcp_<name>_<8 hex>_<tool>. A new name, or the same name and url: mcp_<name>_<tool>.
+ */
+const serverUrls = new Map();
+function toolPrefix(name, url) {
+	const known = serverUrls.get(name);
+	if (known === undefined) serverUrls.set(name, url);
+	if (known !== undefined && known !== url) return `mcp_${name}_${randomUUID().replace(/-/g, "").slice(0, 8)}_`;
+	return `mcp_${name}_`;
+}
+
 async function connectMcp(session, servers) {
-	const entry = (Array.isArray(servers) ? servers : []).find((server) => server?.type === "http" && server.name === "learnharness");
+	const entry = (Array.isArray(servers) ? servers : []).find((server) => server?.type === "http" && typeof server.name === "string");
 	if (!entry) return;
 	const headers = Object.fromEntries((entry.headers ?? []).map((header) => [header.name, header.value]));
 	// The real agent probes these WITHOUT the header.
@@ -225,8 +240,9 @@ async function connectMcp(session, servers) {
 	const client = new Client({ name: "mock-agy", version: "1.5.15" });
 	await client.connect(new StreamableHTTPClientTransport(new URL(entry.url), { requestInit: { headers } }));
 	const { tools } = await client.listTools();
-	session.mcp = { client, entry, headers };
-	log({ kind: "mcp-tools", sessionId: session.id, names: tools.map((tool) => tool.name) });
+	const prefix = toolPrefix(entry.name, entry.url);
+	session.mcp = { client, entry, headers, prefix };
+	log({ kind: "mcp-tools", sessionId: session.id, server: entry.name, names: tools.map((tool) => tool.name), agentNames: tools.map((tool) => `${prefix}${tool.name}`) });
 }
 
 let toolCallCounter = 1000000000000000000n;
@@ -246,7 +262,8 @@ async function callMcp(session, name, args, signal) {
 
 /** One announced, permitted, called tool round, the way agy 1.5.15 does it. */
 async function mcpRound(session, sessionId, spec) {
-	const agentName = spec.agentName ?? `mcp_learnharness_${spec.name}`;
+	// What the model sees the tool as; an explicit agentName may use {server} for this session's server name.
+	const agentName = spec.agentName ? spec.agentName.replace("{server}", session.mcp?.entry.name ?? "learnharness") : `${session.mcp?.prefix ?? "mcp_learnharness_"}${spec.name}`;
 	const args = { ...(spec.arguments ?? {}), toolSummary: spec.summary ?? "Using a LearnHarness tool" };
 	const fields = { toolCallId: `call_${toolCallCounter++}`, name: agentName, args, kind: "other", title: `Run ${agentName}`, rawInput: args };
 	update(sessionId, { sessionUpdate: "tool_call", ...fields, status: "in_progress" });
@@ -261,7 +278,7 @@ async function mcpRound(session, sessionId, spec) {
 	const timer = spec.cancelAfterMs ? setTimeout(() => controller.abort(), spec.cancelAfterMs) : undefined;
 	const pending = callMcp(session, spec.name, spec.arguments, controller.signal);
 	if (spec.lateInProgress) { await sleep(30); update(sessionId, { sessionUpdate: "tool_call_update", ...fields, status: "in_progress" }); }
-	if (spec.whileHeld) { await sleep(50); for (const body of spec.whileHeld) update(sessionId, body); }
+	if (spec.whileHeld) { await sleep(50); for (const body of spec.whileHeld) update(sessionId, JSON.parse(JSON.stringify(body).replaceAll("{server}", session.mcp?.entry.name ?? "learnharness"))); }
 	if (spec.whileHeldPermission) {
 		await sleep(50);
 		const again = await requestClient("session/request_permission", { sessionId, toolCall: { sessionUpdate: "tool_call", ...fields, toolCallId: "call_while_held", status: "pending" }, options });
