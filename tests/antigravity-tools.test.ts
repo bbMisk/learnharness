@@ -5,6 +5,7 @@
  * the lead's scrubbed frames of agy 1.5.15. Every assertion reads the mock's log.
  */
 import assert from "node:assert/strict";
+import { getEventListeners } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -511,4 +512,119 @@ test("only mcp_<this session's server>_<declared tool> is ours: a foreign or suf
 			assert.equal(s.entries("mcp-result").length, 0);
 		});
 	}
+});
+
+// ── review fixes (independent review of the tools code) ─────────────────────
+
+test("no lost answer: the agent's held request is gone just before the result arrives → the answer reaches the model once, through the replay", async (t) => {
+	const { toolBridgeTestHooks } = await import("../src/agent/antigravity/tool-bridge.ts");
+	let held: { destroy(): void } | undefined;
+	toolBridgeTestHooks.onHeld = (_call, res) => { held = res; };
+	t.after(() => { delete toolBridgeTestHooks.onHeld; });
+	const s = setup(t, { promptSeq: [[call("lh_echo"), say("never")]], prompt: [say("Fresh")] });
+	const { finals, last } = await s.lesson([user("go")], [ECHO], async (c) => { const result = await echoExec(c); held!.destroy(); return result; });
+	assert.deepEqual(finals.map((m) => m.stopReason), ["toolUse", "stop"]);
+	assert.equal(s.textOf(last), "Fresh", "never an error while the answer is in hand");
+	const replay = s.prompts().at(-1)!.texts.join("\n");
+	assert.equal(replay.split("[tool result lh_echo]\nECHO:hello").length - 1, 1, "exactly once");
+});
+
+test("no lost answer: a request already dead before the handler runs is never handed to pi", async (t) => {
+	const { toolBridgeTestHooks } = await import("../src/agent/antigravity/tool-bridge.ts");
+	toolBridgeTestHooks.beforeDispatch = (res) => { res.destroy(); };
+	t.after(() => { delete toolBridgeTestHooks.beforeDispatch; });
+	const s = setup(t, { prompt: [call("lh_echo"), say("carried on")] });
+	const { finals } = await s.lesson([user("go")], [ECHO]);
+	assert.deepEqual(finals.map((m) => m.stopReason), ["stop"], "no tool call for a dead request");
+	assert.equal(s.textOf(finals[0]!), "carried on");
+});
+
+test("an allowed call that never reached the bridge: 'completed' is a breach, 'failed' only ends the allowance", async (t) => {
+	await t.test("completed", async (tt) => {
+		const s = setup(tt, { prompt: [call("lh_echo", { noCall: true, endStatus: "completed" }), say("never")] });
+		const { last } = await s.lesson([user("go")], [ECHO]);
+		assert.equal(last.stopReason, "error");
+		assert.equal(last.errorMessage, toolBreachMessage("lh_echo"));
+	});
+	await t.test("failed", async (tt) => {
+		const s = setup(tt, { prompt: [call("lh_echo", { noCall: true, endStatus: "failed" }), call("lh_echo"), say("fine")] });
+		const { last } = await s.lesson([user("go")], [ECHO]);
+		assert.equal(last.stopReason, "stop", last.errorMessage);
+	});
+});
+
+test("a tool call after the provider was turned off mid-reply: pi gets the call, the wait expires at once", async (t) => {
+	const { h, runtime } = base(t, { prompt: [say("thinking "), { sleepMs: 300 }, call("lh_echo"), say("never")] });
+	let available = true;
+	const stream = createAntigravityStreamFunction({ runtime: () => runtime, host: () => ({ available: () => available, models: () => [], saveModels: () => {} }) });
+	const events = stream(PRO, normalizeContext({ systemPrompt: SYSTEM_TEXT, messages: [user("go")], tools: [ECHO] }), { sessionId: "chat-off" });
+	await waitFor(() => h.log().some((e) => e.kind === "prompt"), 3000, "the prompt");
+	available = false;
+	for await (const _event of events) { /* drain */ }
+	assert.equal((await events.result()).stopReason, "toolUse");
+	await waitFor(() => h.received().some((m) => m.method === "session/close"), 3000, "the close");
+	assert.ok(h.received().some((m) => m.method === "session/cancel"));
+	assert.equal(waitingTurnCount(runtime.connection!), 0);
+});
+
+test("fail closed: malformed mode or config updates while streaming or during setup stop the turn", async (t) => {
+	for (const [what, scenario] of [
+		["config while streaming", { prompt: [say("a"), { update: { sessionUpdate: "config_option_update", configOptions: "nope" } }, say("never")] }],
+		["mode while streaming", { prompt: [say("a"), { update: { sessionUpdate: "current_mode_update", currentModeId: 5 } }, say("never")] }],
+		["config during setup", { updateAfterNew: { sessionUpdate: "config_option_update", configOptions: { not: "a list" } }, prompt: [say("never")] }],
+		["mode during setup", { updateAfterNew: { sessionUpdate: "current_mode_update", currentModeId: null }, prompt: [say("never")] }],
+	] as const) {
+		await t.test(what, async (tt) => {
+			const s = setup(tt, scenario as MockScenario);
+			const reply = await s.once([user("go")], [ECHO]);
+			assert.equal(reply.stopReason, "error", what);
+			assert.ok(!s.textOf(reply).includes("never"));
+		});
+	}
+});
+
+test("fail closed while waiting: a model switch, another tool name on the held id, an unknown update kind expire; harmless kinds don't", async (t) => {
+	for (const [what, extra] of [
+		["model switch", { whileHeldModel: "gemini-3-flash" }],
+		["other tool name, same id", { whileHeld: [{ sessionUpdate: "tool_call_update", toolCallId: "{id}", name: "mcp_{server}_lh_image", status: "in_progress" }] }],
+		["unknown kind", { whileHeld: [{ sessionUpdate: "plan", entries: [] }] }],
+	] as const) {
+		await t.test(what, async (tt) => {
+			const s = setup(tt, { promptSeq: [[call("lh_echo", extra), say("never")]], prompt: [say("Fresh")] });
+			const { last } = await s.lesson([user("go")], [ECHO, IMAGE], async (c) => { await waitFor(() => s.sent("session/cancel").length === 1, 3000, "expiry"); return echoExec(c); });
+			assert.equal(s.textOf(last), "Fresh");
+		});
+	}
+	const ok = setup(t, { prompt: [call("lh_echo", { whileHeld: [{ sessionUpdate: "session_info_update", title: "x" }, { sessionUpdate: "available_commands_update", availableCommands: [] }, { sessionUpdate: "tool_call_update", toolCallId: "{id}", name: "mcp_{server}_lh_echo", status: "in_progress" }] }), say("ok")] });
+	const { last } = await ok.lesson([user("go")], [ECHO], async (c) => { await delay(150); return echoExec(c); });
+	assert.equal(last.stopReason, "stop");
+	assert.equal(ok.prompts().length, 1, "harmless updates while waiting keep the round");
+});
+
+test("fail closed: a permission or tool update without a proper toolCallId is a breach", async (t) => {
+	for (const [what, toolCallId] of [["missing", null], ["empty", ""]] as const) {
+		await t.test(what, async (tt) => {
+			const s = setup(tt, { prompt: [call("lh_echo", { toolCallId }), say("never")] });
+			const { last } = await s.lesson([user("go")], [ECHO]);
+			assert.equal(last.stopReason, "error", what);
+			assert.match(last.errorMessage ?? "", /^Antigravity tried to use a tool/);
+		});
+	}
+});
+
+test("a closed session's endpoint closes at once, not after session/close answers", async (t) => {
+	const s = setup(t, { hangMethods: ["session/close"], prompt: [call("lh_echo"), say("ok")] });
+	process.env.LH_ANTIGRAVITY_REUSE = "0";
+	await s.lesson([user("go")], [ECHO]);
+	await waitFor(() => s.sent("session/close").length === 1, 3000, "session/close sent");
+	assert.equal(toolBridgeOf(s.runtime.connection!)!.size, 0);
+});
+
+test("a resumed stream leaves no abort listener behind on any earlier stream's signal", async (t) => {
+	const s = setup(t, { prompt: [call("lh_echo"), call("lh_echo"), call("lh_echo"), say("done")] });
+	const controller = new AbortController();
+	const { last } = await s.lesson([user("go")], [ECHO], echoExec, { signal: controller.signal });
+	assert.equal(last.stopReason, "stop");
+	await delay(50);
+	assert.equal(getEventListeners(controller.signal, "abort").length, 0);
 });

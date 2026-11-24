@@ -261,7 +261,7 @@ function queueSteer(chatId: string, steer: SteerMessage): QueuedSteer {
 export function automaticFollowUpAllowed(chatId: string, agent?: Agent): boolean {
 	if (agent && state().automaticDeferred.has(agent)) return false;
 	const provider = agent?.state?.model?.provider ?? resolveConversationSpec(stores.chatStore.getChat(chatId)?.settings, effectiveSettings().models.strong)?.provider;
-	if (provider === ANTIGRAVITY_PROVIDER) return antigravityFollowUpsAllowed(); // FORK: only the follow-ups its own tools cause, tools switch on (docs/antigravity.md)
+	if (provider === ANTIGRAVITY_PROVIDER) return antigravityFollowUpsAllowed(); // FORK: automatic follow-ups in an Antigravity lesson, tools switch on (docs/antigravity.md)
 	return connectionBackgroundAllowed(provider);
 }
 

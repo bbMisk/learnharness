@@ -99,6 +99,8 @@ type Early = {
 	/** Each with the frame it arrived in, so the replay keeps their order. */
 	configOptions?: { value: unknown[]; frame: number };
 	modeId?: { value: string; frame: number };
+	/** The first mode or config update that couldn't be read: replayed, so the turn can't confirm the mode. */
+	malformed?: { update: Record<string, unknown>; frame: number };
 };
 
 function label(value: unknown): string | undefined {
@@ -313,6 +315,7 @@ export class AgentConnection {
 		const replay: { frame: number; update: Record<string, unknown> }[] = [];
 		if (early?.configOptions) replay.push({ frame: early.configOptions.frame, update: { sessionUpdate: "config_option_update", configOptions: early.configOptions.value } });
 		if (early?.modeId) replay.push({ frame: early.modeId.frame, update: { sessionUpdate: "current_mode_update", currentModeId: early.modeId.value } });
+		if (early?.malformed) replay.push(early.malformed);
 		for (const { frame, update } of replay.sort((a, b) => a.frame - b.frame)) this.dispatch(() => listener.onUpdate(update, frame));
 		const breach = early?.breach;
 		if (breach && this.listeners.get(sessionId) === listener) {
@@ -403,7 +406,7 @@ export class AgentConnection {
 		let state = this.early.get(sessionId);
 		if (!state) {
 			if (this.early.size >= EARLY_MAX_SESSIONS) {
-				const victim = [...this.early].find(([, value]) => !value.breach)?.[0] ?? this.early.keys().next().value!;
+				const victim = [...this.early].find(([, value]) => !value.breach && !value.malformed)?.[0] ?? this.early.keys().next().value!;
 				this.early.delete(victim);
 			}
 			state = {};
@@ -422,9 +425,11 @@ export class AgentConnection {
 			}
 			case "config_option_update":
 				if (Array.isArray(update.configOptions)) this.earlyFor(sessionId).configOptions = { value: update.configOptions, frame: this.peer.frame };
+				else this.earlyFor(sessionId).malformed ??= { update: { sessionUpdate: "config_option_update", configOptions: null }, frame: this.peer.frame };
 				return;
 			case "current_mode_update":
 				if (typeof update.currentModeId === "string") this.earlyFor(sessionId).modeId = { value: update.currentModeId.slice(0, 200), frame: this.peer.frame };
+				else this.earlyFor(sessionId).malformed ??= { update: { sessionUpdate: "current_mode_update", currentModeId: null }, frame: this.peer.frame };
 				return;
 			default:
 				return; // chunks and everything else: nothing is kept

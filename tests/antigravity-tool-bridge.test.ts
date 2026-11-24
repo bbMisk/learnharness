@@ -142,3 +142,78 @@ test("tools/call with arguments that are not an object is refused and reported",
 	assert.equal(invalid.length, 3, "each malformed call is reported");
 });
 
+
+// ── review fixes: no lost answers, fail closed ──────────────────────────────
+
+test("a tools/call whose request is already dead when the handler runs is never handed to the turn", async (t) => {
+	const { toolBridgeTestHooks } = await import("../src/agent/antigravity/tool-bridge.ts");
+	t.after(() => { delete toolBridgeTestHooks.beforeDispatch; });
+	const { endpoint, calls } = await bridgeFor(t);
+	const post = await rawSession(endpoint.mcpServer);
+	toolBridgeTestHooks.beforeDispatch = (res) => { res.destroy(); };
+	await post({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "lh_echo", arguments: { text: "a" } } }).then((r) => r.text(), () => "dropped");
+	await new Promise((r) => setTimeout(r, 200));
+	assert.equal(calls.length, 0, "a dead request holds nothing");
+});
+
+test("held requests are keyed internally: a second request reusing a JSON-RPC id is refused and cannot abort or steal the first", async (t) => {
+	const { toolBridgeTestHooks } = await import("../src/agent/antigravity/tool-bridge.ts");
+	t.after(() => { delete toolBridgeTestHooks.beforeDispatch; });
+	const { endpoint, calls, aborted, invalid } = await bridgeFor(t);
+	const post = await rawSession(endpoint.mcpServer);
+	const first = post({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "lh_echo", arguments: { text: "first" } } }).then((r) => r.text());
+	await until(() => calls.length === 1);
+	toolBridgeTestHooks.beforeDispatch = (res) => { res.destroy(); };
+	const second = await post({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "lh_echo", arguments: { text: "second" } } }).then((r) => r.status, () => 0);
+	delete toolBridgeTestHooks.beforeDispatch;
+	await new Promise((r) => setTimeout(r, 200));
+	assert.ok(second === 400 || second === 0, `the reused id: ${second}`);
+	assert.deepEqual(invalid, ["reused request id"]);
+	assert.equal(calls.length, 1);
+	assert.deepEqual(aborted, [], "the first call is still held");
+	assert.equal(endpoint.resolve(calls[0]!.id, result([{ type: "text", text: "ok" }])), true);
+	assert.match(await first, /ok/);
+});
+
+test("resolve() reports false when the held call's response is already gone (destroyed, close not yet seen)", async (t) => {
+	const { toolBridgeTestHooks } = await import("../src/agent/antigravity/tool-bridge.ts");
+	t.after(() => { delete toolBridgeTestHooks.onHeld; });
+	const { endpoint, calls } = await bridgeFor(t);
+	let response: { destroy(): void } | undefined;
+	toolBridgeTestHooks.onHeld = (_call, res) => { response = res; };
+	const c = await client(t, endpoint.mcpServer);
+	void c.callTool({ name: "lh_echo", arguments: { text: "a" } }).catch(() => {});
+	await until(() => calls.length === 1 && response !== undefined);
+	assert.equal(endpoint.canResolve(calls[0]!.id), true);
+	response!.destroy();
+	assert.equal(endpoint.canResolve(calls[0]!.id), false);
+	assert.equal(endpoint.resolve(calls[0]!.id, result([{ type: "text", text: "late" }])), false, "an answer is never written into a dead response");
+});
+
+test("a closing endpoint accepts nothing that was still in flight", async (t) => {
+	const { toolBridgeTestHooks } = await import("../src/agent/antigravity/tool-bridge.ts");
+	t.after(() => { delete toolBridgeTestHooks.beforeDispatch; });
+	const { endpoint, calls } = await bridgeFor(t);
+	const post = await rawSession(endpoint.mcpServer);
+	toolBridgeTestHooks.beforeDispatch = () => { void endpoint.close(); };
+	const status = await post({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "lh_echo", arguments: { text: "a" } } }).then((r) => r.status, () => 0);
+	await new Promise((r) => setTimeout(r, 100));
+	assert.equal(calls.length, 0);
+	assert.ok(status === 404 || status === 0, `answered ${status}`);
+	assert.equal((await post({ jsonrpc: "2.0", id: 3, method: "tools/list" }).then((r) => r.status, () => 0)), 404, "and nothing after");
+});
+
+test("tool-result images follow the 20 MiB prompt budget: beyond it a text note, the result is never dropped", async (t) => {
+	const { promptImageLimit } = await import("../src/agent/antigravity/transcript.ts");
+	const saved = promptImageLimit.bytes;
+	t.after(() => { promptImageLimit.bytes = saved; });
+	promptImageLimit.bytes = 4;
+	const { endpoint, calls } = await bridgeFor(t);
+	const c = await client(t, endpoint.mcpServer);
+	const pending = c.callTool({ name: "lh_echo", arguments: { text: "a" } });
+	await until(() => calls.length === 1);
+	endpoint.resolve(calls[0]!.id, result([{ type: "text", text: "pages" }, { type: "image", data: "AAAA", mimeType: "image/png" }, { type: "image", data: "AAAAAAAA", mimeType: "image/png" }]));
+	const answer = await pending as { content: { type: string; text?: string }[] };
+	assert.deepEqual(answer.content.map((b) => b.type), ["text", "image", "text"]);
+	assert.match(answer.content[2]!.text!, /image omitted/i);
+});

@@ -20,6 +20,8 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError, type CallToolResult, type Tool as McpTool } from "@modelcontextprotocol/sdk/types.js";
 
+import { promptImageLimit } from "./transcript.ts";
+
 /** The MCP server's own name in its initialize answer (not the per-session name the agent is given). */
 export const BRIDGE_SERVER_NAME = "learnharness";
 /** Bytes of randomness in a session's server name: "lh" + 10 lowercase hex. */
@@ -58,6 +60,15 @@ export interface McpServerEntry {
 	headers: { name: string; value: string }[];
 }
 
+/** Test seams: a tools/call request's response just before the MCP server gets it, and a call as it is held. */
+export const toolBridgeTestHooks: {
+	beforeDispatch?: (res: http.ServerResponse) => void;
+	onHeld?: (call: HeldCall, res: http.ServerResponse) => void;
+} = {};
+
+/** In place of a tool-result image beyond the per-result picture budget. */
+export const RESULT_IMAGE_OMITTED = "[image omitted: over the 20 MB picture limit for one tool result]";
+
 export interface SessionEndpoint {
 	readonly mcpServer: McpServerEntry;
 	/**
@@ -66,7 +77,9 @@ export interface SessionEndpoint {
 	 * urls (measured on agy 1.5.15), so a shared name would break every session after the first.
 	 */
 	readonly serverName: string;
-	/** Answer the held call `id` with a pi tool result. False if no such call is held. */
+	/** Whether the held call `id` can still be answered: held, and its response alive. */
+	canResolve(id: string): boolean;
+	/** Answer the held call `id` with a pi tool result. False (nothing written) unless canResolve(id). */
 	resolve(id: string, result: ToolResultMessage): boolean;
 	/** Fail every held call (with an error result) and forget them. */
 	failHeld(reason: string): void;
@@ -74,8 +87,21 @@ export interface SessionEndpoint {
 	close(): Promise<void>;
 }
 
-function toMcpContent(block: TextContent | ImageContent): CallToolResult["content"][number] {
-	return block.type === "text" ? { type: "text", text: block.text } : { type: "image", data: block.data, mimeType: block.mimeType };
+/** A pi result's content for MCP: images within the picture budget (as for prompts), beyond it a note. */
+function toMcpContent(content: readonly (TextContent | ImageContent)[]): CallToolResult["content"] {
+	let bytes = 0;
+	return content.map((block) => {
+		if (block.type === "text") return { type: "text", text: block.text };
+		bytes += Buffer.byteLength(block.data, "base64");
+		return bytes > promptImageLimit.bytes ? { type: "text", text: RESULT_IMAGE_OMITTED } : { type: "image", data: block.data, mimeType: block.mimeType };
+	});
+}
+
+/** One HTTP request to an endpoint, keyed by LearnHarness's own id (never the agent's JSON-RPC id). */
+type LiveRequest = { res: http.ServerResponse; aborts: Set<() => void> };
+
+function responseAlive(res: http.ServerResponse): boolean {
+	return !res.destroyed && !res.writableEnded && !(res.socket?.destroyed ?? false);
 }
 
 function toMcpTool(tool: Tool): McpTool {
@@ -97,12 +123,16 @@ type Endpoint = {
 	transport: StreamableHTTPServerTransport;
 	server: Server;
 	held: Map<string, (result: CallToolResult) => void>;
-	/** The held call each tools/call request (by JSON-RPC id) became, so a dropped request aborts it. */
-	byRequest: Map<string | number, () => void>;
+	/** Requests in flight by internal id (passed to the handler as authInfo.token), so a dropped one aborts what it holds. */
+	requests: Map<string, LiveRequest>;
+	/** JSON-RPC ids of the tools/call requests in flight. */
+	callIds: Set<string | number>;
 	hooks: EndpointHooks;
 	/** Requests in flight, so closing never leaves the agent waiting on a response that won't come. */
 	open: Set<http.ServerResponse>;
 	closed: boolean;
+	/** Tell the MCP handler the endpoint is closed. */
+	markClosed: () => void;
 };
 
 /** Let answered calls' responses go out, then cut whatever is still open. */
@@ -149,7 +179,9 @@ export class ToolBridge {
 		this.serverNames.add(serverName);
 		const declared = new Map(tools.map((tool) => [tool.name, tool]));
 		const held = new Map<string, (result: CallToolResult) => void>();
-		const byRequest = new Map<string | number, () => void>();
+		const responses = new Map<string, http.ServerResponse>();
+		const requests = new Map<string, LiveRequest>();
+		let closed = false;
 		const server = new Server({ name: BRIDGE_SERVER_NAME, version: "1.0.0" }, { capabilities: { tools: {} } });
 		server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [...declared.values()].map(toMcpTool) }));
 		server.setRequestHandler(CallToolRequestSchema, (request, extra) => {
@@ -159,10 +191,16 @@ export class ToolBridge {
 				hooks.onInvalid(declared.has(name) ? "malformed tool arguments" : "undeclared tool");
 				throw new McpError(ErrorCode.InvalidParams, "That tool is not available.");
 			}
+			// Hold only a call whose request is still alive, on an endpoint still open: a dead one is never handed over.
+			const live = typeof extra.authInfo?.token === "string" ? requests.get(extra.authInfo.token) : undefined;
+			if (closed || !live || extra.signal.aborted || !responseAlive(live.res)) {
+				return { content: [{ type: "text", text: "The call ended before LearnHarness could take it." }], isError: true };
+			}
 			const call: HeldCall = { id: randomUUID(), name, arguments: args as JsonObject };
 			return new Promise<CallToolResult>((resolve) => {
 				const settle = (result: CallToolResult) => {
-					byRequest.delete(extra.requestId);
+					live.aborts.delete(aborted);
+					responses.delete(call.id);
 					if (!held.delete(call.id)) return;
 					extra.signal.removeEventListener("abort", aborted);
 					resolve(result);
@@ -173,8 +211,10 @@ export class ToolBridge {
 					hooks.onAbort(call);
 				};
 				held.set(call.id, settle);
-				byRequest.set(extra.requestId, aborted);
+				responses.set(call.id, live.res);
+				live.aborts.add(aborted);
 				extra.signal.addEventListener("abort", aborted, { once: true });
+				toolBridgeTestHooks.onHeld?.(call, live.res);
 				if (!hooks.onCall(call)) {
 					settle({ content: [{ type: "text", text: "LearnHarness did not accept this call." }], isError: true });
 				}
@@ -182,7 +222,9 @@ export class ToolBridge {
 		});
 		const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
 		await server.connect(transport);
-		const endpoint: Endpoint = { authorization: Buffer.from(`Bearer ${token}`), transport, server, held, byRequest, hooks, open: new Set(), closed: false };
+		// The bridge may have closed while the server was connecting: then this endpoint never opens.
+		if (this.closed) { await server.close().catch(() => {}); throw new Error("tool bridge closed"); }
+		const endpoint: Endpoint = { authorization: Buffer.from(`Bearer ${token}`), transport, server, held, requests, callIds: new Set(), hooks, open: new Set(), closed: false, markClosed: () => { closed = true; } };
 		this.endpoints.set(segment, endpoint);
 		const failHeld = (reason: string) => {
 			for (const settle of [...held.values()]) settle({ content: [{ type: "text", text: reason }], isError: true });
@@ -190,16 +232,22 @@ export class ToolBridge {
 		return {
 			serverName,
 			mcpServer: { type: "http", name: serverName, url: `http://${LOOPBACK_HOST}:${this.port}/mcp/${segment}`, headers: [{ name: "Authorization", value: `Bearer ${token}` }] },
+			canResolve: (id) => {
+				const res = responses.get(id);
+				return !endpoint.closed && held.has(id) && res !== undefined && responseAlive(res);
+			},
 			resolve: (id, result) => {
 				const settle = held.get(id);
-				if (!settle) return false;
-				settle({ content: result.content.map(toMcpContent), isError: result.isError });
+				const res = responses.get(id);
+				if (endpoint.closed || !settle || !res || !responseAlive(res)) return false;
+				settle({ content: toMcpContent(result.content), isError: result.isError });
 				return true;
 			},
 			failHeld,
 			close: async () => {
 				if (endpoint.closed) return;
 				endpoint.closed = true;
+				endpoint.markClosed();
 				failHeld("The session ended.");
 				this.endpoints.delete(segment);
 				await shutDown(endpoint);
@@ -212,6 +260,7 @@ export class ToolBridge {
 		this.closed = true;
 		for (const endpoint of this.endpoints.values()) {
 			endpoint.closed = true;
+			endpoint.markClosed();
 			for (const settle of [...endpoint.held.values()]) settle({ content: [{ type: "text", text: "The session ended." }], isError: true });
 			await shutDown(endpoint);
 		}
@@ -245,6 +294,8 @@ export class ToolBridge {
 		});
 		req.on("end", () => {
 			if (refused) return;
+			// Closed while the body was arriving: accept nothing.
+			if (endpoint.closed) { res.writeHead(404).end(); return; }
 			let body: unknown;
 			try { body = JSON.parse(Buffer.concat(parts).toString("utf8")); }
 			catch { res.writeHead(400).end(); return; }
@@ -257,10 +308,29 @@ export class ToolBridge {
 				res.writeHead(400, { "Content-Type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", id: malformed.id ?? null, error: { code: ErrorCode.InvalidParams, message: "Malformed tool call." } }));
 				return;
 			}
-			// The agent gives up on a call by dropping its request: abort what that request was holding.
+			// Our own id for this request, handed to the MCP handler as authInfo: the agent gives up on a call by
+			// dropping its request, which aborts what THIS request was holding (a reused JSON-RPC id can't reach another).
 			const ids = calls.flatMap((message) => (typeof message.id === "string" || typeof message.id === "number" ? [message.id] : []));
-			if (ids.length) res.once("close", () => { if (!res.writableFinished) for (const id of ids) endpoint.byRequest.get(id)?.(); });
-			endpoint.transport.handleRequest(req, res, body).catch(() => { if (!res.headersSent) res.writeHead(500); res.end(); });
+			// The MCP transport routes a response by JSON-RPC id: a second call reusing the id of one in flight
+			// would take the first one's answer. Refused before it reaches the transport.
+			if (ids.some((id) => endpoint.callIds.has(id)) || new Set(ids).size !== ids.length) {
+				endpoint.hooks.onInvalid("reused request id");
+				res.writeHead(400, { "Content-Type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: ErrorCode.InvalidRequest, message: "Request id already in use." } }));
+				return;
+			}
+			const key = randomUUID();
+			const live: LiveRequest = { res, aborts: new Set() };
+			endpoint.requests.set(key, live);
+			for (const id of ids) endpoint.callIds.add(id);
+			res.once("close", () => {
+				endpoint.requests.delete(key);
+				for (const id of ids) endpoint.callIds.delete(id);
+				if (!res.writableFinished) for (const abort of [...live.aborts]) abort();
+			});
+			(req as http.IncomingMessage & { auth?: unknown }).auth = { token: key, clientId: "antigravity", scopes: [] };
+			if (calls.length) toolBridgeTestHooks.beforeDispatch?.(res);
+			if (endpoint.closed) { if (!res.destroyed) res.writeHead(404).end(); return; }
+			endpoint.transport.handleRequest(req, res, body).catch(() => { if (!res.headersSent && !res.destroyed) res.writeHead(500); res.end(); });
 		});
 		req.on("error", () => { if (!res.headersSent) res.writeHead(400); res.end(); });
 	}

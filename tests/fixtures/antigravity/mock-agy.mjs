@@ -61,7 +61,10 @@
  *   update sent 30 ms AFTER the MCP request instead of before it. {used: n}: a usage_update.
  *   The model sees a tool as mcp_<server name>_<tool>, with the agent's 8-hex suffix after the name when
  *   the process already saw that name with another url (toolPrefix). mcpCall.agentName may use {server}.
- *   mcpCall.noCall: ask permission, then make no MCP call; mcpCall.whileHeldPermission: a second
+ *   mcpCall.noCall: ask permission, then make no MCP call (endStatus: then a tool_call_update with that status);
+ *   mcpCall.toolCallId: the id to announce (null: none); whileHeld bodies may use {server} and {id};
+ *   mcpCall.whileHeldModel: the model switched (config_option_update) while the call is held;
+ *   steps {update: body}: any session/update; updateAfterNew: one sent in the same write as the session/new answer. mcpCall.whileHeldPermission: a second
  *   permission request 50 ms into the held call. parkedUpdate "mcp": an MCP call 50 ms after the reply.
  *   promptSeq: [[steps], …] the k-th prompt this process receives runs promptSeq[k] (else `prompt`).
  *   earlyModeThenOptions (after the session/new answer, same write: current_mode_update "default", then
@@ -265,12 +268,13 @@ async function mcpRound(session, sessionId, spec) {
 	// What the model sees the tool as; an explicit agentName may use {server} for this session's server name.
 	const agentName = spec.agentName ? spec.agentName.replace("{server}", session.mcp?.entry.name ?? "learnharness") : `${session.mcp?.prefix ?? "mcp_learnharness_"}${spec.name}`;
 	const args = { ...(spec.arguments ?? {}), toolSummary: spec.summary ?? "Using a LearnHarness tool" };
-	const fields = { toolCallId: `call_${toolCallCounter++}`, name: agentName, args, kind: "other", title: `Run ${agentName}`, rawInput: args };
+	const fields = { toolCallId: spec.toolCallId === null ? undefined : spec.toolCallId ?? `call_${toolCallCounter++}`, name: agentName, args, kind: "other", title: `Run ${agentName}`, rawInput: args };
 	update(sessionId, { sessionUpdate: "tool_call", ...fields, status: "in_progress" });
 	update(sessionId, { sessionUpdate: "tool_call_update", ...fields, status: "pending" });
 	const options = spec.options ?? [{ optionId: "allow", name: "Allow", kind: "allow_once" }, { optionId: "deny", name: "Deny", kind: "reject_once" }];
 	const answer = await requestClient("session/request_permission", { sessionId, toolCall: { sessionUpdate: "tool_call", ...fields, status: "pending" }, options });
 	log({ kind: "permission-answer", name: agentName, answer });
+	if (answer?.outcome?.optionId === "allow" && spec.noCall && spec.endStatus) update(sessionId, { sessionUpdate: "tool_call_update", ...fields, status: spec.endStatus });
 	if (answer?.outcome?.optionId !== "allow" || !session.mcp || spec.noCall) return undefined;
 	if (!spec.lateInProgress) update(sessionId, { sessionUpdate: "tool_call_update", ...fields, status: "in_progress" });
 	const controller = new AbortController();
@@ -278,7 +282,8 @@ async function mcpRound(session, sessionId, spec) {
 	const timer = spec.cancelAfterMs ? setTimeout(() => controller.abort(), spec.cancelAfterMs) : undefined;
 	const pending = callMcp(session, spec.name, spec.arguments, controller.signal);
 	if (spec.lateInProgress) { await sleep(30); update(sessionId, { sessionUpdate: "tool_call_update", ...fields, status: "in_progress" }); }
-	if (spec.whileHeld) { await sleep(50); for (const body of spec.whileHeld) update(sessionId, JSON.parse(JSON.stringify(body).replaceAll("{server}", session.mcp?.entry.name ?? "learnharness"))); }
+	if (spec.whileHeld) { await sleep(50); for (const body of spec.whileHeld) update(sessionId, JSON.parse(JSON.stringify(body).replaceAll("{server}", session.mcp?.entry.name ?? "learnharness").replaceAll("{id}", fields.toolCallId ?? ""))); }
+	if (spec.whileHeldModel) { await sleep(50); models.current = spec.whileHeldModel; update(sessionId, { sessionUpdate: "config_option_update", configOptions: configOptions(session) }); }
 	if (spec.whileHeldPermission) {
 		await sleep(50);
 		const again = await requestClient("session/request_permission", { sessionId, toolCall: { sessionUpdate: "tool_call", ...fields, toolCallId: "call_while_held", status: "pending" }, options });
@@ -288,7 +293,8 @@ async function mcpRound(session, sessionId, spec) {
 	clearTimeout(timer);
 	session.mcpAbort = undefined;
 	log({ kind: "mcp-result", name: spec.name, result });
-	update(sessionId, { sessionUpdate: "tool_call_update", ...fields, status: "completed" });
+	// A call whose request failed or was dropped ends "failed"; one that returned, "completed".
+	update(sessionId, { sessionUpdate: "tool_call_update", ...fields, status: result.error ? "failed" : "completed" });
 	if (spec.echo && !result.error) update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `tool said: ${resultText(result)}` } });
 	return result;
 }
@@ -414,6 +420,7 @@ async function prompt({ sessionId, prompt: blocks }) {
 		else if (step.stderr !== undefined) process.stderr.write(`${step.stderr}\n`);
 		else if (step.error) throw new RpcError(step.error.code, step.error.message);
 		else if (step.usageUpdate) update(sessionId, { sessionUpdate: "usage_update", used: 1200, size: 1_000_000 });
+		else if (step.update) update(sessionId, step.update);
 		else if (step.used !== undefined) update(sessionId, { sessionUpdate: "usage_update", used: step.used, size: 1_048_576 });
 		else if (step.toolCallWithResult) {
 			// The tool_call and the prompt's own answer in one write.
@@ -517,6 +524,10 @@ async function handleRequest(method, params) {
 					{ method: "session/update", params: { sessionId: result.sessionId, update: { sessionUpdate: "current_mode_update", currentModeId: "default" } } },
 					{ method: "session/update", params: { sessionId: result.sessionId, update: { sessionUpdate: "config_option_update", configOptions: configOptions(session) } } },
 				];
+				return { [RAW]: frames.map((m) => `${JSON.stringify({ jsonrpc: "2.0", ...m })}\n`).join("") };
+			}
+			if (scenario.updateAfterNew) {
+				const frames = [{ id: requestId, result }, { method: "session/update", params: { sessionId: result.sessionId, update: scenario.updateAfterNew } }];
 				return { [RAW]: frames.map((m) => `${JSON.stringify({ jsonrpc: "2.0", ...m })}\n`).join("") };
 			}
 			if (scenario.garbageAfterNew) return { [RAW]: `${JSON.stringify({ jsonrpc: "2.0", id: requestId, result })}\nnot json after session/new\n` };

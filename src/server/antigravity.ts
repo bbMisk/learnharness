@@ -155,9 +155,9 @@ export async function antigravityResponse(request: Request, deps: AntigravityRou
 
 /**
  * The lesson-turn door (chat-handler's one hook). Antigravity is admitted for
- * a turn the learner started, and, with the tools switch on, for the
- * automatic follow-ups the lesson's own tools cause (wake-pipeline steers and
- * the background continue after them); only while available. Otherwise
+ * a turn the learner started, and, with the tools switch on, for automatic
+ * follow-ups in an Antigravity lesson (any wake-pipeline steer for the chat
+ * and the background continue after it); only while available. Otherwise
  * steers and background continues are refused with 403, which the pump
  * treats as "keep the cargo queued". Every other door refuses Antigravity
  * through providerKeyPresent (src/server/keys.ts): no job, sub-agent,

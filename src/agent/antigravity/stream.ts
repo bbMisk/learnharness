@@ -258,14 +258,11 @@ class AgentSession {
 		this.target = undefined;
 		this.calls = undefined;
 		this.stopWatching?.();
-		const endpoint = this.tools?.endpoint;
-		endpoint?.failHeld("The session ended.");
-		let closing: Promise<unknown> = Promise.resolve();
+		// The endpoint closes at once: nothing more is accepted for this session (the agent's own DELETE then gets 404).
+		void this.tools?.endpoint.close();
 		if (this.connection.handshake.sessionClose && this.connection.alive) {
-			closing = this.connection.request("session/close", { sessionId: this.sessionId }, antigravityTimeouts.startupMs).catch(() => { /* dropped either way */ });
+			this.connection.request("session/close", { sessionId: this.sessionId }, antigravityTimeouts.startupMs).catch(() => { /* dropped either way */ });
 		}
-		// After session/close, so the agent's own disconnect (DELETE) still finds its endpoint.
-		if (endpoint) void closing.then(() => endpoint.close());
 	}
 }
 
@@ -349,6 +346,11 @@ class SessionPark {
 	private drop(key: string, session: AgentSession): void {
 		if (this.parked.get(key) === session) this.parked.delete(key);
 	}
+}
+
+/** A tool call id the agent must give for LearnHarness to tell its calls apart: a non-empty string. */
+function isCallId(value: unknown): value is string {
+	return typeof value === "string" && value !== "";
 }
 
 /** A message or thought chunk with anything in it: non-empty text, or content that isn't text. */
@@ -506,6 +508,7 @@ class TurnSession {
 			this.done = true;
 			clearTimeout(this.inactivity);
 			this.leaveWaiting();
+			this.detachStreams();
 			const session = this.agent;
 			if (session) {
 				// Parked only after a clean "stop" with nothing unseen or held, on a live, unpoisoned session;
@@ -742,20 +745,27 @@ class TurnSession {
 			}
 			case "tool_call":
 			case "tool_call_update":
-				// One of this session's LearnHarness tools, during the prompt: the agent announcing its call.
-				if (this.prompt && this.agent?.isOurs(update.name)) {
-					// The allowed call ended without reaching the bridge: the allowance goes with it.
-					if (this.allowance && update.toolCallId === this.allowance.toolCallId && (update.status === "completed" || update.status === "failed")) this.allowance = undefined;
+				// One of this session's LearnHarness tools, during the prompt, with a proper call id: the agent announcing its call.
+				if (this.prompt && this.agent?.isOurs(update.name) && isCallId(update.toolCallId)) {
+					if (this.allowance && update.toolCallId === this.allowance.toolCallId) {
+						// The allowed call ended without reaching the bridge. "failed" ends the allowance; "completed"
+						// means something else ran it.
+						if (update.status === "completed") { this.breach(update); return; }
+						if (update.status === "failed") this.allowance = undefined;
+					}
 					this.touch();
 					return;
 				}
 				this.breach(update);
 				return;
 			case "current_mode_update":
+				if (typeof update.currentModeId !== "string") { this.unreadableState(); return; }
 				this.agent?.observeMode(update.currentModeId, frame);
 				if (this.prompt && update.currentModeId !== "default") this.stopReply(AntigravityMessage.ModeChanged);
 				return;
 			case "config_option_update": {
+				// An update LearnHarness can't read leaves the mode unknown.
+				if (!Array.isArray(update.configOptions)) { this.unreadableState(); return; }
 				// Only an update that was taken may be saved: a stale one would put an old list back.
 				if (this.observe(update.configOptions, frame)) this.refreshModels(update.configOptions);
 				if (this.prompt && findConfigOption(this.view(), "mode")?.currentValue !== "default") this.stopReply(AntigravityMessage.ModeChanged);
@@ -782,25 +792,40 @@ class TurnSession {
 				return;
 			case "tool_call":
 			case "tool_call_update": {
-				const own = this.held !== undefined && update.toolCallId === this.held.toolCallId && this.agent?.isOurs(update.name) && (update.status === "pending" || update.status === "in_progress");
+				// Only the held call's own status updates: its id AND its exact tool name.
+				const held = this.held;
+				const endpoint = this.agent?.tools?.endpoint;
+				const own = held !== undefined && endpoint !== undefined && isCallId(held.toolCallId) && update.toolCallId === held.toolCallId
+					&& update.name === agentToolName(endpoint.serverName, held.call.name) && (update.status === "pending" || update.status === "in_progress");
 				if (!own) this.expire();
 				return;
 			}
-			case "current_mode_update":
-				this.agent?.observeMode(update.currentModeId, frame);
-				this.expire();
-				return;
 			case "config_option_update":
+				// Harmless only when readable and still on this prompt's model in mode "default".
 				if (!Array.isArray(update.configOptions)) { this.expire(); return; }
 				this.observe(update.configOptions, frame);
-				if (findConfigOption(this.view(), "mode")?.currentValue !== "default") this.expire();
+				if (findConfigOption(this.view(), "mode")?.currentValue !== "default" || findConfigOption(this.view(), "model")?.currentValue !== this.model.id) this.expire();
 				return;
 			case "usage_update":
 				this.noteUsed(update.used);
 				return;
+			case "available_commands_update":
+			case "session_info_update":
+				return; // harmless
 			default:
-				return; // other harmless kinds
+				// A mode update, or anything LearnHarness doesn't know: the round can't be trusted to resume.
+				if (update.sessionUpdate === "current_mode_update") this.agent?.observeMode(update.currentModeId, frame);
+				this.expire();
+				return;
 		}
+	}
+
+	/** A mode or config update LearnHarness can't read: the mode can't be confirmed, so the turn stops. */
+	private unreadableState(): void {
+		if (this.turn.finished) return;
+		// During setup the next checkpoint stops the turn quietly; with a prompt open it is cancelled.
+		if (this.prompt) this.stopReply(AntigravityMessage.ModeChanged);
+		else this.turn.fail(AntigravityMessage.ModeNotSet);
 	}
 
 	/**
@@ -811,7 +836,7 @@ class TurnSession {
 	private onPermission(params: Record<string, unknown>): unknown {
 		const call = isRecord(params.toolCall) ? params.toolCall : {};
 		if (this.waiting) { this.expire(); return rejectOnce(params); }
-		if (this.prompt && !this.turn.finished && !this.held && !this.allowance && this.agent?.isOurs(call.name)) {
+		if (this.prompt && !this.turn.finished && !this.held && !this.allowance && this.agent?.isOurs(call.name) && isCallId(call.toolCallId)) {
 			const options = Array.isArray(params.options) ? params.options : [];
 			const allow = options.find((option) => isRecord(option) && option.kind === "allow_once" && typeof option.optionId === "string") as { optionId: string } | undefined;
 			if (allow) {
@@ -860,6 +885,8 @@ class TurnSession {
 		const other = registry.get(this.key!);
 		if (other && other !== this) other.expire();
 		registry.set(this.key!, this);
+		// Turned off while the reply streamed: pi has the call (it replays if turned on again), but no wait holds agy.
+		if (!this.host.available()) this.expire();
 		return true;
 	}
 
@@ -896,16 +923,32 @@ class TurnSession {
 			&& result?.role === "toolResult" && result.toolCallId === held.call.id
 			&& fingerprintHash(input.messages.slice(0, waiting.seen.messages)) === waiting.seen.hash;
 		if (!matches || result?.role !== "toolResult") { this.expire(); return false; }
+		// The answer must really go out on a live response; otherwise the ordinary path replays it (never lost).
+		const endpoint = this.agent?.tools?.endpoint;
+		if (!endpoint?.canResolve(held.call.id)) { this.expire(); return false; }
 		this.leaveWaiting();
 		this.held = undefined;
-		// Attach first, then answer: the agent's next updates must find the new stream.
+		// Attach, then answer, in one synchronous step: the agent's next updates find the new stream.
+		this.detachStreams();
 		this.turn = turn;
 		this.model = model;
 		this.input = input;
 		this.streamUsed = undefined;
 		this.touch();
-		if (!this.agent?.tools?.endpoint.resolve(held.call.id, result)) this.refuseCall();
+		endpoint.resolve(held.call.id, result);
 		return true;
+	}
+
+	/** Abort-listener removers of the streams this prompt has streamed into. */
+	private readonly detachers: (() => void)[] = [];
+
+	/** Register `remove` to run when the prompt moves past the current stream (resume) or ends. */
+	adoptStream(remove: () => void): void {
+		this.detachers.push(remove);
+	}
+
+	private detachStreams(): void {
+		for (const remove of this.detachers.splice(0)) remove();
 	}
 
 	private noteUsed(used: unknown): void {
@@ -1023,8 +1066,11 @@ export function createAntigravityStreamFunction({ runtime = antigravityRuntime, 
 			if (waiting?.resume(turn, model, context.messages)) {
 				session = waiting;
 				signal?.addEventListener("abort", onAbort, { once: true });
-				// Kept while this stream's own tool call waits: Stop then expires that wait.
-				turn.onEnd(() => { if (turn.output.stopReason !== "toolUse") signal?.removeEventListener("abort", onAbort); });
+				const remove = () => signal?.removeEventListener("abort", onAbort);
+				// Kept while this stream's own tool call waits (Stop then expires that wait); removed when the
+				// prompt moves past this stream or ends, and when the stream ends any other way.
+				waiting.adoptStream(remove);
+				turn.onEnd(() => { if (turn.output.stopReason !== "toolUse") remove(); });
 				return;
 			}
 			signal?.addEventListener("abort", onAbort, { once: true });
@@ -1037,6 +1083,7 @@ export function createAntigravityStreamFunction({ runtime = antigravityRuntime, 
 				try {
 					if (turn.finished) return;
 					session = new TurnSession(connection, turn, currentHost);
+					session.adoptStream(() => signal?.removeEventListener("abort", onAbort));
 					await session.run(model, context.messages, options?.reasoning, options?.sessionId);
 				} finally { release(); }
 			} finally {

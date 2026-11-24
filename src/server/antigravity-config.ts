@@ -29,8 +29,9 @@ export function antigravityAvailable(): boolean {
 }
 
 /**
- * An Antigravity lesson accepts the automatic follow-ups its own tools cause (job results, the
- * prober→teacher handoff, the continue after them) only with the tools switch on, while available.
+ * Automatic follow-ups in an Antigravity lesson (any wake-pipeline steer for the chat: job results,
+ * the prober→teacher handoff; and the background continue after them), admitted only with the tools
+ * switch on, while available. Not narrowed to what the lesson's own tools caused (lead's decision).
  * The jobs themselves still never run on an Antigravity model (providerKeyPresent stays false).
  */
 export function antigravityFollowUpsAllowed(): boolean {
