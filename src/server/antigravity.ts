@@ -27,7 +27,7 @@ const BACKGROUND_REFUSAL = "Antigravity lessons don't take automatic follow-ups 
 // The last failed check's message, per server process (not persisted), and the generation that
 // makes a superseded check's late result harmless (bumped at every check start and opt-in change).
 const PROBLEM_KEY = Symbol.for("lh.antigravity.problem");
-type CheckState = { message?: string; generation: number; signIn?: Promise<AntigravityStatus> };
+type CheckState = { message?: string; generation: number; signIn?: Promise<void> };
 type ProblemGlobal = Record<symbol, CheckState | undefined>;
 function problemState(): CheckState {
 	const g = globalThis as ProblemGlobal;
@@ -58,32 +58,34 @@ export function antigravityStatus(): AntigravityStatus {
  * forwards, stores or logs a link or a token, and drops the account details the answer carries.
  */
 export async function signInAntigravity(
-	signIn: () => Promise<void> = () => signInWithAgent(),
+	signIn: () => Promise<void> = () => antigravityRuntime().signIn(),
 	check: () => Promise<AntigravityStatus> = () => checkAntigravityConnection(),
 ): Promise<AntigravityStatus> {
 	const state = problemState();
 	if (state.signIn) return antigravityStatus();
 	if (!antigravityEnabled()) return antigravityStatus();
 	if (!antigravityInstalled()) return recordFailedCheck(AntigravityMessage.NotInstalled);
-	const running = (async () => {
+	// The marker goes up before anything that can throw, and stays up through the check that follows.
+	let settle!: () => void;
+	state.signIn = new Promise<void>((resolve) => { settle = resolve; });
+	const generation = ++state.generation;
+	// Turned off, or a newer check or opt-in change meanwhile: this sign-in's result has no say.
+	const superseded = () => state.generation !== generation || !antigravityEnabled();
+	try {
+		let signedIn = false;
 		try {
 			initAuthEnv(); // provenance first, as for a check
 			await signIn();
+			signedIn = true;
 		} catch (error) {
-			return recordFailedCheck(describeAgentError(error));
-		} finally {
-			state.signIn = undefined;
+			if (!superseded()) recordFailedCheck(describeAgentError(error));
 		}
-		return check();
-	})();
-	state.signIn = running;
-	return running;
-}
-
-async function signInWithAgent(): Promise<void> {
-	const { connection, release } = await antigravityRuntime().acquire();
-	try { await connection.signIn(); }
-	finally { release(); }
+		if (signedIn && !superseded()) await check();
+	} finally {
+		state.signIn = undefined;
+		settle();
+	}
+	return antigravityStatus();
 }
 
 /** The explicit "Check connection": the only place besides a lesson turn that starts the agent. */

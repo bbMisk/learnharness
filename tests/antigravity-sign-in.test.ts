@@ -130,3 +130,66 @@ test("the route: POST { action: \"signIn\" } with the same protections; nothing 
 	assert.equal((await post({ action: "check" })).status, 200);
 	assert.equal(signIns, 1);
 });
+
+// ── review fixes: a dedicated sign-in process; the in-progress marker ──────────
+
+test("a sign-in runs on its own short-lived agent process: a lesson streaming on the shared one is untouched by a sign-in that times out", async (t) => {
+	const { createAntigravityStreamFunction } = await import("../src/agent/antigravity/stream.ts");
+	const { toPiModel } = await import("../src/agent/antigravity/models.ts");
+	const { normalizeContext } = await import("@earendil-works/pi-ai/utils/transcript");
+	antigravityTimeouts.signInMs = 300;
+	t.after(() => { antigravityTimeouts.signInMs = DEFAULTS.signInMs; });
+	const h = harness(t, { authenticate: "hang", prompt: [{ text: "first " }, { sleepMs: 900 }, { text: "second" }] });
+	const stream = createAntigravityStreamFunction({ runtime: () => runtime, host: () => ({ available: () => true, models: () => [], saveModels: () => {} }) });
+	const events = stream(toPiModel({ id: "gemini-3-pro", name: "Gemini 3 Pro" }), normalizeContext({ systemPrompt: "Tutor", messages: [{ role: "user", content: "hi", timestamp: 0 }] }), { sessionId: "lesson-chat" });
+	const reply = (async () => { for await (const _event of events) { /* drain */ } return events.result(); })();
+	await waitFor(() => h.log().some((e) => e.kind === "prompt"), 5000, "the lesson's prompt");
+	const status = await signInAntigravity();
+	assert.equal(status.problem, "The sign-in was not finished. Try again.");
+	assert.equal(h.spawns, 2, "the sign-in had its own process");
+	const lesson = await reply;
+	assert.equal(lesson.stopReason, "stop", lesson.errorMessage);
+	assert.equal(lesson.content.map((b) => (b.type === "text" ? b.text : "")).join(""), "first second");
+	assert.equal(h.children.filter((c) => c.exitCode === null && c.signalCode === null).length, 1, "only the shared process is left");
+	runtime.shutdown();
+	await h.assertNoChildren();
+});
+
+test("turning Antigravity off while a sign-in waits ends the sign-in process at once and stops the shared one", async (t) => {
+	const h = harness(t, { authenticate: "hang" });
+	const pending = signInAntigravity();
+	await waitFor(() => h.log().some((e) => e.kind === "authenticate"), 5000, "the authenticate");
+	const started = Date.now();
+	const off = await antigravityResponse(new Request("http://localhost:3000/api/antigravity", { method: "PUT", headers: { "x-learnharness-antigravity": "1", "Content-Type": "application/json" }, body: JSON.stringify({ enabled: false }) }));
+	assert.equal(off.status, 200);
+	const after = await pending;
+	assert.ok(Date.now() - started < 3000, "not held for the sign-in limit");
+	assert.equal(after.problem, undefined, "a sign-in the user turned off is not reported as a failure");
+	await h.assertNoChildren(3000);
+});
+
+test("the in-progress marker: set before any work, cleared on a synchronous throw, held through the post-sign-in check, and a stale result is ignored", async () => {
+	antigravityStore.update({ enabled: true, checkedAt: undefined });
+	// A synchronous throw never leaves the marker stuck.
+	const thrown = await signInAntigravity(() => { throw new Error("boom"); }, async () => antigravityStatus());
+	assert.equal(thrown.signingIn, undefined);
+	assert.equal(antigravityStatus().signingIn, undefined);
+	// Held through the check: a second press during the check starts no second authenticate.
+	let signIns = 0;
+	let finishCheck!: () => void;
+	const checking = new Promise<void>((resolve) => { finishCheck = resolve; });
+	const first = signInAntigravity(async () => { signIns++; }, async () => { await checking; return antigravityStatus(); });
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	assert.equal((await signInAntigravity(async () => { signIns++; }, async () => antigravityStatus())).signingIn, true);
+	finishCheck();
+	assert.equal((await first).signingIn, undefined);
+	assert.equal(signIns, 1);
+	// Stale: the user turned the provider off meanwhile; the failure is not recorded.
+	let fail!: (error: Error) => void;
+	const stale = signInAntigravity(() => new Promise<void>((_resolve, reject) => { fail = reject; }), async () => antigravityStatus());
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	antigravityStore.update({ enabled: false });
+	await antigravityResponse(new Request("http://localhost:3000/api/antigravity", { method: "PUT", headers: { "x-learnharness-antigravity": "1", "Content-Type": "application/json" }, body: JSON.stringify({ enabled: false }) }));
+	fail(new Error("late"));
+	assert.equal((await stale).problem, undefined);
+});

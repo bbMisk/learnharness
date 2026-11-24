@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Toggle } from "./controls";
 
 const ENDPOINT = "/api/antigravity";
+/** Test seam: how often the row re-reads the status while the server reports a sign-in in progress. */
+export const antigravityStatusTimings = { pollMs: 2_000 };
 const INTENT = { "x-learnharness-antigravity": "1" };
 
 export function antigravityStatusLabel(status: AntigravityStatus): string {
@@ -53,6 +55,20 @@ export function AntigravityProviderStatus() {
 		return () => pending.current?.abort();
 	}, []);
 
+	// A sign-in the server is running (this tab's, or another's): re-read the status until it is over,
+	// so the row always leaves "Signing in…" by itself. Only while this tab has nothing in flight.
+	const serverSigningIn = status?.signingIn === true;
+	useEffect(() => {
+		if (!serverSigningIn || busy !== null) return;
+		const controller = new AbortController();
+		const timer = setInterval(() => {
+			call({ signal: controller.signal })
+				.then((value) => { if (!controller.signal.aborted && value) setStatus(value); })
+				.catch(() => { /* the next tick tries again */ });
+		}, antigravityStatusTimings.pollMs);
+		return () => { clearInterval(timer); controller.abort(); };
+	}, [serverSigningIn, busy]);
+
 	const send = async (kind: "saving" | "checking" | "signingIn", body: unknown) => {
 		pending.current?.abort();
 		const controller = new AbortController();
@@ -85,7 +101,7 @@ export function AntigravityProviderStatus() {
 		{status.enabled && <div className="flex flex-wrap items-center gap-3">
 			<span role="status" className="text-xs text-muted-foreground">{signingIn ? "Signing in… finish in the browser window Antigravity opened." : busy === "checking" ? "Checking…" : antigravityStatusLabel(status)}</span>
 			{notSignedIn && signInButton}
-			<Button type="button" size="xs" variant="outline" className="cursor-pointer disabled:cursor-not-allowed" disabled={busy !== null || signingIn} onClick={() => void send("checking", { action: "check" })} data-testid="antigravity-check">Check connection</Button>
+			<Button type="button" size="xs" variant="outline" className="cursor-pointer disabled:cursor-not-allowed" disabled={busy !== null} onClick={() => void send("checking", { action: "check" })} data-testid="antigravity-check">Check connection</Button>
 			{!notSignedIn && signInButton}
 		</div>}
 		<p className="text-xs leading-relaxed text-muted-foreground">Uses your Google Antigravity account. Google&apos;s terms restrict using consumer plans through third-party apps.</p>

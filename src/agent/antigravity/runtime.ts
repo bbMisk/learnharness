@@ -560,12 +560,36 @@ export class AntigravityRuntime {
 	}
 
 	shutdown(): void {
+		this.signingIn?.kill();
 		this.current?.connection.kill();
 	}
 
-	/** The provider was turned off: stop the agent without cutting off a reply in flight. */
+	/** The provider was turned off: stop the agent without cutting off a reply in flight. A sign-in waiting in the browser ends at once. */
 	stopWhenUnused(): void {
+		this.signingIn?.kill();
 		this.current?.connection.stopWhenUnused();
+	}
+
+	/** The process a Sign in click runs on, while it runs. */
+	private signingIn: AgentConnection | undefined;
+
+	/**
+	 * The user's Sign in click, on a DEDICATED short-lived `agy acp` process (same launcher, guards,
+	 * environment and sandbox flag, its own temp root), never the shared one: initialize, check that
+	 * oauth-personal is offered, authenticate, then stop it. The agent keeps the sign-in outside the
+	 * process, so the shared process's next check picks it up. A timeout, a missing browser or the
+	 * sign-in line ends only this process.
+	 */
+	async signIn(): Promise<void> {
+		const connection = this.spawn();
+		this.signingIn = connection;
+		try {
+			await connection.initialize(this.appVersion);
+			await connection.signIn();
+		} finally {
+			if (this.signingIn === connection) this.signingIn = undefined;
+			connection.kill();
+		}
 	}
 
 	/** The provider was turned back on: forget a stop that was waiting for the last turn. */

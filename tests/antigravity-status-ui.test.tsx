@@ -199,3 +199,24 @@ test("Sign in: the main action when the last check found no sign-in, a small sec
 	assert.match(label() ?? "", /Signing in/);
 	assert.equal(signIn()!.disabled, true);
 });
+
+test("a sign-in running on the server: the row polls the status, leaves \"Signing in…\" by itself, and Check stays usable", async (t) => {
+	const { antigravityStatusTimings } = await import("../components/settings/antigravity-status.tsx");
+	const saved = antigravityStatusTimings.pollMs;
+	antigravityStatusTimings.pollMs = 30;
+	t.after(() => { antigravityStatusTimings.pollMs = saved; });
+	let gets = 0;
+	fixture((call) => {
+		if (call.method !== "GET") return Response.json({ ...base, enabled: true });
+		gets++;
+		return Response.json(gets < 3 ? { ...base, enabled: true, signingIn: true } : { ...base, enabled: true, models: 1, checkedAt: "2026-11-23T00:00:00.000Z" });
+	});
+	await mount();
+	assert.match(label() ?? "", /Signing in/);
+	assert.equal(check()!.disabled, false, "Check connection is usable: this tab has nothing in flight");
+	for (let i = 0; i < 50 && /Signing in/.test(label() ?? ""); i++) await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+	assert.match(label() ?? "", /^Connected · 1 model/);
+	const settled = gets;
+	await act(async () => { await new Promise((r) => setTimeout(r, 120)); });
+	assert.equal(gets, settled, "polling stops once the sign-in is over");
+});
