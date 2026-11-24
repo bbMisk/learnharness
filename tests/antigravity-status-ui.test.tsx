@@ -171,3 +171,31 @@ test("while the switch is off the route answers GET with 200 { available: false 
 		rmSync(data, { recursive: true, force: true });
 	}
 });
+
+test("Sign in: the main action when the last check found no sign-in, a small secondary one otherwise; disabled while a sign-in runs", async () => {
+	const { ANTIGRAVITY_NOT_SIGNED_IN } = await import("../src/core/contracts/antigravity.ts");
+	const signIn = () => document.querySelector<HTMLButtonElement>('[data-testid="antigravity-sign-in"]');
+	const order = () => [...document.querySelectorAll("[data-testid]")].map((el) => el.getAttribute("data-testid")).filter((id) => id === "antigravity-sign-in" || id === "antigravity-check");
+	// Not signed in: Sign in comes first.
+	let finish!: (r: Response) => void;
+	const calls = fixture((call) => call.method === "POST" ? new Promise((resolve) => { finish = resolve; }) : Response.json({ ...base, enabled: true, problem: ANTIGRAVITY_NOT_SIGNED_IN }));
+	await mount();
+	assert.deepEqual(order(), ["antigravity-sign-in", "antigravity-check"]);
+	assert.equal(signIn()!.disabled, false);
+	await act(async () => signIn()!.click());
+	assert.deepEqual(calls.at(-1)!.body, { action: "signIn" });
+	assert.equal(calls.at(-1)!.intent, "1");
+	assert.match(label() ?? "", /Signing in/);
+	assert.equal(signIn()!.disabled, true);
+	assert.equal(check()!.disabled, true);
+	await act(async () => finish(Response.json({ ...base, enabled: true, models: 2, checkedAt: "2026-11-23T00:00:00.000Z" })));
+	assert.match(label() ?? "", /^Connected · 2 models/);
+	// Connected: Sign in stays reachable as a secondary action after Check.
+	assert.deepEqual(order(), ["antigravity-check", "antigravity-sign-in"]);
+	await act(async () => root?.unmount());
+	// A sign-in already running (another window pressed it): shown and disabled.
+	fixture(() => Response.json({ ...base, enabled: true, signingIn: true }));
+	host?.remove(); await mount();
+	assert.match(label() ?? "", /Signing in/);
+	assert.equal(signIn()!.disabled, true);
+});

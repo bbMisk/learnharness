@@ -3,7 +3,7 @@
  *  Renders nothing unless GET /api/antigravity says `available: true` (the server switch is on).
  *  Any other answer, or a failed request, hides it quietly: no throw, no log. */
 import { useEffect, useRef, useState } from "react";
-import { isAgentVersion, type AntigravityStatus } from "@/src/core";
+import { ANTIGRAVITY_NOT_SIGNED_IN, isAgentVersion, type AntigravityStatus } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { Button } from "@/components/ui/button";
 import { Toggle } from "./controls";
@@ -25,8 +25,10 @@ function isStatus(value: unknown): value is AntigravityStatus {
 		&& typeof v.models === "number" && Number.isSafeInteger(v.models) && v.models >= 0
 		&& (v.agentVersion === undefined || isAgentVersion(v.agentVersion))
 		&& (v.checkedAt === undefined || typeof v.checkedAt === "string")
-		&& (v.problem === undefined || typeof v.problem === "string");
+		&& (v.problem === undefined || typeof v.problem === "string")
+		&& (v.signingIn === undefined || v.signingIn === true);
 }
+
 
 async function call(init: RequestInit & { signal: AbortSignal }): Promise<AntigravityStatus | null> {
 	const response = await fetch(ENDPOINT, { cache: "no-store", ...init, headers: { ...INTENT, ...(init.body ? { "Content-Type": "application/json" } : {}) } });
@@ -38,7 +40,7 @@ async function call(init: RequestInit & { signal: AbortSignal }): Promise<Antigr
 export function AntigravityProviderStatus() {
 	// null: hidden (switch off, unreachable, unreadable, or not loaded yet).
 	const [status, setStatus] = useState<AntigravityStatus | null>(null);
-	const [busy, setBusy] = useState<"saving" | "checking" | null>(null);
+	const [busy, setBusy] = useState<"saving" | "checking" | "signingIn" | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const pending = useRef<AbortController | null>(null);
 
@@ -51,7 +53,7 @@ export function AntigravityProviderStatus() {
 		return () => pending.current?.abort();
 	}, []);
 
-	const send = async (kind: "saving" | "checking", body: unknown) => {
+	const send = async (kind: "saving" | "checking" | "signingIn", body: unknown) => {
 		pending.current?.abort();
 		const controller = new AbortController();
 		pending.current = controller;
@@ -64,13 +66,16 @@ export function AntigravityProviderStatus() {
 			setStatus(value);
 			notifySettingsSaved("keys");
 		} catch {
-			if (!controller.signal.aborted) setError(kind === "saving" ? "Could not save the Antigravity setting." : "Could not check Antigravity.");
+			if (!controller.signal.aborted) setError(kind === "saving" ? "Could not save the Antigravity setting." : kind === "signingIn" ? "Could not start the Antigravity sign-in." : "Could not check Antigravity.");
 		} finally {
 			if (!controller.signal.aborted) setBusy(null);
 		}
 	};
 
 	if (!status) return null;
+	const signingIn = busy === "signingIn" || status.signingIn === true;
+	const notSignedIn = status.problem === ANTIGRAVITY_NOT_SIGNED_IN;
+	const signInButton = <Button type="button" size="xs" variant={notSignedIn ? "default" : "ghost"} className="cursor-pointer disabled:cursor-not-allowed" disabled={busy !== null || signingIn || !status.installed} onClick={() => void send("signingIn", { action: "signIn" })} data-testid="antigravity-sign-in">Sign in</Button>;
 	return <div className="space-y-2" data-testid="antigravity-status">
 		<div className="flex items-center gap-3">
 			<span className="font-prose text-(length:--lh-prose-size) text-foreground">Antigravity</span>
@@ -78,8 +83,10 @@ export function AntigravityProviderStatus() {
 		</div>
 		{error && <p role="alert" className="text-xs text-error">{error}</p>}
 		{status.enabled && <div className="flex flex-wrap items-center gap-3">
-			<span role="status" className="text-xs text-muted-foreground">{busy === "checking" ? "Checking…" : antigravityStatusLabel(status)}</span>
-			<Button type="button" size="xs" variant="outline" className="cursor-pointer disabled:cursor-not-allowed" disabled={busy !== null} onClick={() => void send("checking", { action: "check" })} data-testid="antigravity-check">Check connection</Button>
+			<span role="status" className="text-xs text-muted-foreground">{signingIn ? "Signing in… finish in the browser window Antigravity opened." : busy === "checking" ? "Checking…" : antigravityStatusLabel(status)}</span>
+			{notSignedIn && signInButton}
+			<Button type="button" size="xs" variant="outline" className="cursor-pointer disabled:cursor-not-allowed" disabled={busy !== null || signingIn} onClick={() => void send("checking", { action: "check" })} data-testid="antigravity-check">Check connection</Button>
+			{!notSignedIn && signInButton}
 		</div>}
 		<p className="text-xs leading-relaxed text-muted-foreground">Uses your Google Antigravity account. Google&apos;s terms restrict using consumer plans through third-party apps.</p>
 	</div>;

@@ -1,7 +1,7 @@
 /**
  * Hanson's fork: the Antigravity provider's server surface
  * (docs/antigravity.md): GET /api/antigravity status, PUT the opt-in,
- * POST "check connection", and the lesson-turn gate chat-handler calls.
+ * POST "check connection" or "signIn", and the lesson-turn gate chat-handler calls.
  * While the server switch is off, GET answers 200 `{ available: false }` and
  * nothing else (a 404 would be a console error in every Settings window);
  * PUT and POST answer 404.
@@ -27,7 +27,7 @@ const BACKGROUND_REFUSAL = "Antigravity runs only lessons you start. Automatic f
 // The last failed check's message, per server process (not persisted), and the generation that
 // makes a superseded check's late result harmless (bumped at every check start and opt-in change).
 const PROBLEM_KEY = Symbol.for("lh.antigravity.problem");
-type CheckState = { message?: string; generation: number };
+type CheckState = { message?: string; generation: number; signIn?: Promise<AntigravityStatus> };
 type ProblemGlobal = Record<symbol, CheckState | undefined>;
 function problemState(): CheckState {
 	const g = globalThis as ProblemGlobal;
@@ -47,7 +47,43 @@ export function antigravityStatus(): AntigravityStatus {
 		models: record.models.length,
 		...(record.checkedAt ? { checkedAt: record.checkedAt } : {}),
 		...(problem ? { problem } : {}),
+		...(problemState().signIn ? { signingIn: true as const } : {}),
 	};
+}
+
+/**
+ * The user's Sign in click, and nothing else, sends ACP `authenticate` (personal Google method):
+ * the agent opens its own browser sign-in. On success the normal check runs. While one is running a
+ * second press answers the status (signingIn) and starts nothing. LearnHarness never opens,
+ * forwards, stores or logs a link or a token, and drops the account details the answer carries.
+ */
+export async function signInAntigravity(
+	signIn: () => Promise<void> = () => signInWithAgent(),
+	check: () => Promise<AntigravityStatus> = () => checkAntigravityConnection(),
+): Promise<AntigravityStatus> {
+	const state = problemState();
+	if (state.signIn) return antigravityStatus();
+	if (!antigravityEnabled()) return antigravityStatus();
+	if (!antigravityInstalled()) return recordFailedCheck(AntigravityMessage.NotInstalled);
+	const running = (async () => {
+		try {
+			initAuthEnv(); // provenance first, as for a check
+			await signIn();
+		} catch (error) {
+			return recordFailedCheck(describeAgentError(error));
+		} finally {
+			state.signIn = undefined;
+		}
+		return check();
+	})();
+	state.signIn = running;
+	return running;
+}
+
+async function signInWithAgent(): Promise<void> {
+	const { connection, release } = await antigravityRuntime().acquire();
+	try { await connection.signIn(); }
+	finally { release(); }
 }
 
 /** The explicit "Check connection": the only place besides a lesson turn that starts the agent. */
@@ -91,12 +127,14 @@ function recordFailedCheck(problem: string | undefined): AntigravityStatus {
 
 export interface AntigravityRouteDeps {
 	check: () => Promise<AntigravityStatus>;
+	signIn?: () => Promise<AntigravityStatus>;
 	status: () => AntigravityStatus;
 	setEnabled: (enabled: boolean) => void;
 }
 
 const production: AntigravityRouteDeps = {
 	check: () => checkAntigravityConnection(),
+	signIn: () => signInAntigravity(),
 	status: antigravityStatus,
 	setEnabled: (enabled) => {
 		antigravityStore.update({ enabled });
@@ -142,10 +180,15 @@ export async function antigravityResponse(request: Request, deps: AntigravityRou
 		}
 		case "POST": {
 			const body = await jsonBody(request);
-			if (typeof body !== "object" || body === null || (body as { action?: unknown }).action !== "check" || Object.keys(body).length !== 1) {
-				return Response.json({ error: 'Send { action: "check" }.' }, { status: 400, headers: HEADERS });
+			const action = typeof body === "object" && body !== null && Object.keys(body).length === 1 ? (body as { action?: unknown }).action : undefined;
+			if (action !== "check" && action !== "signIn") {
+				return Response.json({ error: 'Send { action: "check" } or { action: "signIn" }.' }, { status: 400, headers: HEADERS });
 			}
 			if (!deps.status().enabled) return Response.json({ error: "Turn Antigravity on first." }, { status: 403, headers: HEADERS });
+			if (action === "signIn") {
+				if (!deps.signIn) return Response.json({ error: "Not found" }, { status: 404, headers: HEADERS });
+				return Response.json(await deps.signIn(), { headers: HEADERS });
+			}
 			return Response.json(await deps.check(), { headers: HEADERS });
 		}
 		default:
@@ -159,9 +202,10 @@ export async function antigravityResponse(request: Request, deps: AntigravityRou
  * follow-ups in an Antigravity lesson (any wake-pipeline steer for the chat
  * and the background continue after it); only while available. Otherwise
  * steers and background continues are refused with 403, which the pump
- * treats as "keep the cargo queued". Every other door refuses Antigravity
- * through providerKeyPresent (src/server/keys.ts): no job, sub-agent,
- * extraction, plugin inference or side tutor runs on an Antigravity model.
+ * treats as "keep the cargo queued". Every other door asks providerKeyPresent
+ * (src/server/keys.ts): jobs, sub-agents, extraction, plugin inference and the
+ * side tutor run on an Antigravity model while it is available, unless the
+ * server's LH_ANTIGRAVITY_HELPERS=0 refuses them.
  */
 export { ANTIGRAVITY_PROVIDER };
 

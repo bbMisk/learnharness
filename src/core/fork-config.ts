@@ -5,7 +5,7 @@
  * an edit inside upstream code. Browser-safe: no node builtins.
  */
 
-export { ANTIGRAVITY_PROVIDER, isAgentVersion, isAntigravityRefusal, type AntigravityStatus, type AntigravityStatusResponse } from "./contracts/antigravity.ts";
+export { ANTIGRAVITY_NOT_SIGNED_IN, ANTIGRAVITY_PROVIDER, isAgentVersion, isAntigravityRefusal, type AntigravityStatus, type AntigravityStatusResponse } from "./contracts/antigravity.ts";
 import { ANTIGRAVITY_LESSONS_ONLY, ANTIGRAVITY_UNAVAILABLE } from "./contracts/antigravity.ts";
 
 export type SideChatMode = "tutor" | "questions";
