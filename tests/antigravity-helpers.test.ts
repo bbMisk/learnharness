@@ -20,7 +20,7 @@ const originalEnv = process.env, originalFetch = globalThis.fetch;
 process.env = {
 	PATH: originalEnv.PATH, HOME: directory, NODE_ENV: "test", NODE_TEST_CONTEXT: originalEnv.NODE_TEST_CONTEXT, LH_DATA_DIR: directory, LH_AUTH_FILE: path.join(directory, "auth.json"),
 	...(originalEnv.LH_ANTIGRAVITY_REUSE ? { LH_ANTIGRAVITY_REUSE: originalEnv.LH_ANTIGRAVITY_REUSE } : {}),
-	...(originalEnv.LH_ANTIGRAVITY_TOOLS ? { LH_ANTIGRAVITY_TOOLS: originalEnv.LH_ANTIGRAVITY_TOOLS } : {}),
+	// No LH_ANTIGRAVITY_TOOLS: the doors need tools; one test below checks the tools switch off.
 	// No LH_ANTIGRAVITY_HELPERS: these tests are about helpers ON (the first one also checks =0).
 };
 fs.writeFileSync(process.env.LH_AUTH_FILE!, "{}");
@@ -268,4 +268,19 @@ test("door: a visual job runs on Antigravity: write, render, look (the render co
 	assert.ok(render.result.content?.some((b) => b.type === "image"), "the render reached the agent with the call's result");
 	runtime.shutdown();
 	await h.assertNoChildren();
+});
+
+test("tools switch off: a job that needs tools refuses Antigravity with a clear message and starts nothing", async (t) => {
+	const { AntigravityMessage } = await import("../src/agent/antigravity/constants.ts");
+	const h = harness(t, { prompt: [{ text: "never" }] });
+	process.env.LH_ANTIGRAVITY_TOOLS = "0";
+	t.after(() => { delete process.env.LH_ANTIGRAVITY_TOOLS; });
+	const chat = jobChat("Antigravity research, tools off", "research", "call-off", { question: "?" });
+	t.after(() => { jobStore.deleteJobsForChat(chat.id); chatStore.deleteChat(chat.id); });
+	const job = jobStore.createJob({ kind: "research", chatId: chat.id, toolCallId: "call-off" });
+	await productionRunner(async () => {}, () => ({ id: "tavily", search: async () => [] })).runJob(job.id);
+	const done = jobStore.getJob(job.id)!;
+	assert.equal(done.status, "error");
+	assert.match(JSON.stringify(done.result), new RegExp(AntigravityMessage.HelperNeedsTools.slice(0, 40)));
+	assert.equal(h.spawns, 0, "the agent was never started");
 });
