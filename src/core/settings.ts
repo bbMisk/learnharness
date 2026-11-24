@@ -32,7 +32,7 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { CacheRetention } from "@earendil-works/pi-ai";
 import { AUTH_PROVIDER_KEYS } from "./auth-keys.ts";
 import { CLAUDE_CODE_PROVIDER } from "./contracts/claude-code.ts";
-import { ANTIGRAVITY_LESSONS_ONLY, ANTIGRAVITY_PROVIDER, isAntigravityRefusal } from "./contracts/antigravity.ts"; // FORK
+import { ANTIGRAVITY_PROVIDER, antigravityRefusalText, isAntigravityRefusal } from "./fork-config.ts"; // FORK
 import type { ModelRole } from "../../config.ts";
 import { isSearchEngineId, type SearchEngineId } from "./search.ts";
 import { isDictationLanguage, type DictationLanguage } from "./dictation.ts";
@@ -170,7 +170,7 @@ const PROVIDER_KEY_MISSING_TAIL = "key is set — add one in Settings → Provid
 const LEGACY_PROVIDER_KEY_MISSING_TAIL = "key is set — add one in Settings → Keys";
 const CLAUDE_CODE_UNAVAILABLE = "Claude Code is unavailable. Enable and set it up in Settings → Providers.";
 export function providerKeyMissing(provider: string, slots: ModelSlotName[]): ProviderKeyMissing {
-	if (provider === ANTIGRAVITY_PROVIDER) return { error: ANTIGRAVITY_LESSONS_ONLY, code: PROVIDER_KEY_MISSING_CODE, provider, slots }; // FORK
+	if (provider === ANTIGRAVITY_PROVIDER) return { error: antigravityRefusalText(), code: PROVIDER_KEY_MISSING_CODE, provider, slots }; // FORK
 	const label = AUTH_PROVIDER_KEYS.find((p) => p.id === provider)?.label ?? provider;
 	return {
 		error: provider === CLAUDE_CODE_PROVIDER ? CLAUDE_CODE_UNAVAILABLE : `No ${label} ${PROVIDER_KEY_MISSING_TAIL}`,

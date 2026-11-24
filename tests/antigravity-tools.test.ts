@@ -310,8 +310,8 @@ test("after a clean tool turn the next turn reuses the parked session; a changed
 	assert.equal(s.sent("session/new").length, 2);
 });
 
-test("kill switch off (LH_ANTIGRAVITY_TOOLS=0), or no chat key: no bridge, the text-only note, and any tool use is today's breach", async (t) => {
-	for (const [what, prepare, sessionId] of [["switch off", () => { process.env.LH_ANTIGRAVITY_TOOLS = "0"; }, "chat-1"], ["no key", () => {}, undefined]] as const) {
+test("kill switch off (LH_ANTIGRAVITY_TOOLS=0) on a lesson: no bridge, the text-only note, and any tool use is today's breach", async (t) => {
+	for (const [what, prepare, sessionId] of [["switch off", () => { process.env.LH_ANTIGRAVITY_TOOLS = "0"; }, "chat-1"]] as const) {
 		await t.test(what, async (tt) => {
 			const s = setup(tt, { prompt: [{ permission: { title: "Run mcp_learnharness_lh_echo", kind: "other", name: "mcp_learnharness_lh_echo" } }, say("never")] });
 			prepare();
@@ -627,4 +627,66 @@ test("a resumed stream leaves no abort listener behind on any earlier stream's s
 	assert.equal(last.stopReason, "stop");
 	await delay(50);
 	assert.equal(getEventListeners(controller.signal, "abort").length, 0);
+});
+
+test("a helper that declares tools gets them or is refused before anything starts: no key, or the tools switch off; toolChoice none runs text-only", async (t) => {
+	const helperStream = (runtime: AntigravityRuntime, lessons: string[]) => createAntigravityStreamFunction({ runtime: () => runtime, host: () => ({ available: () => true, models: () => [], saveModels: () => {}, isLessonKey: (key) => lessons.includes(key) }) });
+	const run = async (stream: ReturnType<typeof helperStream>, options: Record<string, unknown>) => {
+		const events = stream(PRO, normalizeContext({ systemPrompt: SYSTEM_TEXT, messages: [user("go")], tools: [ECHO] }), options);
+		for await (const _event of events) { /* drain */ }
+		return events.result();
+	};
+	await t.test("no session id", async (tt) => {
+		const { h, runtime } = base(tt, { prompt: [say("never")] });
+		const reply = await run(helperStream(runtime, []), {});
+		assert.equal(reply.errorMessage, AntigravityMessage.HelperNeedsSession);
+		assert.equal(h.spawns, 0, "nothing started");
+	});
+	await t.test("tools switch off, helper key", async (tt) => {
+		const { h, runtime } = base(tt, { prompt: [say("never")] });
+		process.env.LH_ANTIGRAVITY_TOOLS = "0";
+		const reply = await run(helperStream(runtime, ["chat-1"]), { sessionId: "run-123" });
+		assert.equal(reply.errorMessage, AntigravityMessage.HelperNeedsTools);
+		assert.equal(h.spawns, 0);
+	});
+	await t.test("tools switch off, lesson key: text-only as before", async (tt) => {
+		const { runtime } = base(tt, { prompt: [say("plain")] });
+		process.env.LH_ANTIGRAVITY_TOOLS = "0";
+		assert.equal((await run(helperStream(runtime, ["chat-1"]), { sessionId: "chat-1" })).stopReason, "stop");
+	});
+	await t.test("toolChoice none: text-only, no bridge", async (tt) => {
+		const { h, runtime } = base(tt, { prompt: [say("plain")] });
+		const reply = await run(helperStream(runtime, []), { toolChoice: "none" });
+		assert.equal(reply.stopReason, "stop");
+		assert.deepEqual((h.received().find((m) => m.method === "session/new")!.params as { mcpServers: unknown[] }).mcpServers, []);
+	});
+});
+
+test("helper runs (keys that are no lesson's) are never parked, so they can't push a lesson's parked session out", async (t) => {
+	const { runtime } = base(t, { prompt: [say("ok")] });
+	const stream = createAntigravityStreamFunction({ runtime: () => runtime, host: () => ({ available: () => true, models: () => [], saveModels: () => {}, isLessonKey: (key) => key === "chat-1" }) });
+	const run = async (sessionId: string) => {
+		const events = stream(PRO, normalizeContext({ systemPrompt: SYSTEM_TEXT, messages: [user(`go ${sessionId}`)], tools: [ECHO] }), { sessionId });
+		for await (const _event of events) { /* drain */ }
+		return events.result();
+	};
+	await run("chat-1");
+	assert.equal(parkedSessionCount(runtime.connection!), 1);
+	for (let i = 0; i < 12; i++) assert.equal((await run(`helper-run-${i}`)).stopReason, "stop");
+	assert.equal(parkedSessionCount(runtime.connection!), 1, "only the lesson's session is parked");
+});
+
+test("a helper whose pictures can't be seen (the agent takes no images) is refused, not run on placeholders; a lesson still gets the placeholder", async (t) => {
+	const picture: Message = { role: "user", content: [{ type: "text", text: "Describe this" }, { type: "image", data: Buffer.from("png").toString("base64"), mimeType: "image/png" }], timestamp: 0 };
+	for (const [what, lessons, expected] of [["helper", [], "error"], ["lesson", ["chat-1"], "stop"]] as const) {
+		await t.test(what, async (tt) => {
+			const { runtime } = base(tt, { noImagePrompts: true, prompt: [say("ok")] });
+			const stream = createAntigravityStreamFunction({ runtime: () => runtime, host: () => ({ available: () => true, models: () => [], saveModels: () => {}, isLessonKey: (key) => (lessons as readonly string[]).includes(key) }) });
+			const events = stream(PRO, normalizeContext({ systemPrompt: SYSTEM_TEXT, messages: [picture] }), { sessionId: "chat-1" });
+			for await (const _event of events) { /* drain */ }
+			const reply = await events.result();
+			assert.equal(reply.stopReason, expected, reply.errorMessage);
+			if (expected === "error") assert.equal(reply.errorMessage, AntigravityMessage.HelperNeedsImages);
+		});
+	}
 });

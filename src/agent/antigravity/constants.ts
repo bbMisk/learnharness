@@ -1,4 +1,4 @@
-import { ANTIGRAVITY_UNAVAILABLE } from "../../core/contracts/antigravity.ts";
+import { ANTIGRAVITY_NOT_SIGNED_IN, ANTIGRAVITY_UNAVAILABLE } from "../../core/contracts/antigravity.ts";
 
 export { ANTIGRAVITY_PROVIDER } from "../../core/contracts/antigravity.ts";
 
@@ -8,7 +8,7 @@ export const ANTIGRAVITY_API = "antigravity-acp";
 export const AntigravityMessage = {
 	Off: ANTIGRAVITY_UNAVAILABLE,
 	NotInstalled: "Antigravity's agy command was not found. Install Antigravity, then check again in Settings.",
-	NotSignedIn: 'Not signed in to Antigravity. Run "agy" in a terminal and sign in, then check again in Settings.',
+	NotSignedIn: ANTIGRAVITY_NOT_SIGNED_IN,
 	NoSubscription: "This Google account can't use Antigravity.",
 	UnsupportedProtocol: "Unsupported Antigravity protocol. This version of agy speaks a protocol LearnHarness doesn't support yet.",
 	ProtocolError: "Antigravity sent output LearnHarness could not read, so it was stopped.",
@@ -24,6 +24,11 @@ export const AntigravityMessage = {
 	StoppedResponding: "Antigravity stopped responding.",
 	NoStopReason: "Antigravity ended the reply without saying why.",
 	Aborted: "Request was aborted",
+	SignInTimeout: "The sign-in was not finished. Try again.",
+	SignInUnsupported: 'This version of agy offers no Google sign-in LearnHarness can start. Run "agy" in a terminal and sign in, then check again in Settings.',
+	HelperNeedsTools: "This task needs LearnHarness tools, which are turned off for Antigravity on this server. Choose another model for it in Settings → Models.",
+	HelperNeedsSession: "This task needs LearnHarness tools, which Antigravity can use only within one conversation. Choose another model for it in Settings → Models.",
+	HelperNeedsImages: "This task needs Antigravity to see pictures, which it can't do on this server. Choose another model for it in Settings → Models.",
 	UnexpectedToolCall: "Antigravity made a tool call LearnHarness had not allowed, so the reply was stopped.",
 } as const;
 

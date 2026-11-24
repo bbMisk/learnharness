@@ -17,7 +17,7 @@ if (process.env.NODE_ENV !== "test") throw new Error("Run with NODE_ENV=test.");
 // Isolation first: no ambient keys, data, network. Every import that reads them follows.
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), "lh-agy-gates-"));
 const originalEnv = process.env, originalFetch = globalThis.fetch;
-process.env = { PATH: originalEnv.PATH, HOME: directory, NODE_ENV: "test", NODE_TEST_CONTEXT: originalEnv.NODE_TEST_CONTEXT, ...(originalEnv.LH_ANTIGRAVITY_REUSE ? { LH_ANTIGRAVITY_REUSE: originalEnv.LH_ANTIGRAVITY_REUSE } : {}), ...(originalEnv.LH_ANTIGRAVITY_TOOLS ? { LH_ANTIGRAVITY_TOOLS: originalEnv.LH_ANTIGRAVITY_TOOLS } : {}), LH_DATA_DIR: directory, LH_AUTH_FILE: path.join(directory, "auth.json") };
+process.env = { PATH: originalEnv.PATH, HOME: directory, NODE_ENV: "test", NODE_TEST_CONTEXT: originalEnv.NODE_TEST_CONTEXT, ...(originalEnv.LH_ANTIGRAVITY_REUSE ? { LH_ANTIGRAVITY_REUSE: originalEnv.LH_ANTIGRAVITY_REUSE } : {}), ...(originalEnv.LH_ANTIGRAVITY_TOOLS ? { LH_ANTIGRAVITY_TOOLS: originalEnv.LH_ANTIGRAVITY_TOOLS } : {}), ...(originalEnv.LH_ANTIGRAVITY_HELPERS ? { LH_ANTIGRAVITY_HELPERS: originalEnv.LH_ANTIGRAVITY_HELPERS } : {}), LH_DATA_DIR: directory, LH_AUTH_FILE: path.join(directory, "auth.json") };
 fs.writeFileSync(process.env.LH_AUTH_FILE!, "{}");
 globalThis.fetch = async () => { throw new Error("CLOSED: unexpected network request"); };
 
@@ -91,6 +91,14 @@ function lessonChat(title: string) {
 }
 
 const build = (options: Parameters<typeof createTeacherAgent>[1]) => createTeacherAgent(undefined, options);
+
+/** Run `fn` with the helpers switch (LH_ANTIGRAVITY_HELPERS) in one position, then put it back. */
+async function withHelpers<T>(on: boolean, fn: () => T | Promise<T>): Promise<T> {
+	const previous = process.env.LH_ANTIGRAVITY_HELPERS;
+	if (on) delete process.env.LH_ANTIGRAVITY_HELPERS; else process.env.LH_ANTIGRAVITY_HELPERS = "0";
+	try { return await fn(); }
+	finally { if (previous === undefined) delete process.env.LH_ANTIGRAVITY_HELPERS; else process.env.LH_ANTIGRAVITY_HELPERS = previous; }
+}
 
 /** Run `fn` with the tools switch (LH_ANTIGRAVITY_TOOLS) in one position, then put it back. */
 async function withTools<T>(on: boolean, fn: () => T | Promise<T>): Promise<T> {
@@ -174,16 +182,17 @@ test("available: models from the saved list, picker accepts them, a lesson turn 
 	assert.match(prompt.prompt.at(-1)!.text, /Teach me fractions/);
 	assert(!JSON.stringify(prompt).includes("send_to_user"), "no tool channel is offered");
 
-	// The helper doors still refuse while the lesson door is open.
-	assert.equal(providerKeyPresent("antigravity"), false);
+	// Helpers switch off: the helper doors still refuse while the lesson door is open. On: available means present, like Claude Code.
+	await withHelpers(false, () => assert.equal(providerKeyPresent("antigravity"), false));
+	await withHelpers(true, () => assert.equal(providerKeyPresent("antigravity"), true));
 	await withTools(false, () => {
 		assert.equal(automaticFollowUpAllowed(chat.id), false, "tools switch off: no automatic follow-up");
 		assert.equal(antigravityTurnRefusal("steers", [])?.status, 403);
 	});
-	await withTools(true, () => {
+	await withTools(true, async () => {
 		assert.equal(automaticFollowUpAllowed(chat.id), true, "tools switch on: the follow-ups its own tools cause");
 		assert.equal(antigravityTurnRefusal("steers", []), null);
-		assert.equal(providerKeyPresent("antigravity"), false, "still no job, sub-agent or helper on Antigravity");
+		await withHelpers(false, () => assert.equal(providerKeyPresent("antigravity"), false, "helpers off: still no job, sub-agent or helper on Antigravity"));
 	});
 	assert.equal(antigravityTurnRefusal("text", []), null);
 	assert.equal(connectionBackgroundAllowed("antigravity"), true, "the chat's own compaction is allowed (its stream re-checks availability)");
@@ -191,8 +200,11 @@ test("available: models from the saved list, picker accepts them, a lesson turn 
 	await h.assertNoChildren();
 });
 
-test("denied doors refuse before any spawn: jobs, extraction envelope, side tutor, plugin inference", async (t) => {
+test("helpers switch off (LH_ANTIGRAVITY_HELPERS=0): denied doors refuse before any spawn: jobs, extraction envelope, side tutor, plugin inference", async (t) => {
 	state({ switchOn: true, enabled: true, installed: true });
+	const previousHelpers = process.env.LH_ANTIGRAVITY_HELPERS;
+	process.env.LH_ANTIGRAVITY_HELPERS = "0";
+	t.after(() => { if (previousHelpers === undefined) delete process.env.LH_ANTIGRAVITY_HELPERS; else process.env.LH_ANTIGRAVITY_HELPERS = previousHelpers; });
 	const harness = mockHarness(t);
 	harness.onTeardown(() => spyRuntime.shutdown());
 	launchReal = harness.launch;
@@ -676,8 +688,8 @@ test("tools switch on: a job-result steer and the probe handoff steer start a tu
 		{ ...jobSteer("bg"), timestamp: 3 },
 	] as never);
 	assert.match(await settledPrompt(chat.id, await handleChatInput(chat.id, { type: "continue" }, build), h), /RESEARCH DELIVERY/);
-	// A job pinned to an Antigravity model is still refused: providerKeyPresent stays false.
-	assert.equal(providerKeyPresent("antigravity"), false);
+	// With the helpers switch off a job pinned to an Antigravity model is still refused.
+	await withHelpers(false, () => assert.equal(providerKeyPresent("antigravity"), false));
 	spyRuntime.shutdown();
 	await h.assertNoChildren();
 });

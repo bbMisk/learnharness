@@ -6,6 +6,7 @@
  */
 
 export { ANTIGRAVITY_PROVIDER, isAgentVersion, isAntigravityRefusal, type AntigravityStatus, type AntigravityStatusResponse } from "./contracts/antigravity.ts";
+import { ANTIGRAVITY_LESSONS_ONLY, ANTIGRAVITY_UNAVAILABLE } from "./contracts/antigravity.ts";
 
 export type SideChatMode = "tutor" | "questions";
 
@@ -67,4 +68,18 @@ export function antigravityReuseOn(): boolean {
 export function antigravityToolsOn(): boolean {
 	const proc = typeof process === "undefined" ? undefined : process;
 	return proc?.env?.LH_ANTIGRAVITY_TOOLS !== "0";
+}
+
+/** Antigravity models serving the helper roles (docs/antigravity.md): background jobs and
+ *  sub-agents, extraction, plugin inference and workers, the side tutor, gated by availability
+ *  like Claude Code. On; the SERVER's LH_ANTIGRAVITY_HELPERS=0 turns it off (helpers refuse
+ *  Antigravity, the earlier behaviour). Independent of LH_ANTIGRAVITY_TOOLS. Read live. */
+export function antigravityHelpersOn(): boolean {
+	const proc = typeof process === "undefined" ? undefined : process;
+	return proc?.env?.LH_ANTIGRAVITY_HELPERS !== "0";
+}
+
+/** The refusal text for an Antigravity model a helper (or a lesson) can't use right now. */
+export function antigravityRefusalText(): string {
+	return antigravityHelpersOn() ? ANTIGRAVITY_UNAVAILABLE : ANTIGRAVITY_LESSONS_ONLY;
 }

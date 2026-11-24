@@ -27,6 +27,7 @@ import { antigravityHost, type AntigravityHost } from "./host.ts";
 import { findConfigOption, levelsFrom, modelsFrom } from "./models.ts";
 import { antigravityRuntime, antigravityTimeouts, describeAgentError, isValueRefusal, rejectOnce, type AgentConnection, type AntigravityRuntime, type SessionListener } from "./runtime.ts";
 import { antigravityReuseOn, antigravityToolsOn } from "../../core/fork-config.ts";
+import { offerWorkerContinuation } from "../worker-request-admission.ts";
 import { agentToolName, ToolBridge, type EndpointHooks, type HeldCall, type SessionEndpoint } from "./tool-bridge.ts";
 import { declaredTools, fingerprintHash, replayAssistant, reuseTailParts, toAntigravityInput, toPromptBlocks, type AntigravityInput, type Part, type PromptBlock, type SeenFingerprint } from "./transcript.ts";
 
@@ -441,6 +442,8 @@ class TurnSession {
 	private model!: Model<Api>;
 	private input!: AntigravityInput;
 	private key: string | undefined;
+	/** This prompt is a lesson's turn (a chat's), not a helper's. */
+	private lesson = true;
 	/** The tools this prompt's session is given (none: text-only, exactly as without tools support). */
 	private tools: readonly Tool[] = [];
 	/** A permission LearnHarness granted, for the one MCP call it allows. */
@@ -471,17 +474,17 @@ class TurnSession {
 		if (this.prompt) this.cancel();
 	}
 
-	async run(model: Model<Api>, messages: AgentMessages, reasoning?: ThinkingLevel, rawKey?: string): Promise<void> {
+	async run(model: Model<Api>, messages: AgentMessages, reasoning: ThinkingLevel | undefined, plan: ToolPlan): Promise<void> {
 		const { connection } = this;
-		// Reuse only with a session key (the chat) and the switch on; otherwise exactly one fresh session per turn.
-		const key = rawKey ? rawKey : undefined;
+		const key = plan.key;
 		this.key = key;
 		this.model = model;
-		// Tools only with a chat key (a held call resumes under it) and the tools switch on.
-		this.tools = key !== undefined && antigravityToolsOn() ? declaredTools(messages) : [];
+		this.tools = plan.tools;
+		this.lesson = plan.lesson;
 		this.input = toAntigravityInput(messages, this.tools);
 		const input = this.input;
-		const park = key !== undefined && antigravityReuseOn() ? parkFor(connection) : undefined;
+		// Reuse only for a lesson (its turns recur under the chat key) with the switch on; otherwise one fresh session per turn.
+		const park = plan.lesson && antigravityReuseOn() ? parkFor(connection) : undefined;
 		try {
 			let prompt = await this.setUp(model, input, reasoning, park ? { park, key: key! } : undefined);
 			if (prompt === null) {
@@ -532,6 +535,8 @@ class TurnSession {
 		const append = connection.handshake.systemPromptAppend;
 		// Learner images go out as image blocks only with the tools switch on and an agent that takes them.
 		const images = antigravityToolsOn() && connection.handshake.promptImages;
+		// A helper that hands over pictures must have them seen (a vision task on a placeholder would be half-working).
+		if (!this.lesson && !images && input.messages.some((message) => message.images?.length)) throw new StopTurn(AntigravityMessage.HelperNeedsImages);
 		this.checkpoint();
 		const reused = reuse?.park.take(reuse.key, (session) => this.fits(session, input, model.id, reasoning));
 		let prompt: PromptBlock[];
@@ -876,9 +881,10 @@ class TurnSession {
 		const usage = this.turn.output.usage;
 		usage.input = this.streamUsed ?? 0;
 		usage.totalTokens = usage.input;
+		this.offerContinuation(this.turn);
 		this.turn.toolUse({ type: "toolCall", id: call.id, name: call.name, arguments: call.arguments });
 		const seen = [...this.input.messages, replayAssistant(this.turn.output.content)];
-		const timer = setTimeout(() => this.expire(), antigravityTimeouts.toolWaitMs);
+		const timer = setTimeout(() => this.expire(), this.lesson ? antigravityTimeouts.toolWaitMs : antigravityTimeouts.helperToolWaitMs);
 		timer.unref();
 		this.waiting = { seen: { systemText: this.input.systemText, modelId: this.model.id, messages: seen.length, hash: fingerprintHash(seen), toolsHash: this.input.toolsHash }, timer };
 		const registry = waitingOn(this.connection);
@@ -904,21 +910,23 @@ class TurnSession {
 	 * The thinking level is not compared: the open prompt keeps the level it was confirmed at, and
 	 * LearnHarness's answer run can ask for another one (measured: "off" on the question turn,
 	 * "medium" on the answer run of the same lesson).
+	 * A HELPER (not a lesson) may follow the result with user messages: the PDF reader and the
+	 * visual maker deliver rendered pages that way. Their content goes out with the call's result,
+	 * so the round still resumes. A lesson's result must stand alone (a steer after it replays).
 	 */
-	resume(turn: AntigravityTurn, model: Model<Api>, messages: AgentMessages): boolean {
+	resume(turn: AntigravityTurn, model: Model<Api>, messages: AgentMessages, plan: ToolPlan): boolean {
 		const waiting = this.waiting;
 		const held = this.held;
 		if (!waiting || !held || this.done || !this.connection.alive) { this.expire(); return false; }
-		const tools = antigravityToolsOn() ? declaredTools(messages) : [];
-		const input = toAntigravityInput(messages, tools);
+		const input = toAntigravityInput(messages, plan.tools);
 		const conversation = messages.filter((message) => message.role !== "system");
-		const last = conversation.length - 1;
-		const assistant = conversation[last - 1];
-		const result = conversation[last];
+		const assistant = conversation[waiting.seen.messages - 1];
+		const [result, ...after] = conversation.slice(waiting.seen.messages);
 		const ids = assistant?.role === "assistant" ? assistant.content.flatMap((block) => (block.type === "toolCall" ? [block.id] : [])) : [];
+		const followers = after.length === 0 || (!plan.lesson && after.every((message) => message.role === "user"));
 		const matches = model.id === this.model.id
 			&& input.systemText === waiting.seen.systemText && input.toolsHash === waiting.seen.toolsHash
-			&& conversation.length === waiting.seen.messages + 1
+			&& conversation.length >= waiting.seen.messages + 1 && followers
 			&& ids.length === 1 && ids[0] === held.call.id
 			&& result?.role === "toolResult" && result.toolCallId === held.call.id
 			&& fingerprintHash(input.messages.slice(0, waiting.seen.messages)) === waiting.seen.hash;
@@ -935,7 +943,8 @@ class TurnSession {
 		this.input = input;
 		this.streamUsed = undefined;
 		this.touch();
-		endpoint.resolve(held.call.id, result);
+		const extra = after.flatMap((message) => (message.role !== "user" ? [] : typeof message.content === "string" ? [{ type: "text" as const, text: message.content }] : message.content));
+		endpoint.resolve(held.call.id, extra.length ? { ...result, content: [...result.content, ...extra] } : result);
 		return true;
 	}
 
@@ -945,6 +954,38 @@ class TurnSession {
 	/** Register `remove` to run when the prompt moves past the current stream (resume) or ends. */
 	adoptStream(remove: () => void): void {
 		this.detachers.push(remove);
+	}
+
+	/** Each attached stream's request signal and how its abort listener is removed. */
+	private readonly streamSignals = new WeakMap<AntigravityTurn, { signal: AbortSignal; remove: () => void }>();
+
+	/** `turn` streams for a request with `signal`; `remove` stops listening on it. */
+	bindStream(turn: AntigravityTurn, signal: AbortSignal | undefined, remove: () => void): void {
+		this.adoptStream(remove);
+		if (signal) this.streamSignals.set(turn, { signal, remove });
+	}
+
+	/**
+	 * A helper's worker request scope (worker-request-admission.ts) aborts each request's signal once
+	 * that request has ended, also when it ended with "toolUse". Offer the parked call the way the
+	 * Claude Code provider does: the scope hands it the run's own signal (a job abort then expires the
+	 * wait like Stop), and retires it when the run ends without coming back (extraction's submit).
+	 */
+	private offerContinuation(parked: AntigravityTurn): void {
+		const bound = this.streamSignals.get(parked);
+		if (!bound) return;
+		offerWorkerContinuation(bound.signal, {
+			message: parked.output,
+			handoff: (owner) => {
+				if (this.turn !== parked || !this.waiting) return undefined;
+				bound.remove(); // the request's own cleanup abort is not a Stop
+				const onOwnerAbort = () => this.abortFrom(parked);
+				owner.addEventListener("abort", onOwnerAbort, { once: true });
+				this.adoptStream(() => owner.removeEventListener("abort", onOwnerAbort));
+				if (owner.aborted) onOwnerAbort();
+				return () => { if (this.turn === parked && this.waiting) this.expire(); };
+			},
+		});
 	}
 
 	private detachStreams(): void {
@@ -1041,6 +1082,29 @@ class TurnSession {
 	}
 }
 
+/** What one stream call may use: its tools, its key, and whether it is a lesson's turn. */
+interface ToolPlan {
+	key: string | undefined;
+	lesson: boolean;
+	tools: readonly Tool[];
+}
+
+/**
+ * The tools a call is given. A lesson (a chat's turn) without the tools switch, or a call with
+ * toolChoice "none", runs text-only, as before tools were supported. A HELPER (any other caller:
+ * jobs, extraction, plugins) that declares tools must get them, or it would run half-working: it
+ * is refused when the tools switch is off or it has no session id to resume a held call under.
+ */
+function toolPlan(messages: AgentMessages, rawKey: string | undefined, toolChoice: unknown, host: AntigravityHost): ToolPlan | { refusal: string } {
+	const key = rawKey ? rawKey : undefined;
+	const lesson = key !== undefined && (host.isLessonKey?.(key) ?? true);
+	const declared = toolChoice === "none" ? [] : declaredTools(messages);
+	if (!declared.length) return { key, lesson, tools: [] };
+	if (key !== undefined && antigravityToolsOn()) return { key, lesson, tools: declared };
+	if (lesson) return { key, lesson, tools: [] };
+	return { refusal: antigravityToolsOn() ? AntigravityMessage.HelperNeedsSession : AntigravityMessage.HelperNeedsTools };
+}
+
 export interface StreamDeps {
 	runtime?: () => AntigravityRuntime;
 	host?: () => AntigravityHost;
@@ -1062,14 +1126,17 @@ export function createAntigravityStreamFunction({ runtime = antigravityRuntime, 
 			// The last door: nothing starts unless the server says this provider is available now.
 			if (!currentHost.available()) { waiting?.expire(); turn.fail(AntigravityMessage.Off); return; }
 			if (signal?.aborted) { waiting?.expire(); turn.fail(AntigravityMessage.Aborted, "aborted"); return; }
+			// What this call may use; a helper that needs tools it can't have is refused before anything starts.
+			const plan = toolPlan(context.messages, key, options?.toolChoice, currentHost);
+			if ("refusal" in plan) { waiting?.expire(); turn.fail(plan.refusal); return; }
 			// A prompt of this chat is waiting for a tool result: this request continues it, or it expires.
-			if (waiting?.resume(turn, model, context.messages)) {
+			if (waiting?.resume(turn, model, context.messages, plan)) {
 				session = waiting;
 				signal?.addEventListener("abort", onAbort, { once: true });
 				const remove = () => signal?.removeEventListener("abort", onAbort);
 				// Kept while this stream's own tool call waits (Stop then expires that wait); removed when the
 				// prompt moves past this stream or ends, and when the stream ends any other way.
-				waiting.adoptStream(remove);
+				waiting.bindStream(turn, signal, remove);
 				turn.onEnd(() => { if (turn.output.stopReason !== "toolUse") remove(); });
 				return;
 			}
@@ -1083,8 +1150,8 @@ export function createAntigravityStreamFunction({ runtime = antigravityRuntime, 
 				try {
 					if (turn.finished) return;
 					session = new TurnSession(connection, turn, currentHost);
-					session.adoptStream(() => signal?.removeEventListener("abort", onAbort));
-					await session.run(model, context.messages, options?.reasoning, options?.sessionId);
+					session.bindStream(turn, signal, () => signal?.removeEventListener("abort", onAbort));
+					await session.run(model, context.messages, options?.reasoning, plan);
 				} finally { release(); }
 			} finally {
 				signal?.removeEventListener("abort", onAbort);

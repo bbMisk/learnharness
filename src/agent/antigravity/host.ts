@@ -12,9 +12,15 @@ export interface AntigravityHost {
 	models(): readonly AgentModel[];
 	/** A session listed these models. */
 	saveModels(models: AgentModel[]): void;
+	/**
+	 * Whether a pi session id is a lesson's (a saved chat's id): only those turns recur, so only
+	 * their agent sessions are parked for reuse, and only they fall back to text-only without tools.
+	 * Helper runs (random ids, record ids) never park and never run half-working. Absent: none is.
+	 */
+	isLessonKey?(key: string): boolean;
 }
 
-const CLOSED: AntigravityHost = { available: () => false, models: () => [], saveModels: () => {} };
+const CLOSED: AntigravityHost = { available: () => false, models: () => [], saveModels: () => {}, isLessonKey: () => false };
 const HOST_KEY = Symbol.for("lh.antigravity.host");
 type HostGlobal = Record<symbol, AntigravityHost | undefined>;
 

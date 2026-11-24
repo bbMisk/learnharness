@@ -18,6 +18,8 @@
  *                    {kind:"prompt", sessionId, n, texts, blocks} for every prompt (n: that session's prompt count;
  *                    blocks: each block's type, and an image block's mimeType and data).
  *   noImagePrompts: initialize advertises promptCapabilities.image false.
+ *   authenticate: "signedIn" (default: a quick result) | "browser" (logs browser-opened, waits browserMs) |
+ *     "noBrowser" (-32603) | "link" (the sign-in line) | "hang" | "error"; noOauthPersonal drops that auth method.
  *
  * Scenario fields (all optional):
  *   stdoutAtStart, stderrAtStart  raw lines written at startup
@@ -179,7 +181,7 @@ function initializeResult() {
 	};
 	const info = scenario.noAgentVersion ? { name: "Antigravity ACP Server" } : { name: "Antigravity ACP Server", version: "1.5.15" };
 	const authMethods = [
-		{ id: "oauth-personal", name: "Log in with Google", description: "Log in with your Google account" },
+		...(scenario.noOauthPersonal ? [] : [{ id: "oauth-personal", name: "Log in with Google", description: "Log in with your Google account" }]),
 		{ id: "oauth-business", name: "Log in with Gemini Enterprise", description: "Log in with your Gemini Enterprise account" },
 		{ id: "gemini-api-key", name: "Gemini API key", description: "Use an API key with Gemini Developer API" },
 		{ id: "agent-platform", name: "Gemini Enterprise Agent Platform", description: "Use Gemini Enterprise Agent Platform (formerly Vertex AI) with Application Default Credentials" },
@@ -492,6 +494,19 @@ async function handleRequest(method, params) {
 	const myId = requestId;
 	if ((scenario.hangMethods ?? []).includes(method)) return new Promise(() => {});
 	switch (method) {
+		case "authenticate": {
+			// Measured by the lead (agy 1.5.15): signed in already, a result with _meta within ~1.4 s and no
+			// browser; signed out, the agent itself opens a browser sign-in. No display: -32603 "No browser…".
+			const mode = scenario.authenticate ?? "signedIn";
+			log({ kind: "authenticate", methodId: params?.methodId });
+			if (mode === "hang") return new Promise(() => {});
+			if (mode === "noBrowser") throw new RpcError(-32603, "No browser is available here. Run agy in a terminal to sign in.");
+			if (mode === "error") throw new RpcError(-32099, "something else went wrong");
+			if (mode === "link") return { [RAW]: "Open the following link to authenticate the ACP server: https://example.invalid/fake-sign-in?code=SECRET\n" };
+			if (mode === "browser") { log({ kind: "browser-opened" }); await sleep(scenario.browserMs ?? 300); }
+			else await sleep(20);
+			return { _meta: { plan: "<account plan name>" } };
+		}
 		case "initialize":
 			if (scenario.initializeHang) return new Promise(() => {});
 			if (scenario.initializeDelayMs) await sleep(scenario.initializeDelayMs);

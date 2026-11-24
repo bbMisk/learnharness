@@ -16,14 +16,18 @@ export interface AntigravityStatus {
 	checkedAt?: string;
 	/** A plain message from the last failed check, e.g. not signed in. */
 	problem?: string;
+	/** The user pressed Sign in and the agent's browser sign-in is still running. */
+	signingIn?: true;
 }
 
 /** GET /api/antigravity: 200 either way, so a switched-off server causes no browser console error. */
 export type AntigravityStatusResponse = AntigravityStatus | { available: false };
 
-/** Every helper (jobs, extraction, side tutor, plugins, …) refuses Antigravity. */
+/** With LH_ANTIGRAVITY_HELPERS=0, every helper (jobs, extraction, side tutor, plugins, …) refuses Antigravity. */
 export const ANTIGRAVITY_LESSONS_ONLY = "Antigravity runs only lessons you start. Choose another model for this in Settings → Models.";
-/** A lesson turn while the provider is off, not opted in, or not installed. */
+/** No sign-in (or the agent could not open a browser for one). The settings row then offers Sign in first. */
+export const ANTIGRAVITY_NOT_SIGNED_IN = 'Not signed in to Antigravity. Run "agy" in a terminal and sign in, then check again in Settings.';
+/** A lesson turn (or, with helpers on, any call) while the provider is off, not opted in, or not installed. */
 export const ANTIGRAVITY_UNAVAILABLE = "Antigravity is unavailable. Turn it on and check the connection in Settings → Providers.";
 
 /** The refusals above read as setup guidance, like a missing key. */

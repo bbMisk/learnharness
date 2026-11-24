@@ -115,7 +115,7 @@ export async function streamSideAnswer(opts: {
 	// OpenCode Go rejects requests without `x-opencode-session`; pi-ai derives
 	// it from this option. Claude Code treats it as a live process to resume,
 	// which a side question must never do.
-	const sessionId = opts.chatId && opts.engine.model.provider !== CLAUDE_CODE_PROVIDER ? opts.chatId : undefined;
+	const sessionId = opts.chatId && opts.engine.model.provider !== CLAUDE_CODE_PROVIDER && opts.engine.model.provider !== "antigravity" ? opts.chatId : undefined; // FORK: Antigravity keys its lesson session by the chat id; a side question must not touch it
 	try {
 		const stream = backgroundCaptureStream(opts.engine.streamFn, capture)(opts.engine.model, normalizeContext({ systemPrompt: opts.instructions, messages, tools: [] }), {
 			signal: opts.signal,

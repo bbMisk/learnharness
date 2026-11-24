@@ -33,9 +33,16 @@ export const antigravityTimeouts = {
 	exitDrainMs: 250,
 	/** A held tool call waits this long for its result (the agent itself gives up at 3 minutes). */
 	toolWaitMs: 150_000,
+	/** For a helper run (jobs, extraction, plugins) no learner is waited for: a helper that ends right after a
+	 *  tool call (extraction's submit) must not hold its agent prompt open for the whole 150 s. */
+	helperToolWaitMs: 60_000,
+	/** The user's Sign in click: how long the agent's browser sign-in may take. */
+	signInMs: 5 * 60_000,
 };
 
 const STDERR_PARTIAL_BYTES = 4_096;
+/** The only auth method LearnHarness asks for: a personal Google sign-in the agent runs itself. */
+const GOOGLE_SIGN_IN_METHOD = "oauth-personal";
 /** Sessions nobody watches yet whose early state is remembered. */
 const EARLY_MAX_SESSIONS = 20;
 const TEMP_FOLDER = "learnharness-antigravity";
@@ -78,6 +85,8 @@ export interface AgentHandshake {
 	sessionClose: boolean;
 	/** initialize advertised promptCapabilities.image. */
 	promptImages: boolean;
+	/** initialize listed the "oauth-personal" auth method (the only one LearnHarness ever asks for). */
+	googleSignIn: boolean;
 }
 
 export interface SessionListener {
@@ -128,7 +137,9 @@ export function parseHandshake(result: unknown): AgentHandshake | null {
 	const sessionCapabilities = isRecord(capabilities?.sessionCapabilities) ? capabilities.sessionCapabilities : undefined;
 	const close = sessionCapabilities?.close;
 	const prompts = isRecord(capabilities?.promptCapabilities) ? capabilities.promptCapabilities : undefined;
-	return { agentVersion: version, systemPromptAppend: meta?.append === true, sessionClose: close === true || isRecord(close), promptImages: prompts?.image === true };
+	const authMethods = Array.isArray(result.authMethods) ? result.authMethods : [];
+	const googleSignIn = authMethods.some((method) => isRecord(method) && method.id === GOOGLE_SIGN_IN_METHOD);
+	return { agentVersion: version, systemPromptAppend: meta?.append === true, sessionClose: close === true || isRecord(close), promptImages: prompts?.image === true, googleSignIn };
 }
 
 /** One plain sentence for any failure; never raw agent output, never a link. */
@@ -185,7 +196,7 @@ function exitState(): ExitState {
 }
 
 export class AgentConnection {
-	handshake: AgentHandshake = { agentVersion: null, systemPromptAppend: false, sessionClose: false, promptImages: false };
+	handshake: AgentHandshake = { agentVersion: null, systemPromptAppend: false, sessionClose: false, promptImages: false, googleSignIn: false };
 	readonly workspace: string;
 	readonly closed: Promise<AcpTransportError>;
 	private readonly peer: AcpPeer;
@@ -282,6 +293,21 @@ export class AgentConnection {
 	/** A turn's setup request (session/new, set_config_option, …). No answer in time means the agent is wedged: kill it. */
 	async setupRequest(method: string, params: unknown): Promise<unknown> {
 		return (await this.setupRequestStamped(method, params)).result;
+	}
+
+	/**
+	 * The ACP `authenticate` request with the personal Google method, sent ONLY for the user's Sign in
+	 * click. The agent opens its own browser sign-in; LearnHarness never sees a link or token, and the
+	 * answer (account details in _meta) is dropped unread. No answer in time: the connection is closed.
+	 */
+	async signIn(): Promise<void> {
+		if (!this.handshake.googleSignIn) throw new AgentUnavailable(AntigravityMessage.SignInUnsupported);
+		try {
+			await this.peer.requestStamped("authenticate", { methodId: GOOGLE_SIGN_IN_METHOD }, antigravityTimeouts.signInMs, AntigravityMessage.SignInTimeout);
+		} catch (error) {
+			if (isAcpTransportError(error) && error.kind === "timeout") this.fail(error);
+			throw error;
+		}
 	}
 
 	/** setupRequest, also giving the frame number the answer arrived in (see `frame`). */

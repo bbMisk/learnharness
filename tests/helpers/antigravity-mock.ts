@@ -34,6 +34,8 @@ export interface MockHarness {
 	setScenario(next: MockScenario): void;
 	/** At teardown: run `stop` (the owner's shutdown), then FAIL if any child outlives it. */
 	onTeardown(stop: () => void): void;
+	/** Set only by the Sign in tests: otherwise teardown FAILS if `authenticate` was ever sent. */
+	allowSignIn: boolean;
 }
 
 function exited(child: ChildProcessWithoutNullStreams): boolean {
@@ -76,6 +78,7 @@ export function mockHarness(t: TestContext, initial: MockScenario = {}): MockHar
 		},
 		setScenario(next) { scenario = next; },
 		onTeardown(stop) { stops.push(stop); },
+		allowSignIn: false,
 	};
 	t.after(async () => {
 		for (const stop of stops) stop();
@@ -85,8 +88,11 @@ export function mockHarness(t: TestContext, initial: MockScenario = {}): MockHar
 		for (const child of children) if (!exited(child)) child.kill("SIGKILL");
 		deadline = Date.now() + 2000;
 		while (children.some((child) => !exited(child)) && Date.now() < deadline) await sleep(20);
+		// Only the user's Sign in click sends authenticate: never a lesson turn, a check or a helper run.
+		const signIns = harness.allowSignIn ? 0 : harness.methods().filter((method) => method === "authenticate").length;
 		rmSync(dir, { recursive: true, force: true });
 		assert.equal(survivors, 0, "a mock agent process outlived its owner's shutdown");
+		assert.equal(signIns, 0, "authenticate was sent without a Sign in click");
 	});
 	return harness;
 }

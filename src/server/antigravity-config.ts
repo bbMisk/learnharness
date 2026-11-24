@@ -7,7 +7,8 @@ import { getAgyBinary } from "../agent/antigravity/binary.ts";
 import { configureAntigravityHost } from "../agent/antigravity/host.ts";
 import { ANTIGRAVITY_PROVIDER } from "../core/contracts/antigravity.ts";
 import type { CatalogProvider } from "../core/contracts/models.ts";
-import { antigravitySwitchOn, antigravityToolsOn } from "../core/fork-config.ts";
+import { antigravityHelpersOn, antigravitySwitchOn, antigravityToolsOn } from "../core/fork-config.ts";
+import { chatStore } from "../store/chats.ts";
 import { antigravityStore, type AntigravityModelEntry } from "../store/antigravity.ts";
 import type { AgentModel } from "../agent/antigravity/models.ts";
 
@@ -28,11 +29,16 @@ export function antigravityAvailable(): boolean {
 	return antigravityEnabled() && antigravityInstalled();
 }
 
+/** Helper roles on an Antigravity model (jobs, extraction, plugins, side tutor): the helpers switch, while available. */
+export function antigravityHelpersAllowed(): boolean {
+	return antigravityHelpersOn() && antigravityAvailable();
+}
+
 /**
  * Automatic follow-ups in an Antigravity lesson (any wake-pipeline steer for the chat: job results,
  * the prober→teacher handoff; and the background continue after them), admitted only with the tools
  * switch on, while available. Not narrowed to what the lesson's own tools caused (lead's decision).
- * The jobs themselves still never run on an Antigravity model (providerKeyPresent stays false).
+ * Whether the jobs themselves may run on an Antigravity model is the helpers switch (antigravityHelpersAllowed).
  */
 export function antigravityFollowUpsAllowed(): boolean {
 	return antigravityToolsOn() && antigravityAvailable();
@@ -51,6 +57,7 @@ configureAntigravityHost({
 		return record.enabled && antigravityInstalled() ? record.models : [];
 	},
 	saveModels: (models) => { antigravityStore.update((current) => ({ models: mergeModels(current.models, models) })); },
+	isLessonKey: (key) => chatStore.getChat(key) !== null,
 });
 
 /** A new list keeps each model's known levels unless the new entry states its own. */

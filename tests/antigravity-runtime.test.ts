@@ -66,7 +66,7 @@ test("happy path: `acp --sandbox` in an empty workspace, honest initialize, keys
 	const env = { ...process.env, GEMINI_API_KEY: "g-key", GOOGLE_API_KEY: "go-key", gemini_api_key: "lower", LH_DESKTOP_API_SECRET: "secret", LH_DESKTOP_SERVER: "srv" };
 	const { h, runtime, tempBase } = setup(t, {}, env);
 	const connection = await runtime.connect();
-	assert.deepEqual(connection.handshake, { agentVersion: "1.5.15", systemPromptAppend: true, sessionClose: true, promptImages: true });
+	assert.deepEqual(connection.handshake, { agentVersion: "1.5.15", systemPromptAppend: true, sessionClose: true, promptImages: true, googleSignIn: true });
 
 	const start = h.log()[0]!;
 	assert.deepEqual(start.argv, ["acp", "--sandbox"]);
@@ -109,8 +109,10 @@ test("agentEnv: Windows gets TEMP/TMP; every key case is stripped; nothing else 
 
 test("handshake: protocol 1 and 2 with v1 shapes pass; v2-only shapes and other versions fail", () => {
 	assert.deepEqual(parseHandshake({ protocolVersion: 2, agentInfo: { version: "agy_acp_server_1.5.12-rc1" }, agentCapabilities: { _meta: { antigravity: { systemPrompt: { append: true } } }, sessionCapabilities: { close: {} } } }),
-		{ agentVersion: "1.5.12", systemPromptAppend: true, sessionClose: true, promptImages: false });
-	assert.deepEqual(parseHandshake({ protocolVersion: 1, agentCapabilities: {} }), { agentVersion: null, systemPromptAppend: false, sessionClose: false, promptImages: false });
+		{ agentVersion: "1.5.12", systemPromptAppend: true, sessionClose: true, promptImages: false, googleSignIn: false });
+	assert.deepEqual(parseHandshake({ protocolVersion: 1, agentCapabilities: {} }), { agentVersion: null, systemPromptAppend: false, sessionClose: false, promptImages: false, googleSignIn: false });
+	assert.equal(parseHandshake({ protocolVersion: 1, agentCapabilities: {}, authMethods: [{ id: "oauth-personal" }] })?.googleSignIn, true);
+	assert.equal(parseHandshake({ protocolVersion: 1, agentCapabilities: {}, authMethods: [{ id: "gemini-api-key" }, "oauth-personal"] })?.googleSignIn, false, "only a listed method object");
 	assert.equal(parseHandshake({ protocolVersion: 1, agentCapabilities: { promptCapabilities: { image: true } } })?.promptImages, true);
 	assert.equal(parseHandshake({ protocolVersion: 1, agentCapabilities: { promptCapabilities: { image: "yes" } } })?.promptImages, false, "only a literal true");
 	assert.equal(parseHandshake({ protocolVersion: 2, info: {}, capabilities: {} }), null);
