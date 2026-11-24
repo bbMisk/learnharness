@@ -28,6 +28,12 @@
  *      ask_user_question tool through the MCP bridge: the server ends the turn
  *      with the question pending, the smoke answers it through the public API,
  *      and the same agent prompt continues with the answer (one tool round);
+ *      then a helper run: the pdfReader role pinned to the mock model, the
+ *      prober hands over (probe_done), the teacher calls pdf on
+ *      tests/fixtures/sample-3page.pdf, and the PDF-reader job runs on the mock
+ *      with its real tools (pdf_info, pdf_extract) and finishes;
+ *      then POST { action: "signIn" }: authenticate is sent once (the mock is
+ *      "signed in already"), and the normal check runs;
  *   4. stop the server: no mock process is left and the agent's temp
  *      folders are gone.
  */
@@ -46,6 +52,8 @@ const MOCK = path.join(ROOT, "tests", "fixtures", "antigravity", "mock-agy.mjs")
 const REPLY = "Smoke reply from the mock agent.";
 const ASK = { question: "Which topic should we cover next?", options: [{ label: "Chemistry" }, { label: "History" }] };
 const TOOL_REPLY_END = " Thanks for answering.";
+const ASSESSMENT = { assessment: { strands: [{ strand: "integrals", assessment: "Ready for the integral rule." }], summary: "Start at the integral rule." } };
+const PDF_BRIEF = "Page 1 states the integral rule (p. 1): x dx integrates to x^2/2.";
 const BOOT_TIMEOUT_MS = 30_000;
 const TURN_TIMEOUT_MS = 30_000;
 const INTENT = { "x-learnharness-antigravity": "1" };
@@ -185,6 +193,13 @@ async function main() {
 				[{ text: REPLY }, { usageUpdate: true }],
 				// The third lesson prompt: one tool round with a declared LearnHarness tool.
 				[{ mcpCall: { name: "ask_user_question", arguments: ASK, echo: true } }, { text: TOOL_REPLY_END }],
+				// The prober hands over; the teacher (a fresh session) dispatches the PDF job.
+				[{ mcpCall: { name: "probe_done", arguments: ASSESSMENT } }, { text: "Handing over to teaching." }],
+				[{ mcpCall: { name: "pdf", arguments: { path: path.join(home, "lesson.pdf"), question: "What is on page 1?" } } }, { text: " I'll read it." }],
+				// The PDF-reader job on the pdfReader role's (mock) model, with its real tools.
+				[{ mcpCall: { name: "pdf_info", arguments: {} } }, { mcpCall: { name: "pdf_extract", arguments: { pages: "1" } } }, { text: PDF_BRIEF }],
+				// The job's result re-enters the lesson.
+				[{ text: "From your PDF: the integral rule." }],
 			] }),
 		};
 		check(path.basename(agentEnv.LH_AGY_BINARY) === "mock-agy.mjs", "LH_AGY_BINARY is not the mock");
@@ -298,6 +313,35 @@ async function main() {
 		const prompts3 = log3.filter((entry) => entry.kind === "prompt");
 		check(prompts3.length === 3, `the tool round used ${prompts3.length - 2} agent prompts, not one`);
 		say("tool turn: the mock called ask_user_question through the bridge, the answer resumed the same agent prompt");
+
+		// A helper run: the pdfReader role pinned to the mock model; the teacher's pdf tool starts the job.
+		fs.copyFileSync(path.join(ROOT, "tests", "fixtures", "sample-3page.pdf"), path.join(home, "lesson.pdf"));
+		const role = await send(`${server.url}/api/settings/agent`, "PUT", { models: { pdfReader: { model: { provider: "antigravity", id: models[0].id } } } });
+		check(role.status === 200, `pin the pdfReader role → ${role.status} ${JSON.stringify(role.body)}`);
+		const handover = await send(`${server.url}/api/chat`, "POST", { chatId, input: { type: "text", text: "Let's start the lesson." } });
+		check(handover.status === 200, `handover POST /api/chat → ${handover.status} ${JSON.stringify(handover.body)}`);
+		await fetch(`${server.url}/api/chats/${chatId}/stream`).then((res) => res.text()).catch(() => "");
+		const jobsDir = path.join(home, "data", "jobs");
+		const untilJob = Date.now() + 60_000;
+		let pdfJob;
+		while (Date.now() < untilJob) {
+			const jobs = fs.existsSync(jobsDir) ? fs.readdirSync(jobsDir).filter((name) => name.endsWith(".json")).map((name) => { try { return JSON.parse(fs.readFileSync(path.join(jobsDir, name), "utf8")); } catch { return undefined; } }) : [];
+			pdfJob = jobs.find((job) => job?.kind === "pdf");
+			if (pdfJob && pdfJob.status !== "running" && pdfJob.status !== "queued") break;
+			await sleep(250);
+		}
+		check(pdfJob?.status === "done" && String(pdfJob.result?.brief ?? "").includes("integral rule"), `the PDF-reader job: ${JSON.stringify(pdfJob ?? null).slice(0, 400)}`);
+		const toolLists = readLog(logFile).filter((entry) => entry.kind === "mcp-tools").map((entry) => entry.names);
+		check(toolLists.some((names) => names.includes("pdf_info") && names.includes("pdf_extract")), `the job's tools were offered: ${JSON.stringify(toolLists)}`);
+		check(!readLog(logFile).some((entry) => entry.kind === "authenticate"), "authenticate was sent before any Sign in");
+		say("helper run: a PDF-reader job ran on the mock Antigravity model with its real tools");
+
+		// Sign in: only this click sends authenticate (the mock is signed in already), then the normal check runs.
+		const signedIn = await send(`${server.url}/api/antigravity`, "POST", { action: "signIn" }, INTENT);
+		check(signedIn.status === 200 && signedIn.body.checkedAt && !signedIn.body.problem && !signedIn.body.signingIn, `POST signIn → ${signedIn.status} ${JSON.stringify(signedIn.body)}`);
+		const authenticates = readLog(logFile).filter((entry) => entry.kind === "authenticate");
+		check(authenticates.length === 1 && authenticates[0].methodId === "oauth-personal", `authenticate sent ${JSON.stringify(authenticates)}`);
+		say("sign in: one authenticate (oauth-personal), then the connection check");
 
 		// 4. Stop: nothing left behind (and the agent's temp root did exist while it ran).
 		const during = fs.existsSync(agentTemp) ? fs.readdirSync(agentTemp).filter((name) => name.startsWith("run-")) : [];

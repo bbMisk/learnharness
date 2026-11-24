@@ -13,7 +13,7 @@ Both switches must be on before anything runs.
 
 Antigravity also needs the `agy` program. LearnHarness finds it on your PATH or in the usual folders such as `~/.local/bin`; `LH_AGY_BINARY` can name it exactly. Finding it only checks that the file exists. If Settings says "Not installed", install `agy` and press **Check connection** again; it looks for the program afresh.
 
-`agy` starts only when a lesson turn needs it or when you press **Check connection**. Check connection signs nothing in. It starts `agy`, opens one session (which also appears in your Antigravity history), and saves the list of models your account offers, with the thinking levels each model offers (Antigravity reports a model's levels only while that model is selected, so the check selects each one in turn on that throwaway session). Lessons can then use those models. Press Check connection again after Google changes the models or their levels.
+`agy` starts only when a model call on an Antigravity model needs it (a lesson turn, or a helper you pinned to one), when you press **Check connection**, or when you press **Sign in**. Check connection signs nothing in. It starts `agy`, opens one session (which also appears in your Antigravity history), and saves the list of models your account offers, with the thinking levels each model offers (Antigravity reports a model's levels only while that model is selected, so the check selects each one in turn on that throwaway session). Lessons can then use those models. Press Check connection again after Google changes the models or their levels.
 
 ## Thinking levels
 
@@ -24,7 +24,7 @@ Thinking levels are supported per model: the model picker offers exactly the lev
 - A lesson continues one Antigravity session while its conversation only grows (see below); otherwise a reply starts a new session that receives the whole conversation as text, with your pictures in place (see Pictures).
 - The session starts in an empty temporary folder. Antigravity's approval mode is set to "default", which asks before it runs commands, edits files, uses the web or reads outside that folder, and before each LearnHarness tool call. LearnHarness checks the mode again after choosing the model, and if the mode can't be confirmed, the reply doesn't start. If the mode changes while the reply is streaming, the reply is stopped.
 - If Antigravity tries to use one of its own tools (commands, files, the web), or any tool the lesson did not offer, LearnHarness refuses it, stops the reply and says so. Text it had already written stays. A tool that your own Antigravity allow rules already permit may have run before LearnHarness hears about it.
-- Only lessons use Antigravity. Background jobs, note extraction, the side tutor, plugins and other helpers refuse it; pick another model for those (a research or PDF job a lesson starts runs on that slot's model). A long lesson can still be compacted (summarized) with the lesson's own model.
+- Helpers can use Antigravity too (see Helpers below). A long lesson can be compacted (summarized) with the lesson's own model.
 
 ## LearnHarness tools
 
@@ -48,6 +48,36 @@ Antigravity reports token usage once per agent turn, summed over the model calls
 
 Some of your own Antigravity setup still applies: its allow rules, global rules and skills, and MCP servers. Google documents no way to give a third-party app a separate profile. Each lesson also creates a session in your Antigravity history (more than one if the lesson had to start afresh; see below).
 
+## Helpers on Antigravity models
+
+A model slot or role pinned to an Antigravity model works wherever another provider's model would, while Antigravity is available (switched on, opted in, `agy` found), exactly as Claude Code follows its own availability:
+
+| Helper | How it runs on Antigravity |
+|---|---|
+| Research job | Its web search and fetch tools through the tool server. |
+| PDF reader job | Its PDF tools; rendered pages it looks at go to the agent with the tool's result, so one read is one agent turn. |
+| Demo builder, visual maker | Their tools (writing, running and rendering need the local Chrome, as for any model). A rendered figure goes back with the tool's result. |
+| Extraction (extractor and auditor) | Their submit tools. |
+| Plugin inference and plugin workers | As requested; a plugin's temperature and maximum length are ignored (pi's rule for APIs that can't apply them), and "no tools" runs without the tool server. |
+| Side tutor | Text, no tools. |
+
+Every helper call gets its own agent session, with the same checks as a lesson (approval mode "default", model, thinking level before every prompt; only the tools LearnHarness declared, through the tool server; anything else stops the reply). Helper sessions are never kept for reuse, so they can't push a lesson's session out. A tool call in a helper run waits 60 seconds for its result (a lesson's question waits 2.5 minutes); cancelling a job cancels its agent turn like Stop. Helpers that need tools refuse Antigravity rather than run half-working when the tools switch is off, and a helper that hands over pictures refuses it when the pictures can't be seen. The usage of helper calls is recorded like any other model's; Antigravity has no price, so no cost is shown.
+
+## Switches
+
+| Switch | Default | Off means |
+|---|---|---|
+| `LH_FORK_ANTIGRAVITY` | on | No Antigravity at all (no models, no settings row, every call refused). |
+| `LH_ANTIGRAVITY_TOOLS` | on | Lessons are text only: no tool server, no pictures, no automatic follow-ups. Helpers that need tools or pictures refuse Antigravity. |
+| `LH_ANTIGRAVITY_REUSE` | on | Every reply gets a fresh agent session. |
+| `LH_ANTIGRAVITY_HELPERS` | on | Only lessons use Antigravity: jobs, extraction, plugins and the side tutor refuse it, as before. |
+
+Each is a server environment variable set to `0` to turn it off; they are independent of each other. Your own opt-in in Settings is separate and starts off.
+
+## Sign in
+
+When the last check says you are not signed in, the Antigravity row offers **Sign in** first (otherwise it is a small extra button). Pressing it, and only that, sends Antigravity's own sign-in request for a personal Google account: `agy` then opens a browser window for you to sign in, and when it is done LearnHarness checks the connection again. While it waits, the row says so; pressing again starts nothing. LearnHarness never opens, forwards, stores or logs a sign-in link or token, and it ignores the account details the answer carries. If `agy` can't open a browser, the row asks you to run `agy` in a terminal; a sign-in not finished within 5 minutes is cancelled. There is no sign-out button: signing out would also sign out your own `agy`. A lesson, a check or a helper never asks to sign in.
+
 ## One agent session per lesson
 
 While a lesson's conversation only grows, the next reply continues the same Antigravity session and sends only your new message: LearnHarness checks that the agent has already seen exactly everything before it, the same instructions and the same model. Any edit (including to a reply's thinking), a retry that changes the history, compaction, a model or instruction change, going back to the default thinking level after choosing another one, anything the agent says outside a reply, or a reply that didn't finish cleanly starts a fresh session with the whole conversation instead. LearnHarness's own transcript stays the record; the agent session is only a cache of it.
@@ -66,7 +96,7 @@ Your lesson text, including the replayed conversation and the tutor's instructio
 
 - A question answered after 2.5 minutes, or a job result that lands while a tool call waits, costs a full resend of the lesson (see LearnHarness tools).
 - Antigravity puts its own "Created At" and "Completed At" lines in front of what the model sees of a tool result.
-- No sign-in screen. Sign in by running `agy` in a terminal, then press Check connection.
+- Signing in needs a browser on this computer (the one `agy` opens); otherwise sign in by running `agy` in a terminal, then press Check connection.
 - Only the current session-options format is understood: an `agy` that offers no "mode" and "model" options in that format (older builds used other fields) can't run lessons, and Check connection lists no models for it.
 - An error on Google's side can arrive as ordinary reply text. Errors Antigravity reports any other way show only their error code; the details stay in the server log.
 - Reopening a lesson that is waiting for a reply resumes it, and so starts `agy`, without a click. A lesson whose last reply already finished is not resumed.
@@ -103,7 +133,7 @@ Not settled by Google's public pages. Whether to turn this on with a personal Go
 What supports this use:
 
 - The ACP page (antigravity.google/docs/ide/extensions/acp, "Other clients"): "Any ACP client can launch Antigravity CLI." It lists a personal Google sign-in as a method, and says `agy acp` "uses the credentials you cached with an interactive `agy` session."
-- LearnHarness runs Google's own unmodified program and never handles the sign-in or its tokens.
+- LearnHarness runs Google's own unmodified program and never handles the sign-in or its tokens (its Sign in button only asks `agy` to run its own sign-in).
 
 What cuts against it:
 

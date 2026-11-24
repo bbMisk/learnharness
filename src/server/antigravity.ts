@@ -22,7 +22,7 @@ import { subscriptionRequestOrigin } from "./web-subscription-http.ts";
 
 const HEADERS = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
 export const ANTIGRAVITY_INTENT_HEADER = "x-learnharness-antigravity";
-const BACKGROUND_REFUSAL = "Antigravity runs only lessons you start. Automatic follow-ups stay queued.";
+const BACKGROUND_REFUSAL = "Antigravity lessons don't take automatic follow-ups on this server. Automatic follow-ups stay queued.";
 
 // The last failed check's message, per server process (not persisted), and the generation that
 // makes a superseded check's late result harmless (bumped at every check start and opt-in change).
