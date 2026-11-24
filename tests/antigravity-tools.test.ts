@@ -690,3 +690,167 @@ test("a helper whose pictures can't be seen (the agent takes no images) is refus
 		});
 	}
 });
+
+// ── review fixes: classification once, foreign calls, pictures, helpers' last door, the owner ──
+
+function hostWith(over: Partial<{ isLessonKey: (key: string) => boolean; helpersOn: () => boolean; available: () => boolean }>) {
+	return () => ({ available: () => true, models: () => [], saveModels: () => {}, ...over });
+}
+async function drain(stream: ReturnType<typeof createAntigravityStreamFunction>, messages: Message[], tools: Tool[], options: Record<string, unknown>, system = SYSTEM_TEXT) {
+	const events = stream(PRO, normalizeContext({ systemPrompt: system, messages, tools }), options);
+	for await (const _event of events) { /* drain */ }
+	return events.result();
+}
+const resultFor = (reply: AssistantMessage, content: ToolResultMessage["content"] = [{ type: "text", text: "ok" }], isError = false): Message => {
+	const toolCall = reply.content.find((b) => b.type === "toolCall") as ToolCall;
+	return { role: "toolResult", toolCallId: toolCall.id, toolName: toolCall.name, content, isError, timestamp: 0 };
+};
+
+test("lesson or helper is decided once per turn: a lesson whose chat vanishes mid-round still gets lesson rules on resume", async (t) => {
+	const { h, runtime } = base(t, { promptSeq: [[call("lh_echo"), say("never")]], prompt: [say("replayed")] });
+	let isChat = true;
+	const stream = createAntigravityStreamFunction({ runtime: () => runtime, host: hostWith({ isLessonKey: () => isChat }) });
+	const first = await drain(stream, [user("go")], [ECHO], { sessionId: "chat-x" });
+	isChat = false; // the chat is deleted while the call waits
+	const steer = user("a steer after the result");
+	const next = await drain(stream, [user("go"), first, resultFor(first), steer], [ECHO], { sessionId: "chat-x" });
+	assert.equal(next.content.map((b) => (b.type === "text" ? b.text : "")).join(""), "replayed", "a lesson's result is never folded with what follows it");
+	assert.equal(h.methods().filter((m) => m === "session/new").length, 2);
+});
+
+test("a lesson lookup that throws: the call runs as a helper (never parked), logged once without detail", async (t) => {
+	const { runtime } = base(t, { prompt: [say("ok")] });
+	const logged: unknown[][] = [];
+	const original = console.error;
+	console.error = (...args: unknown[]) => { logged.push(args); };
+	t.after(() => { console.error = original; });
+	const stream = createAntigravityStreamFunction({ runtime: () => runtime, host: hostWith({ isLessonKey: () => { throw new Error("disk says SECRET-DETAIL"); } }) });
+	await drain(stream, [user("a")], [], { sessionId: "chat-y" });
+	await drain(stream, [user("b")], [], { sessionId: "chat-z" });
+	assert.equal(parkedSessionCount(runtime.connection!), 0);
+	const lookups = logged.filter((args) => String(args[0]).includes("lesson lookup"));
+	assert.equal(lookups.length, 1);
+	assert.ok(!JSON.stringify(logged).includes("SECRET-DETAIL"));
+});
+
+test("a helper-shaped call under a lesson's key never touches the lesson's waiting or parked session", async (t) => {
+	const { h, runtime } = base(t, { promptSeq: [[call("lh_echo"), say(" lesson done")], [say("helper answer")], [say("next lesson turn")], [say("helper two")]] });
+	const stream = createAntigravityStreamFunction({ runtime: () => runtime, host: hostWith({ isLessonKey: (key) => key === "chat-1" }) });
+	// The lesson waits on its tool call.
+	const first = await drain(stream, [user("lesson question")], [ECHO], { sessionId: "chat-1" });
+	assert.equal(first.stopReason, "toolUse");
+	// Something else arrives with the chat's id: other system text, other conversation.
+	const helper = await drain(stream, [user("summarize this job")], [], { sessionId: "chat-1" }, "You are a summarizer.");
+	assert.equal(helper.content.map((b) => (b.type === "text" ? b.text : "")).join(""), "helper answer");
+	assert.equal(h.methods().filter((m) => m === "session/cancel").length, 0, "the lesson's waiting call was not expired");
+	// The lesson's result still resumes its own prompt.
+	const done = await drain(stream, [user("lesson question"), first, resultFor(first)], [ECHO], { sessionId: "chat-1" });
+	assert.match(done.content.map((b) => (b.type === "text" ? b.text : "")).join(""), /lesson done/);
+	assert.equal(parkedSessionCount(runtime.connection!), 1, "the lesson is parked");
+	// Parked: another foreign call leaves it parked, and the lesson's next turn reuses it.
+	await drain(stream, [user("another job")], [], { sessionId: "chat-1" }, "You are a summarizer.");
+	const prompts = () => h.log().filter((e) => e.kind === "prompt") as unknown as { sessionId: string }[];
+	const lessonSession = prompts()[0]!.sessionId;
+	await drain(stream, [user("lesson question"), first, resultFor(first), done, user("and then?")], [ECHO], { sessionId: "chat-1" });
+	assert.equal(prompts().at(-1)!.sessionId, lessonSession, "the lesson's parked session survived and was reused");
+});
+
+test("a lesson changing phase (same first message, new instructions and tools) still moves on as before", async (t) => {
+	const { h, runtime } = base(t, { prompt: [say("ok")] });
+	const stream = createAntigravityStreamFunction({ runtime: () => runtime, host: hostWith({ isLessonKey: (key) => key === "chat-1" }) });
+	const one = await drain(stream, [user("teach me")], [ECHO], { sessionId: "chat-1" }, "You are the prober.");
+	await drain(stream, [user("teach me"), one, user("go on")], [ECHO, IMAGE], { sessionId: "chat-1" }, "You are the teacher.");
+	assert.equal(parkedSessionCount(runtime.connection!), 1, "the teacher's session is parked in the prober's place");
+	await waitFor(() => h.methods().filter((m) => m === "session/close").length === 1, 3000, "the prober's session closed");
+});
+
+test("pictures a helper can't have seen: refused before the agent starts when that is known, or on resume through the replay", async (t) => {
+	const picture = (text: string): Message => ({ role: "user", content: [{ type: "text", text }, { type: "image", data: Buffer.from("png").toString("base64"), mimeType: "image/png" }], timestamp: 0 });
+	await t.test("tools switch off: before any process starts", async (tt) => {
+		const { h, runtime } = base(tt, { prompt: [say("never")] });
+		process.env.LH_ANTIGRAVITY_TOOLS = "0";
+		const stream = createAntigravityStreamFunction({ runtime: () => runtime, host: hostWith({ isLessonKey: () => false }) });
+		const reply = await drain(stream, [picture("look")], [], { sessionId: "run-1" });
+		assert.equal(reply.errorMessage, AntigravityMessage.HelperNeedsImages);
+		assert.equal(h.spawns, 0);
+	});
+	await t.test("the agent takes no images (already known): before session/new", async (tt) => {
+		const { h, runtime } = base(tt, { noImagePrompts: true, prompt: [say("ok")] });
+		const stream = createAntigravityStreamFunction({ runtime: () => runtime, host: hostWith({ isLessonKey: () => false }) });
+		await drain(stream, [user("warm up")], [], { sessionId: "run-0" });
+		const news = h.methods().filter((m) => m === "session/new").length;
+		const reply = await drain(stream, [picture("look")], [], { sessionId: "run-1" });
+		assert.equal(reply.errorMessage, AntigravityMessage.HelperNeedsImages);
+		assert.equal(h.methods().filter((m) => m === "session/new").length, news, "no session was opened for it");
+	});
+	await t.test("a rendered page on resume the agent can't take: expired, then refused", async (tt) => {
+		const { runtime } = base(tt, { noImagePrompts: true, prompt: [call("lh_echo"), say("never")] });
+		const stream = createAntigravityStreamFunction({ runtime: () => runtime, host: hostWith({ isLessonKey: () => false }) });
+		const first = await drain(stream, [user("read")], [ECHO], { sessionId: "run-2" });
+		assert.equal(first.stopReason, "toolUse");
+		const reply = await drain(stream, [user("read"), first, resultFor(first), picture("the rendered page")], [ECHO], { sessionId: "run-2" });
+		assert.equal(reply.errorMessage, AntigravityMessage.HelperNeedsImages);
+	});
+});
+
+test("a helper's error result is never folded with the messages after it: expired and replayed", async (t) => {
+	const { h, runtime } = base(t, { promptSeq: [[call("lh_echo"), say("never")]], prompt: [say("replayed")] });
+	const stream = createAntigravityStreamFunction({ runtime: () => runtime, host: hostWith({ isLessonKey: () => false }) });
+	const first = await drain(stream, [user("read")], [ECHO], { sessionId: "run-3" });
+	const reply = await drain(stream, [user("read"), first, resultFor(first, [{ type: "text", text: "failed" }], true), user("try another way")], [ECHO], { sessionId: "run-3" });
+	assert.equal(reply.content.map((b) => (b.type === "text" ? b.text : "")).join(""), "replayed");
+	assert.equal(h.methods().filter((m) => m === "session/new").length, 2);
+});
+
+test("LH_ANTIGRAVITY_HELPERS=0 at the last door: a helper with tools or pictures is refused before the agent starts; a tool-less one (the lesson's compaction) still runs", async (t) => {
+	const { h, runtime } = base(t, { prompt: [say("summary")] });
+	const stream = createAntigravityStreamFunction({ runtime: () => runtime, host: hostWith({ isLessonKey: () => false, helpersOn: () => false }) });
+	const refused = await drain(stream, [user("research")], [ECHO], { sessionId: "run-4" });
+	const { ANTIGRAVITY_LESSONS_ONLY } = await import("../src/core/contracts/antigravity.ts");
+	assert.equal(refused.errorMessage, ANTIGRAVITY_LESSONS_ONLY);
+	assert.equal(h.spawns, 0);
+	assert.equal((await drain(stream, [user("summarize")], [], { sessionId: "run-5" })).stopReason, "stop");
+});
+
+test("a worker run's own signal gets one abort listener for the whole prompt, however many rounds", async (t) => {
+	const { createWorkerRequestScope } = await import("../src/agent/worker-request-admission.ts");
+	const { runtime } = base(t, { prompt: [call("lh_echo"), call("lh_echo"), call("lh_echo"), call("lh_echo"), say("done")] });
+	const stream = createAntigravityStreamFunction({ runtime: () => runtime, host: hostWith({ isLessonKey: () => false }) });
+	// Net abort listeners per signal, across every signal (the scope's owner is an internal AbortSignal.any).
+	const net = new Map<EventTarget, number>();
+	const add = EventTarget.prototype.addEventListener, remove = EventTarget.prototype.removeEventListener;
+	EventTarget.prototype.addEventListener = function (this: EventTarget, type: string, ...rest: unknown[]) { if (type === "abort" && this instanceof AbortSignal) net.set(this, (net.get(this) ?? 0) + 1); return (add as (...a: unknown[]) => void).call(this, type, ...rest); } as typeof add;
+	EventTarget.prototype.removeEventListener = function (this: EventTarget, type: string, ...rest: unknown[]) { if (type === "abort" && this instanceof AbortSignal) net.set(this, (net.get(this) ?? 0) - 1); return (remove as (...a: unknown[]) => void).call(this, type, ...rest); } as typeof remove;
+	t.after(() => { EventTarget.prototype.addEventListener = add; EventTarget.prototype.removeEventListener = remove; });
+	const job = new AbortController();
+	const scope = createWorkerRequestScope(stream, job.signal);
+	t.after(() => scope.close());
+	const scoped = scope.streamFn as typeof stream;
+	const messages: Message[] = [user("go")];
+	const peaks: number[] = [];
+	for (let round = 0; round < 6; round++) {
+		const reply = await drain(scoped, messages, [ECHO], { sessionId: "run-6" });
+		messages.push(reply);
+		if (reply.stopReason !== "toolUse") break;
+		messages.push(resultFor(reply));
+		peaks.push(Math.max(...net.values()));
+	}
+	assert.equal((messages.at(-1) as AssistantMessage).stopReason, "stop");
+	assert.equal(peaks.length, 4);
+	assert.equal(peaks.at(-1), peaks[0], `listeners on any one signal stay flat across rounds: ${peaks.join(",")}`);
+});
+
+test("the helpers refusal text comes from the server's view: code that never heard from the server doesn't read the env itself", async (t) => {
+	const { antigravityRefusalText, antigravityRefusalFor } = await import("../src/core/fork-config.ts");
+	const { ANTIGRAVITY_LESSONS_ONLY, ANTIGRAVITY_UNAVAILABLE } = await import("../src/core/contracts/antigravity.ts");
+	const key = Symbol.for("lh.antigravity.refusalText");
+	const g = globalThis as Record<symbol, unknown>;
+	const saved = g[key];
+	delete g[key];
+	process.env.LH_ANTIGRAVITY_HELPERS = "0";
+	t.after(() => { delete process.env.LH_ANTIGRAVITY_HELPERS; if (saved !== undefined) g[key] = saved; });
+	assert.equal(antigravityRefusalText(), ANTIGRAVITY_UNAVAILABLE, "no server registration: no guess from an env the browser can't see");
+	assert.equal(antigravityRefusalFor(false), ANTIGRAVITY_LESSONS_ONLY);
+	g[key] = () => antigravityRefusalFor(false);
+	assert.equal(antigravityRefusalText(), ANTIGRAVITY_LESSONS_ONLY);
+});

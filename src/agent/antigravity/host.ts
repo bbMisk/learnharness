@@ -15,9 +15,13 @@ export interface AntigravityHost {
 	/**
 	 * Whether a pi session id is a lesson's (a saved chat's id): only those turns recur, so only
 	 * their agent sessions are parked for reuse, and only they fall back to text-only without tools.
-	 * Helper runs (random ids, record ids) never park and never run half-working. Absent: none is.
+	 * Helper runs (random ids, record ids) never park and never run half-working. Asked once per turn;
+	 * a lookup that throws counts as "helper". Absent: every keyed call counts as a lesson (the
+	 * behaviour before helpers); the production host always supplies it.
 	 */
 	isLessonKey?(key: string): boolean;
+	/** The server's LH_ANTIGRAVITY_HELPERS switch (absent: on). Checked again at the last door. */
+	helpersOn?(): boolean;
 }
 
 const CLOSED: AntigravityHost = { available: () => false, models: () => [], saveModels: () => {}, isLessonKey: () => false };

@@ -27,9 +27,10 @@ import { antigravityHost, type AntigravityHost } from "./host.ts";
 import { findConfigOption, levelsFrom, modelsFrom } from "./models.ts";
 import { antigravityRuntime, antigravityTimeouts, describeAgentError, isValueRefusal, rejectOnce, type AgentConnection, type AntigravityRuntime, type SessionListener } from "./runtime.ts";
 import { antigravityReuseOn, antigravityToolsOn } from "../../core/fork-config.ts";
+import { ANTIGRAVITY_LESSONS_ONLY } from "../../core/contracts/antigravity.ts";
 import { offerWorkerContinuation } from "../worker-request-admission.ts";
 import { agentToolName, ToolBridge, type EndpointHooks, type HeldCall, type SessionEndpoint } from "./tool-bridge.ts";
-import { declaredTools, fingerprintHash, replayAssistant, reuseTailParts, toAntigravityInput, toPromptBlocks, type AntigravityInput, type Part, type PromptBlock, type SeenFingerprint } from "./transcript.ts";
+import { declaredTools, fingerprintHash, firstMessageHash, replayAssistant, reuseTailParts, toAntigravityInput, toPromptBlocks, type AntigravityInput, type Part, type PromptBlock, type SeenFingerprint } from "./transcript.ts";
 
 function count(value: unknown): number {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
@@ -308,6 +309,11 @@ class SessionPark {
 
 	get size(): number { return this.parked.size; }
 
+	/** What the session parked under `key` has seen, without taking it. */
+	peek(key: string): SeenFingerprint | undefined {
+		return this.parked.get(key)?.seen;
+	}
+
 	private whileParked(key: string, session: AgentSession, update: Record<string, unknown>, frame: number): void {
 		switch (update.sessionUpdate) {
 			case "tool_call":
@@ -444,6 +450,12 @@ class TurnSession {
 	private key: string | undefined;
 	/** This prompt is a lesson's turn (a chat's), not a helper's. */
 	private lesson = true;
+
+	/** Decided once, when the turn started; resume never looks it up again. */
+	get isLesson(): boolean { return this.lesson; }
+
+	/** What a waiting prompt's agent has seen (undefined unless waiting). */
+	get waitingSeen(): SeenFingerprint | undefined { return this.waiting?.seen; }
 	/** The tools this prompt's session is given (none: text-only, exactly as without tools support). */
 	private tools: readonly Tool[] = [];
 	/** A permission LearnHarness granted, for the one MCP call it allows. */
@@ -518,7 +530,7 @@ class TurnSession {
 				// anything else is closed. The last attached stream's request is what the session has seen.
 				if (park && this.turn.output.stopReason === "stop" && !this.unseenOutput && !this.held && !session.poisoned && !session.closed && connection.alive) {
 					const seen = [...this.input.messages, replayAssistant(this.turn.output.content)];
-					session.seen = { systemText: this.input.systemText, modelId: this.model.id, messages: seen.length, hash: fingerprintHash(seen), toolsHash: this.input.toolsHash };
+					session.seen = { systemText: this.input.systemText, modelId: this.model.id, messages: seen.length, hash: fingerprintHash(seen), toolsHash: this.input.toolsHash, firstHash: firstMessageHash(seen) };
 					park.put(key!, session);
 				} else session.close();
 			}
@@ -536,7 +548,7 @@ class TurnSession {
 		// Learner images go out as image blocks only with the tools switch on and an agent that takes them.
 		const images = antigravityToolsOn() && connection.handshake.promptImages;
 		// A helper that hands over pictures must have them seen (a vision task on a placeholder would be half-working).
-		if (!this.lesson && !images && input.messages.some((message) => message.images?.length)) throw new StopTurn(AntigravityMessage.HelperNeedsImages);
+		if (!this.lesson && !(images && model.input.includes("image")) && input.messages.some((message) => message.images?.length)) throw new StopTurn(AntigravityMessage.HelperNeedsImages);
 		this.checkpoint();
 		const reused = reuse?.park.take(reuse.key, (session) => this.fits(session, input, model.id, reasoning));
 		let prompt: PromptBlock[];
@@ -881,16 +893,18 @@ class TurnSession {
 		const usage = this.turn.output.usage;
 		usage.input = this.streamUsed ?? 0;
 		usage.totalTokens = usage.input;
-		this.offerContinuation(this.turn);
+		const parked = this.turn;
 		this.turn.toolUse({ type: "toolCall", id: call.id, name: call.name, arguments: call.arguments });
 		const seen = [...this.input.messages, replayAssistant(this.turn.output.content)];
 		const timer = setTimeout(() => this.expire(), this.lesson ? antigravityTimeouts.toolWaitMs : antigravityTimeouts.helperToolWaitMs);
 		timer.unref();
-		this.waiting = { seen: { systemText: this.input.systemText, modelId: this.model.id, messages: seen.length, hash: fingerprintHash(seen), toolsHash: this.input.toolsHash }, timer };
+		this.waiting = { seen: { systemText: this.input.systemText, modelId: this.model.id, messages: seen.length, hash: fingerprintHash(seen), toolsHash: this.input.toolsHash, firstHash: firstMessageHash(seen) }, timer };
 		const registry = waitingOn(this.connection);
 		const other = registry.get(this.key!);
 		if (other && other !== this) other.expire();
 		registry.set(this.key!, this);
+		// Offered only now that the turn is registered as waiting (the scope hands it over on the stream's end).
+		this.offerContinuation(parked);
 		// Turned off while the reply streamed: pi has the call (it replays if turned on again), but no wait holds agy.
 		if (!this.host.available()) this.expire();
 		return true;
@@ -923,7 +937,8 @@ class TurnSession {
 		const assistant = conversation[waiting.seen.messages - 1];
 		const [result, ...after] = conversation.slice(waiting.seen.messages);
 		const ids = assistant?.role === "assistant" ? assistant.content.flatMap((block) => (block.type === "toolCall" ? [block.id] : [])) : [];
-		const followers = after.length === 0 || (!plan.lesson && after.every((message) => message.role === "user"));
+		// Only a helper's result may be followed (by user messages), and never an error result.
+		const followers = after.length === 0 || (!this.lesson && result?.role === "toolResult" && !result.isError && after.every((message) => message.role === "user"));
 		const matches = model.id === this.model.id
 			&& input.systemText === waiting.seen.systemText && input.toolsHash === waiting.seen.toolsHash
 			&& conversation.length >= waiting.seen.messages + 1 && followers
@@ -931,6 +946,9 @@ class TurnSession {
 			&& result?.role === "toolResult" && result.toolCallId === held.call.id
 			&& fingerprintHash(input.messages.slice(0, waiting.seen.messages)) === waiting.seen.hash;
 		if (!matches || result?.role !== "toolResult") { this.expire(); return false; }
+		// A helper's pictures (in the result or what follows it) must be seeable; otherwise the replay path refuses it.
+		const pictures = [result, ...after].some((message) => typeof message.content !== "string" && message.content.some((block) => block.type === "image"));
+		if (!this.lesson && pictures && !(antigravityToolsOn() && this.connection.handshake.promptImages && model.input.includes("image"))) { this.expire(); return false; }
 		// The answer must really go out on a live response; otherwise the ordinary path replays it (never lost).
 		const endpoint = this.agent?.tools?.endpoint;
 		if (!endpoint?.canResolve(held.call.id)) { this.expire(); return false; }
@@ -956,6 +974,21 @@ class TurnSession {
 		this.detachers.push(remove);
 	}
 
+	/** The run's own signal a worker scope handed over, with ONE listener for the whole prompt. */
+	private owner: { signal: AbortSignal; remove: () => void } | undefined;
+
+	private listenToOwner(signal: AbortSignal): void {
+		if (this.owner?.signal === signal) return;
+		this.owner?.remove();
+		// A job abort: expire a waiting call, or stop the stream it is in, whichever round that is.
+		const onAbort = () => this.abortFrom(this.turn);
+		signal.addEventListener("abort", onAbort, { once: true });
+		const remove = () => signal.removeEventListener("abort", onAbort);
+		this.owner = { signal, remove };
+		this.adoptStream(() => { remove(); if (this.owner?.signal === signal) this.owner = undefined; });
+		if (signal.aborted) onAbort();
+	}
+
 	/** Each attached stream's request signal and how its abort listener is removed. */
 	private readonly streamSignals = new WeakMap<AntigravityTurn, { signal: AbortSignal; remove: () => void }>();
 
@@ -979,10 +1012,7 @@ class TurnSession {
 			handoff: (owner) => {
 				if (this.turn !== parked || !this.waiting) return undefined;
 				bound.remove(); // the request's own cleanup abort is not a Stop
-				const onOwnerAbort = () => this.abortFrom(parked);
-				owner.addEventListener("abort", onOwnerAbort, { once: true });
-				this.adoptStream(() => owner.removeEventListener("abort", onOwnerAbort));
-				if (owner.aborted) onOwnerAbort();
+				this.listenToOwner(owner);
 				return () => { if (this.turn === parked && this.waiting) this.expire(); };
 			},
 		});
@@ -1089,20 +1119,69 @@ interface ToolPlan {
 	tools: readonly Tool[];
 }
 
+let lookupFailureLogged = false;
+
+/**
+ * Whether a keyed call is a lesson's turn, asked of the host ONCE per turn. A lookup that throws
+ * counts as a helper (never parked, never reused), logged once without detail. A host with no
+ * lookup counts every keyed call as a lesson (the behaviour before helpers; production has one).
+ */
+function classify(host: AntigravityHost, key: string | undefined): boolean {
+	if (key === undefined) return false;
+	if (!host.isLessonKey) return true;
+	try { return host.isLessonKey(key) === true; }
+	catch {
+		if (!lookupFailureLogged) { lookupFailureLogged = true; console.error("Antigravity: the lesson lookup failed; the call runs as a helper."); }
+		return false;
+	}
+}
+
+/**
+ * A call under a lesson's key that is not that lesson: its system text or tools differ from what the
+ * lesson's agent session has seen AND its conversation does not start with the lesson's first
+ * message (a lesson keeps that across its phases, prober to teacher). It must not touch the
+ * lesson's session: it runs as a helper under its own private key.
+ */
+function foreignTo(seen: SeenFingerprint | undefined, input: AntigravityInput): boolean {
+	if (!seen) return false;
+	if (seen.systemText === input.systemText && seen.toolsHash === input.toolsHash) return false;
+	return seen.firstHash !== undefined && seen.firstHash !== firstMessageHash(input.messages);
+}
+
 /**
  * The tools a call is given. A lesson (a chat's turn) without the tools switch, or a call with
  * toolChoice "none", runs text-only, as before tools were supported. A HELPER (any other caller:
  * jobs, extraction, plugins) that declares tools must get them, or it would run half-working: it
  * is refused when the tools switch is off or it has no session id to resume a held call under.
  */
-function toolPlan(messages: AgentMessages, rawKey: string | undefined, toolChoice: unknown, host: AntigravityHost): ToolPlan | { refusal: string } {
-	const key = rawKey ? rawKey : undefined;
-	const lesson = key !== undefined && (host.isLessonKey?.(key) ?? true);
+function toolPlan(messages: AgentMessages, key: string | undefined, toolChoice: unknown, lesson: boolean): ToolPlan | { refusal: string } {
 	const declared = toolChoice === "none" ? [] : declaredTools(messages);
 	if (!declared.length) return { key, lesson, tools: [] };
 	if (key !== undefined && antigravityToolsOn()) return { key, lesson, tools: declared };
 	if (lesson) return { key, lesson, tools: [] };
 	return { refusal: antigravityToolsOn() ? AntigravityMessage.HelperNeedsSession : AntigravityMessage.HelperNeedsTools };
+}
+
+/** The tools a call would be given if it were a lesson (for comparing its shape with a session). */
+function toolPlanTools(messages: AgentMessages, key: string | undefined, toolChoice: unknown): readonly Tool[] {
+	const plan = toolPlan(messages, key, toolChoice, true);
+	return "refusal" in plan ? [] : plan.tools;
+}
+
+/**
+ * The last door for HELPER calls, before the agent starts: with LH_ANTIGRAVITY_HELPERS=0 any helper
+ * that would use tools or pictures is refused (a tool-less, picture-less call, the lesson's own
+ * compaction among them, still runs: it always did); pictures the agent or model can't see are
+ * refused here when the agent's handshake is already known (otherwise right after initialize).
+ */
+function helperRefusal(plan: ToolPlan, messages: AgentMessages, model: Model<Api>, host: AntigravityHost, live: AgentConnection | undefined): string | undefined {
+	if (plan.lesson) return undefined;
+	const pictures = messages.some((message) => (message.role === "user" || message.role === "toolResult") && typeof message.content !== "string" && message.content.some((block) => block.type === "image"));
+	if ((host.helpersOn?.() ?? true) === false && (plan.tools.length > 0 || pictures)) return ANTIGRAVITY_LESSONS_ONLY;
+	if (!pictures) return undefined;
+	const known = live ?? undefined;
+	if (!antigravityToolsOn() || !model.input.includes("image") || (known && !known.handshake.promptImages)) return AntigravityMessage.HelperNeedsImages;
+	return undefined;
 }
 
 export interface StreamDeps {
@@ -1120,15 +1199,30 @@ export function createAntigravityStreamFunction({ runtime = antigravityRuntime, 
 		const onAbort = () => { if (session) session.abortFrom(turn); else turn.fail(AntigravityMessage.Aborted, "aborted"); };
 		void (async () => {
 			const currentHost = host();
-			const key = options?.sessionId ? options.sessionId : undefined;
+			let key = options?.sessionId ? options.sessionId : undefined;
 			const live = key !== undefined ? runtime().connection : undefined;
-			const waiting = live ? waitingTurns.get(live)?.get(key!) : undefined;
+			let waiting = live ? waitingTurns.get(live)?.get(key!) : undefined;
+			// Lesson or helper, decided once: a waiting prompt keeps its own classification.
+			let lesson = waiting ? waiting.isLesson : classify(currentHost, key);
+			// A call under a lesson's key that is not that lesson runs under its own private key and never
+			// touches the lesson's waiting or parked session.
+			if (lesson && key !== undefined && live) {
+				const shape = toAntigravityInput(context.messages, toolPlanTools(context.messages, key, options?.toolChoice));
+				const lessonSeen = waiting?.isLesson ? waiting.waitingSeen : waiting ? undefined : parks.get(live)?.peek(key);
+				if (foreignTo(lessonSeen, shape)) {
+					key = `${key}\u0000${fingerprintHash([{ role: "system", pieces: [shape.systemText, shape.toolsHash], parts: [] }])}`;
+					lesson = false;
+					waiting = waitingTurns.get(live)?.get(key);
+				}
+			}
 			// The last door: nothing starts unless the server says this provider is available now.
 			if (!currentHost.available()) { waiting?.expire(); turn.fail(AntigravityMessage.Off); return; }
 			if (signal?.aborted) { waiting?.expire(); turn.fail(AntigravityMessage.Aborted, "aborted"); return; }
 			// What this call may use; a helper that needs tools it can't have is refused before anything starts.
-			const plan = toolPlan(context.messages, key, options?.toolChoice, currentHost);
+			const plan = toolPlan(context.messages, key, options?.toolChoice, lesson);
 			if ("refusal" in plan) { waiting?.expire(); turn.fail(plan.refusal); return; }
+			const refusal = helperRefusal(plan, context.messages, model, currentHost, live);
+			if (refusal) { waiting?.expire(); turn.fail(refusal); return; }
 			// A prompt of this chat is waiting for a tool result: this request continues it, or it expires.
 			if (waiting?.resume(turn, model, context.messages, plan)) {
 				session = waiting;

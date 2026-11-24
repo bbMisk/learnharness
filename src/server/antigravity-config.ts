@@ -7,7 +7,7 @@ import { getAgyBinary } from "../agent/antigravity/binary.ts";
 import { configureAntigravityHost } from "../agent/antigravity/host.ts";
 import { ANTIGRAVITY_PROVIDER } from "../core/contracts/antigravity.ts";
 import type { CatalogProvider } from "../core/contracts/models.ts";
-import { antigravityHelpersOn, antigravitySwitchOn, antigravityToolsOn } from "../core/fork-config.ts";
+import { antigravityHelpersOn, antigravityRefusalFor, antigravitySwitchOn, antigravityToolsOn, provideAntigravityRefusalText } from "../core/fork-config.ts";
 import { chatStore } from "../store/chats.ts";
 import { antigravityStore, type AntigravityModelEntry } from "../store/antigravity.ts";
 import type { AgentModel } from "../agent/antigravity/models.ts";
@@ -49,6 +49,8 @@ export function antigravityCatalogRows(): CatalogProvider[] {
 	return antigravitySwitchOn() ? [{ id: ANTIGRAVITY_PROVIDER, envVar: "", keyPresent: antigravityAvailable() }] : [];
 }
 
+provideAntigravityRefusalText(() => antigravityRefusalFor(antigravityHelpersOn()));
+
 configureAntigravityHost({
 	available: antigravityAvailable,
 	models: () => {
@@ -58,6 +60,7 @@ configureAntigravityHost({
 	},
 	saveModels: (models) => { antigravityStore.update((current) => ({ models: mergeModels(current.models, models) })); },
 	isLessonKey: (key) => chatStore.getChat(key) !== null,
+	helpersOn: antigravityHelpersOn,
 });
 
 /** A new list keeps each model's known levels unless the new entry states its own. */

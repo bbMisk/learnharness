@@ -198,7 +198,7 @@ export function providerKeyPresent(provider: string): boolean {
 	// Explicit opt-in + installation only, never authentication readiness.
 	// Consulted at admission, not inside already-running agent loops.
 	if (provider === CLAUDE_CODE_PROVIDER) return claudeCodeAvailable();
-	if (provider === ANTIGRAVITY_PROVIDER) return antigravityHelpersAllowed(); // FORK: like Claude Code, available + helpers switch; lesson turns pass chat-handler's own gate (docs/antigravity.md)
+	if (provider === ANTIGRAVITY_PROVIDER) { const allowed = antigravityHelpersAllowed(); if (allowed) initAuthEnv(); return allowed; } // FORK: like Claude Code, available + helpers switch (provenance first, as for a lesson); lesson turns pass chat-handler's own gate (docs/antigravity.md)
 	if (isSubscriptionProvider(provider)) return subscriptionConnected(provider);
 	const info = AUTH_PROVIDER_KEYS.find((p) => p.id === provider);
 	if (!info) return true;

@@ -54,6 +54,13 @@ export interface SeenFingerprint {
 	messages: number;
 	hash: string;
 	toolsHash: string;
+	/** The fingerprint of the conversation's first message alone: a lesson keeps it across its phases. */
+	firstHash?: string;
+}
+
+/** The fingerprint of a conversation's first message ("" for an empty one). */
+export function firstMessageHash(messages: readonly ReplayedMessage[]): string {
+	return messages.length ? fingerprintHash(messages.slice(0, 1)) : "";
 }
 
 /** The tools pi declares for this request (the source the Claude Code provider uses). */

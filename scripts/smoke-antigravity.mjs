@@ -33,7 +33,8 @@
  *      tests/fixtures/sample-3page.pdf, and the PDF-reader job runs on the mock
  *      with its real tools (pdf_info, pdf_extract) and finishes;
  *      then POST { action: "signIn" }: authenticate is sent once (the mock is
- *      "signed in already"), and the normal check runs;
+ *      "signed in already") on a dedicated agent process that is gone
+ *      afterwards, and the normal check runs;
  *   4. stop the server: no mock process is left and the agent's temp
  *      folders are gone.
  */
@@ -336,12 +337,20 @@ async function main() {
 		check(!readLog(logFile).some((entry) => entry.kind === "authenticate"), "authenticate was sent before any Sign in");
 		say("helper run: a PDF-reader job ran on the mock Antigravity model with its real tools");
 
-		// Sign in: only this click sends authenticate (the mock is signed in already), then the normal check runs.
+		// Sign in: only this click sends authenticate (the mock is signed in already), on its own short-lived
+		// agent process; then the normal check runs on the shared one.
+		const startsBefore = readLog(logFile).filter((entry) => entry.kind === "start");
 		const signedIn = await send(`${server.url}/api/antigravity`, "POST", { action: "signIn" }, INTENT);
 		check(signedIn.status === 200 && signedIn.body.checkedAt && !signedIn.body.problem && !signedIn.body.signingIn, `POST signIn → ${signedIn.status} ${JSON.stringify(signedIn.body)}`);
 		const authenticates = readLog(logFile).filter((entry) => entry.kind === "authenticate");
 		check(authenticates.length === 1 && authenticates[0].methodId === "oauth-personal", `authenticate sent ${JSON.stringify(authenticates)}`);
-		say("sign in: one authenticate (oauth-personal), then the connection check");
+		const signInStarts = readLog(logFile).filter((entry) => entry.kind === "start").slice(startsBefore.length);
+		check(signInStarts.length >= 1, "the sign-in did not start its own agent process");
+		const signInPid = signInStarts[0].pid;
+		const untilGone = Date.now() + 5000;
+		while (pidAlive(signInPid) && Date.now() < untilGone) await sleep(100);
+		check(!pidAlive(signInPid), `the sign-in process ${signInPid} is still running`);
+		say("sign in: one authenticate (oauth-personal) on its own agent process, which is gone; then the connection check");
 
 		// 4. Stop: nothing left behind (and the agent's temp root did exist while it ran).
 		const during = fs.existsSync(agentTemp) ? fs.readdirSync(agentTemp).filter((name) => name.startsWith("run-")) : [];

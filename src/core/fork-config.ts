@@ -79,7 +79,21 @@ export function antigravityHelpersOn(): boolean {
 	return proc?.env?.LH_ANTIGRAVITY_HELPERS !== "0";
 }
 
-/** The refusal text for an Antigravity model a helper (or a lesson) can't use right now. */
+const REFUSAL_TEXT_KEY = Symbol.for("lh.antigravity.refusalText");
+type RefusalTextGlobal = Record<symbol, (() => string) | undefined>;
+
+/** Registered by the server (server/antigravity-config.ts), the only side that sees LH_ANTIGRAVITY_HELPERS. */
+export function provideAntigravityRefusalText(text: () => string): void {
+	(globalThis as RefusalTextGlobal)[REFUSAL_TEXT_KEY] = text;
+}
+
+/** The refusal text for an Antigravity model a helper (or a lesson) can't use right now: the server's
+ *  view of the helpers switch. Code that never heard from the server (a browser) gets "unavailable". */
 export function antigravityRefusalText(): string {
-	return antigravityHelpersOn() ? ANTIGRAVITY_UNAVAILABLE : ANTIGRAVITY_LESSONS_ONLY;
+	return (globalThis as RefusalTextGlobal)[REFUSAL_TEXT_KEY]?.() ?? ANTIGRAVITY_UNAVAILABLE;
+}
+
+/** The text for the server's switch position. */
+export function antigravityRefusalFor(helpersOn: boolean): string {
+	return helpersOn ? ANTIGRAVITY_UNAVAILABLE : ANTIGRAVITY_LESSONS_ONLY;
 }

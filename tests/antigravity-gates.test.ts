@@ -693,3 +693,12 @@ test("tools switch on: a job-result steer and the probe handoff steer start a tu
 	spyRuntime.shutdown();
 	await h.assertNoChildren();
 });
+
+test("the helper admission refreshes key provenance first, as the lesson door does", async (t) => {
+	state({ switchOn: true, enabled: true, installed: true });
+	t.after(() => { authStore.deleteAuthVar("OPENAI_API_KEY"); delete process.env.OPENAI_API_KEY; authEnvRecord().fillGap.delete("OPENAI_API_KEY"); });
+	authStore.setAuthVar("OPENAI_API_KEY", "sk-file-only-fixture");
+	await withHelpers(true, () => assert.equal(providerKeyPresent("antigravity"), true));
+	assert.equal(authEnvRecord().fillGap.has("OPENAI_API_KEY"), true, "initAuthEnv ran on the helper admission path");
+	assert.equal(externalCliEnv().OPENAI_API_KEY, undefined, "and the agent's environment leaves it out");
+});
